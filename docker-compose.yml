@@ -1,0 +1,125 @@
+name: it-system
+
+services:
+  # ฐานข้อมูลหลัก — PostgreSQL 17 (collation ICU รองรับการเรียงภาษาไทย)
+  # ครั้งแรกที่สร้าง volume: docker/postgres/init.sh สร้างผู้ใช้ it_app + ฐาน it_system / it_system_test / it_system_shadow
+  postgres:
+    image: postgres:17-alpine
+    container_name: it_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${IT_DB_ROOT_PASSWORD:-root_change_me}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=icu --icu-locale=und --locale=C.UTF-8"
+      IT_DB_PASSWORD: ${IT_DB_PASSWORD:-change_me_strong_password}
+      TZ: UTC
+    ports:
+      - "127.0.0.1:5433:5432" # เผื่อเครื่องมี PostgreSQL อื่นใช้ 5432
+    volumes:
+      - it_pg:/var/lib/postgresql/data
+      - ./docker/postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d it_system"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # REST API หลัก (Express.js) — ค่าทั้งหมดจาก express/.env (APP_KEY/DB ต้องตรงกับ Laravel ถ้ายังใช้เป็นตัวสำรอง)
+  # ไฟล์แนบโฟลเดอร์เดียวกับ Laravel → สลับกันได้โดยเปลี่ยน API_URL ของ frontend
+  # โครงสร้างฐานข้อมูล: Prisma migrations (express/prisma) — docker compose exec express npx prisma migrate deploy
+  express:
+    build: ./express
+    container_name: it_express
+    restart: unless-stopped
+    # ไฟล์แนบใน bind mount เป็นของ root (container Laravel รันเป็น root) — ต้องเขียนโฟลเดอร์เดียวกันได้
+    user: root
+    env_file:
+      - ./express/.env
+    environment:
+      # ค่าที่ต่างจากตอนรันบนเครื่อง (express/.env ชี้ 127.0.0.1:5433)
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      PORT: "8020"
+      FILES_ROOT: /data/private
+      SKIP_ENV_FILES: "1"
+      # งานแจ้งเตือนใกล้หมดอายุ 08:00 (Asia/Bangkok) — เปิดที่นี่ที่เดียว (scheduler ของ Laravel ปิดไว้)
+      SCHEDULER_ENABLED: "true"
+    volumes:
+      - ./backend/storage/app/private:/data/private
+    ports:
+      - "127.0.0.1:8020:8020"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Laravel API (สำรอง) — ต่อ PostgreSQL ชุดเดียวกัน (DB_CONNECTION=pgsql ใน backend/.env)
+  api:
+    build: ./docker/php
+    container_name: it_api
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./backend:/var/www/html
+    # ค่า DB_* อยู่ใน backend/.env (DB_HOST=postgres) — ห้ามใส่เป็น environment ที่นี่
+    # เพราะจะมีลำดับเหนือ phpunit.xml ทำให้ php artisan test ไปล้างฐานข้อมูลจริง
+    ports:
+      - "127.0.0.1:8010:8000" # 8000 ถูกใช้โดย system_backend แล้ว
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Laravel scheduler (php artisan schedule:work) — ปิดไว้เพราะ Express รันงานแจ้งเตือนแทน
+  # ถ้ากลับไปใช้ Laravel เป็นหลัก: ตั้ง SCHEDULER_ENABLED=false ที่ express แล้ว `docker compose --profile laravel-scheduler up -d`
+  scheduler:
+    build: ./docker/php
+    container_name: it_scheduler
+    restart: unless-stopped
+    profiles: ["laravel-scheduler"]
+    working_dir: /var/www/html
+    volumes:
+      - ./backend:/var/www/html
+    command: ["php", "artisan", "schedule:work"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # จัดการฐานข้อมูลผ่านเว็บ (แทน phpMyAdmin ที่ใช้กับ PostgreSQL ไม่ได้)
+  # login: ระบบ PostgreSQL, เซิร์ฟเวอร์ postgres, ผู้ใช้ it_app (หรือ postgres), ฐาน it_system
+  adminer:
+    image: adminer:5
+    container_name: it_adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "127.0.0.1:8081:8080" # bind เฉพาะ localhost
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ฐานเดิม (MariaDB) — เก็บไว้เป็นสำรองหลังย้ายไป PostgreSQL ไม่ได้เปิดตามปกติ
+  # เปิดดูข้อมูลเดิม: docker compose --profile legacy-mariadb up -d mariadb
+  mariadb:
+    image: mariadb:11.4
+    container_name: it_mariadb
+    restart: unless-stopped
+    profiles: ["legacy-mariadb"]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${IT_DB_ROOT_PASSWORD:-root_change_me}
+      MARIADB_DATABASE: it_system
+      MARIADB_USER: it_app
+      MARIADB_PASSWORD: ${IT_DB_PASSWORD:-change_me_strong_password}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - it_db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  it_pg:
+  it_db: # ข้อมูล MariaDB เดิม (สำรอง)

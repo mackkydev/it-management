@@ -1,0 +1,32 @@
+/_laravel_skeleton/
+
+# ---------- ความลับ: ห้ามขึ้น git (APP_KEY, รหัสผ่านฐานข้อมูล, SMTP) ----------
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# ---------- dependency / build ----------
+node_modules/
+vendor/
+dist/
+.next/
+*.tsbuildinfo
+next-env.d.ts
+
+# ---------- ข้อมูลจริง / log ----------
+# ไฟล์แนบ ลายเซ็น และ log (Laravel มี .gitignore ในโฟลเดอร์ย่อยอยู่แล้ว — กันซ้ำอีกชั้น)
+backend/storage/app/private/*
+!backend/storage/app/private/.gitignore
+backend/storage/logs/*.log
+*.log
+*.sql.gz
+
+# ---------- เครื่องมือ / OS ----------
+.claude/settings.local.json
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,469 @@
+// โครงสร้างฐานข้อมูล IT-SYSTEM (PostgreSQL) — Prisma เป็นเจ้าของ schema/migration
+// API เรียกฐานข้อมูลผ่าน pg (src/db.ts) ไม่ได้ใช้ Prisma Client
+// แก้ไฟล์นี้แล้วสร้าง migration: npm run db:migrate -- --name <ชื่อ>
+// ชื่อตาราง/คอลัมน์ตรงกับ Laravel (backend) เพื่อให้ Laravel ใช้เป็นตัวสำรองได้
+datasource db {
+  provider = "postgresql"
+}
+
+model app_settings {
+  key        String    @id @db.VarChar(100)
+  value      Json?     @db.JsonB
+  updated_by BigInt?
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+  users      users?    @relation(fields: [updated_by], references: [id], onUpdate: Restrict, map: "app_settings_updated_by_foreign")
+
+  @@index([updated_by], map: "app_settings_updated_by_index")
+}
+
+model asset_movements {
+  id                                                    BigInt     @id @default(autoincrement())
+  asset_id                                              BigInt
+  type                                                  String     @db.VarChar(20)
+  from_location_id                                      BigInt?
+  to_location_id                                        BigInt?
+  from_custodian_id                                     BigInt?
+  to_custodian_id                                       BigInt?
+  moved_at                                              DateTime   @db.Timestamp(0)
+  reason                                                String?    @db.Text
+  performed_by                                          BigInt?
+  created_at                                            DateTime   @default(now()) @db.Timestamp(0)
+  assets                                                assets     @relation(fields: [asset_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "asset_movements_asset_id_foreign")
+  users_asset_movements_from_custodian_idTousers        users?     @relation("asset_movements_from_custodian_idTousers", fields: [from_custodian_id], references: [id], onUpdate: Restrict, map: "asset_movements_from_custodian_id_foreign")
+  locations_asset_movements_from_location_idTolocations locations? @relation("asset_movements_from_location_idTolocations", fields: [from_location_id], references: [id], onUpdate: Restrict, map: "asset_movements_from_location_id_foreign")
+  users_asset_movements_performed_byTousers             users?     @relation("asset_movements_performed_byTousers", fields: [performed_by], references: [id], onUpdate: Restrict, map: "asset_movements_performed_by_foreign")
+  users_asset_movements_to_custodian_idTousers          users?     @relation("asset_movements_to_custodian_idTousers", fields: [to_custodian_id], references: [id], onUpdate: Restrict, map: "asset_movements_to_custodian_id_foreign")
+  locations_asset_movements_to_location_idTolocations   locations? @relation("asset_movements_to_location_idTolocations", fields: [to_location_id], references: [id], onUpdate: Restrict, map: "asset_movements_to_location_id_foreign")
+
+  @@index([asset_id, moved_at], map: "asset_movements_asset_id_moved_at_index")
+  @@index([from_custodian_id], map: "asset_movements_from_custodian_id_index")
+  @@index([from_location_id], map: "asset_movements_from_location_id_index")
+  @@index([performed_by], map: "asset_movements_performed_by_index")
+  @@index([to_custodian_id, moved_at], map: "asset_movements_to_custodian_id_moved_at_index")
+  @@index([to_location_id, moved_at], map: "asset_movements_to_location_id_moved_at_index")
+}
+
+model assets {
+  id                               BigInt            @id @default(autoincrement())
+  uuid                             String            @unique(map: "assets_uuid_unique") @db.Uuid
+  asset_tag                        String            @unique(map: "assets_asset_tag_unique") @db.VarChar(50)
+  name                             String            @db.VarChar(255)
+  category                         String            @db.VarChar(50)
+  brand                            String?           @db.VarChar(100)
+  model                            String?           @db.VarChar(100)
+  serial_number                    String?           @db.VarChar(100)
+  status                           String            @default("active") @db.VarChar(20)
+  location_id                      BigInt?
+  custodian_id                     BigInt?
+  purchase_date                    DateTime?         @db.Date
+  purchase_cost                    Decimal?          @db.Decimal(15, 2)
+  warranty_expires_at              DateTime?         @db.Date
+  notes                            String?           @db.Text
+  created_by                       BigInt?
+  updated_by                       BigInt?
+  created_at                       DateTime?         @db.Timestamp(0)
+  updated_at                       DateTime?         @db.Timestamp(0)
+  deleted_at                       DateTime?         @db.Timestamp(0)
+  asset_movements                  asset_movements[]
+  users_assets_created_byTousers   users?            @relation("assets_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "assets_created_by_foreign")
+  users_assets_custodian_idTousers users?            @relation("assets_custodian_idTousers", fields: [custodian_id], references: [id], onUpdate: Restrict, map: "assets_custodian_id_foreign")
+  locations                        locations?        @relation(fields: [location_id], references: [id], onUpdate: Restrict, map: "assets_location_id_foreign")
+  users_assets_updated_byTousers   users?            @relation("assets_updated_byTousers", fields: [updated_by], references: [id], onUpdate: Restrict, map: "assets_updated_by_foreign")
+  it_tickets                       it_tickets[]
+
+  @@index([category, status], map: "assets_category_status_index")
+  @@index([created_by], map: "assets_created_by_index")
+  @@index([custodian_id], map: "assets_custodian_id_index")
+  @@index([deleted_at, created_at], map: "assets_deleted_at_created_at_index")
+  @@index([location_id], map: "assets_location_id_index")
+  @@index([serial_number], map: "assets_serial_number_index")
+  @@index([status, location_id], map: "assets_status_location_id_index")
+  @@index([updated_by], map: "assets_updated_by_index")
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "assets_name_trgm_index", type: Gin)
+  @@index([brand(ops: raw("gin_trgm_ops"))], map: "assets_brand_trgm_index", type: Gin)
+  @@index([model(ops: raw("gin_trgm_ops"))], map: "assets_model_trgm_index", type: Gin)
+}
+
+model branches {
+  id          BigInt        @id @default(autoincrement())
+  code        String        @unique(map: "branches_code_unique") @db.VarChar(30)
+  name        String        @db.VarChar(255)
+  sort_order  Int           @default(0) @db.SmallInt
+  is_active   Boolean       @default(true)
+  created_at  DateTime?     @db.Timestamp(0)
+  updated_at  DateTime?     @db.Timestamp(0)
+  deleted_at  DateTime?     @db.Timestamp(0)
+  contracts   contracts[]
+  credentials credentials[]
+  it_tickets  it_tickets[]
+  users       users[]
+
+  @@index([is_active, sort_order], map: "branches_is_active_sort_order_index")
+}
+
+model cache {
+  key        String @id @db.VarChar(255)
+  value      String @db.Text
+  expiration BigInt
+
+  @@index([expiration], map: "cache_expiration_index")
+}
+
+model cache_locks {
+  key        String @id @db.VarChar(255)
+  owner      String @db.VarChar(255)
+  expiration BigInt
+
+  @@index([expiration], map: "cache_locks_expiration_index")
+}
+
+model contracts {
+  id                    BigInt    @id @default(autoincrement())
+  title                 String    @db.VarChar(255)
+  vendor_name           String    @db.VarChar(255)
+  contract_no           String?   @db.VarChar(100)
+  start_date            DateTime  @db.Date
+  end_date              DateTime  @db.Date
+  amount                Decimal?  @db.Decimal(15, 2)
+  contact_name          String?   @db.VarChar(255)
+  contact_email         String?   @db.VarChar(255)
+  contact_phone         String?   @db.VarChar(50)
+  notify_days_before    Int?      @db.SmallInt
+  notify_enabled        Boolean   @default(true)
+  notified_for_end_date DateTime? @db.Date
+  notified_at           DateTime? @db.Timestamp(0)
+  notes                 String?   @db.Text
+  branch_id             BigInt?
+  created_by            BigInt?
+  created_at            DateTime? @db.Timestamp(0)
+  updated_at            DateTime? @db.Timestamp(0)
+  deleted_at            DateTime? @db.Timestamp(0)
+  branches              branches? @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "contracts_branch_id_foreign")
+  users                 users?    @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "contracts_created_by_foreign")
+
+  @@index([branch_id], map: "contracts_branch_id_index")
+  @@index([created_by], map: "contracts_created_by_index")
+  @@index([end_date, notify_enabled], map: "contracts_end_date_notify_enabled_index")
+}
+
+model credential_access_logs {
+  id            BigInt      @id @default(autoincrement())
+  credential_id BigInt
+  user_id       BigInt?
+  action        String      @db.VarChar(20)
+  ip            String?     @db.VarChar(45)
+  created_at    DateTime    @default(now()) @db.Timestamp(0)
+  credentials   credentials @relation(fields: [credential_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "credential_access_logs_credential_id_foreign")
+  users         users?      @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "credential_access_logs_user_id_foreign")
+
+  @@index([credential_id, created_at], map: "credential_access_logs_credential_id_created_at_index")
+  @@index([user_id], map: "credential_access_logs_user_id_index")
+}
+
+model credentials {
+  id                                  BigInt                   @id @default(autoincrement())
+  title                               String                   @db.VarChar(255)
+  category                            String                   @default("system") @db.VarChar(30)
+  url                                 String?                  @db.VarChar(500)
+  username                            String?                  @db.VarChar(255)
+  password                            String?                  @db.Text
+  secret_notes                        String?                  @db.Text
+  notes                               String?                  @db.Text
+  branch_id                           BigInt?
+  owner_id                            BigInt?
+  expires_at                          DateTime?                @db.Date
+  notified_for_expires_at             DateTime?                @db.Date
+  created_by                          BigInt?
+  updated_by                          BigInt?
+  password_changed_at                 DateTime?                @db.Timestamp(0)
+  created_at                          DateTime?                @db.Timestamp(0)
+  updated_at                          DateTime?                @db.Timestamp(0)
+  deleted_at                          DateTime?                @db.Timestamp(0)
+  credential_access_logs              credential_access_logs[]
+  branches                            branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "credentials_branch_id_foreign")
+  users_credentials_created_byTousers users?                   @relation("credentials_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "credentials_created_by_foreign")
+  users_credentials_owner_idTousers   users?                   @relation("credentials_owner_idTousers", fields: [owner_id], references: [id], onUpdate: Restrict, map: "credentials_owner_id_foreign")
+  users_credentials_updated_byTousers users?                   @relation("credentials_updated_byTousers", fields: [updated_by], references: [id], onUpdate: Restrict, map: "credentials_updated_by_foreign")
+
+  @@index([branch_id], map: "credentials_branch_id_index")
+  @@index([category, title], map: "credentials_category_title_index")
+  @@index([created_by], map: "credentials_created_by_index")
+  @@index([owner_id], map: "credentials_owner_id_index")
+  @@index([updated_by], map: "credentials_updated_by_index")
+}
+
+model failed_jobs {
+  id         BigInt   @id @default(autoincrement())
+  uuid       String   @unique(map: "failed_jobs_uuid_unique") @db.VarChar(255)
+  connection String   @db.VarChar(255)
+  queue      String   @db.VarChar(255)
+  payload    String   @db.Text
+  exception  String   @db.Text
+  failed_at  DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([connection, queue, failed_at], map: "failed_jobs_connection_queue_failed_at_index")
+}
+
+model it_ticket_attachments {
+  id            BigInt     @id @default(autoincrement())
+  it_ticket_id  BigInt
+  kind          String     @db.VarChar(20)
+  path          String     @db.VarChar(255)
+  original_name String?    @db.VarChar(255)
+  mime          String?    @db.VarChar(100)
+  size          Int        @default(0)
+  uploaded_by   BigInt?
+  created_at    DateTime?  @db.Timestamp(0)
+  updated_at    DateTime?  @db.Timestamp(0)
+  it_tickets    it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_attachments_it_ticket_id_foreign")
+  users         users?     @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "it_ticket_attachments_uploaded_by_foreign")
+
+  @@index([it_ticket_id, kind], map: "it_ticket_attachments_it_ticket_id_kind_index")
+  @@index([uploaded_by], map: "it_ticket_attachments_uploaded_by_index")
+}
+
+model it_ticket_events {
+  id           BigInt     @id @default(autoincrement())
+  it_ticket_id BigInt
+  user_id      BigInt?
+  action       String     @db.VarChar(30)
+  comment      String?    @db.Text
+  created_at   DateTime   @default(now()) @db.Timestamp(0)
+  it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_events_it_ticket_id_foreign")
+  users        users?     @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "it_ticket_events_user_id_foreign")
+
+  @@index([it_ticket_id, created_at], map: "it_ticket_events_it_ticket_id_created_at_index")
+  @@index([user_id], map: "it_ticket_events_user_id_index")
+}
+
+model it_ticket_parts {
+  id           BigInt     @id @default(autoincrement())
+  it_ticket_id BigInt
+  name         String     @db.VarChar(255)
+  quantity     Int        @default(1) @db.SmallInt
+  photo_path   String?    @db.VarChar(255)
+  created_at   DateTime?  @db.Timestamp(0)
+  updated_at   DateTime?  @db.Timestamp(0)
+  it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_parts_it_ticket_id_foreign")
+
+  @@index([it_ticket_id], map: "it_ticket_parts_it_ticket_id_index")
+}
+
+model it_tickets {
+  id                                   BigInt                  @id @default(autoincrement())
+  uuid                                 String                  @unique(map: "it_tickets_uuid_unique") @db.Uuid
+  ticket_no                            String                  @unique(map: "it_tickets_ticket_no_unique") @db.VarChar(30)
+  type                                 String                  @db.VarChar(20)
+  type_other                           String?                 @db.VarChar(255)
+  status                               String                  @default("pending_supervisor") @db.VarChar(30)
+  requester_id                         BigInt
+  branch_id                            BigInt?
+  department                           String?                 @db.VarChar(100)
+  division                             String?                 @db.VarChar(100)
+  details                              String                  @db.Text
+  due_date                             DateTime?               @db.Date
+  requester_signature                  String?                 @db.VarChar(255)
+  requested_at                         DateTime                @db.Timestamp(0)
+  person_name_th                       String?                 @db.VarChar(255)
+  person_name_en                       String?                 @db.VarChar(255)
+  device_name                          String?                 @db.VarChar(255)
+  asset_tag                            String?                 @db.VarChar(50)
+  asset_id                             BigInt?
+  symptom                              String?                 @db.Text
+  approver_id                          BigInt?
+  approved_at                          DateTime?               @db.Timestamp(0)
+  assignee_id                          BigInt?
+  accepted_at                          DateTime?               @db.Timestamp(0)
+  result                               String?                 @db.VarChar(20)
+  completed_on                         DateTime?               @db.Date
+  cannot_reason                        String?                 @db.Text
+  repair_method                        String?                 @db.VarChar(20)
+  external_vendor                      String?                 @db.VarChar(255)
+  warranty                             String?                 @db.VarChar(20)
+  repair_details                       String?                 @db.Text
+  staff_signature                      String?                 @db.VarChar(255)
+  resulted_at                          DateTime?               @db.Timestamp(0)
+  it_head_id                           BigInt?
+  it_head_signature                    String?                 @db.VarChar(255)
+  closed_at                            DateTime?               @db.Timestamp(0)
+  created_at                           DateTime?               @db.Timestamp(0)
+  updated_at                           DateTime?               @db.Timestamp(0)
+  it_ticket_attachments                it_ticket_attachments[]
+  it_ticket_events                     it_ticket_events[]
+  it_ticket_parts                      it_ticket_parts[]
+  users_it_tickets_approver_idTousers  users?                  @relation("it_tickets_approver_idTousers", fields: [approver_id], references: [id], onUpdate: Restrict, map: "it_tickets_approver_id_foreign")
+  assets                               assets?                 @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "it_tickets_asset_id_foreign")
+  users_it_tickets_assignee_idTousers  users?                  @relation("it_tickets_assignee_idTousers", fields: [assignee_id], references: [id], onUpdate: Restrict, map: "it_tickets_assignee_id_foreign")
+  branches                             branches?               @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "it_tickets_branch_id_foreign")
+  users_it_tickets_it_head_idTousers   users?                  @relation("it_tickets_it_head_idTousers", fields: [it_head_id], references: [id], onUpdate: Restrict, map: "it_tickets_it_head_id_foreign")
+  users_it_tickets_requester_idTousers users                   @relation("it_tickets_requester_idTousers", fields: [requester_id], references: [id], onUpdate: Restrict, map: "it_tickets_requester_id_foreign")
+
+  @@index([approver_id, status], map: "it_tickets_approver_id_status_index")
+  @@index([asset_id], map: "it_tickets_asset_id_index")
+  @@index([assignee_id, status], map: "it_tickets_assignee_id_status_index")
+  @@index([branch_id], map: "it_tickets_branch_id_index")
+  @@index([it_head_id], map: "it_tickets_it_head_id_index")
+  @@index([requester_id, created_at], map: "it_tickets_requester_id_created_at_index")
+  @@index([status, created_at], map: "it_tickets_status_created_at_index")
+}
+
+model job_batches {
+  id             String  @id @db.VarChar(255)
+  name           String  @db.VarChar(255)
+  total_jobs     Int
+  pending_jobs   Int
+  failed_jobs    Int
+  failed_job_ids String  @db.Text
+  options        String? @db.Text
+  cancelled_at   Int?
+  created_at     Int
+  finished_at    Int?
+}
+
+model jobs {
+  id           BigInt @id @default(autoincrement())
+  queue        String @db.VarChar(255)
+  payload      String @db.Text
+  attempts     Int    @db.SmallInt
+  reserved_at  Int?
+  available_at Int
+  created_at   Int
+
+  @@index([queue], map: "jobs_queue_index")
+}
+
+/// บันทึกการปฏิบัติงาน (KPI) รายวันของผู้ใช้
+model kpi_entries {
+  id         BigInt    @id @default(autoincrement())
+  user_id    BigInt
+  work_date  DateTime  @db.Date
+  details    String    @db.Text
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "kpi_entries_user_id_foreign")
+
+  @@index([user_id, work_date], map: "kpi_entries_user_id_work_date_index")
+  @@index([work_date], map: "kpi_entries_work_date_index")
+}
+
+model locations {
+  id                                                          BigInt            @id @default(autoincrement())
+  code                                                        String            @unique(map: "locations_code_unique") @db.VarChar(50)
+  name                                                        String            @db.VarChar(255)
+  type                                                        String            @default("room") @db.VarChar(20)
+  parent_id                                                   BigInt?
+  address                                                     String?           @db.Text
+  is_active                                                   Boolean           @default(true)
+  created_at                                                  DateTime?         @db.Timestamp(0)
+  updated_at                                                  DateTime?         @db.Timestamp(0)
+  deleted_at                                                  DateTime?         @db.Timestamp(0)
+  asset_movements_asset_movements_from_location_idTolocations asset_movements[] @relation("asset_movements_from_location_idTolocations")
+  asset_movements_asset_movements_to_location_idTolocations   asset_movements[] @relation("asset_movements_to_location_idTolocations")
+  assets                                                      assets[]
+  locations                                                   locations?        @relation("locationsTolocations", fields: [parent_id], references: [id], onUpdate: Restrict, map: "locations_parent_id_foreign")
+  other_locations                                             locations[]       @relation("locationsTolocations")
+
+  @@index([is_active, name], map: "locations_is_active_name_index")
+  @@index([parent_id], map: "locations_parent_id_index")
+}
+
+model migrations {
+  id        Int    @id @default(autoincrement())
+  migration String @db.VarChar(255)
+  batch     Int
+}
+
+model notifications {
+  id              String    @id @db.Uuid
+  type            String    @db.VarChar(255)
+  notifiable_type String    @db.VarChar(255)
+  notifiable_id   BigInt
+  data            String    @db.Text
+  read_at         DateTime? @db.Timestamp(0)
+  created_at      DateTime? @db.Timestamp(0)
+  updated_at      DateTime? @db.Timestamp(0)
+
+  @@index([notifiable_type, notifiable_id], map: "notifications_notifiable_type_notifiable_id_index")
+}
+
+model password_reset_tokens {
+  email      String    @id @db.VarChar(255)
+  token      String    @db.VarChar(255)
+  created_at DateTime? @db.Timestamp(0)
+}
+
+model personal_access_tokens {
+  id             BigInt    @id @default(autoincrement())
+  tokenable_type String    @db.VarChar(255)
+  tokenable_id   BigInt
+  name           String    @db.Text
+  token          String    @unique(map: "personal_access_tokens_token_unique") @db.VarChar(64)
+  abilities      String?   @db.Text
+  last_used_at   DateTime? @db.Timestamp(0)
+  expires_at     DateTime? @db.Timestamp(0)
+  created_at     DateTime? @db.Timestamp(0)
+  updated_at     DateTime? @db.Timestamp(0)
+
+  @@index([expires_at], map: "personal_access_tokens_expires_at_index")
+  @@index([tokenable_type, tokenable_id], map: "personal_access_tokens_tokenable_type_tokenable_id_index")
+}
+
+model sessions {
+  id            String  @id @db.VarChar(255)
+  user_id       BigInt?
+  ip_address    String? @db.VarChar(45)
+  user_agent    String? @db.Text
+  payload       String  @db.Text
+  last_activity Int
+
+  @@index([last_activity], map: "sessions_last_activity_index")
+  @@index([user_id], map: "sessions_user_id_index")
+}
+
+model users {
+  id                                                       BigInt                   @id @default(autoincrement())
+  name                                                     String                   @db.VarChar(255)
+  email                                                    String                   @unique(map: "users_email_unique") @db.VarChar(255)
+  role                                                     String                   @default("viewer") @db.VarChar(20)
+  is_active                                                Boolean                  @default(true)
+  branch_id                                                BigInt?
+  department                                               String?                  @db.VarChar(100)
+  division                                                 String?                  @db.VarChar(100)
+  supervisor_id                                            BigInt?
+  is_it_staff                                              Boolean                  @default(false)
+  is_it_head                                               Boolean                  @default(false)
+  email_verified_at                                        DateTime?                @db.Timestamp(0)
+  password                                                 String                   @db.VarChar(255)
+  remember_token                                           String?                  @db.VarChar(100)
+  /// ไฟล์ลายเซ็นที่ผู้ใช้อัปโหลด (private disk: users/{id}/signature-*.png) — แสตมป์ลงใบแจ้งงาน
+  signature_path                                           String?                  @db.VarChar(255)
+  created_at                                               DateTime?                @db.Timestamp(0)
+  updated_at                                               DateTime?                @db.Timestamp(0)
+  app_settings                                             app_settings[]
+  kpi_entries                                              kpi_entries[]
+  asset_movements_asset_movements_from_custodian_idTousers asset_movements[]        @relation("asset_movements_from_custodian_idTousers")
+  asset_movements_asset_movements_performed_byTousers      asset_movements[]        @relation("asset_movements_performed_byTousers")
+  asset_movements_asset_movements_to_custodian_idTousers   asset_movements[]        @relation("asset_movements_to_custodian_idTousers")
+  assets_assets_created_byTousers                          assets[]                 @relation("assets_created_byTousers")
+  assets_assets_custodian_idTousers                        assets[]                 @relation("assets_custodian_idTousers")
+  assets_assets_updated_byTousers                          assets[]                 @relation("assets_updated_byTousers")
+  contracts                                                contracts[]
+  credential_access_logs                                   credential_access_logs[]
+  credentials_credentials_created_byTousers                credentials[]            @relation("credentials_created_byTousers")
+  credentials_credentials_owner_idTousers                  credentials[]            @relation("credentials_owner_idTousers")
+  credentials_credentials_updated_byTousers                credentials[]            @relation("credentials_updated_byTousers")
+  it_ticket_attachments                                    it_ticket_attachments[]
+  it_ticket_events                                         it_ticket_events[]
+  it_tickets_it_tickets_approver_idTousers                 it_tickets[]             @relation("it_tickets_approver_idTousers")
+  it_tickets_it_tickets_assignee_idTousers                 it_tickets[]             @relation("it_tickets_assignee_idTousers")
+  it_tickets_it_tickets_it_head_idTousers                  it_tickets[]             @relation("it_tickets_it_head_idTousers")
+  it_tickets_it_tickets_requester_idTousers                it_tickets[]             @relation("it_tickets_requester_idTousers")
+  branches                                                 branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "users_branch_id_foreign")
+  users                                                    users?                   @relation("usersTousers", fields: [supervisor_id], references: [id], onUpdate: Restrict, map: "users_supervisor_id_foreign")
+  other_users                                              users[]                  @relation("usersTousers")
+
+  @@index([branch_id], map: "users_branch_id_index")
+  @@index([role], map: "users_role_index")
+  @@index([supervisor_id], map: "users_supervisor_id_index")
+}

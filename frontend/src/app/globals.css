@@ -1,0 +1,617 @@
+@import "tailwindcss";
+
+/* โหมดมืดควบคุมด้วย class .dark ที่ <html> (ตั้งจากค่าที่ผู้ใช้เลือก หรือ "ตามระบบ") */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Token สี 3 ชุด:
+ * 1) accent-*   = สีหลักของธีม pastel (เปลี่ยนตาม data-theme)
+ * 2) success / info / warning / danger / idle = สีสถานะของระบบ — เปลี่ยนตามธีมเพื่อ "ไม่ให้ซ้ำกับสีธีม"
+ * 3) canvas / surface / subtle / line / ink / muted / faint = สีพื้นและตัวอักษร (เปลี่ยนตามโหมดสว่าง/มืด)
+ */
+@theme inline {
+  --font-sans: var(--font-noto-thai), ui-sans-serif, system-ui, sans-serif;
+
+  --color-accent-50: var(--accent-50);
+  --color-accent-100: var(--accent-100);
+  --color-accent-200: var(--accent-200);
+  --color-accent-300: var(--accent-300);
+  --color-accent-400: var(--accent-400);
+  --color-accent-500: var(--accent-500);
+  --color-accent-600: var(--accent-600);
+  --color-accent-700: var(--accent-700);
+  --color-accent-800: var(--accent-800);
+  --color-accent-900: var(--accent-900);
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-subtle: var(--subtle);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+}
+
+/* ---------- ธีมสี pastel ---------- */
+:root,
+[data-theme="lavender"] {
+  --accent-50: var(--color-indigo-50);
+  --accent-100: var(--color-indigo-100);
+  --accent-200: var(--color-indigo-200);
+  --accent-300: var(--color-indigo-300);
+  --accent-400: var(--color-indigo-400);
+  --accent-500: var(--color-indigo-500);
+  --accent-600: var(--color-indigo-600);
+  --accent-700: var(--color-indigo-700);
+  --accent-800: var(--color-indigo-800);
+  --accent-900: var(--color-indigo-900);
+}
+[data-theme="sky"] {
+  --accent-50: var(--color-sky-50);
+  --accent-100: var(--color-sky-100);
+  --accent-200: var(--color-sky-200);
+  --accent-300: var(--color-sky-300);
+  --accent-400: var(--color-sky-400);
+  --accent-500: var(--color-sky-500);
+  --accent-600: var(--color-sky-600);
+  --accent-700: var(--color-sky-700);
+  --accent-800: var(--color-sky-800);
+  --accent-900: var(--color-sky-900);
+}
+[data-theme="mint"] {
+  --accent-50: var(--color-emerald-50);
+  --accent-100: var(--color-emerald-100);
+  --accent-200: var(--color-emerald-200);
+  --accent-300: var(--color-emerald-300);
+  --accent-400: var(--color-emerald-400);
+  --accent-500: var(--color-emerald-500);
+  --accent-600: var(--color-emerald-600);
+  --accent-700: var(--color-emerald-700);
+  --accent-800: var(--color-emerald-800);
+  --accent-900: var(--color-emerald-900);
+}
+[data-theme="rose"] {
+  --accent-50: var(--color-pink-50);
+  --accent-100: var(--color-pink-100);
+  --accent-200: var(--color-pink-200);
+  --accent-300: var(--color-pink-300);
+  --accent-400: var(--color-pink-400);
+  --accent-500: var(--color-pink-500);
+  --accent-600: var(--color-pink-600);
+  --accent-700: var(--color-pink-700);
+  --accent-800: var(--color-pink-800);
+  --accent-900: var(--color-pink-900);
+}
+[data-theme="peach"] {
+  --accent-50: var(--color-orange-50);
+  --accent-100: var(--color-orange-100);
+  --accent-200: var(--color-orange-200);
+  --accent-300: var(--color-orange-300);
+  --accent-400: var(--color-orange-400);
+  --accent-500: var(--color-orange-500);
+  --accent-600: var(--color-orange-600);
+  --accent-700: var(--color-orange-700);
+  --accent-800: var(--color-orange-800);
+  --accent-900: var(--color-orange-900);
+}
+
+/* ---------- สีสถานะของระบบ ----------
+ * ค่าเริ่มต้น: success = เขียว, info = ฟ้า, warning = เหลืองอำพัน, danger = แดง, idle = เทา
+ * ธีมไหนที่สีหลักชนกับสถานะ จะเปลี่ยนสถานะนั้นเป็นเฉดอื่นแทน (ส่วนท้ายไฟล์)
+ * (สร้างจากสคริปต์: success/info/warning/danger/idle × shade 50–800)
+ */
+@theme inline {
+  --color-success-50: var(--st-success-50);
+  --color-success-100: var(--st-success-100);
+  --color-success-200: var(--st-success-200);
+  --color-success-300: var(--st-success-300);
+  --color-success-400: var(--st-success-400);
+  --color-success-500: var(--st-success-500);
+  --color-success-700: var(--st-success-700);
+  --color-success-800: var(--st-success-800);
+  --color-info-50: var(--st-info-50);
+  --color-info-100: var(--st-info-100);
+  --color-info-200: var(--st-info-200);
+  --color-info-300: var(--st-info-300);
+  --color-info-400: var(--st-info-400);
+  --color-info-500: var(--st-info-500);
+  --color-info-700: var(--st-info-700);
+  --color-info-800: var(--st-info-800);
+  --color-warning-50: var(--st-warning-50);
+  --color-warning-100: var(--st-warning-100);
+  --color-warning-200: var(--st-warning-200);
+  --color-warning-300: var(--st-warning-300);
+  --color-warning-400: var(--st-warning-400);
+  --color-warning-500: var(--st-warning-500);
+  --color-warning-700: var(--st-warning-700);
+  --color-warning-800: var(--st-warning-800);
+  --color-danger-50: var(--st-danger-50);
+  --color-danger-100: var(--st-danger-100);
+  --color-danger-200: var(--st-danger-200);
+  --color-danger-300: var(--st-danger-300);
+  --color-danger-400: var(--st-danger-400);
+  --color-danger-500: var(--st-danger-500);
+  --color-danger-700: var(--st-danger-700);
+  --color-danger-800: var(--st-danger-800);
+  --color-idle-50: var(--st-idle-50);
+  --color-idle-100: var(--st-idle-100);
+  --color-idle-200: var(--st-idle-200);
+  --color-idle-300: var(--st-idle-300);
+  --color-idle-400: var(--st-idle-400);
+  --color-idle-500: var(--st-idle-500);
+  --color-idle-700: var(--st-idle-700);
+  --color-idle-800: var(--st-idle-800);
+}
+
+:root {
+  --st-success-50: var(--color-emerald-50);
+  --st-success-100: var(--color-emerald-100);
+  --st-success-200: var(--color-emerald-200);
+  --st-success-300: var(--color-emerald-300);
+  --st-success-400: var(--color-emerald-400);
+  --st-success-500: var(--color-emerald-500);
+  --st-success-700: var(--color-emerald-700);
+  --st-success-800: var(--color-emerald-800);
+  --st-info-50: var(--color-sky-50);
+  --st-info-100: var(--color-sky-100);
+  --st-info-200: var(--color-sky-200);
+  --st-info-300: var(--color-sky-300);
+  --st-info-400: var(--color-sky-400);
+  --st-info-500: var(--color-sky-500);
+  --st-info-700: var(--color-sky-700);
+  --st-info-800: var(--color-sky-800);
+  --st-warning-50: var(--color-amber-50);
+  --st-warning-100: var(--color-amber-100);
+  --st-warning-200: var(--color-amber-200);
+  --st-warning-300: var(--color-amber-300);
+  --st-warning-400: var(--color-amber-400);
+  --st-warning-500: var(--color-amber-500);
+  --st-warning-700: var(--color-amber-700);
+  --st-warning-800: var(--color-amber-800);
+  --st-danger-50: var(--color-red-50);
+  --st-danger-100: var(--color-red-100);
+  --st-danger-200: var(--color-red-200);
+  --st-danger-300: var(--color-red-300);
+  --st-danger-400: var(--color-red-400);
+  --st-danger-500: var(--color-red-500);
+  --st-danger-700: var(--color-red-700);
+  --st-danger-800: var(--color-red-800);
+  --st-idle-50: var(--color-slate-50);
+  --st-idle-100: var(--color-slate-100);
+  --st-idle-200: var(--color-slate-200);
+  --st-idle-300: var(--color-slate-300);
+  --st-idle-400: var(--color-slate-400);
+  --st-idle-500: var(--color-slate-500);
+  --st-idle-700: var(--color-slate-700);
+  --st-idle-800: var(--color-slate-800);
+}
+
+/* lavender (indigo) ใกล้กับฟ้า → "เก็บในคลัง/โอนย้าย" เป็นเขียวน้ำทะเล (teal) */
+[data-theme="lavender"] {
+  --st-info-50: var(--color-teal-50);
+  --st-info-100: var(--color-teal-100);
+  --st-info-200: var(--color-teal-200);
+  --st-info-300: var(--color-teal-300);
+  --st-info-400: var(--color-teal-400);
+  --st-info-500: var(--color-teal-500);
+  --st-info-700: var(--color-teal-700);
+  --st-info-800: var(--color-teal-800);
+}
+
+/* sky ชนกับ "เก็บในคลัง/โอนย้าย" → ม่วง (violet) */
+[data-theme="sky"] {
+  --st-info-50: var(--color-violet-50);
+  --st-info-100: var(--color-violet-100);
+  --st-info-200: var(--color-violet-200);
+  --st-info-300: var(--color-violet-300);
+  --st-info-400: var(--color-violet-400);
+  --st-info-500: var(--color-violet-500);
+  --st-info-700: var(--color-violet-700);
+  --st-info-800: var(--color-violet-800);
+}
+
+/* mint (emerald) ชนกับ "ใช้งาน/สำเร็จ" → เขียวมะนาว (lime) */
+[data-theme="mint"] {
+  --st-success-50: var(--color-lime-50);
+  --st-success-100: var(--color-lime-100);
+  --st-success-200: var(--color-lime-200);
+  --st-success-300: var(--color-lime-300);
+  --st-success-400: var(--color-lime-400);
+  --st-success-500: var(--color-lime-500);
+  --st-success-700: var(--color-lime-700);
+  --st-success-800: var(--color-lime-800);
+}
+
+/* rose (pink) ใกล้กับแดง → "สูญหาย/ลบ" เป็นส้ม และ "ส่งซ่อม" เป็นเหลืองสดเพื่อแยกจากส้ม */
+[data-theme="rose"] {
+  --st-danger-50: var(--color-orange-50);
+  --st-danger-100: var(--color-orange-100);
+  --st-danger-200: var(--color-orange-200);
+  --st-danger-300: var(--color-orange-300);
+  --st-danger-400: var(--color-orange-400);
+  --st-danger-500: var(--color-orange-500);
+  --st-danger-700: var(--color-orange-700);
+  --st-danger-800: var(--color-orange-800);
+  --st-warning-50: var(--color-yellow-50);
+  --st-warning-100: var(--color-yellow-100);
+  --st-warning-200: var(--color-yellow-200);
+  --st-warning-300: var(--color-yellow-300);
+  --st-warning-400: var(--color-yellow-400);
+  --st-warning-500: var(--color-yellow-500);
+  --st-warning-700: var(--color-yellow-700);
+  --st-warning-800: var(--color-yellow-800);
+}
+
+/* peach (orange) ใกล้กับเหลืองอำพัน → "ส่งซ่อม" เป็นเหลืองสด (yellow) */
+[data-theme="peach"] {
+  --st-warning-50: var(--color-yellow-50);
+  --st-warning-100: var(--color-yellow-100);
+  --st-warning-200: var(--color-yellow-200);
+  --st-warning-300: var(--color-yellow-300);
+  --st-warning-400: var(--color-yellow-400);
+  --st-warning-500: var(--color-yellow-500);
+  --st-warning-700: var(--color-yellow-700);
+  --st-warning-800: var(--color-yellow-800);
+}
+
+/*
+ * ธีมกำหนดเอง (data-theme="custom"): ชุดสี accent และสีสถานะถูกคำนวณใน lib/color.ts แล้วใส่เป็น style ของ <html>
+ * สีสถานะอาจเลือกใช้ palette ที่ไม่มีที่อื่นอ้างถึง — อ้างไว้ตรงนี้เพื่อให้ Tailwind สร้างตัวแปรสีเหล่านี้ไว้เสมอ
+ */
+:root {
+  --keep-green-50: var(--color-green-50);
+  --keep-green-100: var(--color-green-100);
+  --keep-green-200: var(--color-green-200);
+  --keep-green-300: var(--color-green-300);
+  --keep-green-400: var(--color-green-400);
+  --keep-green-500: var(--color-green-500);
+  --keep-green-700: var(--color-green-700);
+  --keep-green-800: var(--color-green-800);
+  --keep-cyan-50: var(--color-cyan-50);
+  --keep-cyan-100: var(--color-cyan-100);
+  --keep-cyan-200: var(--color-cyan-200);
+  --keep-cyan-300: var(--color-cyan-300);
+  --keep-cyan-400: var(--color-cyan-400);
+  --keep-cyan-500: var(--color-cyan-500);
+  --keep-cyan-700: var(--color-cyan-700);
+  --keep-cyan-800: var(--color-cyan-800);
+  --keep-blue-50: var(--color-blue-50);
+  --keep-blue-100: var(--color-blue-100);
+  --keep-blue-200: var(--color-blue-200);
+  --keep-blue-300: var(--color-blue-300);
+  --keep-blue-400: var(--color-blue-400);
+  --keep-blue-500: var(--color-blue-500);
+  --keep-blue-700: var(--color-blue-700);
+  --keep-blue-800: var(--color-blue-800);
+  --keep-rose-50: var(--color-rose-50);
+  --keep-rose-100: var(--color-rose-100);
+  --keep-rose-200: var(--color-rose-200);
+  --keep-rose-300: var(--color-rose-300);
+  --keep-rose-400: var(--color-rose-400);
+  --keep-rose-500: var(--color-rose-500);
+  --keep-rose-700: var(--color-rose-700);
+  --keep-rose-800: var(--color-rose-800);
+  --keep-fuchsia-50: var(--color-fuchsia-50);
+  --keep-fuchsia-100: var(--color-fuchsia-100);
+  --keep-fuchsia-200: var(--color-fuchsia-200);
+  --keep-fuchsia-300: var(--color-fuchsia-300);
+  --keep-fuchsia-400: var(--color-fuchsia-400);
+  --keep-fuchsia-500: var(--color-fuchsia-500);
+  --keep-fuchsia-700: var(--color-fuchsia-700);
+  --keep-fuchsia-800: var(--color-fuchsia-800);
+}
+
+/* ---------- โหมดสว่าง / มืด ---------- */
+:root {
+  --canvas: var(--color-slate-50);
+  --surface: #ffffff;
+  --subtle: var(--color-slate-50);
+  --line: var(--color-slate-200);
+  --line-soft: var(--color-slate-100);
+  --ink: var(--color-slate-900);
+  --muted: var(--color-slate-500);
+  --faint: var(--color-slate-400);
+  color-scheme: light;
+}
+
+/* โทนมืดอมน้ำเงินนุ่มๆ ให้เข้ากับสี pastel (ไม่ดำสนิท) */
+.dark {
+  --canvas: #0f1320;
+  --surface: #171c2c;
+  --subtle: #1d2336;
+  --line: #2a3248;
+  --line-soft: #222a3e;
+  --ink: #e7eaf3;
+  --muted: #9aa4bd;
+  --faint: #6c7792;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+/*
+ * กฎ: ทุกอย่างที่ "กดได้ด้วยเมาส์" ต้องเป็น cursor: pointer (ดู CLAUDE.md ของโปรเจกต์)
+ * Tailwind v4 ตั้งปุ่มเป็น cursor: default — กฎนี้เป็นตาข่ายรองรับ นอกเหนือจากการใส่ class cursor-pointer ในคอมโพเนนต์
+ */
+@layer base {
+  a[href],
+  button:not(:disabled),
+  summary,
+  select:not(:disabled),
+  label:has(> input:not(:disabled)),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="radio"]:not([aria-disabled="true"]),
+  [role="option"],
+  [role="menuitem"],
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="color"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+  }
+  :disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
+/* แผงการตั้งค่าที่เปิดออกทางขวาของ sidebar */
+@keyframes flyout-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.98);
+  }
+}
+
+/* Tooltip: ค่อยๆ ปรากฏพร้อมเลื่อนเข้าหาจุดที่ชี้ */
+@keyframes tooltip-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(-4px) scale(0.96);
+  }
+}
+@keyframes tooltip-in-y {
+  from {
+    opacity: 0;
+    transform: translateY(var(--tt-dy, 4px)) scale(0.96);
+  }
+}
+.tooltip-in.tooltip-right {
+  animation: tooltip-in-right 0.14s ease-out;
+}
+.tooltip-in.tooltip-top {
+  --tt-dy: 4px;
+  animation: tooltip-in-y 0.14s ease-out;
+}
+.tooltip-in.tooltip-bottom {
+  --tt-dy: -4px;
+  animation: tooltip-in-y 0.14s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tooltip-in {
+    animation: none !important;
+  }
+}
+
+/* ---------------- หน้าเข้าสู่ระบบ: พื้นหลังโทนเทคโนโลยี + motion ---------------- */
+/* สีของฉากเป็นของหน้า login โดยเฉพาะ (คงโทนมืดเสมอ ไม่เปลี่ยนตามธีม) — วงแสงใช้สีธีม (accent) ผสม */
+.login-scene {
+  --scene-bg: #050816;
+  --scene-ink: #e6ecff;
+  --scene-muted: #9aa6c8;
+  --scene-line: rgb(148 163 255 / 0.08);
+  --scene-cyan: #22d3ee;
+  --scene-violet: #8b5cf6;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgb(34 211 238 / 0.12), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, rgb(139 92 246 / 0.16), transparent 60%),
+    var(--scene-bg);
+  color: var(--scene-ink);
+}
+/* ตารางเส้นบางๆ เลื่อนช้าๆ + จางที่ขอบ */
+.login-scene::before {
+  content: "";
+  position: absolute;
+  inset: -64px;
+  z-index: -2;
+  background-image:
+    linear-gradient(var(--scene-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--scene-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 75% 65% at 50% 45%, #000 40%, transparent 100%);
+  animation: login-grid 24s linear infinite;
+}
+/* เส้นแสงสแกนแนวนอน */
+.login-scene::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 2px;
+  z-index: -1;
+  background: linear-gradient(90deg, transparent, rgb(34 211 238 / 0.55), transparent);
+  box-shadow: 0 0 24px rgb(34 211 238 / 0.45);
+  animation: login-scan 9s ease-in-out infinite;
+}
+.login-orb {
+  position: absolute;
+  z-index: -1;
+  border-radius: 9999px;
+  filter: blur(64px);
+  opacity: 0.55;
+  will-change: translate, scale, opacity;
+}
+/* 2 animation ซ้อนกัน: ลอยไปมา (translate) + หายใจขยาย/หด (scale + opacity) — รอบเวลาต่างกันจึงไม่ซ้ำจังหวะ */
+.login-orb-1 {
+  width: 34rem;
+  height: 34rem;
+  left: -8rem;
+  top: -10rem;
+  background: radial-gradient(circle, var(--accent-400), transparent 65%);
+  animation: login-float-a 14s ease-in-out infinite, login-breathe 7s ease-in-out infinite;
+}
+.login-orb-2 {
+  width: 30rem;
+  height: 30rem;
+  right: -6rem;
+  bottom: -10rem;
+  background: radial-gradient(circle, var(--scene-cyan), transparent 65%);
+  animation: login-float-b 16s ease-in-out infinite, login-breathe 8s ease-in-out -3s infinite;
+}
+.login-orb-3 {
+  width: 22rem;
+  height: 22rem;
+  left: 40%;
+  top: 35%;
+  background: radial-gradient(circle, var(--scene-violet), transparent 65%);
+  opacity: 0.35;
+  animation: login-float-c 20s ease-in-out infinite, login-breathe-soft 9s ease-in-out -2s infinite;
+}
+/* กล่อง login แบบกระจก ลอยอยู่บนฉาก */
+.login-card {
+  position: relative;
+  background: linear-gradient(160deg, rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.03));
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 1.5rem;
+  backdrop-filter: blur(22px) saturate(140%);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.12) inset,
+    0 30px 80px -20px rgb(2 6 23 / 0.85),
+    0 0 0 1px rgb(34 211 238 / 0.04),
+    0 0 60px -10px rgb(34 211 238 / 0.18);
+  animation: login-hover 7s ease-in-out infinite;
+}
+/* ขอบเรืองแสงไล่สีรอบกล่อง */
+.login-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(130deg, rgb(34 211 238 / 0.6), transparent 35%, transparent 65%, rgb(139 92 246 / 0.6));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.login-muted {
+  color: var(--scene-muted);
+}
+.login-glow {
+  color: #a5f3fc;
+}
+.login-chip {
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(255 255 255 / 0.05);
+}
+.login-dot {
+  background: var(--scene-cyan);
+  box-shadow: 0 0 10px var(--scene-cyan);
+}
+.login-gradient-text {
+  background: linear-gradient(90deg, #67e8f9, var(--accent-300), #c4b5fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.login-badge {
+  background: linear-gradient(135deg, rgb(34 211 238 / 0.25), rgb(139 92 246 / 0.25));
+  color: #cffafe;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.15) inset;
+}
+.login-fade-up {
+  animation: login-fade-up 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes login-grid {
+  to {
+    transform: translate3d(64px, 64px, 0);
+  }
+}
+@keyframes login-scan {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  10%,
+  90% {
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(100vh);
+  }
+}
+@keyframes login-float-a {
+  33% {
+    translate: 6rem 3rem;
+  }
+  66% {
+    translate: 2rem 6rem;
+  }
+}
+@keyframes login-float-b {
+  33% {
+    translate: -5rem -2rem;
+  }
+  66% {
+    translate: -2rem -5rem;
+  }
+}
+@keyframes login-float-c {
+  33% {
+    translate: -4rem 3rem;
+  }
+  66% {
+    translate: 3rem -2rem;
+  }
+}
+@keyframes login-breathe {
+  0%,
+  100% {
+    scale: 0.9;
+    opacity: 0.45;
+  }
+  50% {
+    scale: 1.25;
+    opacity: 0.7;
+  }
+}
+@keyframes login-breathe-soft {
+  0%,
+  100% {
+    scale: 0.9;
+    opacity: 0.25;
+  }
+  50% {
+    scale: 1.15;
+    opacity: 0.4;
+  }
+}
+@keyframes login-hover {
+  50% {
+    transform: translateY(-8px);
+  }
+}
+@keyframes login-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-scene::before,
+  .login-scene::after,
+  .login-orb,
+  .login-card,
+  .login-fade-up {
+    animation: none !important;
+  }
+}

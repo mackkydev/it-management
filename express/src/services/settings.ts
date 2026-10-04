@@ -1,0 +1,45 @@
+import { config } from "../config.js";
+import { exec, select } from "../db.js";
+import { nowDb } from "../lib/time.js";
+
+/**
+ * ตั้งค่าระบบ key-value (ตาราง app_settings, value เป็น JSONB) — เหมือน App\Models\AppSetting
+ * ไม่ cache ใน Express (อ่านตรงจาก DB) และล้าง cache ของ Laravel เมื่อแก้ไข เพื่อให้สลับ backend ได้ทันที
+ */
+export const DEFAULTS = {
+  contract_notify_days: 30,
+  credential_notify_days: 14,
+  notify_emails: [] as string[],
+  ticket_other_types: ["งานออกแบบ"],
+  // หน้า "สิทธิ์การใช้งาน": key เมนู/ปุ่ม → กลุ่มที่ซ่อน, และลำดับเมนู ([] = ยังไม่ตั้งค่า — ตรงกับ PHP array ว่าง)
+  ui_permissions: [] as unknown,
+  menu_order: [] as unknown,
+};
+
+export type Settings = typeof DEFAULTS & Record<string, unknown>;
+
+export async function allSettings(): Promise<Settings> {
+  // pg แปลง JSONB เป็น object ให้แล้ว
+  const rows = await select<{ key: string; value: unknown }>('SELECT "key", "value" FROM app_settings');
+  const stored = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return { ...DEFAULTS, ...stored } as Settings;
+}
+
+export async function getSetting<K extends keyof typeof DEFAULTS>(key: K): Promise<(typeof DEFAULTS)[K]> {
+  return ((await allSettings())[key] ?? DEFAULTS[key]) as (typeof DEFAULTS)[K];
+}
+
+export async function putSetting(key: string, value: unknown, userId: number | null): Promise<void> {
+  const now = nowDb();
+  await exec(
+    'INSERT INTO app_settings ("key", "value", updated_by, created_at, updated_at) VALUES (?, ?::jsonb, ?, ?, ?) ' +
+      'ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at',
+    [key, JSON.stringify(value), userId, now, now],
+  );
+  await forgetLaravelCache("app_settings:all");
+}
+
+/** ลบ cache ที่ Laravel เก็บในตาราง cache (CACHE_STORE=database) — ไม่มีตาราง/คีย์ก็ไม่เป็นไร */
+export async function forgetLaravelCache(key: string): Promise<void> {
+  await exec('DELETE FROM cache WHERE "key" = ?', [`${config.laravelCachePrefix}${key}`]).catch(() => undefined);
+}
