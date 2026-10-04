@@ -5,7 +5,7 @@ import { authorize, forbidden, notFound, ValidationError } from "../lib/errors.j
 import { trans } from "../lib/i18n.js";
 import { nowDb } from "../lib/time.js";
 import { deleteUserTokens } from "../lib/tokens.js";
-import { bool, exists, int, makeHash, notIn, password, unique, validate } from "../lib/validator.js";
+import { bool, exists, int, makeHash, notIn, password, unique, validate, regex } from "../lib/validator.js";
 import { me, pageParam, paginated, simplePaginated } from "../http.js";
 import { can, findUser, hasHistory, isLocalAdmin, ROLES, type UserRow } from "../models/user.js";
 import { deactivateSignature } from "../services/signatures.js";
@@ -45,7 +45,7 @@ function searchWhere(term: unknown): { sql: string; params: unknown[] } {
   const t = String(term ?? "").trim();
   if (!t) return { sql: "1 = 1", params: [] };
   const esc = likeEscape(t);
-  return { sql: "(u.name ILIKE ? OR u.email ILIKE ?)", params: [`%${esc}%`, `${esc}%`] };
+  return { sql: "(u.name ILIKE ? OR u.email ILIKE ? OR u.username ILIKE ?)", params: [`%${esc}%`, `${esc}%`, `${esc}%`] };
 }
 
 const routeUser = async (req: Request): Promise<UserRow> => {
@@ -127,6 +127,8 @@ async function validatedUser(req: Request, target: UserRow | null) {
     {
       name: [...s, "required", "string", "max:255"],
       email: [...s, isApi ? "nullable" : "required", "string", "email", "max:255", unique("users", "email", target?.id)],
+      // ชื่อผู้ใช้สำหรับ login: a-z 0-9 . _ - (ไม่มี @), ห้ามซ้ำแบบไม่สนตัวพิมพ์
+      username: ["sometimes", "nullable", "string", "min:3", "max:50", regex(/^[A-Za-z0-9._-]+$/), unique("users", "username", target?.id)],
       role: [...s, "required", `in:${(isApi ? API_ROLES : ROLES).join(",")}`],
       is_active: ["sometimes", "boolean"],
       password: [target ? "nullable" : "required", "string", password(8, { letters: true, numbers: true })],
@@ -167,6 +169,7 @@ userRoutes.post("/users", async (req, res) => {
   const id = await insert("users", {
     name: data.name,
     email: String(data.email).toLowerCase(),
+    username: data.username ? String(data.username).trim() : null,
     role: data.role,
     is_active: "is_active" in req.input ? bool(req.input.is_active) : true,
     password: makeHash(String(data.password), config.bcryptRounds),
@@ -186,6 +189,7 @@ async function updateUser(req: Request, res: import("express").Response) {
   await transaction(async () => {
     const changes: Record<string, unknown> = { ...orgColumns(data) };
     if ("name" in data) changes.name = data.name;
+    if ("username" in data) changes.username = data.username ? String(data.username).trim() : null;
     if ("email" in data) changes.email = data.email === null ? null : String(data.email).toLowerCase();
     if ("role" in data) changes.role = data.role;
     if (data.role === "it_staff") changes.is_it_staff = true;

@@ -55,8 +55,9 @@ function Segmented<T extends string>({
             aria-checked={value === o}
             onClick={() => onChange(o)}
             className={`flex min-w-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-xs transition-colors ${
+              // ที่เลือกอยู่: พื้นสีธีมจางๆ + ขอบ ให้เห็นชัด แต่สีตัวอักษรคงเดิม
               value === o
-                ? "bg-surface font-medium text-accent-700 shadow-sm ring-1 ring-line dark:text-accent-300"
+                ? "bg-accent-100 font-medium text-ink ring-1 ring-accent-300 dark:bg-accent-400/20 dark:ring-accent-400/40"
                 : "text-muted hover:text-ink"
             }`}
           >
@@ -216,7 +217,8 @@ export function LanguageSwitch() {
       options={LOCALES}
       value={locale}
       onChange={(v) => set("locale", v)}
-      render={(l) => <span>{t(`prefs.languages.${l}`)}</span>}
+      // ตัวย่อ TH / EN (ชื่อเต็มอยู่ใน tooltip ของผู้อ่านหน้าจอ)
+      render={(l) => <span aria-label={t(`prefs.languages.${l}`)}>{l.toUpperCase()}</span>}
     />
   );
 }
@@ -250,8 +252,11 @@ export function PrefsControls() {
     <div className="space-y-3">
       <ModeSwitch />
       <ThemePicker />
-      <LanguageSwitch />
-      <LayoutSwitch />
+      {/* รูปแบบเมนู + ภาษา อยู่บรรทัดเดียวกัน */}
+      <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+        <LayoutSwitch />
+        <LanguageSwitch />
+      </div>
     </div>
   );
 }

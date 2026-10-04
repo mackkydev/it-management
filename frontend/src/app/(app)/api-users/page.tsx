@@ -149,6 +149,9 @@ async function ApiUserTable({ query }: { query: URLSearchParams }) {
                     <span className={`h-1.5 w-1.5 rounded-full ${u.is_active ? tone.success.dot : tone.idle.dot}`} aria-hidden="true" />
                     {u.is_active ? t("users.statuses.active") : t("users.statuses.inactive")}
                   </span>
+                  {(u.external_status === "disabled" || u.external_status === "missing") && (
+                    <div className="mt-1 text-xs text-danger-600 dark:text-danger-300">{u.external_status === "disabled" ? t("access.extDisabled") : t("access.extMissing")}</div>
+                  )}
                 </td>
                 <td className={`${table.td} whitespace-nowrap text-muted`}>{u.external_synced_at ? fmt.dateTime(u.external_synced_at) : "-"}</td>
                 <td className={`${table.td} text-right`}>

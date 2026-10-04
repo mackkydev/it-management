@@ -2,13 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
-import { deleteConnection, saveConnection, testConnection, type ConnectionPayload } from "@/app/actions/access";
+import { deleteConnection, saveConnection, syncNow, testConnection, type ConnectionPayload } from "@/app/actions/access";
 import { ChipList } from "@/components/chip-list";
 import { AlertIcon, CheckCircleIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/types";
-import { API_AUTH_TYPES, API_ERROR_KINDS, type ApiConnection, type ApiConnectionTest, type ApiErrorKind } from "@/lib/types";
+import { API_AUTH_TYPES, API_ERROR_KINDS, type ApiConnection, type ApiConnectionTest, type ApiErrorKind, type SyncResult } from "@/lib/types";
 
 type Rule = { value: string; role: "manager" | "viewer" };
 type ErrorRow = { code: string; kind: ApiErrorKind; message_th: string; message_en: string };
@@ -50,6 +50,13 @@ function initialValues(c: ApiConnection | null) {
     register_url: c?.register_url ?? "",
     forgot_password_url: c?.forgot_password_url ?? "",
     change_password_url: c?.change_password_url ?? "",
+    users_list_path: c?.users_list_path ?? "",
+    users_list_root_path: c?.users_list_root_path ?? "",
+    users_page_param: c?.users_page_param ?? "",
+    users_page_size_param: c?.users_page_size_param ?? "",
+    users_page_size: String(c?.users_page_size ?? 100),
+    map_status: c?.field_map.status ?? "",
+    sync_interval_minutes: String(c?.sync_interval_minutes ?? 0),
   };
 }
 type Values = ReturnType<typeof initialValues>;
@@ -63,6 +70,7 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
     Object.entries(connection?.error_messages ?? {}).map(([code, e]) => ({ code, kind: e.kind, message_th: e.message_th ?? "", message_en: e.message_en ?? "" })),
   );
   const [hosts, setHosts] = useState<string[]>(connection?.allowed_hosts ?? []);
+  const [activeValues, setActiveValues] = useState<string[]>(connection?.active_values ?? []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, start] = useTransition();
@@ -139,7 +147,7 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
     refresh_token_path: v.refresh_token_path.trim() || null,
     default_token_ttl_seconds: Number(v.default_token_ttl_seconds),
     profile_cache_seconds: Number(v.profile_cache_seconds),
-    field_map: { external_id: v.map_external_id.trim(), name: v.map_name.trim(), email: v.map_email.trim(), role_code: v.map_role_code.trim() },
+    field_map: { external_id: v.map_external_id.trim(), name: v.map_name.trim(), email: v.map_email.trim(), role_code: v.map_role_code.trim(), status: v.map_status.trim() },
     role_rules: rules.filter((r) => r.value.trim() !== ""),
     default_role: v.default_role as "manager" | "viewer",
     error_code_path: v.error_code_path.trim() || null,
@@ -156,6 +164,13 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
     register_url: v.register_url.trim() || null,
     forgot_password_url: v.forgot_password_url.trim() || null,
     change_password_url: v.change_password_url.trim() || null,
+    users_list_path: v.users_list_path.trim() || null,
+    users_list_root_path: v.users_list_root_path.trim() || null,
+    users_page_param: v.users_page_param.trim() || null,
+    users_page_size_param: v.users_page_size_param.trim() || null,
+    users_page_size: Number(v.users_page_size) || 100,
+    active_values: activeValues,
+    sync_interval_minutes: Number(v.sync_interval_minutes) || 0,
   });
 
   const save = () =>
@@ -344,6 +359,26 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
         <div className="mt-4 max-w-xs">{field("max_redirects", { type: "number" })}</div>
       </section>
 
+      <section className={`p-4 sm:p-6 ${card}`}>
+        <h2 className="font-semibold">{t("apiConnections.sections.sync")}</h2>
+        <p className="mt-1 text-sm text-muted">{t("apiConnections.hints.sync")}</p>
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {field("users_list_path", { hint: pathHint, placeholder: "/users", mono: true })}
+          {field("users_list_root_path", { hint: jsonHint, placeholder: "data.items", mono: true })}
+          {field("users_page_param", { placeholder: "page", mono: true })}
+          {field("users_page_size_param", { placeholder: "per_page", mono: true })}
+          {field("users_page_size", { type: "number" })}
+          {field("sync_interval_minutes", { type: "number", hint: t("apiConnections.hints.syncInterval") })}
+          {field("map_status", { errorKey: "field_map.status", hint: t("apiConnections.hints.statusPath"), mono: true })}
+          <div>
+            <p className="mb-1 text-sm font-medium">{label("active_values")}</p>
+            <ChipList items={activeValues} onChange={setActiveValues} placeholder="active" addLabel={t("apiConnections.addHost")} validate={(x) => (x.trim().length <= 100 ? null : t("apiConnections.fields.active_values"))} />
+            <p className="mt-1 text-xs text-muted">{t("apiConnections.hints.activeValues")}</p>
+          </div>
+        </div>
+        {connection && <SyncPanel id={connection.id} last={connection.last_sync_result} lastAt={connection.last_synced_at} />}
+      </section>
+
       {section(
         "apiConnections.sections.links",
         <>
@@ -439,5 +474,56 @@ function TestPanel({ id, fmtSeconds }: { id: number; fmtSeconds: (s: number) => 
           </p>
         ))}
     </section>
+  );
+}
+
+/** ผลการซิงค์ล่าสุด + ปุ่มซิงค์ตอนนี้ */
+function SyncPanel({ id, last, lastAt }: { id: number; last: SyncResult | null; lastAt: string | null }) {
+  const { t, fmt } = useI18n();
+  const router = useRouter();
+  const [result, setResult] = useState<SyncResult | null>(last);
+  const [at, setAt] = useState<string | null>(lastAt);
+  const [message, setMessage] = useState("");
+  const [pending, start] = useTransition();
+
+  const run = () =>
+    start(async () => {
+      setMessage("");
+      const res = await syncNow(id);
+      if (res.data) {
+        setResult(res.data);
+        setAt(new Date().toISOString());
+        router.refresh();
+      } else setMessage(res.message ?? "");
+    });
+
+  return (
+    <div className="mt-4 flex flex-wrap items-start justify-between gap-3 rounded-xl bg-subtle p-4">
+      <div className="text-sm">
+        <p className="font-medium">
+          {t("apiConnections.sync.last")}: {at ? fmt.dateTime(at) : t("apiConnections.sync.never")}
+        </p>
+        {result &&
+          (result.ok ? (
+            <p className="mt-1 text-muted">
+              {t("apiConnections.sync.summary", {
+                fetched: fmt.number(result.fetched),
+                created: fmt.number(result.created),
+                disabled: fmt.number(result.disabled + result.missing),
+                reactivated: fmt.number(result.reactivated),
+              })}
+            </p>
+          ) : (
+            <p className="mt-1 text-danger-600 dark:text-danger-300">
+              {t("apiConnections.sync.failed")}: {result.error}
+            </p>
+          ))}
+        {message && <p className="mt-1 text-danger-600 dark:text-danger-300">{message}</p>}
+      </div>
+      <button type="button" onClick={run} disabled={pending} className={`${btn.primary} disabled:cursor-not-allowed disabled:opacity-60`}>
+        {pending ? <SpinnerIcon /> : <CheckCircleIcon />}
+        {pending ? t("apiConnections.sync.running") : t("apiConnections.sync.now")}
+      </button>
+    </div>
   );
 }

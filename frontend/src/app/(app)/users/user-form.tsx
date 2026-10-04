@@ -44,6 +44,7 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
   const [values, setValues] = useState<UserFormValues>({
     name: user?.name ?? "",
     email: user?.email ?? "",
+    username: user?.username ?? "",
     role: user?.role ?? "viewer",
     is_active: user?.is_active ?? true,
     password: "",
@@ -129,6 +130,7 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {field("name", t("users.form.name"), <input id="name" name="name" value={values.name} onChange={onChange} maxLength={255} autoComplete="off" className={cls("name")} />, true)}
             {field("email", t("users.form.email"), <input id="email" name="email" type="email" value={values.email} onChange={onChange} maxLength={255} autoComplete="off" className={cls("email")} />, true)}
+            {field("username", t("users.form.username"), <input id="username" name="username" value={values.username} onChange={onChange} maxLength={50} autoComplete="off" autoCapitalize="none" placeholder={t("users.form.usernameHint")} className={cls("username")} />)}
 
             {/* บทบาท: การ์ดตัวเลือกพร้อมคำอธิบายสิทธิ์ */}
             <fieldset className="sm:col-span-2" disabled={isSelf}>

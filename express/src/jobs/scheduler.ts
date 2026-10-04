@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { syncDueConnections } from "../services/directory-sync.js";
 import { notifyExpiring } from "./notify-expiring.js";
 
 /**
@@ -47,4 +48,19 @@ export function startScheduler(): void {
     schedule();
   };
   schedule();
+
+  // ซิงค์รายชื่อ API User ตามรอบของแต่ละการเชื่อมต่อ (ตรวจทุก 5 นาที, ไม่ซ้อนรอบ)
+  let syncing = false;
+  setInterval(async () => {
+    if (syncing) return;
+    syncing = true;
+    try {
+      const n = await syncDueConnections();
+      if (n) console.info(`[scheduler] api-user directory sync: ${n} connection(s)`);
+    } catch (e) {
+      console.error("[scheduler] api-user directory sync failed", e);
+    } finally {
+      syncing = false;
+    }
+  }, 5 * 60_000).unref();
 }

@@ -29,6 +29,7 @@ async function startSession(result: LoginResult) {
 
 export async function login(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const { t } = await getI18n();
+  // อีเมลหรือชื่อผู้ใช้ (ช่องเดียว)
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
@@ -40,7 +41,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   try {
     result = await apiFetch("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password, device_name: "web" }),
+      body: JSON.stringify({ login: email, password, device_name: "web" }),
     });
   } catch (e) {
     if (e instanceof ApiError) {

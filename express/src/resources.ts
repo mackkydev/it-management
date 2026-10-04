@@ -33,6 +33,7 @@ export function userResource(
     id: u.id,
     name: u.name,
     email: u.email,
+    username: u.username ?? null,
     role: u.role,
     /** LOCAL | API — API User ไม่มีรหัสผ่านในระบบเรา (frontend ซ่อนเมนูเปลี่ยนรหัสผ่าน) */
     type: u.type,

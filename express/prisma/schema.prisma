@@ -588,6 +588,8 @@ model users {
   id                                                       BigInt                     @id @default(autoincrement())
   name                                                     String                     @db.VarChar(255)
   /// LOCAL: login ด้วยอีเมล+รหัสผ่านของระบบเรา (ต้องมี) / API: อาจว่างได้ถ้าต้นทางไม่ส่งอีเมลมา
+  /// ชื่อผู้ใช้สำหรับ login (LOCAL) — ไม่บังคับ, ห้ามซ้ำแบบไม่สนตัวพิมพ์ (unique index LOWER(username)), ห้ามมี @
+  username                                                 String?                    @db.VarChar(50)
   email                                                    String?                    @unique(map: "users_email_unique") @db.VarChar(255)
   role                                                     String                     @default("viewer") @db.VarChar(20)
   is_active                                                Boolean                    @default(true)
@@ -607,6 +609,8 @@ model users {
   external_id                                              String?                    @db.VarChar(191)
   /// ซิงก์โปรไฟล์/สถานะกับต้นทางล่าสุดเมื่อไร (API User)
   external_synced_at                                       DateTime?                  @db.Timestamp(0)
+  /// สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing (null = ยังไม่เคยซิงค์) — ซิงค์ปิดใช้งาน/เปิดคืนเฉพาะที่ซิงค์เป็นคนปิด
+  external_status                                          String?                    @db.VarChar(20)
   remember_token                                           String?                    @db.VarChar(100)
   /// ไฟล์ลายเซ็นที่ผู้ใช้อัปโหลด (private disk: users/{id}/signature-*.png) — แสตมป์ลงใบแจ้งงาน
   signature_path                                           String?                    @db.VarChar(255)
@@ -709,6 +713,18 @@ model api_connections {
   register_url              String?             @db.VarChar(500)
   forgot_password_url       String?             @db.VarChar(500)
   change_password_url       String?             @db.VarChar(500)
+  /// ซิงค์รายชื่อผู้ใช้ตามเวลา: endpoint รายชื่อ (ใช้การยืนยันตัวตนของการเชื่อมต่อ), path ของ array, การแบ่งหน้า
+  users_list_path           String?             @db.VarChar(255)
+  users_list_root_path      String?             @db.VarChar(255)
+  users_page_param          String?             @db.VarChar(50)
+  users_page_size_param     String?             @db.VarChar(50)
+  users_page_size           Int                 @default(100)
+  /// ค่าใน field_map.status ที่ถือว่า "ใช้งานได้" (ว่าง = ทุกคนในรายชื่อใช้งานได้)
+  active_values             Json                @default("[]")
+  /// 0 = ปิดการซิงค์ตามเวลา
+  sync_interval_minutes     Int                 @default(0)
+  last_synced_at            DateTime?           @db.Timestamp(0)
+  last_sync_result          Json?
   created_by                BigInt?
   updated_by                BigInt?
   created_at                DateTime?           @db.Timestamp(0)

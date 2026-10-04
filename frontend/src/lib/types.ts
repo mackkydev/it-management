@@ -69,6 +69,8 @@ export interface User {
   role: Role;
   /** LOCAL = ผู้ใช้ของระบบเรา / API = ผู้ใช้จาก REST API ต้นทาง (ไม่มีรหัสผ่านในระบบเรา) */
   type?: "LOCAL" | "API";
+  /** ชื่อผู้ใช้สำหรับ login (ไม่บังคับ) */
+  username?: string | null;
   /** สิทธิ์จริง (permission key) จาก GET /auth/me — ใช้ผ่าน has(user, key) */
   permissions?: string[];
   /** API User (จาก GET /auth/me): ระบบต้นทาง + ลิงก์เปลี่ยนรหัสผ่านที่ต้นทาง */
@@ -302,6 +304,7 @@ export interface ManagedUser extends User {
 export interface UserFormValues {
   name: string;
   email: string;
+  username: string;
   role: User["role"];
   is_active: boolean;
   password: string;
@@ -500,6 +503,8 @@ export interface ApiUser {
   connection_id: number;
   connection_name: string;
   overrides_count: number;
+  /** สถานะจากการซิงค์รายชื่อ: active | disabled (ปิดที่ต้นทาง) | missing (ไม่พบที่ต้นทาง) */
+  external_status: "active" | "disabled" | "missing" | null;
   /** อีเมลจากต้นทางที่ซ้ำกับผู้ใช้อื่น (รอผูกบัญชี) */
   conflict_email: string | null;
   conflict_user_id: number | null;
@@ -532,7 +537,7 @@ export interface ApiConnection {
   refresh_token_path: string | null;
   default_token_ttl_seconds: number;
   profile_cache_seconds: number;
-  field_map: { external_id?: string; name?: string; email?: string; role_code?: string };
+  field_map: { external_id?: string; name?: string; email?: string; role_code?: string; status?: string };
   role_rules: { value: string; role: "manager" | "viewer" }[];
   default_role: "manager" | "viewer";
   error_code_path: string | null;
@@ -546,9 +551,32 @@ export interface ApiConnection {
   register_url: string | null;
   forgot_password_url: string | null;
   change_password_url: string | null;
+  /** ซิงค์รายชื่อตามเวลา */
+  users_list_path: string | null;
+  users_list_root_path: string | null;
+  users_page_param: string | null;
+  users_page_size_param: string | null;
+  users_page_size: number;
+  active_values: string[];
+  sync_interval_minutes: number;
+  last_synced_at: string | null;
+  last_sync_result: SyncResult | null;
   users_count: number;
   created_at: string | null;
   updated_at: string | null;
+}
+
+/** ผลการซิงค์รายชื่อ (POST /api-connections/{id}/sync, last_sync_result) */
+export interface SyncResult {
+  ok: boolean;
+  error?: string;
+  fetched: number;
+  created: number;
+  updated: number;
+  disabled: number;
+  reactivated: number;
+  missing: number;
+  skipped: number;
 }
 
 /** POST /api-connections/{id}/test */

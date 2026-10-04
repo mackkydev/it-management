@@ -62,7 +62,7 @@ export const limits = {
   /** login: 5 ครั้ง/นาที ต่ออีเมล+IP และ 20 ครั้ง/นาที ต่อ IP */
   login: throttle(
     "login",
-    { max: 5, windowSeconds: 60, key: (req) => `${String(req.body?.email ?? "").toLowerCase()}|${ip(req)}` },
+    { max: 5, windowSeconds: 60, key: (req) => `${String(req.body?.login ?? req.body?.email ?? "").toLowerCase()}|${ip(req)}` },
     { max: 20, windowSeconds: 60, key: ip },
   ),
   /** login ผ่านระบบต้นทาง: 5 ครั้ง/นาที ต่อการเชื่อมต่อ+ชื่อผู้ใช้+IP และ 20 ครั้ง/นาที ต่อ IP */

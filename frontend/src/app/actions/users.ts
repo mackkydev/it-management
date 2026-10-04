@@ -23,6 +23,7 @@ function toPayload(v: UserFormValues, isCreate: boolean) {
   return {
     name: v.name.trim(),
     email: v.email.trim(),
+    username: v.username.trim() || null,
     role: v.role,
     is_active: v.is_active,
     branch_id: v.branch_id ? Number(v.branch_id) : null,

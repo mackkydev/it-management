@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { apiFetch } from "@/lib/api";
-import type { ApiConnection, ApiConnectionTest, UserPermissionView } from "@/lib/types";
+import type { ApiConnection, ApiConnectionTest, SyncResult, UserPermissionView } from "@/lib/types";
 
 /** API User / สิทธิ์รายคน / การเชื่อมต่อ API — Local Admin เท่านั้น (API ตรวจซ้ำทุกครั้ง) */
 
@@ -45,7 +45,7 @@ export async function linkApiUser(apiUserId: number, localUserId: number): Promi
 
 /* ---------------------------------------------------------------- การเชื่อมต่อ API */
 
-export type ConnectionPayload = Omit<ApiConnection, "id" | "has_auth_secret" | "users_count" | "created_at" | "updated_at"> & {
+export type ConnectionPayload = Omit<ApiConnection, "id" | "has_auth_secret" | "users_count" | "created_at" | "updated_at" | "last_synced_at" | "last_sync_result"> & {
   auth_secret?: string;
   clear_auth_secret?: boolean;
 };
@@ -106,4 +106,19 @@ export async function saveRolePermissions(group: string, keys: string[]): Promis
   revalidatePath("/role-permissions");
   revalidatePath("/permissions");
   return { ok: true, message: t("rolePermissions.saved") };
+}
+
+/** ซิงค์รายชื่อผู้ใช้จากต้นทางตอนนี้ */
+export async function syncNow(id: number): Promise<ActionResult & { data?: SyncResult }> {
+  const { t } = await getI18n();
+  if (!validId(id)) return { message: t("common.saveFailed") };
+  try {
+    const res = await apiFetch<{ data: SyncResult }>(`/api-connections/${id}/sync`, { method: "POST" });
+    revalidatePath(`/api-connections/${id}`);
+    revalidatePath("/api-users");
+    return { ok: res.data.ok, data: res.data };
+  } catch (e) {
+    const r = await toActionResult(e);
+    return { ...r, message: Object.values(r.errors ?? {})[0] ?? r.message };
+  }
 }

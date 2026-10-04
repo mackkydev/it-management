@@ -22,7 +22,7 @@ const eamTh = {
     self_delete: "ไม่สามารถลบบัญชีของตัวเองได้",
     has_history: "ลบไม่ได้ เพราะผู้ใช้นี้มีประวัติในระบบ (ถือครอง/บันทึกสินทรัพย์ หรือการโอนย้าย) — ให้ปิดใช้งานแทน",
   },
-  auth: { failed: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" },
+  auth: { failed: "อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง" },
   /** login ผ่านระบบต้นทาง (API User) — failed ใช้กับทุกกรณี "รหัสผิด/ไม่มีผู้ใช้" (ไม่บอกว่ามี username หรือไม่) */
   api_auth: {
     failed: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง",
@@ -44,6 +44,7 @@ const eamTh = {
     invalid_error_map: "การ map error ไม่ถูกต้อง",
     secret_required: "กรุณากรอก secret สำหรับประเภทการยืนยันตัวตนนี้",
     in_use: "ลบไม่ได้ เพราะมีผู้ใช้จากการเชื่อมต่อนี้แล้ว — ให้ปิดใช้งานแทน",
+    sync_not_configured: "ยังไม่ได้ตั้ง endpoint รายชื่อผู้ใช้",
   },
   signature: {
     type: "ลายเซ็นต้องเป็นไฟล์ PNG หรือ JPG",
@@ -122,7 +123,7 @@ const eamEn: Eam = {
     self_delete: "You cannot delete your own account.",
     has_history: "Cannot delete: this user has history (assets held/created or transfers). Deactivate the account instead.",
   },
-  auth: { failed: "Invalid email or password." },
+  auth: { failed: "Invalid e-mail/username or password." },
   api_auth: {
     failed: "Invalid username or password.",
     password_expired: "Your password has expired. Please change it in the source system.",
@@ -143,6 +144,7 @@ const eamEn: Eam = {
     invalid_error_map: "Invalid error mapping.",
     secret_required: "Please enter the secret for this authentication type.",
     in_use: "Cannot delete: users already belong to this connection. Disable it instead.",
+    sync_not_configured: "The user list endpoint is not set.",
   },
   signature: {
     type: "The signature must be a PNG or JPG file.",

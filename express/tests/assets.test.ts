@@ -26,7 +26,7 @@ describe("auth + assets", () => {
 
     const bad = await guest().post("/api/v1/auth/login").send({ email: "a@example.com", password: "wrong", device_name: "vitest" });
     expect(bad.status).toBe(422);
-    expect(bad.body.errors.email[0]).toBe("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+    expect(bad.body.errors.email[0]).toBe("อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง");
   });
 
   it("logout revokes only the current token", async () => {

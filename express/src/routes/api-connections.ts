@@ -12,6 +12,7 @@ import { apiConnectionResource, AUTH_TYPES, ERROR_KINDS, HTTP_METHODS, LOGIN_BOD
 import { isLocalAdmin } from "../models/user.js";
 import { API_ROLES, ApiLoginError, loadConnection, upstreamLogin, upstreamLogout } from "../services/api-auth.js";
 import { audit } from "../services/audit.js";
+import { syncConnection } from "../services/directory-sync.js";
 import { isValidAllowEntry } from "../services/upstream-http.js";
 
 /**
@@ -22,6 +23,7 @@ import { isValidAllowEntry } from "../services/upstream-http.js";
  *   PUT|PATCH /api-connections/{id}        แก้ไข (auth_secret: ส่งมา = เปลี่ยน, ไม่ส่ง = คงเดิม, clear_auth_secret = ลบ)
  *   DELETE /api-connections/{id}           ลบได้เมื่อยังไม่มีผู้ใช้จากการเชื่อมต่อนี้
  *   POST   /api-connections/{id}/test      { username, password } ลอง login จริงแล้วแสดงผลการ map (ไม่สร้างผู้ใช้/ไม่คืน token)
+ *   POST   /api-connections/{id}/sync      ซิงค์รายชื่อผู้ใช้จากต้นทางตอนนี้ (สร้างล่วงหน้า / ปิดคนที่ถูกปิดหรือหายจากต้นทาง)
  * auth_secret เข้ารหัสด้วย APP_KEY และไม่ถูกส่งกลับ frontend; ทุกการแก้ไขบันทึก audit_logs (ก่อน-หลัง ไม่มี secret)
  */
 export const apiConnectionRoutes = Router();
@@ -69,7 +71,7 @@ function checkJsonFields(req: Request, data: Record<string, unknown>, errors: Er
     const fm = data.field_map;
     if (!isPlainObject(fm)) errors.add("field_map", t("invalid_json_path"));
     else
-      for (const key of ["external_id", "name", "email", "role_code"]) {
+      for (const key of ["external_id", "name", "email", "role_code", "status"]) {
         const v = fm[key];
         if (v !== undefined && v !== null && v !== "" && !isJsonPath(v)) errors.add(`field_map.${key}`, t("invalid_json_path"));
       }
@@ -93,6 +95,12 @@ function checkJsonFields(req: Request, data: Record<string, unknown>, errors: Er
           ["message_th", "message_en"].every((k) => v[k] === undefined || v[k] === null || (typeof v[k] === "string" && (v[k] as string).length <= 255));
         if (!okEntry) errors.add(`error_messages.${code}`, t("invalid_error_map"));
       }
+  }
+  if ("active_values" in data) {
+    const values = data.active_values;
+    if (!Array.isArray(values) || values.length > MAX_ITEMS || values.some((v) => typeof v !== "string" || v.trim() === "" || v.length > 100)) {
+      errors.add("active_values", t("invalid_rule"));
+    }
   }
   if ("allowed_hosts" in data) {
     const hosts = data.allowed_hosts;
@@ -146,6 +154,12 @@ async function validated(req: Request, current: ApiConnectionRow | null) {
       register_url: ["sometimes", "nullable", "string", "max:500", https],
       forgot_password_url: ["sometimes", "nullable", "string", "max:500", https],
       change_password_url: ["sometimes", "nullable", "string", "max:500", https],
+      users_list_path: ["sometimes", "nullable", "string", "max:255", path],
+      users_list_root_path: ["sometimes", "nullable", "string", "max:255", jsonPath],
+      users_page_param: ["sometimes", "nullable", "string", "max:50", regex(FIELD_NAME)],
+      users_page_size_param: ["sometimes", "nullable", "string", "max:50", regex(FIELD_NAME)],
+      users_page_size: ["sometimes", "integer", "min:1", "max:1000"],
+      sync_interval_minutes: ["sometimes", "integer", "min:0", "max:10080"],
     },
     { locale: req.locale, after: ({ errors }) => checkJsonFields(req, req.input, errors, current) },
   );
@@ -156,8 +170,9 @@ const SCALARS = [
   "profile_method", "profile_path", "profile_root_path", "logout_path", "refresh_path", "token_path", "token_ttl_path", "refresh_token_path",
   "default_token_ttl_seconds", "profile_cache_seconds", "default_role", "error_code_path", "auth_type", "auth_header_name", "auth_username",
   "max_redirects", "register_url", "forgot_password_url", "change_password_url",
+  "users_list_path", "users_list_root_path", "users_page_param", "users_page_size_param", "users_page_size", "sync_interval_minutes",
 ] as const;
-const JSON_FIELDS = ["field_map", "role_rules", "error_messages", "allowed_hosts"] as const;
+const JSON_FIELDS = ["field_map", "role_rules", "error_messages", "allowed_hosts", "active_values"] as const;
 
 /** ค่าที่จะบันทึก — secret: ส่งค่าใหม่ = เข้ารหัสแล้วเก็บ / clear_auth_secret = ลบ / auth_type none = ลบ */
 function toRow(req: Request, data: Record<string, unknown>) {
@@ -170,7 +185,7 @@ function toRow(req: Request, data: Record<string, unknown>) {
     if (!(k in input)) continue;
     const v = input[k];
     row[k] = JSON.stringify(
-      k === "allowed_hosts" ? (v as string[]).map((h) => h.trim()) : k === "role_rules" ? (v as Array<{ value: string; role: string }>).map((r) => ({ value: r.value.trim(), role: r.role })) : v,
+      k === "allowed_hosts" || k === "active_values" ? (v as string[]).map((h) => h.trim()) : k === "role_rules" ? (v as Array<{ value: string; role: string }>).map((r) => ({ value: r.value.trim(), role: r.role })) : v,
     );
   }
   let secretChanged = false;
@@ -263,3 +278,13 @@ apiConnectionRoutes.post("/api-connections/:id/test", limits.apiLogin, async (re
   }
 });
 
+
+/** ซิงค์รายชื่อผู้ใช้จากต้นทางตอนนี้ — คืนสรุปผล (สร้าง / อัปเดต / ปิด / เปิดคืน / หายจากต้นทาง) */
+apiConnectionRoutes.post("/api-connections/:id/sync", async (req, res) => {
+  guard(req);
+  const conn = await find(req.params.id as string);
+  if (!conn.users_list_path) {
+    throw ValidationError.withMessages({ users_list_path: trans(req.locale, "eam.api_connection.sync_not_configured") });
+  }
+  res.json({ data: await syncConnection(conn, req) });
+});

@@ -20,19 +20,26 @@ export const loginRoutes = Router();
 /** ต้อง login (app.ts ใส่ auth + throttle:api ให้ทุก router ที่ต่อจากนี้) */
 export const authRoutes = Router();
 
+/**
+ * POST /auth/login { login (อีเมลหรือชื่อผู้ใช้) | email, password, device_name }
+ * มี @ = อีเมล, ไม่มี = ชื่อผู้ใช้ — เทียบแบบไม่สนตัวพิมพ์; error อยู่ที่ช่อง email เหมือนเดิม (client เดิมใช้ต่อได้)
+ */
 loginRoutes.post("/auth/login", limits.login, async (req, res) => {
+  const input = { ...req.input, email: req.input.login ?? req.input.email };
   const data = await validate(
-    req.input,
+    input,
     {
-      email: ["required", "string", "email", "max:255"],
+      email: ["required", "string", "max:255"],
       password: ["required", "string", "max:255"],
       device_name: ["required", "string", "max:100"],
     },
     { locale: req.locale },
   );
 
-  // อีเมลเก็บเป็นตัวพิมพ์เล็ก — เทียบแบบไม่สนตัวพิมพ์เผื่อข้อมูลเดิม
-  const user = await first<UserRow>("SELECT * FROM users WHERE LOWER(email) = LOWER(?)", [String(data.email)]);
+  const identifier = String(data.email).trim();
+  const user = identifier.includes("@")
+    ? await first<UserRow>("SELECT * FROM users WHERE LOWER(email) = LOWER(?)", [identifier])
+    : await first<UserRow>("SELECT * FROM users WHERE LOWER(username) = LOWER(?)", [identifier]);
   // ข้อความเดียวกันทุกกรณี เพื่อไม่ให้เดาได้ว่ามีอีเมลนี้ในระบบหรือไม่
   // ช่องนี้ login ได้เฉพาะ LOCAL (API User ไม่มีรหัสผ่านในระบบเรา — login ผ่านต้นทางเท่านั้น)
   if (!user || !isLocal(user) || !user.is_active || !verifyHash(String(data.password), user.password)) {

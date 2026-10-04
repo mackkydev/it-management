@@ -50,9 +50,9 @@ export function LoginForm({ connections = [] }: { connections?: LoginConnection[
         ) : (
           <div>
             <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
-              {t("auth.email")}
+              {t("auth.emailOrUsername")}
             </label>
-            <input id="email" name="email" type="email" autoComplete="username" required defaultValue={localState.email} className={`${input} py-2.5`} />
+            <input id="email" name="email" type="text" autoComplete="username" autoCapitalize="none" required defaultValue={localState.email} className={`${input} py-2.5`} />
           </div>
         )}
         <div>

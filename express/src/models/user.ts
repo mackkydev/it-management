@@ -7,6 +7,8 @@ export interface UserRow {
   name: string;
   /** LOCAL มีเสมอ (CHECK users_local_credentials_check) — API User อาจว่างได้ */
   email: string | null;
+  /** ชื่อผู้ใช้สำหรับ login (ไม่บังคับ, ไม่มี @) */
+  username: string | null;
   /** admin | division_manager (ผู้จัดการฝ่าย) | manager (ผู้จัดการ) | it_staff (เจ้าหน้าที่ IT) | viewer (พนักงาน) */
   role: Role;
   /** LOCAL = ผู้ใช้ของระบบเรา (ผู้ใช้เดิมทั้งหมด) / API = ผู้ใช้จาก REST API ต้นทาง */
@@ -15,6 +17,8 @@ export interface UserRow {
   connection_id: number | null;
   external_id: string | null;
   external_synced_at: string | null;
+  /** สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing */
+  external_status: "active" | "disabled" | "missing" | null;
   is_active: boolean;
   branch_id: number | null;
   department: string | null;

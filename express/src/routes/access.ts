@@ -152,6 +152,7 @@ interface ApiUserRow {
   is_active: boolean;
   external_id: string;
   external_synced_at: string | null;
+  external_status: string | null;
   created_at: string | null;
   connection_id: number;
   connection_name: string;
@@ -195,7 +196,7 @@ accessRoutes.get("/api-users", async (req, res) => {
 
   const total = Number(await scalar(`SELECT COUNT(*) FROM users u WHERE ${whereSql}`, params));
   const rows = await select<ApiUserRow>(
-    `SELECT u.id, u.name, u.email, u.role, u.is_active, u.external_id, u.external_synced_at, u.created_at, u.connection_id,
+    `SELECT u.id, u.name, u.email, u.role, u.is_active, u.external_id, u.external_synced_at, u.external_status, u.created_at, u.connection_id,
        c.name AS connection_name,
        (SELECT COUNT(*) FROM user_permissions up WHERE up.user_id = u.id) AS overrides_count,
        ${conflict} AS conflict_email,

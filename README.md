@@ -174,6 +174,8 @@ Production: `npm run build` แล้ว `npm run start`
 - **ผู้ใช้จาก API** `/api-users`: ค้นหา/กรองบทบาท สถานะ ระบบต้นทาง อีเมลซ้ำ · ปุ่ม "ผูกบัญชี" (อีเมลซ้ำกับบัญชี LOCAL เดิม) ·
   แก้บทบาท (ผู้จัดการ / ผู้ใช้งานทั่วไป) + สิทธิ์รายตัว (ตามบทบาท / อนุญาต / ไม่อนุญาต)
 - **บันทึกการเปลี่ยนแปลง** `/audit-logs`: ใคร เมื่อไร ทำอะไร ค่าก่อน-หลัง IP (ไม่มี secret/token/รหัสผ่าน)
+- **ซิงค์รายชื่อตามเวลา** (ตั้งที่การเชื่อมต่อ): สร้างผู้ใช้ล่วงหน้าเพื่อตั้งบทบาท/ลายเซ็นก่อน login ครั้งแรก, ปิดใช้งาน + ตัด session คนที่ถูกปิด/หายจากต้นทาง, ดึงไม่ได้หรือได้ 0 คน = ไม่ปิดใคร
+- บัญชีในระบบ (LOCAL) login ด้วย **อีเมลหรือชื่อผู้ใช้** (ตั้ง username ที่หน้าแก้ไขผู้ใช้ — ไม่บังคับ, ห้ามมี @)
 - Session ของ API User: ไม่ใช้งานเกิน 30 นาที (`API_SESSION_IDLE_MINUTES`) ต้อง login ใหม่ · อายุไม่เกิน token ต้นทาง · ตรวจสถานะกับต้นทางทุก 10 นาที
 
 ## หน้าจอและการแสดงผล
@@ -226,6 +228,7 @@ Production: `npm run build` แล้ว `npm run start`
 | POST | `/auth/api-login` | **ไม่ต้อง login** (5 ครั้ง/นาที) | `{connection_id, username, password, device_name}` → login ที่ต้นทาง + JIT สร้าง/อัปเดต API User → token ของเรา (รูปแบบเดียวกับ `/auth/login`) |
 | GET / POST / PUT / PATCH / DELETE | `/api-connections[/{id}]` | Local Admin | ตั้งค่าการเชื่อมต่อ REST API ต้นทาง (secret เข้ารหัส ไม่ส่งกลับ, ทุกการแก้ไขลง `audit_logs`) — ลบได้เมื่อยังไม่มีผู้ใช้ |
 | POST | `/api-connections/{id}/test` | Local Admin | `{username, password}` ลอง login จริงแล้วแสดงผลการ map (ไม่คืน token / ไม่สร้างผู้ใช้) |
+| POST | `/api-connections/{id}/sync` | Local Admin | ซิงค์รายชื่อผู้ใช้จากต้นทางตอนนี้ (ตามเวลา: `sync_interval_minutes`, scheduler ตรวจทุก 5 นาที) — สร้างล่วงหน้า / ปิดคนที่ถูกปิดหรือหายจากต้นทาง + ตัด session / เปิดคืนเฉพาะที่ซิงค์ปิด |
 | GET | `/permissions` | Local Admin | รายการสิทธิ์ + สิทธิ์ของแต่ละกลุ่ม |
 | PUT | `/permissions/roles/{group}` | Local Admin | `{keys: [...]}` กำหนดสิทธิ์ทั้งชุดของบทบาท / it_staff / it_head |
 | GET / POST / PUT / DELETE | `/departments[/{id}]`, `/divisions[/{id}]` | อ่าน: ทุกคน · แก้: `org.manage` | แผนก / ฝ่าย (`?include_inactive=1` = ทั้งหมด + จำนวนผู้ใช้) |

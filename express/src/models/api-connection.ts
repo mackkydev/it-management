@@ -39,6 +39,16 @@ export interface ApiConnectionRow {
   register_url: string | null;
   forgot_password_url: string | null;
   change_password_url: string | null;
+  /** ซิงค์รายชื่อตามเวลา */
+  users_list_path: string | null;
+  users_list_root_path: string | null;
+  users_page_param: string | null;
+  users_page_size_param: string | null;
+  users_page_size: number;
+  active_values: string[];
+  sync_interval_minutes: number;
+  last_synced_at: string | null;
+  last_sync_result: Record<string, unknown> | null;
   created_by: number | null;
   updated_by: number | null;
   created_at: string | null;
@@ -59,6 +69,8 @@ export interface FieldMap {
   name?: string;
   email?: string;
   role_code?: string;
+  /** สถานะผู้ใช้ในรายชื่อ (เทียบกับ active_values) — ใช้ตอนซิงค์รายชื่อ */
+  status?: string;
 }
 
 /** ค่า role_code ที่ตรง value → role ของระบบเรา (ไม่ตรงกฎใด = default_role) */
@@ -84,6 +96,7 @@ export function apiConnectionResource(c: ApiConnectionRow) {
     ...rest,
     is_enabled: bool(c.is_enabled),
     has_auth_secret: auth_secret !== null && auth_secret !== "",
+    last_synced_at: iso(c.last_synced_at),
     created_at: iso(c.created_at),
     updated_at: iso(c.updated_at),
   };
