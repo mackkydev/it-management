@@ -4,7 +4,7 @@ import { KeyIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { canAccessItData, getCurrentUser } from "@/lib/auth";
+import { has, getCurrentUser } from "@/lib/auth";
 import type { Branch } from "@/lib/types";
 import { CredentialForm } from "../credential-form";
 
@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NewCredentialPage() {
   const user = await getCurrentUser();
-  if (!canAccessItData(user)) redirect("/tickets");
+  if (!has(user, "vault.use")) redirect("/tickets");
   const [{ data: branches }, { t }] = await Promise.all([apiFetch<{ data: Branch[] }>("/branches"), getI18n()]);
 
   return (

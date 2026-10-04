@@ -7,27 +7,32 @@ import { nowDb } from "../lib/time.js";
 import { deleteUserTokens } from "../lib/tokens.js";
 import { bool, exists, int, makeHash, notIn, password, unique, validate } from "../lib/validator.js";
 import { me, pageParam, paginated, simplePaginated } from "../http.js";
-import { canManageAssets, findUser, hasHistory, isAdmin, ROLES, type UserRow } from "../models/user.js";
+import { can, findUser, hasHistory, isLocalAdmin, ROLES, type UserRow } from "../models/user.js";
+import { deactivateSignature } from "../services/signatures.js";
+import { API_ROLES } from "../services/api-auth.js";
+import { audit } from "../services/audit.js";
 import { userResource } from "../resources.js";
 
 /** UserController — ตัวเลือกผู้ถือครอง (admin/manager) และจัดการผู้ใช้ (admin) */
 export const userRoutes = Router();
 
-const ORG_FIELDS = ["branch_id", "department", "division", "supervisor_id", "is_it_staff", "is_it_head"] as const;
+const ORG_FIELDS = ["branch_id", "department", "division", "supervisor_id", "is_it_staff", "is_it_head", "approval_route_id"] as const;
 
 /** branch + supervisor + จำนวนสินทรัพย์ที่ถือครอง (ไม่นับที่ถูกลบ) */
 const MANAGED_SELECT = `u.*, b.id AS b_id, b.name AS b_name, s.id AS s_id, s.name AS s_name,
-  (SELECT COUNT(*) FROM assets a WHERE a.custodian_id = u.id AND a.deleted_at IS NULL) AS custodian_assets_count`;
+  (SELECT COUNT(*) FROM assets a WHERE a.custodian_id = u.id AND a.deleted_at IS NULL) AS custodian_assets_count,
+  (SELECT us.id FROM user_signatures us WHERE us.user_id = u.id AND us.is_active = true LIMIT 1) AS active_signature_id`;
 const MANAGED_JOINS = `LEFT JOIN branches b ON b.id = u.branch_id AND b.deleted_at IS NULL
   LEFT JOIN users s ON s.id = u.supervisor_id`;
 
-type ManagedRow = UserRow & { b_id: number | null; b_name: string; s_id: number | null; s_name: string; custodian_assets_count: number };
+type ManagedRow = UserRow & { b_id: number | null; b_name: string; s_id: number | null; s_name: string; custodian_assets_count: number; active_signature_id: number | null };
 
 const managed = (r: ManagedRow, viewerId?: number) =>
   userResource(r, {
     branch: r.b_id ? { id: r.b_id, name: r.b_name } : null,
     supervisor: r.s_id ? { id: r.s_id, name: r.s_name } : null,
     custodian_assets_count: Number(r.custodian_assets_count),
+    signature_id: r.active_signature_id === null ? null : Number(r.active_signature_id),
   }, viewerId);
 
 async function loadManaged(id: number): Promise<ManagedRow> {
@@ -59,7 +64,7 @@ userRoutes.get("/users", async (req, res) => {
   const page = pageParam(req);
 
   if (bool(req.query.manage)) {
-    authorize(isAdmin(u));
+    authorize(can(u, "users.manage"));
     const f = await validate(
       req.input,
       {
@@ -86,7 +91,8 @@ userRoutes.get("/users", async (req, res) => {
     return res.json(paginated(req, rows.map((r) => managed(r, u.id)), total, page, perPage));
   }
 
-  authorize(canManageAssets(u));
+  // ผู้จัดการสินทรัพย์ (ผู้ถือครอง) และฝ่าย IT (ผู้ใช้ของการติดตั้ง license)
+  authorize(can(u, "users.search"));
   const f = await validate(
     req.input,
     { search: ["nullable", "string", "max:100"], per_page: ["nullable", "integer", "min:1", "max:50"] },
@@ -105,21 +111,23 @@ userRoutes.get("/users", async (req, res) => {
 userRoutes.get("/users/:id", async (req, res) => {
   const target = await routeUser(req);
   const u = me(req);
-  authorize(isAdmin(u) || u.id === target.id);
+  authorize(can(u, "users.manage") || u.id === target.id);
   res.json({ data: managed(await loadManaged(target.id), u.id), meta: { can_delete: !(await hasHistory(target.id)) } });
 });
 
 /** UserRequest: ตรวจสิทธิ์ก่อน validate (ผู้ที่ไม่ใช่ admin ได้ 403 ทันที) */
 async function validatedUser(req: Request, target: UserRow | null) {
-  if (!isAdmin(me(req))) throw forbidden();
+  if (!can(me(req), "users.manage")) throw forbidden();
   const s = target ? ["sometimes"] : [];
   const input = req.input;
+  // API User: อีเมลว่างได้ (ต้นทางไม่ส่งมา), ไม่มีรหัสผ่าน, บทบาทได้เฉพาะ manager / viewer
+  const isApi = target?.type === "API";
   return validate(
     input,
     {
       name: [...s, "required", "string", "max:255"],
-      email: [...s, "required", "string", "email", "max:255", unique("users", "email", target?.id)],
-      role: [...s, "required", `in:${ROLES.join(",")}`],
+      email: [...s, isApi ? "nullable" : "required", "string", "email", "max:255", unique("users", "email", target?.id)],
+      role: [...s, "required", `in:${(isApi ? API_ROLES : ROLES).join(",")}`],
       is_active: ["sometimes", "boolean"],
       password: [target ? "nullable" : "required", "string", password(8, { letters: true, numbers: true })],
       branch_id: ["sometimes", "nullable", "integer", exists("branches", "id", "deleted_at IS NULL")],
@@ -128,11 +136,13 @@ async function validatedUser(req: Request, target: UserRow | null) {
       supervisor_id: ["sometimes", "nullable", "integer", exists("users", "id", "is_active = true"), notIn(target ? [target.id] : [])],
       is_it_staff: ["sometimes", "boolean"],
       is_it_head: ["sometimes", "boolean"],
+      approval_route_id: ["sometimes", "nullable", "integer", exists("approval_routes", "id")],
     },
     {
       locale: req.locale,
       // กัน admin ล็อกตัวเองออกจากระบบ: ห้ามลดบทบาทหรือปิดใช้งานบัญชีตัวเอง
       after: ({ errors }) => {
+        if (isApi && typeof input.password === "string" && input.password !== "") errors.add("password", trans(req.locale, "eam.access.api_no_password"));
         if (!target || target.id !== me(req).id) return;
         if ("role" in input && input.role !== "admin") errors.add("role", trans(req.locale, "eam.user.self_lock"));
         if ("is_active" in input && !bool(input.is_active)) errors.add("is_active", trans(req.locale, "eam.user.self_lock"));
@@ -146,7 +156,7 @@ function orgColumns(data: Record<string, unknown>) {
   for (const key of ORG_FIELDS) {
     if (!(key in data)) continue;
     const v = data[key];
-    out[key] = key === "branch_id" || key === "supervisor_id" ? int(v) : key.startsWith("is_") ? bool(v) : v;
+    out[key] = key === "branch_id" || key === "supervisor_id" || key === "approval_route_id" ? int(v) : key.startsWith("is_") ? bool(v) : v;
   }
   return out;
 }
@@ -161,6 +171,7 @@ userRoutes.post("/users", async (req, res) => {
     is_active: "is_active" in req.input ? bool(req.input.is_active) : true,
     password: makeHash(String(data.password), config.bcryptRounds),
     ...orgColumns(data),
+    ...(data.role === "it_staff" ? { is_it_staff: true } : {}),
     created_at: now,
     updated_at: now,
   });
@@ -175,10 +186,11 @@ async function updateUser(req: Request, res: import("express").Response) {
   await transaction(async () => {
     const changes: Record<string, unknown> = { ...orgColumns(data) };
     if ("name" in data) changes.name = data.name;
-    if ("email" in data) changes.email = String(data.email).toLowerCase();
+    if ("email" in data) changes.email = data.email === null ? null : String(data.email).toLowerCase();
     if ("role" in data) changes.role = data.role;
+    if (data.role === "it_staff") changes.is_it_staff = true;
     if ("is_active" in data) changes.is_active = bool(data.is_active);
-    const newPassword = typeof req.input.password === "string" && req.input.password !== "";
+    const newPassword = target.type === "LOCAL" && typeof req.input.password === "string" && req.input.password !== "";
     if (newPassword) changes.password = makeHash(req.input.password, config.bcryptRounds);
 
     if (Object.keys(changes).length) await update("users", { ...changes, updated_at: nowDb() }, "id = ?", [target.id]);
@@ -186,6 +198,13 @@ async function updateUser(req: Request, res: import("express").Response) {
     const deactivated = "is_active" in changes && changes.is_active === false && target.is_active;
     if (newPassword || deactivated) await deleteUserTokens(target.id);
   });
+
+  // บันทึกการเปลี่ยนสิทธิ์ (บทบาท / สถานะ / สิทธิ์ฝ่าย IT)
+  const fresh = (await findUser(target.id))!;
+  const pick = (u: UserRow) => ({ role: u.role, is_active: Boolean(u.is_active), is_it_staff: Boolean(u.is_it_staff), is_it_head: Boolean(u.is_it_head) });
+  if (JSON.stringify(pick(target)) !== JSON.stringify(pick(fresh))) {
+    await audit(req, { action: "user.access_updated", subjectType: "user", subjectId: target.id, before: pick(target), after: pick(fresh) });
+  }
 
   res.json({ data: managed(await loadManaged(target.id), me(req).id) });
 }
@@ -197,7 +216,7 @@ userRoutes.patch("/users/:id", updateUser);
 userRoutes.delete("/users/:id", async (req, res) => {
   const target = await routeUser(req);
   const u = me(req);
-  authorize(isAdmin(u));
+  authorize(can(u, "users.manage"));
   if (u.id === target.id) throw ValidationError.withMessages({ user: trans(req.locale, "eam.user.self_delete") });
   if (await hasHistory(target.id)) throw ValidationError.withMessages({ user: trans(req.locale, "eam.user.has_history") });
 
@@ -205,5 +224,13 @@ userRoutes.delete("/users/:id", async (req, res) => {
     await deleteUserTokens(target.id);
     await exec("DELETE FROM users WHERE id = ?", [target.id]);
   });
+  res.status(204).end();
+});
+
+/** DELETE /users/{id}/signature — Local Admin ลบ (ปิดใช้งาน) ลายเซ็นของผู้ใช้เมื่อจำเป็น — แถวยังอยู่เป็นประวัติ + audit */
+userRoutes.delete("/users/:id/signature", async (req, res) => {
+  authorize(isLocalAdmin(me(req)));
+  const target = await routeUser(req);
+  if (!(await deactivateSignature(target.id, req, true))) throw notFound();
   res.status(204).end();
 });

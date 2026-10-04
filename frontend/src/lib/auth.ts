@@ -2,7 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 import { apiFetch } from "@/lib/api";
-import { isAllowed, normalizeUiConfig, type UiConfig } from "@/lib/permissions";
+import { has, isAllowed, isLocalAdmin, normalizeUiConfig, type UiConfig } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
 /** ผู้ใช้ปัจจุบัน — cache ต่อ request เพื่อให้ layout และ page เรียกซ้ำได้โดยยิง API ครั้งเดียว */
@@ -13,7 +13,7 @@ export const getCurrentUser = cache(async () => {
 
 /** การตั้งค่าการมองเห็นเมนู/ปุ่ม + ลำดับเมนู (GET /ui-config) — cache ต่อ request */
 export const getUiConfig = cache(async (): Promise<UiConfig> => {
-  const { data } = await apiFetch<{ data: { ui_permissions: unknown; menu_order: unknown } }>("/ui-config");
+  const { data } = await apiFetch<{ data: { ui_permissions: unknown; menu_order: unknown; role_permissions: unknown; logo_version: unknown } }>("/ui-config");
   return normalizeUiConfig(data);
 });
 
@@ -23,11 +23,11 @@ export async function getAccess(): Promise<(key: string) => boolean> {
   return (key) => isAllowed(config, user, key);
 }
 
-/* ใช้ซ่อน/แสดงปุ่มใน UI เท่านั้น — สิทธิ์จริงตรวจที่ Policy/Gate ฝั่ง Laravel */
-export const canManageAssets = (user: User) => user.role === "admin" || user.role === "manager";
-export const canDeleteAssets = (user: User) => user.role === "admin";
-export const isAdmin = (user: User) => user.role === "admin";
-/** เจ้าหน้าที่ฝ่าย IT (รวมหัวหน้า IT) */
-export const isIt = (user: User) => Boolean(user.is_it_staff || user.is_it_head);
-/** ข้อมูลของแผนก IT: คลังบัญชี/รหัสผ่าน, สัญญา, งาน IT หลังบ้าน */
-export const canAccessItData = (user: User) => isAdmin(user) || isIt(user);
+/*
+ * ใช้ซ่อน/แสดงหน้าและปุ่มใน UI เท่านั้น — สิทธิ์จริงตรวจที่ API (permission key ใน express/src/models/permission.ts)
+ * has(user, key) = สิทธิ์จาก GET /auth/me (สิทธิ์ของกลุ่ม + เพิ่ม/ถอดรายคน)
+ */
+export { has, isLocalAdmin };
+export const canManageAssets = (user: User) => has(user, "assets.manage");
+export const canDeleteAssets = (user: User) => has(user, "assets.delete");
+export const canDeleteLocations = (user: User) => has(user, "locations.delete");

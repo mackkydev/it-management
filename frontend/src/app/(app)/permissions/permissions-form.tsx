@@ -39,7 +39,7 @@ export function PermissionsForm({ initial }: { initial: UiConfig }) {
   const [result, setResult] = useState<{ ok?: boolean; message?: string }>({});
   const [pending, start] = useTransition();
 
-  const samples = useMemo(() => Object.fromEntries(AUDIENCES.map((a) => [a, sampleUser(a)])) as Record<Audience, User>, []);
+  const samples = useMemo(() => Object.fromEntries(AUDIENCES.map((a) => [a, sampleUser(a, initial)])) as Record<Audience, User>, [initial]);
   const groupsById = useMemo(() => Object.fromEntries(NAV.map((g) => [g.id, g])), []);
 
   const toggle = (key: string, a: Audience) => {

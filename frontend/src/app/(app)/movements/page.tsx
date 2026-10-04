@@ -3,6 +3,7 @@ import Form from "next/form";
 import Link from "next/link";
 import { Suspense } from "react";
 import { HistoryIcon, ResetIcon, SearchIcon } from "@/components/icons";
+import { DateInput } from "@/components/date-input";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
@@ -60,14 +61,14 @@ export default async function MovementsPage({ searchParams }: PageProps<"/moveme
             </option>
           ))}
         </select>
-        <label className="text-xs text-muted">
-          {t("movements.from")}
-          <input type="date" name="from" defaultValue={str("from")} className={`${input} mt-1`} />
-        </label>
-        <label className="text-xs text-muted">
-          {t("movements.to")}
-          <input type="date" name="to" defaultValue={str("to")} className={`${input} mt-1`} />
-        </label>
+        <div className="text-xs text-muted">
+          <span className="mb-1 block">{t("movements.from")}</span>
+          <DateInput name="from" defaultValue={str("from")} aria-label={t("movements.from")} className={input} />
+        </div>
+        <div className="text-xs text-muted">
+          <span className="mb-1 block">{t("movements.to")}</span>
+          <DateInput name="to" defaultValue={str("to")} aria-label={t("movements.to")} className={input} />
+        </div>
         <div className="flex gap-2 sm:col-span-2 lg:col-span-6 lg:justify-end">
           <Link href="/movements" className={`${btn.secondary} flex-1 lg:flex-none`}>
             <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />

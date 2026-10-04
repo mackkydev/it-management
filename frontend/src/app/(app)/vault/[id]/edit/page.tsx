@@ -6,7 +6,7 @@ import { card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
-import { canAccessItData, getCurrentUser } from "@/lib/auth";
+import { has, getCurrentUser } from "@/lib/auth";
 import type { Branch, Credential } from "@/lib/types";
 import { CredentialForm } from "../../credential-form";
 
@@ -28,7 +28,7 @@ export default async function EditCredentialPage({ params }: PageProps<"/vault/[
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
   const user = await getCurrentUser();
-  if (!canAccessItData(user)) redirect("/tickets");
+  if (!has(user, "vault.use")) redirect("/tickets");
 
   const [{ data: credential }, { data: branches }, { data: logs }, { t, fmt }] = await Promise.all([
     load<Credential>(`/credentials/${id}`),

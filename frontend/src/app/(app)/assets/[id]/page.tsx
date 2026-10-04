@@ -2,16 +2,19 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
-import { BoxIcon, ChevronLeftIcon, MapPinIcon, PencilIcon, UserIcon } from "@/components/icons";
+import { BoxIcon, ChevronLeftIcon, KeyIcon, MapPinIcon, PaperclipIcon, PencilIcon, UserIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
 import { LoadingLabel } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { btn, card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
+import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
-import { getAccess, canManageAssets, getCurrentUser } from "@/lib/auth";
-import type { Asset, AssetMovement, Paginated } from "@/lib/types";
+import { canManageAssets, has, getAccess, getCurrentUser } from "@/lib/auth";
+import { CATEGORY_FORM, type Asset, type AssetMovement, type LicenseUsage, type Paginated } from "@/lib/types";
+import { UsageBar } from "../../license-installations/usage-bar";
 import { MovementTimeline } from "../movement-timeline";
+import { LicenseFiles, LicenseKey } from "./license-parts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -70,6 +73,19 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
 
   const [asset, user, { t, fmt }, can] = await Promise.all([getAsset(id), getCurrentUser(), getI18n(), getAccess()]);
   const canEdit = canManageAssets(user) && can("btn:assets:edit");
+  const form = CATEGORY_FORM[asset.category];
+  const lic = asset.license ?? null;
+  // license: หมดแล้ว = danger, เหลือ ≤ 30 วัน = warning
+  const licenseTone = lic?.days_left == null ? null : lic.days_left < 0 ? tone.danger : lic.days_left <= 30 ? tone.warning : tone.success;
+  const canRevealKey = has(user, "assets.license_key");
+  // จำนวน seat ที่ติดตั้งใช้แล้ว (ผู้จัดการสินทรัพย์ / ฝ่าย IT)
+  const usage =
+    lic && canRevealKey
+      ? await apiFetch<{ usage?: LicenseUsage }>(`/license-installations?license_id=${asset.id}&per_page=1`).then(
+          (r) => r.usage ?? null,
+          () => null,
+        )
+      : null;
 
   // จำนวนวันที่เหลือของประกัน: หมดแล้ว = danger, เหลือ ≤ 90 วัน = warning
   const warrantyDays = asset.warranty_expires_at ? daysUntil(asset.warranty_expires_at) : null;
@@ -105,13 +121,70 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
       </div>
 
       <Section title={t("assets.detail.sectionInfo")} icon={<BoxIcon width={15} height={15} />}>
-        <Item label={t("assets.col.category")}>{asset.category}</Item>
+        <Item label={t("assets.col.category")}>{t(`assets.categories.${asset.category}` as MessageKey)}</Item>
         <Item label={t("assets.detail.brandModel")}>{[asset.brand, asset.model].filter(Boolean).join(" ")}</Item>
-        <Item label={t("assets.form.serial")}>
-          {asset.serial_number && <span className="font-mono text-sm">{asset.serial_number}</span>}
-        </Item>
+        {!form?.hide?.includes("serial_number") && (
+          <Item label={t("assets.form.serial")}>
+            {asset.serial_number && <span className="font-mono text-sm">{asset.serial_number}</span>}
+          </Item>
+        )}
         <Item label={t("assets.form.notes")}>{asset.notes && <span className="whitespace-pre-line font-normal">{asset.notes}</span>}</Item>
       </Section>
+
+      {lic && (
+        <Section title={t("assets.license.section")} icon={<KeyIcon width={15} height={15} />}>
+          <Item label={t("assets.license.billing")}>{t(`assets.license.billings.${lic.billing}`)}</Item>
+          <Item label={t("assets.license.expiresAt")}>
+            {lic.expires_at ? (
+              <span className="flex flex-wrap items-center gap-2">
+                {fmt.date(lic.start_date)} – {fmt.date(lic.expires_at)}
+                {licenseTone && lic.days_left !== null && (
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${licenseTone.badge}`}>
+                    {lic.days_left < 0 ? t("assets.license.expired") : t("assets.license.daysLeft", { days: fmt.number(lic.days_left) })}
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span>
+                {fmt.date(lic.start_date)} · {t("assets.license.noExpiry")}
+              </span>
+            )}
+          </Item>
+          {usage ? (
+            <Item label={t("installations.title")}>
+              <span className="block max-w-xs">
+                <UsageBar usage={usage} t={t} fmt={fmt} />
+                <Link href={`/license-installations?license=${asset.id}`} className="mt-1 inline-block cursor-pointer text-xs font-normal text-accent-700 hover:underline dark:text-accent-300">
+                  {t("installations.viewAll")}
+                </Link>
+              </span>
+            </Item>
+          ) : (
+            <Item label={t("assets.license.seats")}>{lic.seats !== null && fmt.number(lic.seats)}</Item>
+          )}
+          <Item label={t("assets.license.vendor")}>{lic.vendor}</Item>
+          <Item label={t("assets.license.key")}>
+            {lic.has_key ? canRevealKey ? <LicenseKey assetId={asset.id} /> : <span className="font-mono text-sm">••••••••••••</span> : null}
+          </Item>
+          {lic.expires_at && (
+            <Item label={t("assets.license.notifyDays")}>
+              {lic.notify_days_before ? t("assets.license.notifyDaysValue", { days: fmt.number(lic.notify_days_before) }) : t("assets.license.notifyDefault")}
+            </Item>
+          )}
+        </Section>
+      )}
+
+      {(form?.license || (asset.files?.length ?? 0) > 0) && (
+        <section className={`p-4 sm:p-6 ${card}`}>
+          <h2 className="mb-4 flex items-center gap-2 font-semibold">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-100 text-accent-600 dark:bg-accent-400/15 dark:text-accent-300">
+              <PaperclipIcon width={15} height={15} />
+            </span>
+            {t("assets.files.title")}
+          </h2>
+          <LicenseFiles assetId={asset.id} files={asset.files ?? []} canManage={canManageAssets(user)} />
+        </section>
+      )}
 
       <Section title={t("assets.detail.sectionPlace")} icon={<MapPinIcon width={15} height={15} />}>
         <Item label={t("assets.col.location")}>
@@ -134,7 +207,7 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
       <Section title={t("assets.detail.sectionPurchase")} icon={<BoxIcon width={15} height={15} />}>
         <Item label={t("assets.form.purchaseDate")}>{asset.purchase_date && fmt.date(asset.purchase_date)}</Item>
         <Item label={t("assets.col.cost")}>{asset.purchase_cost && <span className="tabular-nums">{fmt.money(asset.purchase_cost)}</span>}</Item>
-        <Item label={t("assets.form.warranty")}>
+        {!form?.hide?.includes("warranty_expires_at") && <Item label={t("assets.form.warranty")}>
           {asset.warranty_expires_at && (
             <span className="flex flex-wrap items-center gap-2">
               {fmt.date(asset.warranty_expires_at)}
@@ -145,7 +218,7 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
               )}
             </span>
           )}
-        </Item>
+        </Item>}
         <Item label={t("assets.detail.createdAt")}>{fmt.dateTime(asset.created_at)}</Item>
         <Item label={t("assets.detail.updatedAt")}>{fmt.dateTime(asset.updated_at)}</Item>
       </Section>

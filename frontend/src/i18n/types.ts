@@ -1,4 +1,5 @@
 import type th from "./th";
+import { formatDate, formatDateTime } from "@/lib/date";
 import type { Locale } from "@/lib/prefs";
 
 /** โครงสร้างข้อความ — ใช้ภาษาไทยเป็นต้นแบบ แต่ค่าเป็น string ทั่วไป (ภาษาอื่นต้องมี key ครบ) */
@@ -24,18 +25,16 @@ export function createT(dict: Dictionary): TFunction {
   };
 }
 
-/** ตัวจัดรูปแบบตัวเลข/วันที่ตามภาษา (th ใช้ปี พ.ศ.) */
+/** ตัวจัดรูปแบบตัวเลข/วันที่ตามภาษา — วันที่เป็น dd/MM/yyyy (th ใช้ปี พ.ศ.) */
 export function createFormatters(locale: Locale) {
   const intl = INTL_LOCALE[locale];
   const money = new Intl.NumberFormat(intl, { style: "currency", currency: "THB" });
   const number = new Intl.NumberFormat(intl);
-  const date = new Intl.DateTimeFormat(intl, { dateStyle: "medium" });
-  const dateTime = new Intl.DateTimeFormat(intl, { dateStyle: "medium", timeStyle: "short" });
   return {
     money: (v: string | number) => money.format(Number(v)),
     number: (v: number) => number.format(v),
-    date: (iso: string) => date.format(new Date(iso)),
-    dateTime: (iso: string) => dateTime.format(new Date(iso)),
+    date: (iso: string) => formatDate(iso, locale),
+    dateTime: (iso: string) => formatDateTime(iso, locale),
   };
 }
 

@@ -53,7 +53,7 @@ export async function deleteBranch(id: number): Promise<ItResult> {
 
 /* ---------------- ตั้งค่าการแจ้งเตือน (admin) ---------------- */
 
-export async function saveSettings(values: AppSettings): Promise<ItResult> {
+export async function saveSettings(values: Partial<AppSettings>): Promise<ItResult> {
   const { t } = await getI18n();
   try {
     await apiFetch("/settings", { method: "PUT", body: JSON.stringify(values) });
@@ -64,10 +64,23 @@ export async function saveSettings(values: AppSettings): Promise<ItResult> {
   return { ok: true, message: t("settingsPage.saved") };
 }
 
+/** ตัวเลือกเรื่อง "อื่นๆ" ในใบแจ้งงาน (ข้อมูลหลัก — admin) */
+export async function saveTicketOtherTypes(items: string[]): Promise<ItResult> {
+  const { t } = await getI18n();
+  try {
+    await apiFetch("/settings", { method: "PUT", body: JSON.stringify({ ticket_other_types: items }) });
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath("/ticket-types");
+  revalidatePath("/tickets/new");
+  return { ok: true, message: t("ticketTypes.saved") };
+}
+
 /* ---------------- สิทธิ์การใช้งาน (admin) ---------------- */
 
 /** บันทึกการมองเห็นเมนู/ปุ่ม + ลำดับเมนู (PUT /settings เฉพาะ 2 คีย์นี้) */
-export async function saveUiConfig(values: UiConfig): Promise<ItResult> {
+export async function saveUiConfig(values: Pick<UiConfig, "ui_permissions" | "menu_order">): Promise<ItResult> {
   const { t } = await getI18n();
   // ไม่บันทึกรายการที่ไม่ได้ซ่อนกลุ่มไหนเลย
   const ui_permissions = Object.fromEntries(Object.entries(values.ui_permissions).filter(([, denied]) => denied.length > 0));

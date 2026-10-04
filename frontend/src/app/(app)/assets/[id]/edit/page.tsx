@@ -33,6 +33,16 @@ function toFormValues(a: Asset): AssetFormValues {
     warranty_expires_at: a.warranty_expires_at ?? "",
     notes: a.notes ?? "",
     movement_reason: "",
+    license: {
+      billing: a.license?.billing ?? "yearly",
+      start_date: a.license?.start_date ?? "",
+      expires_at: a.license?.expires_at ?? "",
+      seats: a.license?.seats ? String(a.license.seats) : "",
+      vendor: a.license?.vendor ?? "",
+      license_key: "", // ไม่ส่ง key กลับมา — เว้นว่าง = คงเดิม
+      clear_license_key: false,
+      notify_days_before: a.license?.notify_days_before ? String(a.license.notify_days_before) : "",
+    },
   };
 }
 
@@ -76,6 +86,7 @@ export default async function EditAssetPage({ params }: PageProps<"/assets/[id]/
         initial={toFormValues(asset)}
         initialCustodian={asset.custodian}
         canDelete={canDeleteAssets(user)}
+        hasLicenseKey={asset.license?.has_key ?? false}
       />
       <Suspense
         fallback={

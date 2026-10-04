@@ -7,12 +7,14 @@ const TOKEN_COOKIE = "eam_token";
 export function proxy(request: NextRequest) {
   const hasToken = request.cookies.has(TOKEN_COOKIE);
   const isLoginPage = request.nextUrl.pathname === "/login";
+  // /sync ตรวจ token เองแล้วตอบ 204 — หน้า login ใช้ ?scope=public ได้โดยไม่ต้องมี token
+  if (request.nextUrl.pathname === "/sync") return NextResponse.next();
 
   if (!hasToken && !isLoginPage) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   if (hasToken && isLoginPage && !request.nextUrl.searchParams.has("expired")) {
-    return NextResponse.redirect(new URL("/tickets", request.url));
+    return NextResponse.redirect(new URL("/", request.url));
   }
   return NextResponse.next();
 }

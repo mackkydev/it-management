@@ -3,6 +3,7 @@ import Form from "next/form";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ChartIcon, ResetIcon, SearchIcon } from "@/components/icons";
+import { DateInput } from "@/components/date-input";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
@@ -10,7 +11,8 @@ import { TableSkeleton } from "@/components/skeletons";
 import { btn, card, input } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getAccess, getCurrentUser, isAdmin } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { has, getAccess, getCurrentUser } from "@/lib/auth";
 import { KpiForm, KpiItem, type KpiEntry } from "./kpi-client";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -20,8 +22,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** บันทึก KPI — บันทึกการปฏิบัติงานรายวัน (admin / หัวหน้า IT เห็นของทุกคน) */
+/** บันทึก KPI — บันทึกการปฏิบัติงานรายวันของฝ่าย IT (admin / หัวหน้า IT เห็นของทุกคน) */
 export default async function KpiPage({ searchParams }: PageProps<"/kpi">) {
+  if (!has(await getCurrentUser(), "kpi.use")) redirect("/tickets");
   const params = await searchParams;
   const [{ t }, can] = await Promise.all([getI18n(), getAccess()]);
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string) : "");
@@ -43,14 +46,14 @@ export default async function KpiPage({ searchParams }: PageProps<"/kpi">) {
       )}
 
       <Form action="/kpi" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_1fr_auto] ${card}`}>
-        <label className="text-sm">
+        <div className="text-sm">
           <span className="mb-1 block text-muted">{t("kpi.from")}</span>
-          <input type="date" name="from" defaultValue={q.get("from") ?? ""} className={input} />
-        </label>
-        <label className="text-sm">
+          <DateInput name="from" defaultValue={q.get("from") ?? ""} aria-label={t("kpi.from")} className={input} />
+        </div>
+        <div className="text-sm">
           <span className="mb-1 block text-muted">{t("kpi.to")}</span>
-          <input type="date" name="to" defaultValue={q.get("to") ?? ""} className={input} />
-        </label>
+          <DateInput name="to" defaultValue={q.get("to") ?? ""} aria-label={t("kpi.to")} className={input} />
+        </div>
         <div className="flex items-end gap-2">
           <Link href="/kpi" className={`${btn.secondary} px-3`} aria-label={t("common.clearFilters")}>
             <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
@@ -77,7 +80,7 @@ async function KpiList({ query }: { query: URLSearchParams }) {
     getCurrentUser(),
   ]);
   // admin / หัวหน้า IT เห็นบันทึกของทุกคน → แสดงชื่อผู้บันทึก
-  const showUser = isAdmin(user) || Boolean(user.is_it_head);
+  const showUser = has(user, "kpi.view_all");
   const pageHref = (p: number) => {
     const n = new URLSearchParams(query);
     n.set("page", String(p));

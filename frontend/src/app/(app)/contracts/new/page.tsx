@@ -4,7 +4,7 @@ import { FileTextIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { canAccessItData, getCurrentUser } from "@/lib/auth";
+import { has, getCurrentUser } from "@/lib/auth";
 import type { Branch } from "@/lib/types";
 import { ContractForm } from "../contract-form";
 
@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NewContractPage() {
   const user = await getCurrentUser();
-  if (!canAccessItData(user)) redirect("/tickets");
+  if (!has(user, "contracts.manage")) redirect("/tickets");
   const [{ data: branches }, { default_notify_days }, { t }] = await Promise.all([
     apiFetch<{ data: Branch[] }>("/branches"),
     apiFetch<{ default_notify_days: number }>("/contracts?status=expired"),

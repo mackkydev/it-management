@@ -65,6 +65,14 @@ export const limits = {
     { max: 5, windowSeconds: 60, key: (req) => `${String(req.body?.email ?? "").toLowerCase()}|${ip(req)}` },
     { max: 20, windowSeconds: 60, key: ip },
   ),
+  /** login ผ่านระบบต้นทาง: 5 ครั้ง/นาที ต่อการเชื่อมต่อ+ชื่อผู้ใช้+IP และ 20 ครั้ง/นาที ต่อ IP */
+  apiLogin: throttle(
+    "api-login",
+    { max: 5, windowSeconds: 60, key: (req) => `${String(req.body?.connection_id ?? "")}|${String(req.body?.username ?? "").toLowerCase()}|${ip(req)}` },
+    { max: 20, windowSeconds: 60, key: ip },
+  ),
+  /** อัปโหลด/วาดลายเซ็น: 10 ครั้ง/นาที ต่อผู้ใช้ */
+  signature: throttle("signature", { max: 10, windowSeconds: 60, key: (req) => (req.user ? `u${req.user.id}` : ip(req)) }),
   /** throttle:30,1 — เปิดดูรหัสผ่าน */
   reveal: throttle("reveal", { max: 30, windowSeconds: 60, key: (req) => (req.user ? `u${req.user.id}` : ip(req)) }),
 };

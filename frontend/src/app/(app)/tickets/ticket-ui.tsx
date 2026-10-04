@@ -13,6 +13,8 @@ const STATUS_STYLE: Record<TicketStatus, { badge: string; dot: string }> = {
   },
   completed: tone.success,
   rejected: tone.danger,
+  pending_cancel: tone.danger,
+  cancelled: tone.idle,
 };
 
 export function TicketStatusBadge({ status, t }: { status: TicketStatus; t: TFunction }) {

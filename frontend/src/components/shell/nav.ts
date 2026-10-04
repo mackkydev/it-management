@@ -5,11 +5,13 @@ import {
   ClipboardIcon,
   DatabaseIcon,
   FileTextIcon,
+  GitBranchIcon,
   HistoryIcon,
   InboxIcon,
   KeyIcon,
   ListIcon,
   MapPinIcon,
+  MonitorIcon,
   PlusIcon,
   SettingsIcon,
   BellIcon,
@@ -20,7 +22,7 @@ import {
   WrenchIcon,
 } from "@/components/icons";
 import type { MessageKey } from "@/i18n/types";
-import { EMPTY_UI_CONFIG, isAllowed, sortByOrder, type UiConfig } from "@/lib/permissions";
+import { EMPTY_UI_CONFIG, has, isAllowed, isLocalAdmin, sortByOrder, type UiConfig } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
@@ -41,22 +43,30 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-const admin: Visible = (u) => u.role === "admin";
-const managers: Visible = (u) => u.role === "admin" || u.role === "manager";
-const itData: Visible = (u) => u.role === "admin" || Boolean(u.is_it_staff || u.is_it_head);
+/** เมนูตามสิทธิ์ (permission key จาก /auth/me) */
+const perm = (key: string): Visible => (u) => has(u, key);
 
 /** โครงสร้างเมนูหลัก — ใช้ร่วมกันทั้ง Sidebar และ Topbar */
 export const NAV: NavGroup[] = [
   {
-    id: "it-work",
-    label: "nav.itWork",
+    // ผู้ใช้ทุกแผนก
+    id: "requests",
+    label: "nav.requests",
     icon: ClipboardIcon,
     items: [
       { label: "nav.ticketNew", href: "/tickets/new", icon: PlusIcon },
       { label: "nav.ticketMine", href: "/tickets", icon: InboxIcon },
       { label: "nav.ticketApprovals", href: "/tickets/approvals", icon: CheckCircleIcon },
-      { label: "nav.itBackoffice", href: "/it/tickets", icon: WrenchIcon, visible: itData },
-      { label: "nav.kpi", href: "/kpi", icon: ChartIcon },
+    ],
+  },
+  {
+    // หลังบ้านฝ่าย IT
+    id: "it-work",
+    label: "nav.itWork",
+    icon: WrenchIcon,
+    items: [
+      { label: "nav.itBackoffice", href: "/it/tickets", icon: WrenchIcon, visible: perm("it_tickets.queue") },
+      { label: "nav.kpi", href: "/kpi", icon: ChartIcon, visible: perm("kpi.use") },
     ],
   },
   {
@@ -64,8 +74,8 @@ export const NAV: NavGroup[] = [
     label: "nav.itData",
     icon: KeyIcon,
     items: [
-      { label: "nav.vault", href: "/vault", icon: KeyIcon, visible: itData },
-      { label: "nav.contracts", href: "/contracts", icon: FileTextIcon, visible: itData },
+      { label: "nav.vault", href: "/vault", icon: KeyIcon, visible: perm("vault.use") },
+      { label: "nav.contracts", href: "/contracts", icon: FileTextIcon, visible: perm("contracts.manage") },
     ],
   },
   {
@@ -74,8 +84,8 @@ export const NAV: NavGroup[] = [
     icon: BoxIcon,
     items: [
       { label: "nav.assetList", href: "/assets", icon: ListIcon },
-      { label: "nav.assetNew", href: "/assets/new", icon: PlusIcon, visible: managers },
       { label: "nav.movements", href: "/movements", icon: HistoryIcon },
+      { label: "nav.licenseInstallations", href: "/license-installations", icon: MonitorIcon, visible: perm("licenses.install") },
     ],
   },
   {
@@ -83,11 +93,13 @@ export const NAV: NavGroup[] = [
     label: "nav.masterData",
     icon: DatabaseIcon,
     items: [
-      { label: "nav.branches", href: "/branches", icon: BuildingIcon, visible: admin },
+      { label: "nav.branches", href: "/branches", icon: BuildingIcon, visible: perm("branches.manage") },
+      { label: "nav.divisions", href: "/divisions", icon: BuildingIcon, visible: perm("org.manage") },
+      { label: "nav.departments", href: "/departments", icon: UsersIcon, visible: perm("org.manage") },
       { label: "nav.locations", href: "/locations", icon: MapPinIcon },
-      { label: "nav.locationNew", href: "/locations/new", icon: PlusIcon, visible: managers },
-      { label: "nav.users", href: "/users", icon: UsersIcon, visible: managers },
-      { label: "nav.userNew", href: "/users/new", icon: PlusIcon, visible: admin },
+      { label: "nav.users", href: "/users", icon: UsersIcon, visible: perm("users.view") },
+      { label: "nav.apiUsers", href: "/api-users", icon: UsersIcon, visible: isLocalAdmin },
+      { label: "nav.ticketTypes", href: "/ticket-types", icon: ListIcon, visible: perm("settings.manage") },
     ],
   },
   {
@@ -95,8 +107,13 @@ export const NAV: NavGroup[] = [
     label: "nav.systemSettings",
     icon: SettingsIcon,
     items: [
-      { label: "nav.notificationSettings", href: "/settings", icon: BellIcon, visible: admin },
-      { label: "nav.permissions", href: "/permissions", icon: ShieldIcon, visible: admin },
+      { label: "nav.notificationSettings", href: "/settings", icon: BellIcon, visible: perm("settings.manage") },
+      { label: "nav.approvalRoutes", href: "/approval-routes", icon: GitBranchIcon, visible: perm("approval_routes.manage") },
+      { label: "nav.announcements", href: "/announcements", icon: BellIcon, visible: perm("announcements.manage") },
+      { label: "nav.permissions", href: "/permissions", icon: ShieldIcon, visible: isLocalAdmin },
+      { label: "nav.rolePermissions", href: "/role-permissions", icon: ShieldIcon, visible: isLocalAdmin },
+      { label: "nav.apiConnections", href: "/api-connections", icon: GitBranchIcon, visible: isLocalAdmin },
+      { label: "nav.auditLogs", href: "/audit-logs", icon: HistoryIcon, visible: isLocalAdmin },
     ],
   },
 ];

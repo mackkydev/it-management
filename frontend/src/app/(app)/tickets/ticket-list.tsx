@@ -10,7 +10,7 @@ import { alert, btn, card, input, table } from "@/components/ui";
 import { CheckCircleIcon } from "@/components/icons";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getAccess, canAccessItData, getCurrentUser } from "@/lib/auth";
+import { getAccess } from "@/lib/auth";
 import { TICKET_STATUSES, TICKET_TYPES, type Paginated, type TicketCounts, type TicketSummary } from "@/lib/types";
 import { TicketStatusBadge, ticketSubject } from "./ticket-ui";
 
@@ -30,7 +30,7 @@ function buildQuery(scope: TicketScope, params: Record<string, string | string[]
 
 /** หน้ารายการใบแจ้งงาน (ใช้ร่วม 3 หน้า: ของฉัน / รออนุมัติ / งาน IT หลังบ้าน) */
 export async function TicketListPage({ scope, params }: { scope: TicketScope; params: Record<string, string | string[] | undefined> }) {
-  const [{ t }, user, can] = await Promise.all([getI18n(), getCurrentUser(), getAccess()]);
+  const [{ t }, can] = await Promise.all([getI18n(), getAccess()]);
   const query = buildQuery(scope, params);
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string) : "");
   const title = scope === "mine" ? t("tickets.mineTitle") : scope === "approvals" ? t("tickets.approvalsTitle") : t("tickets.itTitle");
@@ -52,7 +52,7 @@ export async function TicketListPage({ scope, params }: { scope: TicketScope; pa
       />
 
       <Suspense fallback={<div className="h-10" />}>
-        <ScopeTabs scope={scope} showIt={canAccessItData(user)} />
+        {scope === "it" ? <ItQueueTabs status={str("status")} assigned={str("assigned")} /> : <ScopeTabs scope={scope} />}
       </Suspense>
 
       <Form action={BASE[scope]} className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_12rem_12rem_auto] ${card}`}>
@@ -99,25 +99,55 @@ export async function TicketListPage({ scope, params }: { scope: TicketScope; pa
   );
 }
 
-/** แท็บ: ของฉัน / รออนุมัติ / งาน IT — พร้อมตัวเลขค้าง */
-async function ScopeTabs({ scope, showIt }: { scope: TicketScope; showIt: boolean }) {
-  const [{ t }, res] = await Promise.all([getI18n(), apiFetch<{ counts: TicketCounts }>("/tickets?per_page=1")]);
-  const c = res.counts;
-  const tabs: { key: TicketScope; label: string; count?: number }[] = [
-    { key: "mine", label: t("tickets.tabs.mine"), count: c.mine_open },
-    { key: "approvals", label: t("tickets.tabs.approvals"), count: c.approvals },
-    ...(showIt ? [{ key: "it" as const, label: t("tickets.tabs.it"), count: (c.it_new ?? 0) + (c.it_review ?? 0) }] : []),
-  ];
+interface Tab {
+  href: string;
+  label: string;
+  count?: number;
+  active: boolean;
+}
 
+const ticketCounts = () => apiFetch<{ counts: TicketCounts }>("/tickets?per_page=1").then((r) => r.counts);
+
+/** แท็บฝั่งผู้แจ้ง: ของฉัน / รออนุมัติ — พร้อมตัวเลขค้าง (คิวงาน IT แยกไปเมนู "งานฝ่าย IT") */
+async function ScopeTabs({ scope }: { scope: TicketScope }) {
+  const [{ t }, c] = await Promise.all([getI18n(), ticketCounts()]);
+  return (
+    <Tabs
+      tabs={[
+        { href: BASE.mine, label: t("tickets.tabs.mine"), count: c.mine_open, active: scope === "mine" },
+        { href: BASE.approvals, label: t("tickets.tabs.approvals"), count: c.approvals, active: scope === "approvals" },
+      ]}
+    />
+  );
+}
+
+/** แท็บด่วนของคิวงาน IT: รอรับงาน / งานของฉัน / รอหัวหน้าปิด / ทั้งหมด */
+async function ItQueueTabs({ status, assigned }: { status: string; assigned: string }) {
+  const [{ t }, c] = await Promise.all([getI18n(), ticketCounts()]);
+  const is = (s: string, a = "") => status === s && assigned === a;
+  return (
+    <Tabs
+      tabs={[
+        { href: `${BASE.it}?status=approved`, label: t("tickets.itTabs.waiting"), count: c.it_new, active: is("approved") },
+        { href: `${BASE.it}?status=in_progress&assigned=me`, label: t("tickets.itTabs.mine"), count: c.it_mine, active: is("in_progress", "me") },
+        { href: `${BASE.it}?status=pending_it_head`, label: t("tickets.itTabs.review"), count: c.it_review, active: is("pending_it_head") },
+        { href: `${BASE.it}?status=pending_cancel`, label: t("tickets.itTabs.cancel"), count: c.it_cancel, active: is("pending_cancel") },
+        { href: BASE.it, label: t("tickets.itTabs.all"), active: is("") },
+      ]}
+    />
+  );
+}
+
+function Tabs({ tabs }: { tabs: Tab[] }) {
   return (
     <nav className="flex gap-1 overflow-x-auto rounded-2xl bg-subtle p-1" aria-label="Tabs">
       {tabs.map((tab) => (
         <Link
-          key={tab.key}
-          href={BASE[tab.key]}
-          aria-current={tab.key === scope ? "page" : undefined}
+          key={tab.href}
+          href={tab.href}
+          aria-current={tab.active ? "page" : undefined}
           className={`flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm transition-colors ${
-            tab.key === scope ? "bg-surface font-medium text-accent-800 shadow-sm ring-1 ring-line dark:text-accent-200" : "text-muted hover:text-ink"
+            tab.active ? "bg-surface font-medium text-accent-800 shadow-sm ring-1 ring-line dark:text-accent-200" : "text-muted hover:text-ink"
           }`}
         >
           {tab.label}
@@ -231,7 +261,7 @@ export async function DoneBanner({ done }: { done?: string }) {
   if (!done) return null;
   const { t } = await getI18n();
   const key = done === "created" ? "tickets.created" : `tickets.actions.done.${done}`;
-  const known = ["created", "approve", "reject", "accept", "result", "close", "return"].includes(done);
+  const known = ["created", "approve", "reject", "accept", "progress", "result", "close", "return", "edited", "deleted", "cancel_request", "cancel_confirm", "cancel_reject", "cancel_withdraw"].includes(done);
   if (!known) return null;
   return (
     <div role="status" className={alert.success}>

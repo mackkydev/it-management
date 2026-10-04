@@ -13,6 +13,8 @@ const ALPHANUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 export interface AccessToken {
   id: number;
   userId: number;
+  /** ใช้งานล่าสุดก่อน request นี้ (null = ยังไม่เคยใช้) — ใช้ตรวจ idle timeout ของ API User */
+  lastUsedAt: string | null;
 }
 
 function randomString(length: number): string {
@@ -55,18 +57,18 @@ export async function createToken(userId: number, name: string, expiresAt: Date 
 
 /** ตรวจ Bearer token เหมือน PersonalAccessToken::findToken + Guard ของ Sanctum (หมดอายุ / ผู้ใช้) */
 export async function findToken(bearer: string): Promise<AccessToken | null> {
-  let row: { id: number; tokenable_id: number; token: string; expires_at: string | null; tokenable_type: string } | null;
+  let row: { id: number; tokenable_id: number; token: string; expires_at: string | null; tokenable_type: string; last_used_at: string | null } | null;
   let hash: string;
 
   if (bearer.includes("|")) {
     const [id, plain] = bearer.split("|", 2);
     if (!/^\d+$/.test(id) || !plain) return null;
-    row = await first("SELECT id, tokenable_id, tokenable_type, token, expires_at FROM personal_access_tokens WHERE id = ?", [Number(id)]);
+    row = await first("SELECT id, tokenable_id, tokenable_type, token, expires_at, last_used_at FROM personal_access_tokens WHERE id = ?", [Number(id)]);
     hash = sha256(plain);
     if (!row || !timingSafeEqual(Buffer.from(row.token), Buffer.from(hash))) return null;
   } else {
     hash = sha256(bearer);
-    row = await first("SELECT id, tokenable_id, tokenable_type, token, expires_at FROM personal_access_tokens WHERE token = ?", [hash]);
+    row = await first("SELECT id, tokenable_id, tokenable_type, token, expires_at, last_used_at FROM personal_access_tokens WHERE token = ?", [hash]);
     if (!row) return null;
   }
 
@@ -74,7 +76,7 @@ export async function findToken(bearer: string): Promise<AccessToken | null> {
   if (row.expires_at && new Date(`${row.expires_at.replace(" ", "T")}Z`).getTime() <= Date.now()) return null;
 
   await exec("UPDATE personal_access_tokens SET last_used_at = ?, updated_at = ? WHERE id = ?", [nowDb(), nowDb(), row.id]);
-  return { id: row.id, userId: row.tokenable_id };
+  return { id: row.id, userId: row.tokenable_id, lastUsedAt: row.last_used_at };
 }
 
 export async function deleteToken(id: number): Promise<void> {

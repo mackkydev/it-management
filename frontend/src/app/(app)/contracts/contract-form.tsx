@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition, type ReactNode } from "react";
 import { deleteContract, saveContract, type ContractPayload } from "@/app/actions/it-data";
+import { DateInput } from "@/components/date-input";
 import { AlertIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
@@ -115,8 +116,8 @@ export function ContractForm({ contract, branches, defaultNotifyDays }: { contra
             {text("title", t("contracts.form.title"), { required: true, wide: true })}
             {text("vendor_name", t("contracts.form.vendor"), { required: true })}
             {text("contract_no", t("contracts.form.contractNo"), { max: 100, mono: true })}
-            {text("start_date", t("contracts.form.startDate"), { required: true, type: "date" })}
-            {text("end_date", t("contracts.form.endDate"), { required: true, type: "date" })}
+            {field("start_date", t("contracts.form.startDate"), <DateInput id="start_date" value={v.start_date} onChange={(d) => set("start_date", d)} className={cls("start_date")} />, { required: true })}
+            {field("end_date", t("contracts.form.endDate"), <DateInput id="end_date" value={v.end_date} onChange={(d) => set("end_date", d)} className={cls("end_date")} />, { required: true })}
             {field(
               "amount",
               t("contracts.form.amount"),

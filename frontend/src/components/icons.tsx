@@ -384,3 +384,32 @@ export const ArrowDownIcon = (p: P) => (
     <path d="M12 5v14M19 12l-7 7-7-7" />
   </Icon>
 );
+
+export const CalendarIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="3" y="5" width="18" height="16" rx="2" />
+    <path d="M16 3v4M8 3v4M3 10h18" />
+  </Icon>
+);
+
+export const DownloadIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+  </Icon>
+);
+
+export const UploadIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 20V9M7 14l5-5 5 5M5 4h14" />
+  </Icon>
+);
+
+/** สายอนุมัติ (เส้นทางแยกขั้น) */
+export const GitBranchIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="6" cy="5" r="2" />
+    <circle cx="6" cy="19" r="2" />
+    <circle cx="18" cy="8" r="2" />
+    <path d="M6 7v10M18 10a6 6 0 0 1-6 6H6" />
+  </Icon>
+);

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition, type ReactNode } from "react";
 import { deleteCredential, saveCredential, type CredentialPayload } from "@/app/actions/it-data";
+import { DateInput } from "@/components/date-input";
 import { AlertIcon, EyeIcon, EyeOffIcon, KeyIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
@@ -160,7 +161,7 @@ export function CredentialForm({ credential, branches }: { credential?: Credenti
             ))}
           </select>,
         )}
-        {field("expires_at", t("vault.form.expiresAt"), <input id="expires_at" type="date" value={v.expires_at} onChange={(e) => set("expires_at", e.target.value)} className={cls("expires_at")} />)}
+        {field("expires_at", t("vault.form.expiresAt"), <DateInput id="expires_at" value={v.expires_at} onChange={(d) => set("expires_at", d)} className={cls("expires_at")} />)}
         {field("notes", t("vault.form.notes"), <textarea id="notes" rows={3} maxLength={5000} value={v.notes} onChange={(e) => set("notes", e.target.value)} className={cls("notes")} />, false, undefined, true)}
       </fieldset>
 

@@ -2,13 +2,13 @@ import { Router, type Request } from "express";
 import { exec, first, insert, scalar, select, update } from "../db.js";
 import { authorize, notFound } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
-import { dateOnly, iso, nowDb } from "../lib/time.js";
+import { dateOnly, iso, localToday, nowDb } from "../lib/time.js";
 import { int, validate } from "../lib/validator.js";
 import { me, pageParam, shortMeta } from "../http.js";
-import { isAdmin, type UserRow } from "../models/user.js";
+import { can, type UserRow } from "../models/user.js";
 
 /**
- * บันทึกการปฏิบัติงาน (KPI) — เหมือน KpiController ของ Laravel
+ * บันทึกการปฏิบัติงาน (KPI) — เหมือน KpiController ของ Laravel — เฉพาะฝ่าย IT (admin / เจ้าหน้าที่ IT / หัวหน้า IT)
  *   GET    /kpi?user_id=&from=&to=&per_page=   ของตัวเอง (admin / หัวหน้า IT ดูของผู้อื่นได้)
  *   POST   /kpi             { work_date, details }
  *   PATCH  /kpi/{id}        เจ้าของหรือ admin
@@ -27,8 +27,8 @@ interface KpiRow {
 }
 
 /** ดูบันทึกของผู้อื่นได้: admin และหัวหน้า IT */
-const canViewOthers = (u: UserRow) => isAdmin(u) || Boolean(u.is_it_head);
-const canEdit = (u: UserRow, row: { user_id: number }) => row.user_id === u.id || isAdmin(u);
+const canViewOthers = (u: UserRow) => can(u, "kpi.view_all");
+const canEdit = (u: UserRow, row: { user_id: number }) => can(u, "kpi.use") && (row.user_id === u.id || can(u, "kpi.edit_all"));
 
 const SELECT = "k.*, u.name AS u_name FROM kpi_entries k LEFT JOIN users u ON u.id = k.user_id";
 
@@ -49,14 +49,11 @@ async function findEntry(req: Request): Promise<KpiRow> {
   return row;
 }
 
-/**
- * วันที่ปฏิบัติงานต้องไม่เป็นวันในอนาคต — "today" ของ server เป็น UTC ซึ่งช้ากว่าเวลาไทย 7 ชม.
- * จึงยอมถึง "tomorrow" (UTC) เพื่อไม่ให้ผู้ใช้ในไทยบันทึกวันนี้ไม่ได้ช่วง 00:00–07:00 (หน้าเว็บจำกัด max = วันนี้อยู่แล้ว)
- */
+/** วันที่ปฏิบัติงานต้องไม่เป็นวันในอนาคต — "วันนี้" ตาม timezone ผู้ใช้ (EAM_LOCAL_TIMEZONE) ไม่ใช่ UTC ของ server */
 const rules = (partial: boolean) => {
   const s = partial ? ["sometimes"] : [];
   return {
-    work_date: [...s, "required", "date", "before_or_equal:tomorrow"],
+    work_date: [...s, "required", "date", `before_or_equal:${localToday()}`],
     details: [...s, "required", "string", "max:5000"],
   };
 };
@@ -64,6 +61,7 @@ const messages = (req: Request) => ({ "work_date.before_or_equal": trans(req.loc
 
 kpiRoutes.get("/kpi", async (req, res) => {
   const u = me(req);
+  authorize(can(u, "kpi.use"));
   const f = await validate(
     req.input,
     {
@@ -97,6 +95,7 @@ kpiRoutes.get("/kpi", async (req, res) => {
 
 kpiRoutes.post("/kpi", async (req, res) => {
   const u = me(req);
+  authorize(can(u, "kpi.use"));
   const data = await validate(req.input, rules(false), { locale: req.locale, messages: messages(req) });
   const now = nowDb();
   const id = await insert("kpi_entries", {

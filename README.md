@@ -1,36 +1,33 @@
 # IT-SYSTEM — ระบบงานฝ่าย IT
 
 ระบบแจ้งงาน IT, คลังบัญชี/รหัสผ่าน, สัญญา vendor และทะเบียนสินทรัพย์ IT แบบ Decoupled —
-**Next.js 16 (App Router) + Express.js 5 REST API (Laravel 13 สำรอง) + PostgreSQL 17 + Prisma migrations** รองรับมือถือ
+**Next.js 16 (App Router) + Express.js 5 REST API + PostgreSQL 17 + Prisma migrations** รองรับมือถือ
+(Laravel API เดิมถูกถอดออกเมื่อ 4 ต.ค. 2569 — โค้ดเดิมดูได้จาก git history)
 
 ```
 it-management/
-├── express/            REST API หลัก — Express.js 5 + TypeScript + Prisma migrations (container it_express)
-├── backend/            Laravel 13 API สำรอง (container it_api) — migration เดิมหยุดใช้แล้ว
+├── express/            REST API — Express.js 5 + TypeScript + Prisma migrations (container it_express)
 ├── frontend/           Next.js 16 + Tailwind CSS 4 (รันบนเครื่อง)
-├── docker/php/         Dockerfile: PHP 8.3 + Composer 2 + pdo_pgsql/intl/zip/opcache/bcmath/gd
+├── storage/private/    ไฟล์แนบ / ลายเซ็น / ไฟล์ license (ไม่ขึ้น git — ต้องสำรองแยก)
 ├── docker/postgres/    init.sh: สร้างผู้ใช้ it_app + ฐาน it_system / _test / _shadow (ครั้งแรกที่สร้าง volume)
-├── docker-compose.yml  it_postgres + it_express + it_api + it_adminer (+ it_scheduler / it_mariadb เป็น profile)
-├── database/           SQL สำหรับกรณีติดตั้ง PostgreSQL เองโดยไม่ใช้ Docker
-└── scripts/            สคริปต์ติดตั้ง backend (Docker: .sh / ไม่ใช้ Docker: .ps1)
+├── docker-compose.yml  it_postgres + it_express + it_adminer (+ it_mariadb เป็น profile)
+└── database/           SQL สำหรับกรณีติดตั้ง PostgreSQL เองโดยไม่ใช้ Docker
 ```
 
 ## ความต้องการของเครื่อง
 
-- Docker Desktop (Compose v2) — Node (API), PostgreSQL, PHP (ตัวสำรอง) อยู่ใน container ทั้งหมด
+- Docker Desktop (Compose v2) — Node (API) และ PostgreSQL อยู่ใน container
 - Node.js 20.9+ (ทดสอบด้วย 24) สำหรับ frontend
 
 | Service | Container | พอร์ตบนเครื่อง |
 |---|---|---|
-| **Express API (หลัก)** | `it_express` | http://127.0.0.1:8020 (+ งานแจ้งเตือนใกล้หมดอายุทุกวัน 08:00 เวลาไทย) |
-| Laravel API (สำรอง) | `it_api` | http://127.0.0.1:8010 |
-| Laravel scheduler | `it_scheduler` | ปิดไว้ (profile `laravel-scheduler`) — Express รันงานแจ้งเตือนแทน |
+| **Express API** | `it_express` | http://127.0.0.1:8020 (+ งานแจ้งเตือนใกล้หมดอายุทุกวัน 08:00 เวลาไทย) |
 | **PostgreSQL 17** | `it_postgres` | 127.0.0.1:5433 (user `it_app`, db `it_system`) |
 | Adminer | `it_adminer` | http://127.0.0.1:8081 (ระบบ PostgreSQL, เซิร์ฟเวอร์ `postgres`, ผู้ใช้ `it_app`, ฐาน `it_system`) |
 | MariaDB (เดิม) | `it_mariadb` | ไม่เปิดตามปกติ — สำรองข้อมูลเดิม: `docker compose --profile legacy-mariadb up -d mariadb` (127.0.0.1:3307) |
 | Next.js | (บนเครื่อง) | http://localhost:3000 |
 
-> ใช้พอร์ต 8010/8020/5433/8081 เพื่อไม่ชนกับ stack `system_*` ที่ใช้ 8000/3306/8080 อยู่แล้ว
+> ใช้พอร์ต 8020/5433/8081 เพื่อไม่ชนกับ stack `system_*` ที่ใช้ 8000/3306/8080 อยู่แล้ว
 > ทุกพอร์ต bind เฉพาะ 127.0.0.1 — เข้าได้จากเครื่องนี้เท่านั้น
 
 ---
@@ -47,25 +44,17 @@ docker compose exec express npx prisma migrate deploy   # สร้าง/อั
 docker compose exec express npx prisma db seed          # สาขา + admin@example.com (รหัส = SEED_ADMIN_PASSWORD)
 ```
 
-ถ้าต้องการ Laravel เป็นตัวสำรองด้วย: `docker compose run --rm -v ./scripts:/scripts api sh /scripts/setup-backend-docker.sh`
-แล้ว `docker compose up -d api` (ใช้ `APP_KEY`/`DB_*` ค่าเดียวกับ `express/.env` — **ห้ามรัน `php artisan migrate`**)
-
 **ใช้งานประจำวัน**
 
 ```powershell
 docker compose up -d                                      # เปิด
 docker compose down                                       # ปิด (ข้อมูล DB อยู่ใน volume it-system_it_pg)
-docker compose exec api php artisan test                  # เทสต์ (SQLite in-memory ไม่แตะ DB จริง)
-docker compose exec api php artisan it:notify-expiring --dry-run   # ดูรายการที่จะแจ้งเตือน (ไม่ส่งจริง)
 docker compose exec postgres psql -U it_app -d it_system  # เข้า PostgreSQL console
-docker compose exec postgres pg_dump -U it_app it_system > backup.sql   # สำรองข้อมูล
-docker compose logs -f api scheduler
+docker compose exec postgres pg_dump -U it_app it_system > backup.sql   # สำรองข้อมูล (+ สำรองโฟลเดอร์ storage/private)
+docker compose logs -f express
 ```
 
-> ห้ามใส่ `DB_*` เป็น `environment:` ใน docker-compose.yml — ค่าจาก env ของ container จะมีลำดับเหนือ `phpunit.xml`
-> ทำให้ `php artisan test` ไปล้างฐานข้อมูลจริง ให้แก้ค่าใน `backend\.env` แทน
-
-**อีเมลแจ้งเตือน (SMTP)** — แก้ใน `backend\.env` แล้ว `docker compose restart api scheduler`
+**อีเมลแจ้งเตือน (SMTP)** — แก้ใน `express\.env` แล้ว `docker compose up -d express`
 
 ```env
 MAIL_MAILER=smtp
@@ -77,24 +66,13 @@ MAIL_SCHEME=null          # 465 ใช้ smtps
 MAIL_FROM_ADDRESS=it-system@your-company.com
 ```
 
-ขณะ `MAIL_MAILER=log` อีเมลจะถูกเขียนลง `backend/storage/logs/laravel.log` แทนการส่งจริง
+## Express API
 
-## Express API (หลัก) กับ Laravel (สำรอง)
+รูปแบบข้อมูลเดิมจากยุค Laravel ยังคงไว้ (ข้อมูลที่มีอยู่ใช้ต่อได้): token แบบ Sanctum (`id|token`, sha256 ใน `personal_access_tokens`),
+รหัสผ่าน bcrypt `$2y$`, ข้อมูลเข้ารหัสรูปแบบ `Crypt::encryptString` ด้วย `APP_KEY` (**ห้ามเปลี่ยน `APP_KEY`** — ถอดรหัสข้อมูลเดิมไม่ได้)
 
-Express (`express/`) ทำ endpoint ครบทุกตัวเหมือน Laravel — path, JSON, สิทธิ์, ข้อความ validation th/en, rate limit
-และใช้ **ฐานข้อมูล / token / ไฟล์แนบชุดเดียวกัน** จึงสลับกันได้ทันทีโดยแก้ `API_URL` ใน `frontend\.env.local` แล้ว restart Next.js
-
-| สิ่งที่ใช้ร่วมกัน | วิธีที่ทำให้เข้ากันได้ |
-|---|---|
-| Token | รูปแบบ Sanctum (`id|token`, sha256 ในตาราง `personal_access_tokens`) — login ฝั่งไหนก็ใช้กับอีกฝั่งได้ |
-| รหัสผ่านผู้ใช้ | bcrypt `$2y$` (cost ตาม `BCRYPT_ROUNDS`) |
-| คลังรหัสผ่าน | AES-256-CBC + MAC รูปแบบ `Crypt::encryptString` ด้วย `APP_KEY` เดียวกัน |
-| ไฟล์แนบ/ลายเซ็น | โฟลเดอร์ `backend/storage/app/private` (mount เข้า container ทั้งสอง) |
-| แจ้งเตือน / ตั้งค่า | ตาราง `notifications`, `app_settings` รูปแบบเดียวกัน (ล้าง cache ของ Laravel เมื่อแก้) |
-
-- ค่า env ทั้งหมดของ Express อยู่ใน `express/.env` (ไม่พึ่ง `backend/.env`) — Docker ส่งค่าให้ผ่าน `env_file` และแทน `DB_HOST/DB_PORT` เป็น `postgres:5432`
+- ค่า env ทั้งหมดอยู่ใน `express/.env` — Docker ส่งค่าให้ผ่าน `env_file` และแทน `DB_HOST/DB_PORT` เป็น `postgres:5432`
   production ใช้ตัวแปร environment ของเซิร์ฟเวอร์แทนไฟล์ได้ (ตั้ง `SKIP_ENV_FILES=1`)
-- ถ้ายังใช้ Laravel เป็นตัวสำรอง `APP_KEY` และ `DB_*` ใน `express/.env` กับ `backend/.env` ต้องตรงกันเสมอ
 
 ```powershell
 docker compose up -d --build express                 # build/รัน Express
@@ -117,9 +95,9 @@ migration แรก `0_init` คือโครงสร้างเดียว
 | ตรวจว่าฐานตรงกับ schema | `npm run db:validate` |
 | ข้อมูลตั้งต้น | `npm run db:seed` (รันซ้ำได้ — ไม่เปลี่ยนรหัสผ่านผู้ใช้ที่มีอยู่) |
 
-> **ห้ามเพิ่ม Laravel migration และห้ามรัน `php artisan migrate` อีก** — จะชนกับ Prisma
 > ตรวจไฟล์ `migration.sql` ที่ Prisma สร้างทุกครั้งก่อน deploy (การลบ/เปลี่ยนชนิดคอลัมน์ทำให้ข้อมูลหายได้)
-> เพิ่มคอลัมน์แล้วต้องแก้ query/resource ใน `express/src` ด้วย (และ Laravel ถ้ายังใช้เป็นตัวสำรอง)
+> เพิ่มคอลัมน์แล้วต้องแก้ query/resource ใน `express/src` ด้วย
+> migration ที่ย้อนกลับได้มี `down.sql` ในโฟลเดอร์เดียวกัน (Prisma ไม่รันให้ — รันด้วย psql เอง)
 
 ฐาน `it_system_test` (เทสต์) และ `it_system_shadow` (prisma migrate dev) ถูกสร้างอัตโนมัติโดย `docker/postgres/init.sh`
 
@@ -131,8 +109,6 @@ migration แรก `0_init` คือโครงสร้างเดียว
 cd express; npx prisma migrate deploy
 $env:LEGACY_MARIADB_URL = 'mysql://it_app:รหัส@127.0.0.1:3307/it_system'; npm run db:import-mariadb   # เพิ่ม -- --truncate เพื่อแทนที่ข้อมูลเดิม
 ```
-> **กลับไปใช้ Laravel เป็นหลัก**: `API_URL=http://127.0.0.1:8010/api/v1`, ตั้ง `SCHEDULER_ENABLED: "false"` ที่ service express
-> แล้ว `docker compose --profile laravel-scheduler up -d` (อย่าเปิด scheduler ทั้งสองฝั่งพร้อมกัน — จะแจ้งเตือนซ้ำ)
 
 ## 2) Frontend (Next.js) — รันที่ `E:\Claude_Jobs\it-management\frontend`
 
@@ -145,7 +121,7 @@ npm run dev
 
 (`.env.local` ชี้ `API_URL=http://127.0.0.1:8020/api/v1` (Express); ถ้าพอร์ต 3000 ถูกใช้ ให้รัน `npm run dev -- -p 3001`)
 
-**บัญชีตัวอย่าง** (รหัสผ่าน = `SEED_ADMIN_PASSWORD` ใน `backend\.env`, ค่าเริ่มต้น `ChangeMe!2026`)
+**บัญชีตัวอย่าง** (รหัสผ่าน = `SEED_ADMIN_PASSWORD` ใน `express\.env`)
 
 | อีเมล | บทบาท |
 |---|---|
@@ -169,6 +145,8 @@ Production: `npm run build` แล้ว `npm run start`
 - Workflow: `รอหัวหน้าอนุมัติ → อนุมัติแล้ว → IT รับงาน → บันทึกผล (รูป ≤ 4, อะไหล่ + รูป 1 รูป) → รอหัวหน้า IT อนุมัติ → เสร็จสิ้น`
   (ตีกลับ / ไม่อนุมัติพร้อมเหตุผลได้) — แจ้งเตือนในระบบทุกขั้น (กระดิ่งมุมบน) และพิมพ์ใบแจ้งตามแบบฟอร์มได้
 - หลังบ้าน IT `/it/tickets`: รายการทั้งหมด + สถานะ + ปุ่มรับงาน · หัวหน้า `/tickets/approvals`
+- หน้ารายละเอียดมีไทม์ไลน์ขั้นตอน (ไฮไลต์ขั้นที่กำลังดำเนินการ) · ผู้แจ้ง **แก้ไข/ลบ** ได้ก่อนหัวหน้าอนุมัติ (ไม่อนุมัติ = ลบได้)
+- อนุมัติแล้วผู้แจ้งกด **ขอยกเลิก** (ระบุเหตุผล) → สถานะ `รอดำเนินการยกเลิก` + แจ้งเจ้าหน้าที่ IT ผู้รับงาน (ยังไม่มีผู้รับ = IT ทุกคน) → IT ยืนยัน (`ยกเลิกแล้ว`) หรือปฏิเสธ (กลับสถานะเดิม) · ผู้แจ้งถอนคำขอได้
 
 ### ข้อมูลแผนก IT (admin + เจ้าหน้าที่ IT)
 - **คลังบัญชี/รหัสผ่าน** `/vault`: รหัสผ่านและข้อมูลลับเข้ารหัสใน DB (Laravel `encrypted` cast — กุญแจคือ `APP_KEY`),
@@ -182,6 +160,21 @@ Production: `npm run build` แล้ว `npm run start`
 
 ### สินทรัพย์ IT
 - ทะเบียนสินทรัพย์ (รายการ/เพิ่ม/แก้ไข/รายละเอียด + timeline การโอนย้าย), ประวัติการโอนย้ายรวม, สถานที่
+
+### บทบาท / ข้อมูลหลัก / โลโก้
+- บทบาท: ผู้ดูแลระบบ · ผู้จัดการฝ่าย · ผู้จัดการ · เจ้าหน้าที่ IT (ติ๊กเจ้าหน้าที่ IT ให้อัตโนมัติ) · พนักงาน — สิทธิ์ของแต่ละบทบาทตั้งที่ `/role-permissions`
+- **ฝ่าย** `/divisions` · **แผนก** `/departments` (สิทธิ์ `org.manage`): ฟอร์มผู้ใช้เลือกจากรายการนี้ · เปลี่ยนชื่อแล้วชื่อในข้อมูลผู้ใช้ (และสายอนุมัติ) เปลี่ยนตาม · ลบได้เมื่อไม่มีผู้ใช้
+- **โลโก้ระบบ** (หน้า ตั้งค่าระบบ → การแจ้งเตือน): PNG/JPG/WebP ≤ 1MB แสดงหน้าชื่อ IT-SYSTEM ในเมนู — ไม่มีรูป = icon เดิม
+- ปุ่ม "เพิ่ม" สินทรัพย์ / สถานที่ / ผู้ใช้ อยู่ที่หน้ารายการของแต่ละเมนู (ตั้งการมองเห็นที่หน้าสิทธิ์การใช้งาน → ปุ่ม)
+
+### ผู้ใช้ 2 แบบ + สิทธิ์ (Local Admin)
+- **LOCAL** = ผู้ใช้ของระบบเรา (อีเมล + รหัสผ่าน) · **API User** = login ผ่าน REST API ของระบบต้นทาง (ไม่เก็บรหัสผ่าน, สร้างบัญชีอัตโนมัติตอน login ครั้งแรก)
+- **การเชื่อมต่อ API** `/api-connections`: endpoint, path ของ token/โปรไฟล์ (dot path), การ map ข้อมูล/บทบาท/error, การยืนยันตัวตน (secret เข้ารหัส),
+  allowlist IP ภายใน (กัน SSRF), ลิงก์ลืม/เปลี่ยนรหัสผ่านที่ต้นทาง + ปุ่มทดสอบการเชื่อมต่อ — เปิดแล้วหน้า login มีแท็บของระบบนั้น
+- **ผู้ใช้จาก API** `/api-users`: ค้นหา/กรองบทบาท สถานะ ระบบต้นทาง อีเมลซ้ำ · ปุ่ม "ผูกบัญชี" (อีเมลซ้ำกับบัญชี LOCAL เดิม) ·
+  แก้บทบาท (ผู้จัดการ / ผู้ใช้งานทั่วไป) + สิทธิ์รายตัว (ตามบทบาท / อนุญาต / ไม่อนุญาต)
+- **บันทึกการเปลี่ยนแปลง** `/audit-logs`: ใคร เมื่อไร ทำอะไร ค่าก่อน-หลัง IP (ไม่มี secret/token/รหัสผ่าน)
+- Session ของ API User: ไม่ใช้งานเกิน 30 นาที (`API_SESSION_IDLE_MINUTES`) ต้อง login ใหม่ · อายุไม่เกิน token ต้นทาง · ตรวจสถานะกับต้นทางทุก 10 นาที
 
 ## หน้าจอและการแสดงผล
 
@@ -199,15 +192,20 @@ Production: `npm run build` แล้ว `npm run start`
 | POST | `/auth/login` | - | `email`, `password`, `device_name` → `token` (5 ครั้ง/นาที) |
 | GET / PATCH | `/auth/me` | ทุกคน | |
 | PUT | `/auth/password` | ทุกคน | เพิกถอน token อุปกรณ์อื่น |
-| GET / POST / PATCH / DELETE | `/kpi[/{id}]` | ทุกคน | บันทึก KPI ของตัวเอง (admin / หัวหน้า IT ดูของทุกคน: `user_id`, `from`, `to`) |
+| GET / POST / PATCH / DELETE | `/kpi[/{id}]` | ฝ่าย IT | บันทึก KPI ของตัวเอง (admin / หัวหน้า IT ดูของทุกคน: `user_id`, `from`, `to`) |
+| GET / POST / PUT / DELETE | `/approval-routes[/{id}]` | admin | สายอนุมัติใบแจ้งงาน: `name, branch_id, department, is_active, steps:[{name, approver_ids:[]}]` (1–5 ขั้น, ขั้นละ 1–20 คน) |
+| GET | `/approval-routes/resolve?user_id=` | ทุกคน (ของคนอื่น = admin) | แผนอนุมัติของผู้ใช้: `source` (user/branch_department/branch/department/default/legacy), `steps`, `legacy_approver` |
+| GET | `/approval-routes/departments` | admin | รายชื่อแผนกที่มีในข้อมูลผู้ใช้ |
 | GET | `/ui-config` | ทุกคน | การมองเห็นเมนู/ปุ่ม + ลำดับเมนู (แก้ผ่าน `PUT /settings` คีย์ `ui_permissions`, `menu_order` — admin) |
-| GET / POST / DELETE | `/auth/me/signature` | ทุกคน | ลายเซ็นในโปรไฟล์ (multipart `signature`: PNG/JPG/WebP ≤ 1MB) — แสตมป์ลงช่องผู้แจ้งของใบแจ้งงาน |
+| GET / POST / PUT / DELETE | `/auth/me/signature` | `signature.manage_own` (ตั้งต้นทุกคน) | ลายเซ็นของฉัน (multipart `signature`: PNG/JPG ≤ 1MB, `source`: UPLOAD|DRAW) — crop + ย่อ ≤ 600px + re-encode PNG, เก็บเข้ารหัส, อันเดิมเป็นประวัติ · 10 ครั้ง/นาที |
+| DELETE | `/users/{id}/signature` | Local Admin | ลบ (ปิดใช้งาน) ลายเซ็นของผู้ใช้ + audit |
 | GET | `/tickets?scope=mine\|approvals\|it` | ทุกคน | ตาม scope ที่มีสิทธิ์ + `counts` |
 | GET | `/tickets/form-options` | ทุกคน | สาขา, เจ้าหน้าที่ IT, ตัวเลือก "อื่นๆ" |
 | POST | `/tickets` | ทุกคน | multipart: `photos[]` ≤ 4 (1MB), `documents[]` ≤ 5 (5MB) — ลายเซ็นผู้แจ้งคัดลอกจากโปรไฟล์ ณ ตอนแจ้ง (ส่ง `signature` data URL PNG มาแทนได้) |
 | GET | `/tickets/{uuid}` | ผู้เกี่ยวข้อง | |
-| POST | `/tickets/{uuid}/approve` \| `reject` | หัวหน้าตามสาย | reject ต้องมี `comment` |
+| POST | `/tickets/{uuid}/approve` \| `reject` | ผู้อนุมัติขั้นปัจจุบัน (สายอนุมัติ) / หัวหน้าตามสาย (ระบบเดิม) / admin | reject ต้องมี `comment` — สายอนุมัติ: approve ส่งต่อขั้นถัดไปจนครบจึงเป็น `approved` (detail มี `current_step`, `approval_steps`) |
 | POST | `/tickets/{uuid}/accept` \| `result` | เจ้าหน้าที่ IT | result: multipart + `parts[]` |
+| POST | `/tickets/{uuid}/progress` | เจ้าหน้าที่ IT ผู้รับงาน / หัวหน้า IT | บันทึกความคืบหน้า `comment` (จำเป็น) ระหว่างสถานะ in_progress — ขึ้นไทม์ไลน์ + แจ้งผู้แจ้ง ไม่เปลี่ยนสถานะ |
 | POST | `/tickets/{uuid}/close` \| `return` | หัวหน้า IT | |
 | GET | `/tickets/{uuid}/files/{kind}/{id}` | ผู้เกี่ยวข้อง | ไฟล์ใน private disk |
 | GET/POST/PATCH/DELETE | `/credentials[/{id}]` | IT, admin | ไม่ส่งรหัสผ่านใน response |
@@ -217,7 +215,30 @@ Production: `npm run build` แล้ว `npm run start`
 | GET/POST/PATCH/DELETE | `/branches[/{id}]` | อ่าน: ทุกคน · แก้: admin | |
 | GET / PUT | `/settings` | admin | |
 | GET | `/notifications` · POST `/notifications/{id}/read` · `/notifications/read-all` | ทุกคน | |
-| GET/POST/PATCH/DELETE | `/assets`, `/locations`, `/users`, `/movements` | ตามบทบาท | (ชุดเดิมของทะเบียนสินทรัพย์) |
+| GET/POST/PATCH/DELETE | `/assets`, `/locations`, `/users`, `/movements` | ตามบทบาท | (ชุดเดิมของทะเบียนสินทรัพย์) — หมวด `SOFTWARE` ต้องส่ง `license:{billing: yearly\|custom\|perpetual, start_date, expires_at, seats, vendor, license_key, clear_license_key, notify_days_before}` (key เข้ารหัส ไม่ส่งกลับ; ว่าง = คงเดิม) |
+| GET | `/license-installations?license_id=&status=active\|removed\|all&branch_id=&search=` | ผู้จัดการสินทรัพย์ / ฝ่าย IT | การติดตั้ง license (+ `usage: {seats, used, available}` เมื่อระบุ license_id) |
+| GET | `/license-installations/licenses` | ผู้จัดการสินทรัพย์ / ฝ่าย IT | license ทั้งหมด + จำนวนที่ใช้/คงเหลือ |
+| POST | `/license-installations` | ผู้จัดการสินทรัพย์ / ฝ่าย IT | `{license_id, device_asset_id \| device_name, user_id, branch_id, installed_at, notes}` — บันทึกเกินจำนวน seat ไม่ได้ |
+| POST / DELETE | `/license-installations/{id}/uninstall`, `/license-installations/{id}` | ผู้จัดการสินทรัพย์ / ฝ่าย IT | ถอนการติดตั้ง (คืน seat, เก็บประวัติ) / ลบรายการที่บันทึกผิด |
+| GET | `/announcements/public` | **ไม่ต้อง login** | ประกาศหน้า login ที่เปิดอยู่และอยู่ในช่วงวันที่ (≤ 5) |
+| GET | `/sync/version` | ทุกคน | ลายนิ้วมือข้อมูล (COUNT+MAX(updated_at) ของตารางหลัก + การแจ้งเตือนของผู้ใช้) — frontend `<LiveRefresh>` ถามทุก 10 วินาทีแล้ว refresh หน้าเมื่อเปลี่ยน |
+| GET | `/auth/connections` | **ไม่ต้อง login** | ช่องทาง login ผ่านระบบต้นทางที่เปิดอยู่ `{id, name, register_url, forgot_password_url}` |
+| POST | `/auth/api-login` | **ไม่ต้อง login** (5 ครั้ง/นาที) | `{connection_id, username, password, device_name}` → login ที่ต้นทาง + JIT สร้าง/อัปเดต API User → token ของเรา (รูปแบบเดียวกับ `/auth/login`) |
+| GET / POST / PUT / PATCH / DELETE | `/api-connections[/{id}]` | Local Admin | ตั้งค่าการเชื่อมต่อ REST API ต้นทาง (secret เข้ารหัส ไม่ส่งกลับ, ทุกการแก้ไขลง `audit_logs`) — ลบได้เมื่อยังไม่มีผู้ใช้ |
+| POST | `/api-connections/{id}/test` | Local Admin | `{username, password}` ลอง login จริงแล้วแสดงผลการ map (ไม่คืน token / ไม่สร้างผู้ใช้) |
+| GET | `/permissions` | Local Admin | รายการสิทธิ์ + สิทธิ์ของแต่ละกลุ่ม |
+| PUT | `/permissions/roles/{group}` | Local Admin | `{keys: [...]}` กำหนดสิทธิ์ทั้งชุดของบทบาท / it_staff / it_head |
+| GET / POST / PUT / DELETE | `/departments[/{id}]`, `/divisions[/{id}]` | อ่าน: ทุกคน · แก้: `org.manage` | แผนก / ฝ่าย (`?include_inactive=1` = ทั้งหมด + จำนวนผู้ใช้) |
+| GET | `/branding/logo` | **ไม่ต้อง login** | รูปโลโก้ระบบ (ไม่มี = 404) |
+| POST / DELETE | `/settings/logo` | `settings.manage` | อัปโหลด (multipart `logo`, PNG/JPG/WebP ≤ 1MB) / ลบโลโก้ |
+| GET / PUT | `/users/{id}/permissions` | Local Admin | สิทธิ์จากกลุ่ม + เพิ่ม/ถอดรายคน + สิทธิ์จริง · PUT `{role? (API User: manager\|viewer), overrides: {key: allow\|deny\|inherit}}` |
+| GET | `/api-users` | Local Admin | `?search=&role=&status=&connection_id=&conflict=1` รายการ API User |
+| POST | `/api-users/{id}/link` | Local Admin | `{local_user_id}` ผูก API User กับบัญชี LOCAL เดิม (บัญชีเดิมใช้รหัสผ่านเดิมไม่ได้อีก; ห้ามผูกกับ admin) |
+| GET | `/audit-logs`, `/audit-logs/actions` | Local Admin | `?action=&subject_type=&subject_id=&actor_id=&from=&to=` บันทึกการเปลี่ยนแปลง |
+| GET / POST / PUT / DELETE | `/announcements[/{id}]` | admin / ฝ่าย IT | จัดการประกาศ `{title, body, level: info\|warning\|danger, is_active, starts_on, ends_on, sort_order}` |
+| GET | `/assets/suggestions?field=brand\|model&q=&brand=` | ทุกคน | ยี่ห้อ/รุ่นที่มีอยู่ (ไม่ซ้ำ ไม่สนตัวพิมพ์, รุ่นกรองตามยี่ห้อ) |
+| POST | `/assets/{uuid}/license-key` | ผู้จัดการสินทรัพย์ / ฝ่าย IT | ดู license key (จำกัด 30 ครั้ง/นาที) |
+| POST / GET / DELETE | `/assets/{uuid}/files[/{id}]` | เพิ่ม/ลบ = ผู้จัดการสินทรัพย์, ดู = ทุกคน | ไฟล์ license: multipart `files[]` ≤ 10 ไฟล์ (≤ 10MB: pdf, ข้อความ .lic/.key/.txt/.xml, รูป, Office, zip); GET แสดงในเบราว์เซอร์ (pdf/รูป/ข้อความ) หรือ `?download=1` |
 
 ## Security ที่ทำไว้
 

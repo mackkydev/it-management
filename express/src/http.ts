@@ -6,6 +6,8 @@ import type { Locale } from "./lib/i18n.js";
 import { findToken } from "./lib/tokens.js";
 import { UploadedFile } from "./lib/uploaded-file.js";
 import { findUser, type UserRow } from "./models/user.js";
+import { checkApiSession } from "./services/api-auth.js";
+import { permissionsOf } from "./services/permissions.js";
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -25,7 +27,7 @@ export const me = (req: Request): UserRow => req.user!;
 
 /* -------------------------------------------------- input (TrimStrings + ConvertEmptyStringsToNull) */
 
-const NO_TRIM = new Set(["password", "password_confirmation", "current_password"]);
+const NO_TRIM = new Set(["password", "password_confirmation", "current_password", "auth_secret"]);
 
 function normalize(value: unknown, key = ""): unknown {
   if (typeof value === "string") {
@@ -155,8 +157,15 @@ export async function auth(req: Request, _res: Response, next: NextFunction) {
   if (!bearer) throw unauthenticated();
 
   const token = await findToken(bearer);
-  const user = token ? await findUser(token.userId) : null;
+  let user = token ? await findUser(token.userId) : null;
   if (!token || !user) throw unauthenticated();
+  // API User: ตรวจ session กับต้นทาง (หมดอายุ / idle / ถูกปิดใช้งาน / ซิงก์โปรไฟล์) — ผู้ใช้ LOCAL ทำงานเหมือนเดิม
+  if (user.type === "API") {
+    user = await checkApiSession(token.id, user, token.lastUsedAt);
+    if (!user) throw unauthenticated();
+  }
+  // สิทธิ์จริง (กลุ่ม + เพิ่ม/ถอดรายคน) คำนวณครั้งเดียวต่อ request — can(user, key) ใช้ค่านี้
+  user.perms = await permissionsOf(user);
 
   req.user = user;
   req.tokenId = token.id;

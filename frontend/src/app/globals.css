@@ -360,6 +360,45 @@ body {
   }
 }
 
+/* กระดิ่งแจ้งเตือน: สั่นทุก ~3 วินาทีเมื่อมีรายการที่ยังไม่อ่าน */
+.bell-ring {
+  transform-origin: 50% 2px;
+  animation: bell-ring 3s ease-in-out infinite;
+}
+@keyframes bell-ring {
+  0%,
+  55%,
+  100% {
+    rotate: 0deg;
+  }
+  60% {
+    rotate: 18deg;
+  }
+  65% {
+    rotate: -16deg;
+  }
+  70% {
+    rotate: 12deg;
+  }
+  75% {
+    rotate: -10deg;
+  }
+  80% {
+    rotate: 6deg;
+  }
+  85% {
+    rotate: -3deg;
+  }
+  90% {
+    rotate: 0deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bell-ring {
+    animation: none;
+  }
+}
+
 /* แผงการตั้งค่าที่เปิดออกทางขวาของ sidebar */
 @keyframes flyout-in {
   from {

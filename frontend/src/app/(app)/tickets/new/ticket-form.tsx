@@ -2,12 +2,16 @@
 
 import Link from "next/link";
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { createTicket } from "@/app/actions/tickets";
+import { createTicket, updateTicket } from "@/app/actions/tickets";
+import { DateInput } from "@/components/date-input";
 import { DocumentPicker, PhotoPicker } from "@/components/file-pickers";
-import { AlertIcon, ClipboardIcon, PenIcon, SendIcon, SpinnerIcon, XIcon } from "@/components/icons";
+import { AlertIcon, CheckCircleIcon, ClipboardIcon, PenIcon, SendIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import { TICKET_TYPES, type TicketType, type User } from "@/lib/types";
+import { localToday } from "@/lib/date";
+import { has } from "@/lib/permissions";
+import { TICKET_TYPES, type ApprovalPlan, type TicketDetail, type TicketType, type User } from "@/lib/types";
+import { PlanView } from "../../approval-routes/plan-view";
 
 export interface TicketFormOptions {
   branches: { id: number; code: string; name: string }[];
@@ -20,31 +24,58 @@ type Field =
   | "person_name_th" | "person_name_en" | "device_name" | "asset_tag" | "symptom" | "photos" | "documents";
 type Errors = Partial<Record<Field, string>>;
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
 
 /**
  * ฟอร์ม "ใบแจ้งดำเนินงาน IT" — ลำดับช่องตามแบบฟอร์มกระดาษ
  * เรื่อง → แผนก/ฝ่าย → สาขา → เจ้าหน้าที่ IT → รายละเอียด → วันที่ต้องการ → (1.1 / 1.2) → ไฟล์แนบ → ผู้แจ้ง
  * ลายเซ็นผู้แจ้งไม่ต้องวาด — API ใช้ลายเซ็นที่อัปโหลดในข้อมูลส่วนตัว แล้วแสตมป์ลงเอกสารตอนดู/พิมพ์
+ * editing = แก้ไขใบเดิม (ผู้แจ้ง ก่อนอนุมัติ) — ไม่มีส่วนไฟล์แนบ/ลายเซ็น/สายอนุมัติ
  */
-export function TicketForm({ user, options }: { user: User; options: TicketFormOptions }) {
+export function TicketForm({
+  user,
+  options,
+  plan,
+  editing,
+}: {
+  user: User;
+  options: TicketFormOptions;
+  plan: ApprovalPlan | null;
+  editing?: TicketDetail;
+}) {
   const { t, fmt } = useI18n();
-  const [type, setType] = useState<TicketType>("repair");
-  const [v, setV] = useState({
-    type_other: "",
-    // 4.2.2 สาขา: เลือกให้อัตโนมัติจากสาขาที่ผู้ใช้สังกัด (ถ้าสาขานั้นยังเปิดใช้งาน)
-    branch_id: options.branches.some((b) => b.id === user.branch_id) ? String(user.branch_id) : "",
-    department: user.department ?? "",
-    division: user.division ?? "",
-    details: "",
-    due_date: "",
-    assignee_id: "",
-    person_name_th: "",
-    person_name_en: "",
-    device_name: "",
-    asset_tag: "",
-    symptom: "",
-  });
+  const [type, setType] = useState<TicketType>(editing?.type ?? "repair");
+  const [v, setV] = useState(() =>
+    editing
+      ? {
+          type_other: editing.type_other ?? "",
+          branch_id: editing.branch ? String(editing.branch.id) : "",
+          department: editing.department ?? "",
+          division: editing.division ?? "",
+          details: editing.details ?? "",
+          due_date: editing.due_date ?? "",
+          assignee_id: editing.assignee ? String(editing.assignee.id) : "",
+          person_name_th: editing.person_name_th ?? "",
+          person_name_en: editing.person_name_en ?? "",
+          device_name: editing.device_name ?? "",
+          asset_tag: editing.asset_tag ?? "",
+          symptom: editing.symptom ?? "",
+        }
+      : {
+          type_other: "",
+          // 4.2.2 สาขา: เลือกให้อัตโนมัติจากสาขาที่ผู้ใช้สังกัด (ถ้าสาขานั้นยังเปิดใช้งาน)
+          branch_id: options.branches.some((b) => b.id === user.branch_id) ? String(user.branch_id) : "",
+          department: user.department ?? "",
+          division: user.division ?? "",
+          details: "",
+          due_date: "",
+          assignee_id: "",
+          person_name_th: "",
+          person_name_en: "",
+          device_name: "",
+          asset_tag: "",
+          symptom: "",
+        },
+  );
   const [photos, setPhotos] = useState<File[]>([]);
   const [docs, setDocs] = useState<File[]>([]);
   const [errors, setErrors] = useState<Errors>({});
@@ -100,7 +131,10 @@ export function TicketForm({ user, options }: { user: User; options: TicketFormO
     docs.forEach((f) => fd.append("documents[]", f));
 
     startTransition(async () => {
-      const res = await createTicket(fd);
+      // แก้ไข: ส่งเฉพาะฟิลด์ข้อความ (ช่องที่ว่าง = ล้างค่า)
+      const res = editing
+        ? await updateTicket(editing.id, Object.fromEntries([...fd.entries()].filter(([k]) => !k.endsWith("[]")).map(([k, val]) => [k, String(val)])))
+        : await createTicket(fd);
       if (res) {
         setErrors(mapErrors(res.errors));
         setMessage(res.message ?? "");
@@ -109,14 +143,14 @@ export function TicketForm({ user, options }: { user: User; options: TicketFormO
     });
   };
 
-  const field = (name: Field, label: string, control: ReactNode, required = false, hint?: string, className = "") => (
+  const field = (name: Field, label: string, control: ReactNode, required = false, hint?: ReactNode, className = "") => (
     <div className={className}>
       <label htmlFor={name} className="mb-1 block text-sm font-medium">
         {label}
         {required && <span className="text-red-500"> *</span>}
       </label>
       {control}
-      {errors[name] ? <p className="mt-1 text-xs font-medium text-red-500">{errors[name]}</p> : hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
+      {errors[name] ? <p className="mt-1 text-xs font-medium text-red-500">{errors[name]}</p> : hint && <div className="mt-1 text-xs text-muted">{hint}</div>}
     </div>
   );
   const cls = (name: Field) => `${input} ${errors[name] ? inputError : ""}`;
@@ -132,8 +166,8 @@ export function TicketForm({ user, options }: { user: User; options: TicketFormO
             <ClipboardIcon width={22} height={22} />
           </span>
           <div>
-            <h1 className="text-2xl font-semibold">{t("tickets.formTitle")}</h1>
-            <p className="text-sm text-muted">{fmt.date(new Date().toISOString())}</p>
+            <h1 className="text-2xl font-semibold">{editing ? t("tickets.edit.title") : t("tickets.formTitle")}</h1>
+            <p className="text-sm text-muted">{editing ? `${editing.ticket_no} · ${t("tickets.edit.note")}` : fmt.date(new Date().toISOString())}</p>
           </div>
         </div>
       </div>
@@ -142,6 +176,16 @@ export function TicketForm({ user, options }: { user: User; options: TicketFormO
         <div role="alert" className={alert.error}>
           <AlertIcon className="shrink-0 text-danger-400" />
           {message}
+        </div>
+      )}
+
+      {plan && !editing && (
+        <div className={`flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:gap-3 sm:px-6 ${card}`}>
+          <span className="flex shrink-0 items-center gap-2 text-sm font-medium">
+            <CheckCircleIcon width={16} height={16} className="text-accent-500" />
+            {t("tickets.approval.preview")}
+          </span>
+          <PlanView plan={plan} />
         </div>
       )}
 
@@ -228,7 +272,17 @@ export function TicketForm({ user, options }: { user: User; options: TicketFormO
                 ))}
               </select>,
               true,
-              user.branch_id ? t("tickets.form.branchAuto") : undefined,
+              (user.branch_id || has(user, "branches.manage")) && (
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span>{user.branch_id ? t("tickets.form.branchAuto") : ""}</span>
+                  {/* ผู้มีสิทธิ์ branches.manage เพิ่ม/แก้ไข/ลบสาขาได้ที่ ข้อมูลหลัก → สาขา */}
+                  {has(user, "branches.manage") && (
+                    <Link href="/branches" className="cursor-pointer font-medium text-accent-600 hover:underline dark:text-accent-300">
+                      {t("tickets.form.manageBranches")}
+                    </Link>
+                  )}
+                </span>
+              ),
             )}
             {field(
               "assignee_id",
@@ -241,6 +295,8 @@ export function TicketForm({ user, options }: { user: User; options: TicketFormO
                   </option>
                 ))}
               </select>,
+              false,
+              t("tickets.form.assigneeHint"),
             )}
             {field(
               "details",
@@ -250,7 +306,7 @@ export function TicketForm({ user, options }: { user: User; options: TicketFormO
               undefined,
               "sm:col-span-2",
             )}
-            {field("due_date", t("tickets.form.dueDate"), text("due_date", { type: "date", min: todayIso() }))}
+            {field("due_date", t("tickets.form.dueDate"), <DateInput id="due_date" min={localToday()} value={v.due_date} onChange={(d) => set("due_date", d)} className={cls("due_date")} />)}
           </div>
         </section>
 
@@ -285,6 +341,7 @@ export function TicketForm({ user, options }: { user: User; options: TicketFormO
         )}
 
         {/* ไฟล์แนบ */}
+        {!editing && (
         <section className={`grid grid-cols-1 gap-6 p-4 sm:p-6 lg:grid-cols-2 ${card}`}>
           <div>
             <h2 className="mb-2 font-semibold">{t("tickets.form.photos")}</h2>
@@ -297,8 +354,10 @@ export function TicketForm({ user, options }: { user: User; options: TicketFormO
             {errors.documents && <p className="mt-1 text-xs font-medium text-red-500">{errors.documents}</p>}
           </div>
         </section>
+        )}
 
         {/* 4.2.7 ผู้แจ้ง — ใช้ลายเซ็นที่อัปโหลดไว้ในข้อมูลส่วนตัว (แสตมป์ตอนดู/พิมพ์เอกสาร) */}
+        {!editing && (
         <section className={`p-4 sm:p-6 ${card}`}>
           <h2 className="mb-3 font-semibold">
             {t("tickets.form.requester")}: <span className="font-normal">{user.name}</span>
@@ -328,16 +387,17 @@ export function TicketForm({ user, options }: { user: User; options: TicketFormO
             </div>
           )}
         </section>
+        )}
       </fieldset>
 
       <div className="flex justify-end gap-2">
-        <Link href="/tickets" className={btn.secondary}>
+        <Link href={editing ? `/tickets/${editing.id}` : "/tickets"} className={btn.secondary}>
           <XIcon className="text-faint" />
           {t("common.cancel")}
         </Link>
         <button type="submit" disabled={pending} aria-busy={pending} className={btn.primary}>
           {pending ? <SpinnerIcon /> : <SendIcon />}
-          {pending ? t("tickets.form.submitting") : t("tickets.form.submit")}
+          {pending ? t("tickets.form.submitting") : editing ? t("tickets.edit.save") : t("tickets.form.submit")}
         </button>
       </div>
     </form>

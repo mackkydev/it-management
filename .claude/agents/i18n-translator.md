@@ -8,10 +8,10 @@ tools: Read, Edit, Grep, Glob
 
 ## ไฟล์
 - Frontend: `frontend/src/i18n/th.ts` (ต้นแบบโครงสร้าง) และ `en.ts` — TypeScript บังคับให้ key ครบ
-- Backend: `backend/lang/th/validation.php` (กฎทั่วไป + ชื่อฟิลด์), `backend/lang/{th,en}/eam.php` (ข้อความเฉพาะระบบ)
+- Backend: `express/src/lib/i18n.ts` (ข้อความ validation + ชื่อฟิลด์ + ข้อความ `eam.*` ทั้ง th/en)
 
 ## แนวทาง
 - ภาษาไทย: ไม่เว้นวรรคระหว่างคำ (เช่น "รหัสนี้มีอยู่ในระบบแล้ว"), ใช้คำสุภาพกระชับ, คำศัพท์สม่ำเสมอ (สินทรัพย์, ผู้ถือครอง, โอนย้าย, ปิดใช้งาน)
 - อังกฤษ: sentence case, สั้น ตรงไปตรงมา
-- ตัวแปรในข้อความใช้ `{name}` (frontend) และ `:attribute` (Laravel)
+- ตัวแปรในข้อความใช้ `{name}` (frontend) และ `:attribute` (API)
 - ค้นหาข้อความ hard-code ที่หลงเหลือในคอมโพเนนต์แล้วย้ายเข้า dictionary

@@ -31,9 +31,14 @@ interface Props {
   isSelf?: boolean;
   canDelete?: boolean;
   branches: { id: number; name: string }[];
+  /** สายอนุมัติสำหรับกำหนดรายบุคคล */
+  routes: { id: number; name: string; is_active: boolean }[];
+  /** แผนก / ฝ่าย จากข้อมูลหลัก (ที่เปิดใช้งาน) */
+  departments: { id: number; name: string }[];
+  divisions: { id: number; name: string }[];
 }
 
-export function UserForm({ user, isSelf = false, canDelete = false, branches }: Props) {
+export function UserForm({ user, isSelf = false, canDelete = false, branches, routes, departments, divisions }: Props) {
   const { t } = useI18n();
   const isCreate = !user;
   const [values, setValues] = useState<UserFormValues>({
@@ -49,6 +54,7 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches }: 
     supervisor_id: user?.supervisor_id ? String(user.supervisor_id) : "",
     is_it_staff: user?.is_it_staff ?? false,
     is_it_head: user?.is_it_head ?? false,
+    approval_route_id: user?.approval_route_id ? String(user.approval_route_id) : "",
   });
   const [supervisor, setSupervisor] = useState(user?.supervisor ?? null);
   const [errors, setErrors] = useState<Errors>({});
@@ -59,7 +65,8 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches }: 
   const onChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const name = e.target.name as Field;
     const value = e.target instanceof HTMLInputElement && e.target.type === "checkbox" ? e.target.checked : e.target.value;
-    setValues((v) => ({ ...v, [name]: value }));
+    // บทบาทเจ้าหน้าที่ IT → ติ๊กเจ้าหน้าที่ IT ให้ด้วย (API ทำซ้ำอีกชั้น)
+    setValues((v) => ({ ...v, [name]: value, ...(name === "role" && value === "it_staff" ? { is_it_staff: true } : {}) }));
     setErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
@@ -198,8 +205,25 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches }: 
               false,
               supervisor ? undefined : t("users.form.noSupervisor"),
             )}
-            {field("department", t("users.form.department"), <input id="department" name="department" value={values.department} onChange={onChange} maxLength={100} className={cls("department")} />)}
-            {field("division", t("users.form.division"), <input id="division" name="division" value={values.division} onChange={onChange} maxLength={100} className={cls("division")} />)}
+            {field("division", t("users.form.division"), <OrgSelect id="division" value={values.division} options={divisions} onChange={onChange} className={cls("division")} placeholder={t("users.form.chooseDivision")} />)}
+            {field("department", t("users.form.department"), <OrgSelect id="department" value={values.department} options={departments} onChange={onChange} className={cls("department")} placeholder={t("users.form.chooseDepartment")} />)}
+            <div className="sm:col-span-2">
+              {field(
+                "approval_route_id",
+                t("users.form.approvalRoute"),
+                <select id="approval_route_id" name="approval_route_id" value={values.approval_route_id} onChange={onChange} className={cls("approval_route_id")}>
+                  <option value="">{t("users.form.approvalRouteAuto")}</option>
+                  {routes.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                      {r.is_active ? "" : ` (${t("approvalRoutes.inactive")})`}
+                    </option>
+                  ))}
+                </select>,
+                false,
+                t("users.form.approvalRouteHint"),
+              )}
+            </div>
           </div>
 
           <h3 className="mb-2 mt-5 text-sm font-semibold">{t("users.form.itSection")}</h3>
@@ -253,5 +277,35 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches }: 
         </div>
       </div>
     </form>
+  );
+}
+
+/** เลือกแผนก/ฝ่ายจากข้อมูลหลัก — ค่าเดิมที่ไม่อยู่ในรายการ (เช่น ปิดใช้งานแล้ว) ยังแสดงให้เลือกค้างไว้ */
+function OrgSelect({
+  id,
+  value,
+  options,
+  onChange,
+  className,
+  placeholder,
+}: {
+  id: "department" | "division";
+  value: string;
+  options: { id: number; name: string }[];
+  onChange: (e: ChangeEvent<HTMLSelectElement>) => void;
+  className: string;
+  placeholder: string;
+}) {
+  const known = options.some((o) => o.name.toLowerCase() === value.trim().toLowerCase());
+  return (
+    <select id={id} name={id} value={value} onChange={onChange} className={className}>
+      <option value="">{placeholder}</option>
+      {value && !known && <option value={value}>{value}</option>}
+      {options.map((o) => (
+        <option key={o.id} value={o.name}>
+          {o.name}
+        </option>
+      ))}
+    </select>
   );
 }

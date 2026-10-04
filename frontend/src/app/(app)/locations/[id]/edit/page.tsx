@@ -4,7 +4,7 @@ import { MapPinIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
-import { canDeleteAssets, canManageAssets, getCurrentUser } from "@/lib/auth";
+import { canDeleteLocations, canManageAssets, getCurrentUser } from "@/lib/auth";
 import type { Location } from "@/lib/types";
 import { LocationForm } from "../../location-form";
 
@@ -46,7 +46,7 @@ export default async function EditLocationPage({ params }: PageProps<"/locations
         })}`}
       />
       {/* ลบได้เฉพาะ admin (สิทธิ์เดียวกับการลบสินทรัพย์) */}
-      <LocationForm locations={data} location={location} canDelete={canDeleteAssets(user)} />
+      <LocationForm locations={data} location={location} canDelete={canDeleteLocations(user)} />
     </div>
   );
 }

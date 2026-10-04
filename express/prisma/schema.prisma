@@ -17,6 +17,152 @@ model app_settings {
   @@index([updated_by], map: "app_settings_updated_by_index")
 }
 
+/// ประกาศจากฝ่าย IT ที่แสดงบนหน้า login (ไม่ต้อง login ก็เห็น) — level: info | warning | danger
+/// แสดงเมื่อ is_active และอยู่ในช่วง starts_on–ends_on (null = ไม่จำกัด) เรียงตาม sort_order
+model announcements {
+  id         BigInt    @id @default(autoincrement())
+  title      String    @db.VarChar(200)
+  body       String?   @db.Text
+  level      String    @default("info") @db.VarChar(20)
+  is_active  Boolean   @default(true)
+  starts_on  DateTime? @db.Date
+  ends_on    DateTime? @db.Date
+  sort_order Int       @default(0) @db.SmallInt
+  created_by BigInt?
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+  users      users?    @relation(fields: [created_by], references: [id], onDelete: SetNull, map: "announcements_created_by_foreign")
+
+  @@index([is_active, sort_order], map: "announcements_is_active_sort_order_index")
+}
+
+/// สายอนุมัติใบแจ้งงาน — จับคู่ผู้แจ้งตามสาขา+แผนก (null = ทุกสาขา/ทุกแผนก) หรือกำหนดรายบุคคลที่ users.approval_route_id
+model approval_routes {
+  id                   BigInt                 @id @default(autoincrement())
+  name                 String                 @db.VarChar(255)
+  branch_id            BigInt?
+  department           String?                @db.VarChar(100)
+  is_active            Boolean                @default(true)
+  created_at           DateTime?              @db.Timestamp(0)
+  updated_at           DateTime?              @db.Timestamp(0)
+  branches             branches?              @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "approval_routes_branch_id_foreign")
+  approval_route_steps approval_route_steps[]
+  users                users[]
+
+  @@index([branch_id, is_active], map: "approval_routes_branch_id_is_active_index")
+}
+
+/// ขั้นของสายอนุมัติ (step_no เริ่มที่ 1) — ผู้อนุมัติคนใดคนหนึ่งในขั้นกดอนุมัติได้
+model approval_route_steps {
+  id                      BigInt                    @id @default(autoincrement())
+  approval_route_id       BigInt
+  step_no                 Int                       @db.SmallInt
+  name                    String                    @db.VarChar(100)
+  created_at              DateTime?                 @db.Timestamp(0)
+  updated_at              DateTime?                 @db.Timestamp(0)
+  approval_routes         approval_routes           @relation(fields: [approval_route_id], references: [id], onDelete: Cascade, map: "approval_route_steps_approval_route_id_foreign")
+  approval_step_approvers approval_step_approvers[]
+
+  @@unique([approval_route_id, step_no], map: "approval_route_steps_route_step_unique")
+}
+
+model approval_step_approvers {
+  approval_route_step_id BigInt
+  user_id                BigInt
+  approval_route_steps   approval_route_steps @relation(fields: [approval_route_step_id], references: [id], onDelete: Cascade, map: "approval_step_approvers_step_id_foreign")
+  users                  users                @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "approval_step_approvers_user_id_foreign")
+
+  @@id([approval_route_step_id, user_id])
+  @@index([user_id], map: "approval_step_approvers_user_id_index")
+}
+
+/// ขั้นอนุมัติของใบแจ้งงาน (คัดลอกจากสายตอนแจ้งงาน — แก้สายภายหลังไม่กระทบ)
+/// status: pending | approved | rejected | skipped
+model it_ticket_approval_steps {
+  id           BigInt     @id @default(autoincrement())
+  it_ticket_id BigInt
+  step_no      Int        @db.SmallInt
+  name         String     @db.VarChar(100)
+  approver_ids Json       @db.JsonB
+  status       String     @default("pending") @db.VarChar(20)
+  acted_by     BigInt?
+  acted_at     DateTime?  @db.Timestamp(0)
+  comment      String?    @db.Text
+  created_at   DateTime?  @db.Timestamp(0)
+  updated_at   DateTime?  @db.Timestamp(0)
+  it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, map: "it_ticket_approval_steps_it_ticket_id_foreign")
+  users        users?     @relation(fields: [acted_by], references: [id], onUpdate: Restrict, map: "it_ticket_approval_steps_acted_by_foreign")
+
+  @@unique([it_ticket_id, step_no], map: "it_ticket_approval_steps_ticket_step_unique")
+  @@index([acted_by], map: "it_ticket_approval_steps_acted_by_index")
+}
+
+/// ข้อมูล license ของสินทรัพย์หมวด SOFTWARE (1:1) — billing: yearly | custom | perpetual (perpetual = ไม่มีวันหมดอายุ)
+model asset_licenses {
+  id                      BigInt    @id @default(autoincrement())
+  asset_id                BigInt    @unique(map: "asset_licenses_asset_id_unique")
+  billing                 String    @db.VarChar(20)
+  start_date              DateTime  @db.Date
+  expires_at              DateTime? @db.Date
+  seats                   Int?
+  vendor                  String?   @db.VarChar(255)
+  /// license key เข้ารหัสด้วย APP_KEY (รูปแบบเดียวกับ Laravel Crypt)
+  license_key             String?   @db.Text
+  notify_days_before      Int?      @db.SmallInt
+  notified_for_expires_at DateTime? @db.Date
+  created_at              DateTime? @db.Timestamp(0)
+  updated_at              DateTime? @db.Timestamp(0)
+  assets                  assets    @relation(fields: [asset_id], references: [id], onDelete: Cascade, map: "asset_licenses_asset_id_foreign")
+
+  @@index([expires_at], map: "asset_licenses_expires_at_index")
+}
+
+/// การติดตั้ง software license — เครื่องเลือกจากสินทรัพย์ (device_asset_id) หรือพิมพ์ชื่อเครื่องเอง (device_name)
+/// ใช้ seat ขณะ uninstalled_at เป็น null (ถอนการติดตั้งแล้วเก็บเป็นประวัติ)
+model license_installations {
+  id                                                    BigInt    @id @default(autoincrement())
+  license_asset_id                                      BigInt
+  device_asset_id                                       BigInt?
+  device_name                                           String?   @db.VarChar(255)
+  user_id                                               BigInt?
+  branch_id                                             BigInt?
+  installed_at                                          DateTime  @db.Date
+  uninstalled_at                                        DateTime? @db.Date
+  notes                                                 String?   @db.Text
+  created_by                                            BigInt?
+  created_at                                            DateTime? @db.Timestamp(0)
+  updated_at                                            DateTime? @db.Timestamp(0)
+  assets_license_installations_license_asset_idToassets assets    @relation("license_installations_license_asset_idToassets", fields: [license_asset_id], references: [id], onDelete: Cascade, map: "license_installations_license_asset_id_foreign")
+  assets_license_installations_device_asset_idToassets  assets?   @relation("license_installations_device_asset_idToassets", fields: [device_asset_id], references: [id], onDelete: SetNull, map: "license_installations_device_asset_id_foreign")
+  users_license_installations_user_idTousers            users?    @relation("license_installations_user_idTousers", fields: [user_id], references: [id], onDelete: SetNull, map: "license_installations_user_id_foreign")
+  users_license_installations_created_byTousers         users?    @relation("license_installations_created_byTousers", fields: [created_by], references: [id], onDelete: SetNull, map: "license_installations_created_by_foreign")
+  branches                                              branches? @relation(fields: [branch_id], references: [id], onDelete: SetNull, map: "license_installations_branch_id_foreign")
+
+  @@index([license_asset_id, uninstalled_at], map: "license_installations_license_active_index")
+  @@index([device_asset_id], map: "license_installations_device_asset_id_index")
+  @@index([user_id], map: "license_installations_user_id_index")
+  @@index([branch_id], map: "license_installations_branch_id_index")
+}
+
+/// ไฟล์แนบของสินทรัพย์ (เช่น ไฟล์ license) ใน private disk — path เป็น relative
+model asset_files {
+  id            BigInt    @id @default(autoincrement())
+  asset_id      BigInt
+  kind          String    @default("license") @db.VarChar(20)
+  original_name String    @db.VarChar(255)
+  path          String    @db.VarChar(255)
+  mime          String    @db.VarChar(100)
+  size          Int
+  uploaded_by   BigInt?
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+  assets        assets    @relation(fields: [asset_id], references: [id], onDelete: Cascade, map: "asset_files_asset_id_foreign")
+  users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "asset_files_uploaded_by_foreign")
+
+  @@index([asset_id], map: "asset_files_asset_id_index")
+  @@index([uploaded_by], map: "asset_files_uploaded_by_index")
+}
+
 model asset_movements {
   id                                                    BigInt     @id @default(autoincrement())
   asset_id                                              BigInt
@@ -45,31 +191,35 @@ model asset_movements {
 }
 
 model assets {
-  id                               BigInt            @id @default(autoincrement())
-  uuid                             String            @unique(map: "assets_uuid_unique") @db.Uuid
-  asset_tag                        String            @unique(map: "assets_asset_tag_unique") @db.VarChar(50)
-  name                             String            @db.VarChar(255)
-  category                         String            @db.VarChar(50)
-  brand                            String?           @db.VarChar(100)
-  model                            String?           @db.VarChar(100)
-  serial_number                    String?           @db.VarChar(100)
-  status                           String            @default("active") @db.VarChar(20)
+  id                               BigInt                  @id @default(autoincrement())
+  uuid                             String                  @unique(map: "assets_uuid_unique") @db.Uuid
+  asset_tag                        String                  @unique(map: "assets_asset_tag_unique") @db.VarChar(50)
+  name                             String                  @db.VarChar(255)
+  category                         String                  @db.VarChar(50)
+  brand                            String?                 @db.VarChar(100)
+  model                            String?                 @db.VarChar(100)
+  serial_number                    String?                 @db.VarChar(100)
+  status                           String                  @default("active") @db.VarChar(20)
   location_id                      BigInt?
   custodian_id                     BigInt?
-  purchase_date                    DateTime?         @db.Date
-  purchase_cost                    Decimal?          @db.Decimal(15, 2)
-  warranty_expires_at              DateTime?         @db.Date
-  notes                            String?           @db.Text
+  purchase_date                    DateTime?               @db.Date
+  purchase_cost                    Decimal?                @db.Decimal(15, 2)
+  warranty_expires_at              DateTime?               @db.Date
+  notes                            String?                 @db.Text
   created_by                       BigInt?
   updated_by                       BigInt?
-  created_at                       DateTime?         @db.Timestamp(0)
-  updated_at                       DateTime?         @db.Timestamp(0)
-  deleted_at                       DateTime?         @db.Timestamp(0)
+  created_at                       DateTime?               @db.Timestamp(0)
+  updated_at                       DateTime?               @db.Timestamp(0)
+  deleted_at                       DateTime?               @db.Timestamp(0)
+  asset_files                      asset_files[]
+  asset_licenses                   asset_licenses?
+  license_installations_license    license_installations[] @relation("license_installations_license_asset_idToassets")
+  license_installations_device     license_installations[] @relation("license_installations_device_asset_idToassets")
   asset_movements                  asset_movements[]
-  users_assets_created_byTousers   users?            @relation("assets_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "assets_created_by_foreign")
-  users_assets_custodian_idTousers users?            @relation("assets_custodian_idTousers", fields: [custodian_id], references: [id], onUpdate: Restrict, map: "assets_custodian_id_foreign")
-  locations                        locations?        @relation(fields: [location_id], references: [id], onUpdate: Restrict, map: "assets_location_id_foreign")
-  users_assets_updated_byTousers   users?            @relation("assets_updated_byTousers", fields: [updated_by], references: [id], onUpdate: Restrict, map: "assets_updated_by_foreign")
+  users_assets_created_byTousers   users?                  @relation("assets_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "assets_created_by_foreign")
+  users_assets_custodian_idTousers users?                  @relation("assets_custodian_idTousers", fields: [custodian_id], references: [id], onUpdate: Restrict, map: "assets_custodian_id_foreign")
+  locations                        locations?              @relation(fields: [location_id], references: [id], onUpdate: Restrict, map: "assets_location_id_foreign")
+  users_assets_updated_byTousers   users?                  @relation("assets_updated_byTousers", fields: [updated_by], references: [id], onUpdate: Restrict, map: "assets_updated_by_foreign")
   it_tickets                       it_tickets[]
 
   @@index([category, status], map: "assets_category_status_index")
@@ -86,18 +236,20 @@ model assets {
 }
 
 model branches {
-  id          BigInt        @id @default(autoincrement())
-  code        String        @unique(map: "branches_code_unique") @db.VarChar(30)
-  name        String        @db.VarChar(255)
-  sort_order  Int           @default(0) @db.SmallInt
-  is_active   Boolean       @default(true)
-  created_at  DateTime?     @db.Timestamp(0)
-  updated_at  DateTime?     @db.Timestamp(0)
-  deleted_at  DateTime?     @db.Timestamp(0)
-  contracts   contracts[]
-  credentials credentials[]
-  it_tickets  it_tickets[]
-  users       users[]
+  id                    BigInt                  @id @default(autoincrement())
+  code                  String                  @unique(map: "branches_code_unique") @db.VarChar(30)
+  name                  String                  @db.VarChar(255)
+  sort_order            Int                     @default(0) @db.SmallInt
+  is_active             Boolean                 @default(true)
+  created_at            DateTime?               @db.Timestamp(0)
+  updated_at            DateTime?               @db.Timestamp(0)
+  deleted_at            DateTime?               @db.Timestamp(0)
+  approval_routes       approval_routes[]
+  license_installations license_installations[]
+  contracts             contracts[]
+  credentials           credentials[]
+  it_tickets            it_tickets[]
+  users                 users[]
 
   @@index([is_active, sort_order], map: "branches_is_active_sort_order_index")
 }
@@ -251,53 +403,62 @@ model it_ticket_parts {
 }
 
 model it_tickets {
-  id                                   BigInt                  @id @default(autoincrement())
-  uuid                                 String                  @unique(map: "it_tickets_uuid_unique") @db.Uuid
-  ticket_no                            String                  @unique(map: "it_tickets_ticket_no_unique") @db.VarChar(30)
-  type                                 String                  @db.VarChar(20)
-  type_other                           String?                 @db.VarChar(255)
-  status                               String                  @default("pending_supervisor") @db.VarChar(30)
+  id                                   BigInt                     @id @default(autoincrement())
+  uuid                                 String                     @unique(map: "it_tickets_uuid_unique") @db.Uuid
+  ticket_no                            String                     @unique(map: "it_tickets_ticket_no_unique") @db.VarChar(30)
+  type                                 String                     @db.VarChar(20)
+  type_other                           String?                    @db.VarChar(255)
+  status                               String                     @default("pending_supervisor") @db.VarChar(30)
   requester_id                         BigInt
   branch_id                            BigInt?
-  department                           String?                 @db.VarChar(100)
-  division                             String?                 @db.VarChar(100)
-  details                              String                  @db.Text
-  due_date                             DateTime?               @db.Date
-  requester_signature                  String?                 @db.VarChar(255)
-  requested_at                         DateTime                @db.Timestamp(0)
-  person_name_th                       String?                 @db.VarChar(255)
-  person_name_en                       String?                 @db.VarChar(255)
-  device_name                          String?                 @db.VarChar(255)
-  asset_tag                            String?                 @db.VarChar(50)
+  department                           String?                    @db.VarChar(100)
+  division                             String?                    @db.VarChar(100)
+  details                              String                     @db.Text
+  due_date                             DateTime?                  @db.Date
+  requester_signature                  String?                    @db.VarChar(255)
+  requested_at                         DateTime                   @db.Timestamp(0)
+  person_name_th                       String?                    @db.VarChar(255)
+  person_name_en                       String?                    @db.VarChar(255)
+  device_name                          String?                    @db.VarChar(255)
+  asset_tag                            String?                    @db.VarChar(50)
   asset_id                             BigInt?
-  symptom                              String?                 @db.Text
+  symptom                              String?                    @db.Text
   approver_id                          BigInt?
-  approved_at                          DateTime?               @db.Timestamp(0)
+  approved_at                          DateTime?                  @db.Timestamp(0)
   assignee_id                          BigInt?
-  accepted_at                          DateTime?               @db.Timestamp(0)
-  result                               String?                 @db.VarChar(20)
-  completed_on                         DateTime?               @db.Date
-  cannot_reason                        String?                 @db.Text
-  repair_method                        String?                 @db.VarChar(20)
-  external_vendor                      String?                 @db.VarChar(255)
-  warranty                             String?                 @db.VarChar(20)
-  repair_details                       String?                 @db.Text
-  staff_signature                      String?                 @db.VarChar(255)
-  resulted_at                          DateTime?               @db.Timestamp(0)
+  accepted_at                          DateTime?                  @db.Timestamp(0)
+  result                               String?                    @db.VarChar(20)
+  completed_on                         DateTime?                  @db.Date
+  cannot_reason                        String?                    @db.Text
+  repair_method                        String?                    @db.VarChar(20)
+  external_vendor                      String?                    @db.VarChar(255)
+  warranty                             String?                    @db.VarChar(20)
+  repair_details                       String?                    @db.Text
+  staff_signature                      String?                    @db.VarChar(255)
+  resulted_at                          DateTime?                  @db.Timestamp(0)
   it_head_id                           BigInt?
-  it_head_signature                    String?                 @db.VarChar(255)
-  closed_at                            DateTime?               @db.Timestamp(0)
-  created_at                           DateTime?               @db.Timestamp(0)
-  updated_at                           DateTime?               @db.Timestamp(0)
+  it_head_signature                    String?                    @db.VarChar(255)
+  closed_at                            DateTime?                  @db.Timestamp(0)
+  /// ขอยกเลิกหลังอนุมัติ: status = pending_cancel ระหว่างรอเจ้าหน้าที่ IT ยืนยัน → cancelled (ปฏิเสธ/ถอน = กลับสถานะเดิม)
+  cancel_reason                        String?
+  cancel_requested_at                  DateTime?                  @db.Timestamp(0)
+  cancel_requested_status              String?                    @db.VarChar(30)
+  cancelled_at                         DateTime?                  @db.Timestamp(0)
+  cancelled_by                         BigInt?
+  /// ขั้นอนุมัติปัจจุบัน (it_ticket_approval_steps.step_no) — null = ใบที่ใช้ระบบเดิม (หัวหน้าคนเดียว) หรืออนุมัติครบแล้ว
+  current_step                         Int?                       @db.SmallInt
+  created_at                           DateTime?                  @db.Timestamp(0)
+  updated_at                           DateTime?                  @db.Timestamp(0)
+  it_ticket_approval_steps             it_ticket_approval_steps[]
   it_ticket_attachments                it_ticket_attachments[]
   it_ticket_events                     it_ticket_events[]
   it_ticket_parts                      it_ticket_parts[]
-  users_it_tickets_approver_idTousers  users?                  @relation("it_tickets_approver_idTousers", fields: [approver_id], references: [id], onUpdate: Restrict, map: "it_tickets_approver_id_foreign")
-  assets                               assets?                 @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "it_tickets_asset_id_foreign")
-  users_it_tickets_assignee_idTousers  users?                  @relation("it_tickets_assignee_idTousers", fields: [assignee_id], references: [id], onUpdate: Restrict, map: "it_tickets_assignee_id_foreign")
-  branches                             branches?               @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "it_tickets_branch_id_foreign")
-  users_it_tickets_it_head_idTousers   users?                  @relation("it_tickets_it_head_idTousers", fields: [it_head_id], references: [id], onUpdate: Restrict, map: "it_tickets_it_head_id_foreign")
-  users_it_tickets_requester_idTousers users                   @relation("it_tickets_requester_idTousers", fields: [requester_id], references: [id], onUpdate: Restrict, map: "it_tickets_requester_id_foreign")
+  users_it_tickets_approver_idTousers  users?                     @relation("it_tickets_approver_idTousers", fields: [approver_id], references: [id], onUpdate: Restrict, map: "it_tickets_approver_id_foreign")
+  assets                               assets?                    @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "it_tickets_asset_id_foreign")
+  users_it_tickets_assignee_idTousers  users?                     @relation("it_tickets_assignee_idTousers", fields: [assignee_id], references: [id], onUpdate: Restrict, map: "it_tickets_assignee_id_foreign")
+  branches                             branches?                  @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "it_tickets_branch_id_foreign")
+  users_it_tickets_it_head_idTousers   users?                     @relation("it_tickets_it_head_idTousers", fields: [it_head_id], references: [id], onUpdate: Restrict, map: "it_tickets_it_head_id_foreign")
+  users_it_tickets_requester_idTousers users                      @relation("it_tickets_requester_idTousers", fields: [requester_id], references: [id], onUpdate: Restrict, map: "it_tickets_requester_id_foreign")
 
   @@index([approver_id, status], map: "it_tickets_approver_id_status_index")
   @@index([asset_id], map: "it_tickets_asset_id_index")
@@ -405,6 +566,8 @@ model personal_access_tokens {
   created_at     DateTime? @db.Timestamp(0)
   updated_at     DateTime? @db.Timestamp(0)
 
+  external_session external_sessions?
+
   @@index([expires_at], map: "personal_access_tokens_expires_at_index")
   @@index([tokenable_type, tokenable_id], map: "personal_access_tokens_tokenable_type_tokenable_id_index")
 }
@@ -422,48 +585,255 @@ model sessions {
 }
 
 model users {
-  id                                                       BigInt                   @id @default(autoincrement())
-  name                                                     String                   @db.VarChar(255)
-  email                                                    String                   @unique(map: "users_email_unique") @db.VarChar(255)
-  role                                                     String                   @default("viewer") @db.VarChar(20)
-  is_active                                                Boolean                  @default(true)
+  id                                                       BigInt                     @id @default(autoincrement())
+  name                                                     String                     @db.VarChar(255)
+  /// LOCAL: login ด้วยอีเมล+รหัสผ่านของระบบเรา (ต้องมี) / API: อาจว่างได้ถ้าต้นทางไม่ส่งอีเมลมา
+  email                                                    String?                    @unique(map: "users_email_unique") @db.VarChar(255)
+  role                                                     String                     @default("viewer") @db.VarChar(20)
+  is_active                                                Boolean                    @default(true)
   branch_id                                                BigInt?
-  department                                               String?                  @db.VarChar(100)
-  division                                                 String?                  @db.VarChar(100)
+  department                                               String?                    @db.VarChar(100)
+  division                                                 String?                    @db.VarChar(100)
   supervisor_id                                            BigInt?
-  is_it_staff                                              Boolean                  @default(false)
-  is_it_head                                               Boolean                  @default(false)
-  email_verified_at                                        DateTime?                @db.Timestamp(0)
-  password                                                 String                   @db.VarChar(255)
-  remember_token                                           String?                  @db.VarChar(100)
+  is_it_staff                                              Boolean                    @default(false)
+  is_it_head                                               Boolean                    @default(false)
+  email_verified_at                                        DateTime?                  @db.Timestamp(0)
+  /// hash รหัสผ่าน — ใช้เฉพาะ LOCAL (API User ไม่เก็บรหัสผ่านใด ๆ = null; CHECK users_local_password_check)
+  password                                                 String?                    @db.VarChar(255)
+  /// LOCAL = ผู้ใช้ของระบบเรา (ค่าเริ่มต้น — ผู้ใช้เดิมทั้งหมด) / API = ผู้ใช้จาก REST API ต้นทาง (JIT provisioning)
+  type                                                     String                     @default("LOCAL") @db.VarChar(10)
+  /// API User: การเชื่อมต่อต้นทาง + รหัสผู้ใช้ที่ต้นทาง (unique คู่กัน)
+  connection_id                                            BigInt?
+  external_id                                              String?                    @db.VarChar(191)
+  /// ซิงก์โปรไฟล์/สถานะกับต้นทางล่าสุดเมื่อไร (API User)
+  external_synced_at                                       DateTime?                  @db.Timestamp(0)
+  remember_token                                           String?                    @db.VarChar(100)
   /// ไฟล์ลายเซ็นที่ผู้ใช้อัปโหลด (private disk: users/{id}/signature-*.png) — แสตมป์ลงใบแจ้งงาน
-  signature_path                                           String?                  @db.VarChar(255)
-  created_at                                               DateTime?                @db.Timestamp(0)
-  updated_at                                               DateTime?                @db.Timestamp(0)
+  signature_path                                           String?                    @db.VarChar(255)
+  /// สายอนุมัติที่กำหนดรายบุคคล (null = จับคู่อัตโนมัติตามสาขา+แผนก)
+  approval_route_id                                        BigInt?
+  created_at                                               DateTime?                  @db.Timestamp(0)
+  updated_at                                               DateTime?                  @db.Timestamp(0)
+  approval_routes                                          approval_routes?           @relation(fields: [approval_route_id], references: [id], onDelete: SetNull, map: "users_approval_route_id_foreign")
+  approval_step_approvers                                  approval_step_approvers[]
+  asset_files                                              asset_files[]
+  announcements                                            announcements[]
+  license_installations_user                               license_installations[]    @relation("license_installations_user_idTousers")
+  license_installations_created                            license_installations[]    @relation("license_installations_created_byTousers")
+  it_ticket_approval_steps                                 it_ticket_approval_steps[]
   app_settings                                             app_settings[]
   kpi_entries                                              kpi_entries[]
-  asset_movements_asset_movements_from_custodian_idTousers asset_movements[]        @relation("asset_movements_from_custodian_idTousers")
-  asset_movements_asset_movements_performed_byTousers      asset_movements[]        @relation("asset_movements_performed_byTousers")
-  asset_movements_asset_movements_to_custodian_idTousers   asset_movements[]        @relation("asset_movements_to_custodian_idTousers")
-  assets_assets_created_byTousers                          assets[]                 @relation("assets_created_byTousers")
-  assets_assets_custodian_idTousers                        assets[]                 @relation("assets_custodian_idTousers")
-  assets_assets_updated_byTousers                          assets[]                 @relation("assets_updated_byTousers")
+  asset_movements_asset_movements_from_custodian_idTousers asset_movements[]          @relation("asset_movements_from_custodian_idTousers")
+  asset_movements_asset_movements_performed_byTousers      asset_movements[]          @relation("asset_movements_performed_byTousers")
+  asset_movements_asset_movements_to_custodian_idTousers   asset_movements[]          @relation("asset_movements_to_custodian_idTousers")
+  assets_assets_created_byTousers                          assets[]                   @relation("assets_created_byTousers")
+  assets_assets_custodian_idTousers                        assets[]                   @relation("assets_custodian_idTousers")
+  assets_assets_updated_byTousers                          assets[]                   @relation("assets_updated_byTousers")
   contracts                                                contracts[]
   credential_access_logs                                   credential_access_logs[]
-  credentials_credentials_created_byTousers                credentials[]            @relation("credentials_created_byTousers")
-  credentials_credentials_owner_idTousers                  credentials[]            @relation("credentials_owner_idTousers")
-  credentials_credentials_updated_byTousers                credentials[]            @relation("credentials_updated_byTousers")
+  credentials_credentials_created_byTousers                credentials[]              @relation("credentials_created_byTousers")
+  credentials_credentials_owner_idTousers                  credentials[]              @relation("credentials_owner_idTousers")
+  credentials_credentials_updated_byTousers                credentials[]              @relation("credentials_updated_byTousers")
   it_ticket_attachments                                    it_ticket_attachments[]
   it_ticket_events                                         it_ticket_events[]
-  it_tickets_it_tickets_approver_idTousers                 it_tickets[]             @relation("it_tickets_approver_idTousers")
-  it_tickets_it_tickets_assignee_idTousers                 it_tickets[]             @relation("it_tickets_assignee_idTousers")
-  it_tickets_it_tickets_it_head_idTousers                  it_tickets[]             @relation("it_tickets_it_head_idTousers")
-  it_tickets_it_tickets_requester_idTousers                it_tickets[]             @relation("it_tickets_requester_idTousers")
-  branches                                                 branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "users_branch_id_foreign")
-  users                                                    users?                   @relation("usersTousers", fields: [supervisor_id], references: [id], onUpdate: Restrict, map: "users_supervisor_id_foreign")
-  other_users                                              users[]                  @relation("usersTousers")
+  it_tickets_it_tickets_approver_idTousers                 it_tickets[]               @relation("it_tickets_approver_idTousers")
+  it_tickets_it_tickets_assignee_idTousers                 it_tickets[]               @relation("it_tickets_assignee_idTousers")
+  it_tickets_it_tickets_it_head_idTousers                  it_tickets[]               @relation("it_tickets_it_head_idTousers")
+  it_tickets_it_tickets_requester_idTousers                it_tickets[]               @relation("it_tickets_requester_idTousers")
+  branches                                                 branches?                  @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "users_branch_id_foreign")
+  users                                                    users?                     @relation("usersTousers", fields: [supervisor_id], references: [id], onUpdate: Restrict, map: "users_supervisor_id_foreign")
+  other_users                                              users[]                    @relation("usersTousers")
+  api_connection                                           api_connections?           @relation("users_connection", fields: [connection_id], references: [id], onDelete: Restrict, map: "users_connection_id_foreign")
+  api_connections_created                                  api_connections[]          @relation("api_connections_created_by")
+  api_connections_updated                                  api_connections[]          @relation("api_connections_updated_by")
+  external_sessions                                        external_sessions[]
+  user_permissions                                         user_permissions[]         @relation("user_permissions_user")
+  user_permissions_granted                                 user_permissions[]         @relation("user_permissions_created_by")
+  audit_logs                                               audit_logs[]
+  user_signatures                                          user_signatures[]          @relation("user_signatures_user")
+  user_signatures_created                                  user_signatures[]          @relation("user_signatures_created_by")
 
+  @@unique([connection_id, external_id], map: "users_connection_id_external_id_unique")
+  @@index([type], map: "users_type_index")
   @@index([branch_id], map: "users_branch_id_index")
   @@index([role], map: "users_role_index")
   @@index([supervisor_id], map: "users_supervisor_id_index")
+}
+
+/// การเชื่อมต่อ REST API ต้นทางสำหรับ API User — Local Admin ตั้งค่าที่หน้า "การเชื่อมต่อ API" (ไม่ hard-code)
+/// path ใน response ใช้รูปแบบ dot path ที่ปลอดภัย (เช่น data.access_token, items.0.id) — ไม่ใช้ eval
+model api_connections {
+  id                        BigInt              @id @default(autoincrement())
+  name                      String              @db.VarChar(100)
+  /// เปิด/ปิดการ login ผ่าน API นี้
+  is_enabled                Boolean             @default(false)
+  /// ต้องเป็น https:// (ตรวจตอนบันทึก + ตอนเรียก)
+  base_url                  String              @db.VarChar(500)
+  timeout_ms                Int                 @default(10000)
+  /// login: method / path / ชื่อ field ที่ส่ง / รูปแบบ body (json | form)
+  login_method              String              @default("POST") @db.VarChar(10)
+  login_path                String              @db.VarChar(255)
+  login_username_field      String              @default("username") @db.VarChar(100)
+  login_password_field      String              @default("password") @db.VarChar(100)
+  login_body_type           String              @default("json") @db.VarChar(10)
+  /// โปรไฟล์: profile_path = null → อ่านจาก response ของ login ที่ profile_root_path
+  profile_method            String              @default("GET") @db.VarChar(10)
+  profile_path              String?             @db.VarChar(255)
+  profile_root_path         String?             @db.VarChar(255)
+  logout_path               String?             @db.VarChar(255)
+  refresh_path              String?             @db.VarChar(255)
+  /// path ของ token / อายุ token (วินาที) / refresh token ใน response — ไม่มีอายุ → default_token_ttl_seconds
+  token_path                String              @default("token") @db.VarChar(255)
+  token_ttl_path            String?             @db.VarChar(255)
+  refresh_token_path        String?             @db.VarChar(255)
+  default_token_ttl_seconds Int                 @default(86400)
+  /// cache โปรไฟล์/สถานะผู้ใช้ก่อนตรวจกับต้นทางใหม่ (วินาที)
+  profile_cache_seconds     Int                 @default(600)
+  /// field mapping ของโปรไฟล์: { external_id, name, email, role_code } → path
+  field_map                 Json                @default("{}")
+  /// กฎ map role: [{ value: MGR, role: manager }] — ไม่ตรงกฎใด = default_role (สิทธิ์น้อยสุด)
+  role_rules                Json                @default("[]")
+  default_role              String              @default("viewer") @db.VarChar(20)
+  /// error ต้นทาง: path ของรหัส error + { code: { kind, message_th, message_en } }
+  error_code_path           String?             @db.VarChar(255)
+  error_messages            Json                @default("{}")
+  /// การยืนยันตัวตนของระบบเรากับต้นทาง: none | api_key | bearer | basic — auth_secret เข้ารหัส ห้ามส่งกลับ frontend
+  auth_type                 String              @default("none") @db.VarChar(20)
+  auth_header_name          String?             @db.VarChar(100)
+  auth_username             String?             @db.VarChar(255)
+  auth_secret               String?
+  /// ป้องกัน SSRF: IP ภายใน/loopback/link-local ถูกบล็อก ยกเว้น host/IP/CIDR ในรายการนี้
+  allowed_hosts             Json                @default("[]")
+  max_redirects             Int                 @default(0) @db.SmallInt
+  /// ลิงก์ไปหน้าของต้นทาง (ระบบเราไม่ทำ register / forgot / change password ให้ API User)
+  register_url              String?             @db.VarChar(500)
+  forgot_password_url       String?             @db.VarChar(500)
+  change_password_url       String?             @db.VarChar(500)
+  created_by                BigInt?
+  updated_by                BigInt?
+  created_at                DateTime?           @db.Timestamp(0)
+  updated_at                DateTime?           @db.Timestamp(0)
+  creator                   users?              @relation("api_connections_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "api_connections_created_by_foreign")
+  updater                   users?              @relation("api_connections_updated_by", fields: [updated_by], references: [id], onDelete: SetNull, map: "api_connections_updated_by_foreign")
+  users                     users[]             @relation("users_connection")
+  external_sessions         external_sessions[]
+}
+
+/// token ของต้นทาง (เข้ารหัส) ผูกกับ token ของระบบเรา 1:1 — browser ไม่เคยเห็น token ต้นทาง
+/// ลบ token ของเรา (logout / หมดอายุ) → แถวนี้ถูกลบตาม (cascade)
+model external_sessions {
+  id                 BigInt                 @id @default(autoincrement())
+  token_id           BigInt                 @unique(map: "external_sessions_token_id_unique")
+  user_id            BigInt
+  connection_id      BigInt
+  access_token       String
+  refresh_token      String?
+  expires_at         DateTime               @db.Timestamp(0)
+  /// ตรวจโปรไฟล์/สถานะกับต้นทางล่าสุด (cache ตาม profile_cache_seconds)
+  profile_checked_at DateTime?              @db.Timestamp(0)
+  created_at         DateTime?              @db.Timestamp(0)
+  updated_at         DateTime?              @db.Timestamp(0)
+  token              personal_access_tokens @relation(fields: [token_id], references: [id], onDelete: Cascade, map: "external_sessions_token_id_foreign")
+  user               users                  @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "external_sessions_user_id_foreign")
+  connection         api_connections        @relation(fields: [connection_id], references: [id], onDelete: Cascade, map: "external_sessions_connection_id_foreign")
+
+  @@index([user_id], map: "external_sessions_user_id_index")
+  @@index([expires_at], map: "external_sessions_expires_at_index")
+}
+
+/// รายการสิทธิ์ (permission key) — สิทธิ์จริง = role_permissions ของ role + user_permissions allow − deny
+model permissions {
+  id               BigInt             @id @default(autoincrement())
+  key              String             @unique(map: "permissions_key_unique") @db.VarChar(100)
+  group            String             @db.VarChar(50)
+  name_th          String             @db.VarChar(200)
+  name_en          String             @db.VarChar(200)
+  sort_order       Int                @default(0) @db.SmallInt
+  created_at       DateTime?          @db.Timestamp(0)
+  updated_at       DateTime?          @db.Timestamp(0)
+  role_permissions role_permissions[]
+  user_permissions user_permissions[]
+}
+
+/// สิทธิ์ของแต่ละ role (admin | manager | viewer — ค่าเดียวกับ users.role)
+model role_permissions {
+  role          String      @db.VarChar(20)
+  permission_id BigInt
+  created_at    DateTime?   @db.Timestamp(0)
+  permission    permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, map: "role_permissions_permission_id_foreign")
+
+  @@id([role, permission_id])
+}
+
+/// override สิทธิ์รายคน: effect = allow (เพิ่ม) | deny (ถอด)
+model user_permissions {
+  user_id       BigInt
+  permission_id BigInt
+  effect        String      @db.VarChar(10)
+  created_by    BigInt?
+  created_at    DateTime?   @db.Timestamp(0)
+  user          users       @relation("user_permissions_user", fields: [user_id], references: [id], onDelete: Cascade, map: "user_permissions_user_id_foreign")
+  permission    permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, map: "user_permissions_permission_id_foreign")
+  creator       users?      @relation("user_permissions_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "user_permissions_created_by_foreign")
+
+  @@id([user_id, permission_id])
+}
+
+/// บันทึกการเปลี่ยนสิทธิ์ / การตั้งค่า / ลายเซ็น (ใคร เมื่อไร ก่อน-หลัง IP) — ห้ามเก็บ secret / token / รหัสผ่าน
+model audit_logs {
+  id           BigInt   @id @default(autoincrement())
+  actor_id     BigInt?
+  action       String   @db.VarChar(100)
+  subject_type String   @db.VarChar(50)
+  subject_id   String?  @db.VarChar(64)
+  before       Json?
+  after        Json?
+  ip           String?  @db.VarChar(45)
+  created_at   DateTime @default(now()) @db.Timestamp(0)
+  actor        users?   @relation(fields: [actor_id], references: [id], onDelete: SetNull, map: "audit_logs_actor_id_foreign")
+
+  @@index([subject_type, subject_id], map: "audit_logs_subject_index")
+  @@index([actor_id], map: "audit_logs_actor_id_index")
+  @@index([created_at], map: "audit_logs_created_at_index")
+}
+
+/// แผนก (ข้อมูลหลัก) — users.department / approval_routes.department เก็บเป็นชื่อ (ข้อความ) เหมือนเดิม; เปลี่ยนชื่อที่นี่ = อัปเดตชื่อในผู้ใช้/สายอนุมัติด้วย
+model departments {
+  id         BigInt    @id @default(autoincrement())
+  name       String    @unique(map: "departments_name_unique") @db.VarChar(100)
+  is_active  Boolean   @default(true)
+  sort_order Int       @default(0) @db.SmallInt
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+}
+
+/// ฝ่าย (ข้อมูลหลัก) — users.division เก็บเป็นชื่อ (ข้อความ) เหมือนเดิม
+model divisions {
+  id         BigInt    @id @default(autoincrement())
+  name       String    @unique(map: "divisions_name_unique") @db.VarChar(100)
+  is_active  Boolean   @default(true)
+  sort_order Int       @default(0) @db.SmallInt
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+}
+
+/// ลายเซ็นของผู้ใช้ (เก็บในระบบเรา ไม่เกี่ยวกับระบบต้นทาง) — ลายเซ็นใหม่ทำให้อันเดิม is_active = false (ห้ามลบแถว = เก็บประวัติ)
+/// ไฟล์ผ่านการ re-encode เป็น PNG (ล้าง metadata, crop ขอบ, กว้าง ≤ 600px) และเข้ารหัสขณะพัก (is_encrypted)
+model user_signatures {
+  id           BigInt   @id @default(autoincrement())
+  user_id      BigInt
+  file_ref     String   @db.VarChar(255)
+  mime_type    String   @default("image/png") @db.VarChar(50)
+  size         Int      @default(0)
+  /// UPLOAD | DRAW
+  source       String   @db.VarChar(10)
+  is_active    Boolean  @default(true)
+  /// false = ไฟล์เดิมก่อนมีตารางนี้ (ไม่ได้เข้ารหัส)
+  is_encrypted Boolean  @default(true)
+  created_at   DateTime @default(now()) @db.Timestamp(0)
+  created_by   BigInt?
+  user         users    @relation("user_signatures_user", fields: [user_id], references: [id], onDelete: Cascade, map: "user_signatures_user_id_foreign")
+  creator      users?   @relation("user_signatures_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "user_signatures_created_by_foreign")
+
+  @@index([user_id, is_active], map: "user_signatures_user_id_is_active_index")
 }

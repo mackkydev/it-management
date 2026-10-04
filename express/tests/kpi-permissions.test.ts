@@ -1,21 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { config } from "../src/config.js";
-import { as, day, guest, makeUser } from "./helpers.js";
+import { localToday } from "../src/lib/time.js";
+import { as, day, guest, localDay, makeUser } from "./helpers.js";
+
+describe("localToday (timezone ผู้ใช้)", () => {
+  it("is the Bangkok date, not the UTC date", () => {
+    // 2026-10-03 23:30 UTC = 2026-10-04 06:30 ที่ไทย
+    expect(localToday("Asia/Bangkok", new Date(Date.UTC(2026, 9, 3, 23, 30)))).toBe("2026-10-04");
+    expect(localToday("Asia/Bangkok", new Date(Date.UTC(2026, 9, 3, 16, 59)))).toBe("2026-10-03");
+  });
+});
 
 /** บันทึก KPI + การตั้งค่าสิทธิ์การมองเห็นเมนู/ปุ่ม (ui-config) + อายุ token 12 ชม. */
 describe("KPI log", () => {
-  it("users manage their own entries; admin / IT head see everyone", async () => {
-    const staff = await makeUser({ name: "Staff" });
-    const other = await makeUser({ name: "Other" });
+  it("IT department only", async () => {
+    const outsider = await as(await makeUser());
+    expect((await outsider.get("/api/v1/kpi")).status).toBe(403);
+    expect((await outsider.post("/api/v1/kpi").send({ work_date: day(0), details: "x" })).status).toBe(403);
+  });
+
+  it("IT staff manage their own entries; admin / IT head see everyone", async () => {
+    const staff = await makeUser({ name: "Staff", is_it_staff: true });
+    const other = await makeUser({ name: "Other", is_it_staff: true });
     const head = await makeUser({ name: "Head", is_it_head: true });
     const api = await as(staff);
 
-    const bad = await api.post("/api/v1/kpi").send({ work_date: day(2), details: "" });
+    // "อนาคต" ตัดสินจากวันที่ตามเวลาไทย ไม่ใช่ UTC
+    const bad = await api.post("/api/v1/kpi").send({ work_date: localDay(1), details: "" });
     expect(bad.status).toBe(422);
     expect(bad.body.errors.work_date[0]).toBe("วันที่ปฏิบัติงานต้องไม่เป็นวันในอนาคต");
     expect(bad.body.errors.details[0]).toBe("กรุณากรอกรายละเอียด");
-    // วันที่ตามเวลาไทยอาจเป็น "พรุ่งนี้" ของ UTC (00:00–07:00) — ต้องบันทึกได้
-    const thaiToday = await api.post("/api/v1/kpi").send({ work_date: day(1), details: "ช่วงเช้ามืด" });
+    const thaiToday = await api.post("/api/v1/kpi").send({ work_date: localDay(0), details: "ช่วงเช้ามืด" });
     expect(thaiToday.status).toBe(201);
     await api.delete(`/api/v1/kpi/${thaiToday.body.data.id}`);
 
@@ -47,7 +62,7 @@ describe("KPI log", () => {
 
   it("user with KPI history cannot be deleted", async () => {
     const admin = await as(await makeUser({ role: "admin" }));
-    const u = await makeUser();
+    const u = await makeUser({ is_it_staff: true });
     await (await as(u)).post("/api/v1/kpi").send({ work_date: day(0), details: "งาน" });
     expect((await admin.get(`/api/v1/users/${u.id}`)).body.meta.can_delete).toBe(false);
   });
@@ -58,7 +73,7 @@ describe("UI permissions (ui-config)", () => {
     const viewer = await as(await makeUser());
     const admin = await as(await makeUser({ role: "admin" }));
 
-    expect((await viewer.get("/api/v1/ui-config")).body.data).toEqual({ ui_permissions: [], menu_order: [] });
+    expect((await viewer.get("/api/v1/ui-config")).body.data).toMatchObject({ ui_permissions: [], menu_order: [] });
     expect((await viewer.put("/api/v1/settings").send({ ui_permissions: {} })).status).toBe(403);
 
     const bad = await admin.put("/api/v1/settings").send({ ui_permissions: { "/vault": ["hacker"] } });
@@ -70,11 +85,11 @@ describe("UI permissions (ui-config)", () => {
       menu_order: { groups: ["assets", "it-work"], items: { "it-work": ["/kpi", "/tickets/new"] } },
     };
     expect((await admin.put("/api/v1/settings").send(payload)).status).toBe(200);
-    expect((await viewer.get("/api/v1/ui-config")).body.data).toEqual(payload);
+    expect((await viewer.get("/api/v1/ui-config")).body.data).toMatchObject(payload);
 
     // คืนค่าเริ่มต้น: object ว่างเก็บเป็น [] (เหมือน Laravel)
     await admin.put("/api/v1/settings").send({ ui_permissions: {}, menu_order: {} });
-    expect((await viewer.get("/api/v1/ui-config")).body.data).toEqual({ ui_permissions: [], menu_order: [] });
+    expect((await viewer.get("/api/v1/ui-config")).body.data).toMatchObject({ ui_permissions: [], menu_order: [] });
   });
 });
 

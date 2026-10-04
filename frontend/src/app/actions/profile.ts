@@ -35,6 +35,7 @@ export async function uploadSignature(formData: FormData): Promise<SignatureResu
 
   const body = new FormData();
   body.set("signature", file);
+  body.set("source", formData.get("source") === "DRAW" ? "DRAW" : "UPLOAD");
   try {
     await apiFetch("/auth/me/signature", { method: "POST", body });
   } catch (e) {

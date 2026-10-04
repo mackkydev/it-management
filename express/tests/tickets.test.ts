@@ -23,7 +23,7 @@ beforeEach(async () => {
 
 async function submitRepair(): Promise<string> {
   const api = await as(staff);
-  await makeAsset({ asset_tag: "IT-2026-000001" });
+  if (!(await scalar("SELECT 1 FROM assets WHERE asset_tag = ?", ["IT-2026-000001"]))) await makeAsset({ asset_tag: "IT-2026-000001" });
   const res = await api
     .post("/api/v1/tickets")
     .field("type", "repair")
@@ -122,6 +122,55 @@ describe("IT tickets", () => {
     ]);
   });
 
+  it("IT cannot see a request until the supervisor approves it", async () => {
+    const id = await submitRepair(); // ผู้แจ้งเลือก it_ เป็นผู้รับงานไว้แล้ว
+    const itApi = await as(it_);
+    const other = await as(await makeUser({ is_it_staff: true }));
+
+    expect(await unread(it_)).toBe(0); // ยังไม่แจ้ง IT
+    expect((await itApi.get(`/api/v1/tickets/${id}`)).status).toBe(403);
+    expect((await other.get(`/api/v1/tickets/${id}`)).status).toBe(403);
+    expect((await itApi.get("/api/v1/tickets?scope=it")).body.data).toHaveLength(0);
+
+    await (await as(chief)).post(`/api/v1/tickets/${id}/approve`).send({});
+    expect(await unread(it_)).toBe(1);
+    expect((await itApi.get(`/api/v1/tickets/${id}`)).status).toBe(200);
+    expect((await other.get(`/api/v1/tickets/${id}`)).status).toBe(200);
+    expect((await itApi.get("/api/v1/tickets?scope=it")).body.data).toHaveLength(1);
+
+    // ไม่อนุมัติ → IT ไม่เห็น
+    const rejected = await submitRepair();
+    await (await as(chief)).post(`/api/v1/tickets/${rejected}/reject`).send({ comment: "ไม่จำเป็น" });
+    expect((await itApi.get(`/api/v1/tickets/${rejected}`)).status).toBe(403);
+    expect((await itApi.get("/api/v1/tickets?scope=it")).body.data).toHaveLength(1);
+  });
+
+  it("IT records progress while in progress; requester is notified", async () => {
+    const id = await submitRepair();
+    await (await as(chief)).post(`/api/v1/tickets/${id}/approve`).send({});
+    const itApi = await as(it_);
+    const other = await as(await makeUser({ is_it_staff: true }));
+
+    // ยังไม่รับงาน → บันทึกความคืบหน้าไม่ได้
+    expect((await itApi.post(`/api/v1/tickets/${id}/progress`).send({ comment: "x" })).status).toBe(403);
+    const accepted = await itApi.post(`/api/v1/tickets/${id}/accept`);
+    expect(accepted.body.data.actions).toContain("progress");
+    expect((await itApi.get("/api/v1/tickets?scope=it")).body.counts.it_mine).toBe(1);
+
+    const before = await unread(staff);
+    expect((await itApi.post(`/api/v1/tickets/${id}/progress`).send({ comment: "" })).status).toBe(422);
+    expect((await (await as(staff)).post(`/api/v1/tickets/${id}/progress`).send({ comment: "x" })).status).toBe(403);
+    expect((await other.post(`/api/v1/tickets/${id}/progress`).send({ comment: "x" })).status).toBe(403);
+
+    const res = await itApi.post(`/api/v1/tickets/${id}/progress`).send({ comment: "รออะไหล่ 3 วัน" });
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("in_progress");
+    expect(res.body.data.events.at(-1)).toMatchObject({ action: "progress", comment: "รออะไหล่ 3 วัน", user: { id: it_.id } });
+    expect(await unread(staff)).toBe(before + 1);
+    // หัวหน้า IT บันทึกแทนได้
+    expect((await (await as(itHead)).post(`/api/v1/tickets/${id}/progress`).send({ comment: "ติดตามแล้ว" })).status).toBe(200);
+  });
+
   it("access requests require names and other requires text", async () => {
     const api = await as(staff);
     const access = await api.post("/api/v1/tickets").field("type", "grant_access").field("branch_id", String(branch)).field("details", "VPN").field("signature", SIG);
@@ -167,6 +216,8 @@ describe("IT tickets", () => {
     expect((await outsider.get(`/api/v1/tickets/${id}`)).status).toBe(403);
     expect((await outsider.get(`/api/v1/tickets/${id}/files/requester-signature`)).status).toBe(403);
 
+    // IT เห็นใบงานหลังหัวหน้าอนุมัติแล้ว
+    await (await as(chief)).post(`/api/v1/tickets/${id}/approve`).send({});
     const itApi = await as(it_);
     const detail = await itApi.get(`/api/v1/tickets/${id}`);
     expect(detail.status).toBe(200);
@@ -203,5 +254,24 @@ describe("IT tickets", () => {
     expect(opts.body.data.it_staff.map((u: { name: string }) => u.name)).toEqual(["IT", "IT Head"]);
     expect(opts.body.data.other_types).toEqual(["งานออกแบบ"]);
     expect((await api.get("/api/v1/it-staff")).body.data).toContainEqual({ id: itHead.id, name: "IT Head", is_it_head: true });
+  });
+
+  it("users in the IT department are IT staff: listed, assignable and can accept", async () => {
+    const dept = await makeUser({ name: "Dept IT", department: " it " });
+    await makeUser({ name: "Inactive IT", department: "IT", is_active: false });
+    const api = await as(staff);
+    const names = (await api.get("/api/v1/tickets/form-options")).body.data.it_staff.map((u: { name: string }) => u.name);
+    expect(names).toEqual(["Dept IT", "IT", "IT Head"]);
+
+    const base = { type: "other", type_other: "ทดสอบ", branch_id: branch, details: "x", signature: SIG };
+    const bad = await api.post("/api/v1/tickets").send({ ...base, assignee_id: chief.id });
+    expect(bad.status).toBe(422);
+    expect(bad.body.errors).toHaveProperty("assignee_id");
+    const res = await api.post("/api/v1/tickets").send({ ...base, assignee_id: dept.id });
+    expect(res.status).toBe(201);
+
+    await (await as(chief)).post(`/api/v1/tickets/${res.body.data.id}/approve`);
+    const accepted = await (await as(dept)).post(`/api/v1/tickets/${res.body.data.id}/accept`);
+    expect(accepted.body.data.status).toBe("in_progress");
   });
 });

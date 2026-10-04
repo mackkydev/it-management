@@ -5,7 +5,7 @@ import { trans } from "../lib/i18n.js";
 import { nowDb } from "../lib/time.js";
 import { bool, exists, int, regex, unique, validate } from "../lib/validator.js";
 import { me } from "../http.js";
-import { canManageAssets, isAdmin } from "../models/user.js";
+import { can } from "../models/user.js";
 import { locationResource, type LocationRow } from "../resources.js";
 import { forgetLaravelCache } from "../services/settings.js";
 
@@ -77,7 +77,7 @@ function columns(data: Record<string, unknown>) {
  */
 locationRoutes.get("/locations", async (req, res) => {
   if (bool(req.query.include_inactive)) {
-    authorize(canManageAssets(me(req)));
+    authorize(can(me(req), "assets.manage"));
     const all = await select<LocationRow>(`SELECT ${WITH_COUNTS} FROM locations l WHERE l.deleted_at IS NULL ORDER BY l.code`);
     return res.json({ data: all.map(locationResource) });
   }
@@ -93,7 +93,7 @@ locationRoutes.get("/locations/:id", async (req, res) => {
 
 locationRoutes.post("/locations", async (req, res) => {
   const data = await validated(req, null);
-  authorize(canManageAssets(me(req)));
+  authorize(can(me(req), "assets.manage"));
   const now = nowDb();
   const id = await insert("locations", { ...columns(data), created_at: now, updated_at: now });
   await forgetLaravelCache("locations:active");
@@ -103,7 +103,7 @@ locationRoutes.post("/locations", async (req, res) => {
 async function updateLocation(req: Request, res: import("express").Response) {
   const current = await findWithCounts(routeId(req));
   const data = await validated(req, current);
-  authorize(canManageAssets(me(req)));
+  authorize(can(me(req), "assets.manage"));
   await update("locations", { ...columns(data), updated_at: nowDb() }, "id = ?", [current.id]);
   await forgetLaravelCache("locations:active");
   res.json({ data: locationResource(await findWithCounts(current.id)) });
@@ -115,7 +115,7 @@ locationRoutes.patch("/locations/:id", updateLocation);
 /** Soft delete — ไม่อนุญาตถ้ายังมีสถานที่ย่อยหรือสินทรัพย์อยู่ */
 locationRoutes.delete("/locations/:id", async (req, res) => {
   const loc = await findWithCounts(routeId(req));
-  authorize(isAdmin(me(req)));
+  authorize(can(me(req), "locations.delete"));
   if (Number(loc.children_count) > 0) throw ValidationError.withMessages({ location: trans(req.locale, "eam.location.has_children") });
   if (Number(loc.assets_count) > 0) throw ValidationError.withMessages({ location: trans(req.locale, "eam.location.has_assets") });
   await update("locations", { deleted_at: nowDb(), updated_at: nowDb() }, "id = ?", [loc.id]);

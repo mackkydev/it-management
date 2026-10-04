@@ -11,7 +11,7 @@ import { TableSkeleton } from "@/components/skeletons";
 import { alert, btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getAccess, canAccessItData, getCurrentUser } from "@/lib/auth";
+import { has, getAccess, getCurrentUser } from "@/lib/auth";
 import { CREDENTIAL_CATEGORIES, type Credential, type Paginated } from "@/lib/types";
 import { RevealPassword } from "./reveal-password";
 
@@ -25,7 +25,7 @@ const SAVED = ["created", "updated", "deleted"] as const;
 /** 4.1.1 คลังบัญชี/รหัสผ่าน — admin และเจ้าหน้าที่ IT */
 export default async function VaultPage({ searchParams }: PageProps<"/vault">) {
   const user = await getCurrentUser();
-  if (!canAccessItData(user)) redirect("/tickets");
+  if (!has(user, "vault.use")) redirect("/tickets");
   const params = await searchParams;
   const [{ t }, can] = await Promise.all([getI18n(), getAccess()]);
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string).slice(0, 100) : "");

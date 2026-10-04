@@ -24,14 +24,14 @@ services:
       timeout: 5s
       retries: 20
 
-  # REST API หลัก (Express.js) — ค่าทั้งหมดจาก express/.env (APP_KEY/DB ต้องตรงกับ Laravel ถ้ายังใช้เป็นตัวสำรอง)
-  # ไฟล์แนบโฟลเดอร์เดียวกับ Laravel → สลับกันได้โดยเปลี่ยน API_URL ของ frontend
+  # REST API (Express.js) — ค่าทั้งหมดจาก express/.env
+  # ไฟล์แนบ/ลายเซ็น/ไฟล์ license เก็บที่ ./storage/private (ไม่ขึ้น git — สำรองแยก)
   # โครงสร้างฐานข้อมูล: Prisma migrations (express/prisma) — docker compose exec express npx prisma migrate deploy
   express:
     build: ./express
     container_name: it_express
     restart: unless-stopped
-    # ไฟล์แนบใน bind mount เป็นของ root (container Laravel รันเป็น root) — ต้องเขียนโฟลเดอร์เดียวกันได้
+    # ไฟล์เดิมใน bind mount เป็นของ root — ต้องเขียนโฟลเดอร์เดียวกันได้
     user: root
     env_file:
       - ./express/.env
@@ -42,43 +42,12 @@ services:
       PORT: "8020"
       FILES_ROOT: /data/private
       SKIP_ENV_FILES: "1"
-      # งานแจ้งเตือนใกล้หมดอายุ 08:00 (Asia/Bangkok) — เปิดที่นี่ที่เดียว (scheduler ของ Laravel ปิดไว้)
+      # งานแจ้งเตือนใกล้หมดอายุ 08:00 (Asia/Bangkok)
       SCHEDULER_ENABLED: "true"
     volumes:
-      - ./backend/storage/app/private:/data/private
+      - ./storage/private:/data/private
     ports:
       - "127.0.0.1:8020:8020"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  # Laravel API (สำรอง) — ต่อ PostgreSQL ชุดเดียวกัน (DB_CONNECTION=pgsql ใน backend/.env)
-  api:
-    build: ./docker/php
-    container_name: it_api
-    restart: unless-stopped
-    working_dir: /var/www/html
-    volumes:
-      - ./backend:/var/www/html
-    # ค่า DB_* อยู่ใน backend/.env (DB_HOST=postgres) — ห้ามใส่เป็น environment ที่นี่
-    # เพราะจะมีลำดับเหนือ phpunit.xml ทำให้ php artisan test ไปล้างฐานข้อมูลจริง
-    ports:
-      - "127.0.0.1:8010:8000" # 8000 ถูกใช้โดย system_backend แล้ว
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  # Laravel scheduler (php artisan schedule:work) — ปิดไว้เพราะ Express รันงานแจ้งเตือนแทน
-  # ถ้ากลับไปใช้ Laravel เป็นหลัก: ตั้ง SCHEDULER_ENABLED=false ที่ express แล้ว `docker compose --profile laravel-scheduler up -d`
-  scheduler:
-    build: ./docker/php
-    container_name: it_scheduler
-    restart: unless-stopped
-    profiles: ["laravel-scheduler"]
-    working_dir: /var/www/html
-    volumes:
-      - ./backend:/var/www/html
-    command: ["php", "artisan", "schedule:work"]
     depends_on:
       postgres:
         condition: service_healthy

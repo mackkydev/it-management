@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "../config.js";
 import { notFound, ValidationError } from "../lib/errors.js";
@@ -37,10 +37,22 @@ async function put(relative: string, data: Buffer): Promise<void> {
   await writeFile(full, data);
 }
 
+/** เขียน / อ่านไฟล์ใน private storage (path relative — กัน traversal) */
+export const writeStored = put;
+export async function readStoredBuffer(relative: string): Promise<Buffer | null> {
+  const full = absolute(relative);
+  return (await stat(full).catch(() => null))?.isFile() ? readFile(full) : null;
+}
+
 /** รูป/เอกสาร: ตั้งชื่อสุ่ม ไม่ใช้ชื่อไฟล์จากผู้ใช้เป็น path */
 export async function storeUpload(ticketUuid: string, file: UploadedFile, folder: string) {
+  return storeUploadIn(`tickets/${ticketUuid}/${folder}`, file);
+}
+
+/** เก็บไฟล์อัปโหลดในโฟลเดอร์ (relative) ด้วยชื่อสุ่ม + นามสกุลจากเนื้อไฟล์ */
+export async function storeUploadIn(dir: string, file: UploadedFile) {
   const ext = (file.guessExtension() ?? "jpg").toLowerCase();
-  const relative = `tickets/${ticketUuid}/${folder}/${randomString(32)}.${ext}`;
+  const relative = `${dir}/${randomString(32)}.${ext}`;
   await put(relative, file.buffer);
   return {
     path: relative,
@@ -76,24 +88,11 @@ export function isStrictBase64(s: string): boolean {
   return pad.length === 0 || (body.length + pad.length) % 4 === 0;
 }
 
-/** ลายเซ็นในโปรไฟล์ผู้ใช้ (users/{id}/signature-xxx.ext) — ชื่อสุ่มใหม่ทุกครั้งที่อัปโหลด */
-export async function storeUserSignature(userId: number, file: UploadedFile): Promise<string> {
-  const ext = (file.guessExtension() ?? "png").toLowerCase();
-  const relative = `users/${userId}/signature-${randomString(16)}.${ext}`;
-  await put(relative, file.buffer);
-  return relative;
-}
 
-/** คัดลอกลายเซ็นในโปรไฟล์ ณ ตอนแจ้งงาน มาเก็บกับใบงาน (เปลี่ยนลายเซ็นภายหลัง เอกสารเดิมไม่เปลี่ยน) */
-export async function snapshotSignature(ticketUuid: string, sourceRelative: string, who: string): Promise<string | null> {
-  const source = absolute(sourceRelative);
-  if (!(await stat(source).catch(() => null))?.isFile()) return null;
-  const ext = path.extname(source).slice(1).toLowerCase() || "png";
-  const relative = `tickets/${ticketUuid}/signatures/${who}-${randomString(16)}.${ext}`;
-  const target = absolute(relative);
-  await mkdir(path.dirname(target), { recursive: true });
-  await copyFile(source, target);
-  return relative;
+
+/** ลบไฟล์ทั้งหมดของใบงาน (ตอนลบใบงาน) */
+export async function deleteTicketFiles(ticketUuid: string): Promise<void> {
+  await rm(absolute(`tickets/${ticketUuid}`), { recursive: true, force: true });
 }
 
 export async function deleteStored(relative: string | null): Promise<void> {

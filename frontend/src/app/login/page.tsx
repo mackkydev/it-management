@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { ClipboardIcon, HistoryIcon, MonitorIcon, PrinterIcon } from "@/components/icons";
 import { alert } from "@/components/ui";
+import { LiveRefresh } from "@/components/live-refresh";
 import { getI18n } from "@/i18n/server";
+import { apiFetch } from "@/lib/api";
+import type { LoginConnection, PublicAnnouncement } from "@/lib/types";
+import { AnnouncementTicker } from "./announcement-ticker";
 import { LoginForm } from "./login-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -13,18 +17,43 @@ export async function generateMetadata(): Promise<Metadata> {
  * หน้าเข้าสู่ระบบ — ฉากโทนเทคโนโลยี (มืดเสมอ) + motion, กล่อง login แบบกระจกลอยอยู่ทางขวา
  * class "dark" บนฉาก: ช่องกรอก/ปุ่มใช้ token ของโหมดมืดเฉพาะหน้านี้ ไม่เปลี่ยนค่าที่ผู้ใช้ตั้งไว้
  */
+/** ประกาศจากฝ่าย IT (API ไม่ต้อง login) — ดึงไม่ได้ก็แสดงหน้า login ตามปกติ */
+async function getAnnouncements(): Promise<PublicAnnouncement[]> {
+  try {
+    return (await apiFetch<{ data: PublicAnnouncement[] }>("/announcements/public")).data;
+  } catch {
+    return [];
+  }
+}
+
+/** ช่องทาง login ผ่านระบบต้นทาง (ดึงไม่ได้ = แสดงเฉพาะบัญชีในระบบ) */
+async function getConnections(): Promise<LoginConnection[]> {
+  try {
+    return (await apiFetch<{ data: LoginConnection[] }>("/auth/connections")).data;
+  } catch {
+    return [];
+  }
+}
+
+/** key ตามชุดประกาศ — ประกาศเปลี่ยน (LiveRefresh) แล้วตัวเลื่อนเริ่มนับใหม่จากแถวแรก */
+function Announcements({ items, title }: { items: PublicAnnouncement[]; title: string }) {
+  return <AnnouncementTicker key={items.map((a) => a.id).join(",")} items={items} title={title} />;
+}
+
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { expired } = await searchParams;
-  const { t } = await getI18n();
+  const [{ t }, announcements, connections] = await Promise.all([getI18n(), getAnnouncements(), getConnections()]);
   // ยังไม่รู้ว่าใครเข้าระบบ — แสดงเฉพาะความสามารถที่ผู้ใช้ทุกคน (รวมพนักงานนอกฝ่าย IT) ใช้ได้
   const features = [
-    { icon: ClipboardIcon, title: t("auth.feature1"), text: t("auth.feature1Text") },
-    { icon: HistoryIcon, title: t("auth.feature2"), text: t("auth.feature2Text") },
-    { icon: PrinterIcon, title: t("auth.feature3"), text: t("auth.feature3Text") },
+    { icon: ClipboardIcon, title: t("auth.feature1") },
+    { icon: HistoryIcon, title: t("auth.feature2") },
+    { icon: PrinterIcon, title: t("auth.feature3") },
   ];
 
   return (
     <main className="login-scene dark flex min-h-screen items-center px-4 py-10 sm:px-8 lg:px-16">
+      {/* ประกาศใหม่/แก้ไข/ลบ → หน้านี้อัปเดตเองโดยไม่ต้องกดรีเฟรช */}
+      <LiveRefresh scope="public" intervalMs={30_000} />
       <span className="login-orb login-orb-1" aria-hidden="true" />
       <span className="login-orb login-orb-2" aria-hidden="true" />
       <span className="login-orb login-orb-3" aria-hidden="true" />
@@ -43,19 +72,20 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
             </span>
           </h1>
           <p className="login-muted mt-5 max-w-lg text-base leading-relaxed">{t("auth.heroText")}</p>
-          <ul className="mt-10 grid max-w-xl gap-4">
-            {features.map(({ icon: Icon, title, text }) => (
-              <li key={title} className="flex items-start gap-4">
-                <span className="login-chip login-glow flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
-                  <Icon width={18} height={18} />
+          {/* จุดเด่น: ไอคอน + ชื่อ เรียงแถวเดียว */}
+          <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-3">
+            {features.map(({ icon: Icon, title }) => (
+              <li key={title} className="flex items-center gap-2.5">
+                <span className="login-chip login-glow flex h-9 w-9 shrink-0 items-center justify-center rounded-xl">
+                  <Icon width={17} height={17} />
                 </span>
-                <span>
-                  <span className="block font-medium">{title}</span>
-                  <span className="login-muted text-sm">{text}</span>
-                </span>
+                <span className="text-sm font-medium">{title}</span>
               </li>
             ))}
           </ul>
+          <div className="mt-10 max-w-xl">
+            <Announcements items={announcements} title={t("auth.announcements")} />
+          </div>
         </section>
 
         {/* ฝั่งขวา: กล่อง login แบบกระจก */}
@@ -66,8 +96,13 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           <h2 className="mt-6 text-2xl font-semibold">{t("auth.welcome")}</h2>
           <p className="login-muted mt-1 text-sm">{t("auth.welcomeText")}</p>
           {expired && <p className={`mt-5 ${alert.warning}`}>{t("auth.expired")}</p>}
-          <LoginForm />
+          <LoginForm connections={connections} />
           <p className="login-muted mt-8 text-center text-xs">{t("auth.sessionNote")}</p>
+        </section>
+
+        {/* จอเล็ก: ฝั่งซ้ายซ่อนอยู่ — แสดงประกาศใต้กล่อง login แทน */}
+        <section className="lg:hidden">
+          <Announcements items={announcements} title={t("auth.announcements")} />
         </section>
       </div>
     </main>

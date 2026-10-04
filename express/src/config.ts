@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * โหลดค่าจาก express/.env (ไม่พึ่ง backend/.env)
+ * โหลดค่าจาก express/.env
  * process.loadEnvFile ไม่เขียนทับค่าที่มีอยู่แล้ว → env ของ container/เซิร์ฟเวอร์มีลำดับสูงสุด
  * SKIP_ENV_FILES=1 = ไม่อ่านไฟล์เลย (ใช้ env ของระบบอย่างเดียว)
  */
@@ -31,9 +31,13 @@ export const config = {
   db: dbConfig(),
   /** อายุ token ที่ออกตอน login (นาที) — ค่าเริ่มต้น 12 ชั่วโมง */
   tokenTtlMinutes: Number(env("EAM_TOKEN_TTL_MINUTES", String(60 * 12))),
+  /** API User: ไม่มีการใช้งานเกินกี่นาทีแล้วต้อง login ใหม่ (session ของ API User เท่านั้น — ผู้ใช้ LOCAL ทำงานเหมือนเดิม) */
+  apiSessionIdleMinutes: Number(env("API_SESSION_IDLE_MINUTES", "30")),
+  /** timezone ของผู้ใช้ — ใช้ตัดสินว่า "วันนี้" คือวันไหนตอนตรวจวันที่ห้ามเป็นอนาคต (ฐานข้อมูลยังเก็บ UTC) */
+  localTimezone: env("EAM_LOCAL_TIMEZONE", "Asia/Bangkok"),
   frontendUrls: env("FRONTEND_URLS", "http://localhost:3000").split(",").map((s) => s.trim()).filter(Boolean),
-  /** โฟลเดอร์ไฟล์แนบ — ใช้ร่วมกับ Laravel (backend/storage/app/private) */
-  filesRoot: path.resolve(root, env("FILES_ROOT", "../backend/storage/app/private")),
+  /** โฟลเดอร์ไฟล์แนบ/ลายเซ็น/ไฟล์ license (private — เปิดผ่าน endpoint ที่ตรวจสิทธิ์เท่านั้น) */
+  filesRoot: path.resolve(root, env("FILES_ROOT", "../storage/private")),
   bcryptRounds: Number(env("BCRYPT_ROUNDS", "12")),
   /** prefix ของ cache ใน Laravel (ใช้ล้าง cache ที่ Laravel อ่าน เมื่อ Express แก้ข้อมูล) */
   laravelCachePrefix: env("CACHE_PREFIX", `${slug(env("APP_NAME", "laravel"))}-cache-`),

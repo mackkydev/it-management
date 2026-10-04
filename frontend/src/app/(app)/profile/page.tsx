@@ -54,7 +54,25 @@ export default async function ProfilePage() {
             <ProfileForm user={user} />
             <SignatureCard url={user.signature_url ?? null} />
           </div>
-          <PasswordForm />
+          {user.type === "API" ? (
+            // API User: รหัสผ่านอยู่ที่ระบบต้นทาง — ระบบเราเปลี่ยนให้ไม่ได้
+            <section className={`p-4 sm:p-6 ${card}`}>
+              <h2 className="font-semibold">{t("profile.passwordTitle")}</h2>
+              <p className="mt-1 text-sm text-muted">{t("profile.externalPassword", { name: user.external_connection?.name ?? "-" })}</p>
+              {user.external_connection?.change_password_url && (
+                <a
+                  href={user.external_connection.change_password_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 inline-block cursor-pointer text-sm font-medium text-accent-600 hover:underline dark:text-accent-300"
+                >
+                  {t("profile.changeAtSource")}
+                </a>
+              )}
+            </section>
+          ) : (
+            <PasswordForm />
+          )}
         </div>
         <section className={`h-fit p-4 sm:p-6 ${card}`}>
           <h2 className="mb-4 font-semibold">{t("prefs.title")}</h2>

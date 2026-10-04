@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { toActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
-import type { AssetFormValues, FieldErrors, UserOption } from "@/lib/types";
+import { CATEGORY_FORM, type AssetFormValues, type FieldErrors, type UserOption } from "@/lib/types";
 
 export interface SaveResult {
   errors?: FieldErrors;
@@ -17,24 +17,87 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** แปลงค่าจากฟอร์มเป็น payload ของ API: ช่องว่าง → null, ตัดช่องว่างหัวท้าย */
 function toPayload(v: AssetFormValues) {
   const text = (s: string) => (s.trim() === "" ? null : s.trim());
+  const form = CATEGORY_FORM[v.category];
+  const l = v.license;
   return {
+    ...(form?.license
+      ? {
+          license: {
+            billing: l.billing,
+            start_date: text(l.start_date),
+            expires_at: l.billing === "perpetual" ? null : text(l.expires_at),
+            seats: l.seats ? Number(l.seats) : null,
+            vendor: text(l.vendor),
+            license_key: text(l.license_key), // ว่าง = คงค่าเดิม
+            clear_license_key: l.clear_license_key,
+            notify_days_before: l.notify_days_before ? Number(l.notify_days_before) : null,
+          },
+        }
+      : {}),
     asset_tag: v.asset_tag.trim(),
     name: v.name.trim(),
     category: v.category,
     brand: text(v.brand),
     model: text(v.model),
-    serial_number: text(v.serial_number),
+    // ช่องที่หมวดนี้ซ่อน ส่งเป็น null (ไม่เก็บค่าค้างจากหมวดเดิม)
+    serial_number: form?.hide?.includes("serial_number") ? null : text(v.serial_number),
     status: v.status,
     location_id: v.location_id ? Number(v.location_id) : null,
     custodian_id: v.custodian_id ? Number(v.custodian_id) : null,
     purchase_date: text(v.purchase_date),
     purchase_cost: text(v.purchase_cost),
-    warranty_expires_at: text(v.warranty_expires_at),
+    warranty_expires_at: form?.hide?.includes("warranty_expires_at") ? null : text(v.warranty_expires_at),
     notes: text(v.notes),
   };
 }
 
-const toResult = (e: unknown) => toActionResult<keyof AssetFormValues>(e, "assets.form.notFound");
+const toResult = (e: unknown) => toActionResult<keyof FieldErrors>(e, "assets.form.notFound");
+
+/** ค่ายี่ห้อ/รุ่นที่มีอยู่แล้ว (ช่องพิมพ์แล้วแนะนำ) */
+export async function suggestAssetValues(field: "brand" | "model", q: string, brand = ""): Promise<string[]> {
+  if (field !== "brand" && field !== "model") return [];
+  const query = new URLSearchParams({ field, q: q.slice(0, 100) });
+  if (field === "model" && brand.trim()) query.set("brand", brand.trim().slice(0, 100));
+  try {
+    return (await apiFetch<{ data: string[] }>(`/assets/suggestions?${query}`)).data;
+  } catch (e) {
+    if (e instanceof ApiError) return [];
+    throw e;
+  }
+}
+
+/** ดู license key (ถอดรหัส) — API ตรวจสิทธิ์ (ผู้จัดการ/IT) และจำกัดจำนวนครั้ง */
+export async function revealLicenseKey(id: string): Promise<{ key?: string | null; message?: string }> {
+  if (!UUID_RE.test(id)) return invalidId();
+  try {
+    return { key: (await apiFetch<{ data: { license_key: string | null } }>(`/assets/${id}/license-key`, { method: "POST" })).data.license_key };
+  } catch (e) {
+    return toResult(e);
+  }
+}
+
+/** อัปโหลดไฟล์ license (multipart files[]) */
+export async function uploadAssetFiles(id: string, form: FormData): Promise<SaveResult & { ok?: boolean }> {
+  if (!UUID_RE.test(id)) return invalidId();
+  try {
+    await apiFetch(`/assets/${id}/files`, { method: "POST", body: form });
+  } catch (e) {
+    return toResult(e);
+  }
+  revalidatePath(`/assets/${id}`);
+  return { ok: true };
+}
+
+export async function deleteAssetFile(id: string, fileId: number): Promise<SaveResult & { ok?: boolean }> {
+  if (!UUID_RE.test(id) || !Number.isInteger(fileId) || fileId <= 0) return invalidId();
+  try {
+    await apiFetch(`/assets/${id}/files/${fileId}`, { method: "DELETE" });
+  } catch (e) {
+    return toResult(e);
+  }
+  revalidatePath(`/assets/${id}`);
+  return { ok: true };
+}
 
 async function invalidId(): Promise<SaveResult> {
   const { t } = await getI18n();

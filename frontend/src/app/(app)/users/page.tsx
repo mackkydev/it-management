@@ -12,7 +12,7 @@ import { Tooltip } from "@/components/tooltip";
 import { alert, btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getAccess, canManageAssets, getCurrentUser } from "@/lib/auth";
+import { getAccess, getCurrentUser, has } from "@/lib/auth";
 import { ROLES, type ManagedUser, type Paginated, type User, type UserOption } from "@/lib/types";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -30,7 +30,9 @@ interface SimplePage<T> {
 /** บทบาทใช้ความเข้มของสีธีม (ไม่ใช้สีสถานะของระบบ) */
 const ROLE_STYLE: Record<User["role"], string> = {
   admin: "bg-accent-300 text-accent-900 dark:bg-accent-400/35 dark:text-accent-100",
+  division_manager: "bg-accent-200 text-accent-900 dark:bg-accent-400/25 dark:text-accent-100",
   manager: "bg-accent-100 text-accent-800 dark:bg-accent-400/15 dark:text-accent-200",
+  it_staff: "bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent-200 dark:bg-accent-400/10 dark:text-accent-300 dark:ring-accent-400/30",
   viewer: "bg-surface text-muted ring-1 ring-inset ring-line",
 };
 
@@ -42,19 +44,19 @@ function initials(name: string) {
 
 export default async function UsersPage({ searchParams }: PageProps<"/users">) {
   const user = await getCurrentUser();
-  if (!canManageAssets(user)) redirect("/assets"); // API อนุญาตเฉพาะ admin / manager
+  if (!has(user, "users.view")) redirect("/assets");
 
   const params = await searchParams;
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string).slice(0, 100) : "");
-  const isAdmin = user.role === "admin";
+  const canManageUsers = has(user, "users.manage");
   const [{ t }, can] = await Promise.all([getI18n(), getAccess()]);
   const saved = SAVED.find((s) => s === params.saved);
 
   // อนุญาตเฉพาะค่าที่รู้จักก่อนส่งต่อ API
   const q = new URLSearchParams();
   if (str("search")) q.set("search", str("search"));
-  if (isAdmin && (ROLES as readonly string[]).includes(str("role"))) q.set("role", str("role"));
-  if (isAdmin && ["active", "inactive"].includes(str("status"))) q.set("status", str("status"));
+  if (canManageUsers && (ROLES as readonly string[]).includes(str("role"))) q.set("role", str("role"));
+  if (canManageUsers && ["active", "inactive"].includes(str("status"))) q.set("status", str("status"));
   if (/^\d+$/.test(str("page"))) q.set("page", str("page"));
 
   return (
@@ -62,9 +64,9 @@ export default async function UsersPage({ searchParams }: PageProps<"/users">) {
       <PageHeader
         icon={UsersIcon}
         title={t("users.title")}
-        subtitle={isAdmin ? t("users.manageSubtitle") : t("users.subtitle")}
+        subtitle={canManageUsers ? t("users.manageSubtitle") : t("users.subtitle")}
         actions={
-          isAdmin && can("btn:users:create") && (
+          canManageUsers && can("btn:users:create") && (
             <Link href="/users/new" className={btn.primary}>
               <LinkPendingIcon icon={<PlusIcon />} />
               {t("users.add")}
@@ -80,12 +82,12 @@ export default async function UsersPage({ searchParams }: PageProps<"/users">) {
         </div>
       )}
 
-      <Form action="/users" className={`grid grid-cols-1 gap-3 p-4 ${isAdmin ? "sm:grid-cols-2 lg:grid-cols-[1fr_12rem_12rem_auto]" : "sm:grid-cols-[1fr_auto]"} ${card}`}>
+      <Form action="/users" className={`grid grid-cols-1 gap-3 p-4 ${canManageUsers ? "sm:grid-cols-2 lg:grid-cols-[1fr_12rem_12rem_auto]" : "sm:grid-cols-[1fr_auto]"} ${card}`}>
         <div className="relative">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
           <input name="search" defaultValue={str("search")} placeholder={t("users.searchPlaceholder")} maxLength={100} className={`${input} pl-9`} />
         </div>
-        {isAdmin && (
+        {canManageUsers && (
           <>
             <select name="role" defaultValue={str("role")} className={input} aria-label={t("users.col.role")}>
               <option value="">{t("users.allRoles")}</option>
@@ -103,7 +105,7 @@ export default async function UsersPage({ searchParams }: PageProps<"/users">) {
           </>
         )}
         <div className="flex gap-2">
-          {isAdmin && (
+          {canManageUsers && (
             <Tooltip label={t("common.clearFilters")} side="top">
               <Link href="/users" className={`${btn.secondary} h-full`} aria-label={t("common.clearFilters")}>
                 <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
@@ -116,8 +118,8 @@ export default async function UsersPage({ searchParams }: PageProps<"/users">) {
         </div>
       </Form>
 
-      <Suspense key={q.toString()} fallback={<TableSkeleton cols={isAdmin ? 5 : 2} />}>
-        {isAdmin ? <ManagedUsers query={q} selfId={user.id} /> : <UserResults query={q} />}
+      <Suspense key={q.toString()} fallback={<TableSkeleton cols={canManageUsers ? 5 : 2} />}>
+        {canManageUsers ? <ManagedUsers query={q} selfId={user.id} /> : <UserResults query={q} />}
       </Suspense>
     </div>
   );

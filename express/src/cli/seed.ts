@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { closePool, first, insert, transaction, update } from "../db.js";
 import { nowDb } from "../lib/time.js";
 import { makeHash } from "../lib/validator.js";
+import { ensurePermissions } from "../services/permissions.js";
 
 /**
  * ข้อมูลตั้งต้นของ IT-SYSTEM — รันซ้ำได้ (npm run db:seed / npx prisma db seed)
@@ -79,6 +80,7 @@ try {
       name: "Sales Staff", role: "viewer", branch_id: ids.KKN, department: "ขาย", division: "ขาย", supervisor_id: chief,
     });
   });
+  await ensurePermissions(); // key สิทธิ์ + สิทธิ์ตั้งต้นของกลุ่ม (ไม่แตะที่ปรับไว้แล้ว)
   console.log(`Seeded ${BRANCHES.length} branches and 6 users (existing passwords unchanged).`);
 } finally {
   await closePool();

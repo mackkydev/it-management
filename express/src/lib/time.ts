@@ -3,7 +3,9 @@
  * API ส่งออกเป็น ISO-8601 รูปแบบเดียวกับ Carbon::toIso8601String() เช่น 2026-10-03T13:05:14+00:00
  */
 
-const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+import { config } from "../config.js";
+
+const pad =(n: number, len = 2) => String(n).padStart(len, "0");
 
 /** Date → "YYYY-MM-DD HH:mm:ss" (UTC) สำหรับเขียนลง DB */
 export function toDbDateTime(d: Date = new Date()): string {
@@ -17,6 +19,17 @@ export function toDbDate(d: Date = new Date()): string {
 
 export const nowDb = () => toDbDateTime(new Date());
 export const todayDb = () => toDbDate(new Date());
+
+/** "YYYY-MM-DD" → dd/MM/yyyy สำหรับข้อความถึงผู้ใช้ (ภาษาไทยใช้ปี พ.ศ.) — เหมือน frontend lib/date.ts */
+export function displayDate(isoDate: string, locale: "th" | "en"): string {
+  const [y, m, d] = isoDate.slice(0, 10).split("-");
+  return `${d}/${m}/${Number(y) + (locale === "th" ? 543 : 0)}`;
+}
+
+/** "YYYY-MM-DD" ของวันนี้ตาม timezone ผู้ใช้ (EAM_LOCAL_TIMEZONE) — ใช้กับ rule before_or_equal แทน "today" ที่เป็น UTC */
+export function localToday(timeZone: string = config.localTimezone, now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
 
 /** ค่าจาก DB ("YYYY-MM-DD HH:mm:ss" UTC) → ISO-8601 +00:00 */
 export function iso(value: string | null | undefined): string | null {

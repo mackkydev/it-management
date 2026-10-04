@@ -31,6 +31,7 @@ function toPayload(v: UserFormValues, isCreate: boolean) {
     supervisor_id: v.supervisor_id ? Number(v.supervisor_id) : null,
     is_it_staff: v.is_it_staff,
     is_it_head: v.is_it_head,
+    approval_route_id: v.approval_route_id ? Number(v.approval_route_id) : null,
     // แก้ไข: ส่งรหัสผ่านเฉพาะเมื่อต้องการรีเซ็ต
     ...(isCreate || v.password ? { password: v.password } : {}),
   };
@@ -71,4 +72,17 @@ export async function deleteUser(id: number): Promise<UserResult> {
     return result.errors?.user ? { message: result.errors.user } : result;
   }
   done("deleted");
+}
+
+/** Local Admin ลบ (ปิดใช้งาน) ลายเซ็นของผู้ใช้ — API บันทึก audit */
+export async function deleteUserSignature(id: number): Promise<ActionResult> {
+  const { t } = await getI18n();
+  if (!Number.isInteger(id) || id <= 0) return { message: t("common.saveFailed") };
+  try {
+    await apiFetch(`/users/${id}/signature`, { method: "DELETE" });
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath(`/users/${id}/edit`);
+  return { ok: true, message: t("users.signature.removed") };
 }

@@ -5,7 +5,8 @@ import {
   changePassword, deleteSignature, updateProfile, uploadSignature,
   type PasswordResult, type ProfileResult, type SignatureResult,
 } from "@/app/actions/profile";
-import { AlertIcon, CheckCircleIcon, PenIcon, SaveIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
+import { AlertIcon, CheckCircleIcon, PenIcon, SaveIcon, SpinnerIcon, TrashIcon, UploadIcon, XIcon } from "@/components/icons";
+import { SignaturePad } from "@/components/signature-pad";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { User } from "@/lib/types";
@@ -83,30 +84,77 @@ export function ProfileForm({ user }: { user: User }) {
 }
 
 const SIGNATURE_MAX_BYTES = 1024 * 1024; // ตรงกับ API max:1024 (KB)
-const SIGNATURE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const SIGNATURE_TYPES = ["image/png", "image/jpeg"];
 
 /**
  * ลายเซ็นในโปรไฟล์ — แสตมป์ลงช่อง "ผู้แจ้งดำเนินงาน" ของใบแจ้งงานตอนดู/พิมพ์
  * ไม่ย่อรูปอัตโนมัติ (การแปลงเป็น JPEG ทำให้พื้นโปร่งใสของ PNG หายไป) — ตรวจขนาดแทน
  */
+/**
+ * ลายเซ็นของฉัน — แท็บ "อัปโหลด" (PNG/JPG ≤ 1MB) กับ "วาดลายเซ็น" (เมาส์/สัมผัส → PNG พื้นโปร่งใส)
+ * พรีวิวก่อนบันทึก; API crop ขอบ + ย่อ + re-encode PNG แล้วเก็บเข้ารหัส — ลายเซ็นเดิมเก็บเป็นประวัติ
+ */
 export function SignatureCard({ url }: { url: string | null }) {
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [tab, setTab] = useState<"upload" | "draw">("upload");
   const [result, setResult] = useState<SignatureResult>({});
   const [pending, start] = useTransition();
-  const [action, setAction] = useState<"upload" | "remove" | null>(null);
+  const [action, setAction] = useState<"save" | "remove" | null>(null);
+  const [picked, setPicked] = useState<{ file: File; preview: string } | null>(null);
+  const [drawn, setDrawn] = useState<string | null>(null);
+  const [padKey, setPadKey] = useState(0);
   const error = result.errors?.signature;
 
-  const onPick = (file: File | undefined) => {
+  const clearPicked = () => {
+    if (picked) URL.revokeObjectURL(picked.preview);
+    setPicked(null);
     if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const onPick = (file: File | undefined) => {
+    setResult({});
     if (!file) return;
+    // ตรวจเบื้องต้นฝั่ง browser — API ตรวจจากเนื้อไฟล์อีกชั้น
     if (!SIGNATURE_TYPES.includes(file.type)) return setResult({ errors: { signature: t("profile.signatureType") } });
     if (file.size > SIGNATURE_MAX_BYTES) return setResult({ errors: { signature: t("profile.signatureTooLarge") } });
+    clearPicked();
+    setPicked({ file, preview: URL.createObjectURL(file) });
+  };
 
+  const send = (file: File, source: "UPLOAD" | "DRAW") => {
     const fd = new FormData();
     fd.set("signature", file);
-    setAction("upload");
-    start(async () => setResult(await uploadSignature(fd)));
+    fd.set("source", source);
+    setAction("save");
+    start(async () => {
+      const res = await uploadSignature(fd);
+      setResult(res);
+      if (!res.errors) {
+        clearPicked();
+        setDrawn(null);
+        setPadKey((k) => k + 1);
+      }
+    });
+  };
+
+  const save = async () => {
+    if (tab === "upload") {
+      if (!picked) return setResult({ errors: { signature: t("profile.signatureType") } });
+      return send(picked.file, "UPLOAD");
+    }
+    if (!drawn) return setResult({ errors: { signature: t("signature.required") } });
+    const blob = await (await fetch(drawn)).blob();
+    send(new File([blob], "signature.png", { type: "image/png" }), "DRAW");
+  };
+
+  const clear = () => {
+    setResult({});
+    if (tab === "upload") clearPicked();
+    else {
+      setDrawn(null);
+      setPadKey((k) => k + 1);
+    }
   };
 
   const onRemove = () => {
@@ -114,6 +162,10 @@ export function SignatureCard({ url }: { url: string | null }) {
     setAction("remove");
     start(async () => setResult(await deleteSignature()));
   };
+
+  const tabCls = (active: boolean) =>
+    `flex-1 cursor-pointer rounded-lg px-3 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
+  const hasDraft = tab === "upload" ? Boolean(picked) : Boolean(drawn);
 
   return (
     <section className={`space-y-4 p-4 sm:p-6 ${card}`}>
@@ -123,30 +175,68 @@ export function SignatureCard({ url }: { url: string | null }) {
       </div>
       {result.message && !error && <Feedback result={result} />}
 
-      <div className={`flex h-32 items-center justify-center rounded-xl border-2 border-dashed bg-subtle p-3 ${error ? inputError : "border-line"}`}>
-        {url ? (
-          // eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน route handler /files
-          <img src={`/files${url}`} alt={t("profile.signatureTitle")} className="max-h-full max-w-full object-contain dark:invert" />
-        ) : (
-          <span className="text-sm text-faint">{t("profile.signatureNone")}</span>
-        )}
+      {/* ลายเซ็นปัจจุบัน */}
+      <div>
+        <p className="mb-1 text-xs font-medium text-muted">{t("profile.signatureCurrent")}</p>
+        <div className="flex h-24 items-center justify-center rounded-xl bg-subtle p-3 ring-1 ring-line">
+          {url ? (
+            // eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน route handler /files
+            <img src={`/files${url}`} alt={t("profile.signatureTitle")} className="max-h-full max-w-full object-contain dark:invert" />
+          ) : (
+            <span className="text-sm text-faint">{t("profile.signatureNone")}</span>
+          )}
+        </div>
       </div>
+
+      <div role="tablist" className="flex gap-1 rounded-xl bg-subtle p-1">
+        <button type="button" role="tab" aria-selected={tab === "upload"} onClick={() => (setTab("upload"), setResult({}))} className={tabCls(tab === "upload")}>
+          <UploadIcon width={15} height={15} className="mr-1 inline" />
+          {t("profile.signatureTabUpload")}
+        </button>
+        <button type="button" role="tab" aria-selected={tab === "draw"} onClick={() => (setTab("draw"), setResult({}))} className={tabCls(tab === "draw")}>
+          <PenIcon width={15} height={15} className="mr-1 inline" />
+          {t("profile.signatureDraw")}
+        </button>
+      </div>
+
+      {tab === "upload" ? (
+        <div>
+          <input ref={inputRef} type="file" accept={SIGNATURE_TYPES.join(",")} className="hidden" onChange={(e) => onPick(e.target.files?.[0])} />
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className={`flex h-32 w-full cursor-pointer items-center justify-center rounded-xl border-2 border-dashed bg-subtle p-3 transition-colors hover:bg-surface ${error ? inputError : "border-line"}`}
+          >
+            {picked ? (
+              // eslint-disable-next-line @next/next/no-img-element -- พรีวิวไฟล์ที่เลือก (object URL)
+              <img src={picked.preview} alt={t("profile.signaturePreview")} className="max-h-full max-w-full object-contain" />
+            ) : (
+              <span className="flex items-center gap-2 text-sm text-muted">
+                <UploadIcon />
+                {t("profile.signatureChoose")}
+              </span>
+            )}
+          </button>
+        </div>
+      ) : (
+        // วาดลายเซ็น — หมึกเข้มบนพื้นขาว บันทึกเป็น PNG พื้นโปร่งใส
+        <SignaturePad key={padKey} onChange={(d) => (setDrawn(d), setResult({}))} invalid={Boolean(error)} />
+      )}
       {error && <p className="text-xs font-medium text-red-500">{error}</p>}
 
       <div className="flex flex-wrap gap-2">
-        <input
-          ref={inputRef}
-          type="file"
-          accept={SIGNATURE_TYPES.join(",")}
-          className="hidden"
-          onChange={(e) => onPick(e.target.files?.[0])}
-        />
-        <button type="button" disabled={pending} onClick={() => inputRef.current?.click()} className={btn.primary}>
-          {pending && action === "upload" ? <SpinnerIcon /> : <PenIcon />}
-          {url ? t("profile.signatureChange") : t("profile.signatureUpload")}
+        <button type="button" disabled={pending || !hasDraft} onClick={save} aria-busy={pending} className={`${btn.primary} disabled:cursor-not-allowed disabled:opacity-60`}>
+          {pending && action === "save" ? <SpinnerIcon /> : <SaveIcon />}
+          {t("profile.signatureSave")}
         </button>
+        {tab === "upload" && (
+          <button type="button" disabled={pending || !hasDraft} onClick={clear} className={`${btn.secondary} disabled:cursor-not-allowed disabled:opacity-60`}>
+            <XIcon className="text-faint" />
+            {t("profile.signatureClear")}
+          </button>
+        )}
         {url && (
-          <button type="button" disabled={pending} onClick={onRemove} className={btn.danger}>
+          <button type="button" disabled={pending} onClick={onRemove} className={`${btn.danger} ml-auto`}>
             {pending && action === "remove" ? <SpinnerIcon /> : <TrashIcon />}
             {t("profile.signatureRemove")}
           </button>

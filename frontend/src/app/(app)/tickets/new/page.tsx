@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
+import type { ApprovalPlan } from "@/lib/types";
 import { TicketForm, type TicketFormOptions } from "./ticket-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -10,10 +11,12 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function NewTicketPage() {
-  const [user, { data: options }] = await Promise.all([
+  const [user, { data: options }, plan] = await Promise.all([
     getCurrentUser(),
     apiFetch<{ data: TicketFormOptions }>("/tickets/form-options"),
+    // แผนอนุมัติของผู้แจ้งเอง — แสดงว่าใบนี้จะไปถึงใคร (โหลดไม่ได้ก็แจ้งงานต่อได้)
+    apiFetch<{ data: ApprovalPlan }>("/approval-routes/resolve").then((r) => r.data, () => null),
   ]);
 
-  return <TicketForm user={user} options={options} />;
+  return <TicketForm user={user} options={options} plan={plan} />;
 }

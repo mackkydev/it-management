@@ -1,6 +1,7 @@
 import { trans, type Locale } from "./lib/i18n.js";
 import { dateOnly, iso } from "./lib/time.js";
 import type { UserRow } from "./models/user.js";
+import { fileJson, licenseJson, type AssetFileRow, type LicenseRow } from "./services/asset-licenses.js";
 
 /** JSON ของแต่ละ model — รูปแบบเดียวกับ App\Http\Resources ของ Laravel */
 
@@ -9,8 +10,8 @@ export const person = (id: number | null | undefined, name: string | null | unde
   id && name !== null && name !== undefined ? { id, name } : null;
 
 /** URL ลายเซ็นของตัวเอง — ?v= เปลี่ยนเมื่ออัปโหลดใหม่ (ชื่อไฟล์สุ่ม) เพื่อไม่ให้ browser ใช้รูปเก่าจาก cache */
-export const ownSignatureUrl = (path: string | null) =>
-  path ? `/auth/me/signature?v=${path.split("/").pop()!.replace(/\.[^.]+$/, "")}` : null;
+/** URL รูปลายเซ็นของตัวเอง (?v = id ของลายเซ็น — เปลี่ยนเมื่อเปลี่ยนลายเซ็น) */
+export const ownSignatureUrl = (signatureId: number | null | undefined) => (signatureId ? `/auth/me/signature?v=${signatureId}` : null);
 
 /**
  * UserResource — ใช้กับแถว users เต็ม (whenHas ของ Laravel = ทุกฟิลด์มีอยู่)
@@ -19,7 +20,13 @@ export const ownSignatureUrl = (path: string | null) =>
  */
 export function userResource(
   u: UserRow,
-  extra: { branch?: { id: number; name: string } | null; supervisor?: { id: number; name: string } | null; custodian_assets_count?: number } = {},
+  extra: {
+    branch?: { id: number; name: string } | null;
+    supervisor?: { id: number; name: string } | null;
+    custodian_assets_count?: number;
+    /** id ลายเซ็นที่ใช้งานอยู่ (null = ไม่มี) */
+    signature_id?: number | null;
+  } = {},
   viewerId?: number,
 ) {
   return {
@@ -27,6 +34,8 @@ export function userResource(
     name: u.name,
     email: u.email,
     role: u.role,
+    /** LOCAL | API — API User ไม่มีรหัสผ่านในระบบเรา (frontend ซ่อนเมนูเปลี่ยนรหัสผ่าน) */
+    type: u.type,
     is_active: bool(u.is_active),
     branch_id: u.branch_id,
     ...("branch" in extra ? { branch: extra.branch } : {}),
@@ -36,8 +45,10 @@ export function userResource(
     ...("supervisor" in extra ? { supervisor: extra.supervisor } : {}),
     is_it_staff: bool(u.is_it_staff),
     is_it_head: bool(u.is_it_head),
+    approval_route_id: u.approval_route_id,
     ...(extra.custodian_assets_count !== undefined ? { custodian_assets_count: extra.custodian_assets_count } : {}),
-    signature_url: viewerId === u.id ? ownSignatureUrl(u.signature_path) : null,
+    signature_url: viewerId === u.id ? ownSignatureUrl(extra.signature_id) : null,
+    ...(extra.signature_id !== undefined ? { has_signature: extra.signature_id !== null } : {}),
     created_at: iso(u.created_at),
   };
 }
@@ -93,7 +104,12 @@ export interface AssetRow {
 export function assetResource(
   a: AssetRow,
   locale: Locale,
-  rel: { location?: LocationRow | null; custodian?: { id: number; name: string } | null } = {},
+  rel: {
+    location?: LocationRow | null;
+    custodian?: { id: number; name: string } | null;
+    license?: LicenseRow | null;
+    files?: AssetFileRow[];
+  } = {},
 ) {
   return {
     id: a.uuid,
@@ -111,6 +127,8 @@ export function assetResource(
     purchase_cost: a.purchase_cost,
     warranty_expires_at: dateOnly(a.warranty_expires_at),
     notes: a.notes,
+    ...("license" in rel ? { license: rel.license ? licenseJson(rel.license) : null } : {}),
+    ...("files" in rel ? { files: (rel.files ?? []).map((f) => fileJson(a.uuid, f)) } : {}),
     created_at: iso(a.created_at),
     updated_at: iso(a.updated_at),
   };

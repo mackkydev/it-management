@@ -4,7 +4,7 @@ import { FileTextIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
-import { canAccessItData, getCurrentUser } from "@/lib/auth";
+import { has, getCurrentUser } from "@/lib/auth";
 import type { Branch, Contract } from "@/lib/types";
 import { ContractForm } from "../../contract-form";
 
@@ -17,7 +17,7 @@ export default async function EditContractPage({ params }: PageProps<"/contracts
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
   const user = await getCurrentUser();
-  if (!canAccessItData(user)) redirect("/tickets");
+  if (!has(user, "contracts.manage")) redirect("/tickets");
 
   const contractReq = apiFetch<{ data: Contract }>(`/contracts/${id}`).catch((e) => {
     if (e instanceof ApiError && e.status === 404) notFound();

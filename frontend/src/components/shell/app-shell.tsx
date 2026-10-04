@@ -2,18 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
-import {
-  ChevronDownIcon,
-  MonitorIcon,
-  MenuIcon,
-  PanelCollapseIcon,
-  PanelExpandIcon,
-  SettingsIcon,
-  UserIcon,
-  XIcon,
-} from "@/components/icons";
+import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, MonitorIcon, MenuIcon, SettingsIcon, UserIcon, XIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
 import { usePrefs } from "@/components/prefs-provider";
 import { Tooltip } from "@/components/tooltip";
@@ -50,7 +41,16 @@ function useDismiss(ref: RefObject<HTMLElement | null>, open: boolean, close: ()
   }, [ref, open, close]);
 }
 
+/** เวอร์ชันโลโก้ระบบจาก ui-config (null = ไม่มีโลโก้) */
+const LogoVersionContext = createContext<string | null>(null);
+
+/** โลโก้ระบบ (อัปโหลดที่หน้าตั้งค่าระบบ) — ไม่มีรูป = icon เดิม */
 function LogoMark() {
+  const version = useContext(LogoVersionContext);
+  if (version) {
+    // eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน /files (ไม่ผ่าน next/image)
+    return <img src={`/files/branding/logo?v=${encodeURIComponent(version)}`} alt="" className="h-9 w-9 shrink-0 rounded-xl object-contain" />;
+  }
   return (
     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-200 text-accent-700 dark:bg-accent-400/20 dark:text-accent-300">
       <MonitorIcon width={19} height={19} />
@@ -93,7 +93,11 @@ const MENU_ITEM =
 function SettingsFlyout({ id, anchor, onClose }: { id: string; anchor: RefObject<HTMLElement | null>; onClose: () => void }) {
   const { t } = useI18n();
   const panel = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
+  const [pos, setPos] = useState<{
+    left: number;
+    bottom: number;
+    maxHeight: number;
+  } | null>(null);
 
   useEffect(() => {
     const place = () => {
@@ -101,7 +105,11 @@ function SettingsFlyout({ id, anchor, onClose }: { id: string; anchor: RefObject
       if (!r) return;
       // ชิดขอบขวาของกรอบที่อยู่ (sidebar หรือ popover ของ sidebar แบบย่อ) ไม่ทับเส้นขอบ
       const edge = anchor.current?.closest("[data-flyout-edge]")?.getBoundingClientRect().right ?? r.right;
-      setPos({ left: edge + 8, bottom: Math.max(8, window.innerHeight - r.bottom - 8), maxHeight: Math.max(240, r.bottom - 8) });
+      setPos({
+        left: edge + 8,
+        bottom: Math.max(8, window.innerHeight - r.bottom - 8),
+        maxHeight: Math.max(240, r.bottom - 8),
+      });
     };
     place();
     const onPointer = (e: PointerEvent) => {
@@ -187,11 +195,7 @@ function AccountActions({ onNavigate, settings = "inline" }: { onNavigate?: () =
       >
         <SettingsIcon width={15} height={15} className="text-accent-500 dark:text-accent-300" />
         <span className="flex-1 text-left">{t("nav.settings")}</span>
-        <ChevronDownIcon
-          width={14}
-          height={14}
-          className={`text-faint transition-transform ${flyout ? "-rotate-90" : settingsOpen ? "rotate-180" : ""}`}
-        />
+        <ChevronDownIcon width={14} height={14} className={`text-faint transition-transform ${flyout ? "-rotate-90" : settingsOpen ? "rotate-180" : ""}`} />
       </button>
       {flyout ? (
         settingsOpen && <SettingsFlyout id={settingsId} anchor={settingsBtn} onClose={() => setSettingsOpen(false)} />
@@ -306,7 +310,10 @@ function CollapsedFooter({ user }: { user: User }) {
       </Tooltip>
       {open && (
         // fixed: ไม่ถูกตัดโดย sidebar ที่ scroll ได้ — วางชิดขวาของ sidebar ด้านล่าง
-        <div data-flyout-edge="" className="fixed bottom-4 left-[88px] z-50 max-h-[calc(100vh-2rem)] w-80 overflow-y-auto rounded-2xl bg-surface p-2 shadow-xl ring-1 ring-line">
+        <div
+          data-flyout-edge=""
+          className="fixed bottom-4 left-[88px] z-50 max-h-[calc(100vh-2rem)] w-80 overflow-y-auto rounded-2xl bg-surface p-2 shadow-xl ring-1 ring-line"
+        >
           <div className="mb-1 flex items-center gap-3 border-b border-line p-2 pb-3">
             <Avatar user={user} />
             <div className="min-w-0">
@@ -328,45 +335,52 @@ function DesktopSidebar({ groups, user }: { groups: NavGroup[]; user: User }) {
   const collapsed = sidebar === "collapsed";
   const toggle = () => set("sidebar", collapsed ? "expanded" : "collapsed");
 
+  const toggleLabel = collapsed ? t("nav.expand") : t("nav.collapse");
+
+  // ปุ่มย่อ/ขยายวางคร่อมเส้นขอบขวา — อยู่นอก aside (aside มี overflow-x-hidden จะตัดปุ่มทิ้ง)
   return (
-    <aside
-      data-flyout-edge=""
-      className={`sticky top-0 hidden h-screen shrink-0 flex-col gap-5 overflow-y-auto overflow-x-hidden border-r border-line bg-surface transition-[width,padding] duration-200 ease-out lg:flex ${
-        collapsed ? "w-[76px] px-2 py-4" : "w-72 p-4"
-      }`}
-    >
-      {collapsed ? (
-        <div className="flex flex-col items-center gap-2">
-          <Tooltip label={t("app.fullName")}>
-            <Link href="/tickets" aria-label={t("app.fullName")} className="cursor-pointer">
-              <LogoMark />
-            </Link>
-          </Tooltip>
-          <Tooltip label={t("nav.expand")}>
-            <button type="button" onClick={toggle} aria-label={t("nav.expand")} className={`${ICON_BTN} h-8 w-8 text-muted hover:bg-subtle hover:text-ink`}>
-              <PanelExpandIcon width={17} height={17} />
-            </button>
-          </Tooltip>
-          <NotificationBell />
-        </div>
-      ) : (
-        <div className="flex items-center justify-between gap-1">
-          <Logo />
-          <div className="flex items-center gap-0.5">
-            <NotificationBell />
-            <Tooltip label={t("nav.collapse")}>
-              <button type="button" onClick={toggle} aria-label={t("nav.collapse")} className={`${ICON_BTN} h-8 w-8 text-muted hover:bg-subtle hover:text-ink`}>
-                <PanelCollapseIcon width={17} height={17} />
-              </button>
+    <div className="sticky top-0 z-20 hidden h-screen shrink-0 lg:flex">
+      <aside
+        data-flyout-edge=""
+        className={`flex h-full flex-col gap-5 overflow-y-auto overflow-x-hidden border-r border-line bg-surface transition-[width,padding] duration-200 ease-out ${
+          collapsed ? "w-[76px] px-2 py-4" : "w-72 p-4"
+        }`}
+      >
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-2">
+            <Tooltip label={t("app.fullName")}>
+              <Link href="/tickets" aria-label={t("app.fullName")} className="cursor-pointer">
+                <LogoMark />
+              </Link>
             </Tooltip>
+            <NotificationBell size="lg" />
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="flex items-center justify-between gap-1">
+            <Logo />
+            <NotificationBell size="lg" />
+          </div>
+        )}
 
-      <div className="flex-1">{collapsed ? <CollapsedNav groups={groups} /> : <SidebarNav groups={groups} />}</div>
+        <div className="flex-1">{collapsed ? <CollapsedNav groups={groups} /> : <SidebarNav groups={groups} />}</div>
 
-      {collapsed ? <CollapsedFooter user={user} /> : <SidebarFooter user={user} settings="flyout" />}
-    </aside>
+        {collapsed ? <CollapsedFooter user={user} /> : <SidebarFooter user={user} settings="flyout" />}
+      </aside>
+
+      <span className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2">
+        <Tooltip label={toggleLabel}>
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label={toggleLabel}
+            aria-expanded={!collapsed}
+            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-surface text-muted shadow-sm ring-1 ring-line transition-colors hover:bg-accent-50 hover:text-accent-600 hover:ring-accent-300 dark:hover:bg-accent-400/15 dark:hover:text-accent-300"
+          >
+            {collapsed ? <ChevronRightIcon width={14} height={14} /> : <ChevronLeftIcon width={14} height={14} />}
+          </button>
+        </Tooltip>
+      </span>
+    </div>
   );
 }
 
@@ -444,9 +458,7 @@ function TopNav({ groups }: { groups: NavGroup[] }) {
               aria-haspopup="menu"
               onClick={() => setOpen(isOpen ? null : group.id)}
               className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
-                hasActive || isOpen
-                  ? "bg-accent-100 text-accent-800 dark:bg-accent-400/15 dark:text-accent-200"
-                  : "text-ink hover:bg-subtle"
+                hasActive || isOpen ? "bg-accent-100 text-accent-800 dark:bg-accent-400/15 dark:text-accent-200" : "text-ink hover:bg-subtle"
               }`}
             >
               <group.icon width={16} height={16} className={hasActive || isOpen ? "" : "text-accent-500 dark:text-accent-300"} />
@@ -465,9 +477,7 @@ function TopNav({ groups }: { groups: NavGroup[] }) {
                       onClick={() => setOpen(null)}
                       aria-current={current ? "page" : undefined}
                       className={`flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors ${
-                        current
-                          ? "bg-accent-100 font-medium text-accent-800 dark:bg-accent-400/15 dark:text-accent-200"
-                          : "text-ink hover:bg-subtle"
+                        current ? "bg-accent-100 font-medium text-accent-800 dark:bg-accent-400/15 dark:text-accent-200" : "text-ink hover:bg-subtle"
                       }`}
                     >
                       <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-50 text-accent-600 dark:bg-accent-400/10 dark:text-accent-300">
@@ -534,32 +544,36 @@ export function AppShell({ layout, user, uiConfig, children }: { layout: Layout;
 
   if (layout === "topbar") {
     return (
-      <div className="flex min-h-screen flex-col">
-        <MobileBar onOpen={() => setDrawer(true)} user={user} />
-        <header className="sticky top-0 z-30 hidden border-b border-line bg-surface/90 backdrop-blur lg:block">
-          <div className="flex items-center gap-6 px-8 py-2.5">
-            <Logo />
-            <TopNav groups={groups} />
-            <div className="ml-auto flex items-center gap-2">
-              <NotificationBell tooltipSide="bottom" />
-              <AvatarMenu user={user} />
+      <LogoVersionContext.Provider value={uiConfig.logo_version}>
+        <div className="flex min-h-screen flex-col">
+          <MobileBar onOpen={() => setDrawer(true)} user={user} />
+          <header className="sticky top-0 z-30 hidden border-b border-line bg-surface/90 backdrop-blur lg:block">
+            <div className="flex items-center gap-6 px-8 py-2.5">
+              <Logo />
+              <TopNav groups={groups} />
+              <div className="ml-auto flex items-center gap-2">
+                <NotificationBell tooltipSide="bottom" />
+                <AvatarMenu user={user} />
+              </div>
             </div>
-          </div>
-        </header>
-        <MobileDrawer open={drawer} onClose={() => setDrawer(false)} groups={groups} user={user} />
-        {main}
-      </div>
+          </header>
+          <MobileDrawer open={drawer} onClose={() => setDrawer(false)} groups={groups} user={user} />
+          {main}
+        </div>
+      </LogoVersionContext.Provider>
     );
   }
 
   return (
-    <div className="flex min-h-screen">
-      <DesktopSidebar groups={groups} user={user} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <MobileBar onOpen={() => setDrawer(true)} user={user} />
-        <MobileDrawer open={drawer} onClose={() => setDrawer(false)} groups={groups} user={user} />
-        {main}
+    <LogoVersionContext.Provider value={uiConfig.logo_version}>
+      <div className="flex min-h-screen">
+        <DesktopSidebar groups={groups} user={user} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <MobileBar onOpen={() => setDrawer(true)} user={user} />
+          <MobileDrawer open={drawer} onClose={() => setDrawer(false)} groups={groups} user={user} />
+          {main}
+        </div>
       </div>
-    </div>
+    </LogoVersionContext.Provider>
   );
 }

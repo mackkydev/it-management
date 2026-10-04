@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { ChevronLeftIcon, ClipboardIcon, FileTextIcon, HistoryIcon, PaperclipIcon, WrenchIcon } from "@/components/icons";
+import { CheckCircleIcon, ChevronLeftIcon, ClipboardIcon, FileTextIcon, HistoryIcon, PaperclipIcon, WrenchIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
-import { card } from "@/components/ui";
+import { card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -12,6 +12,7 @@ import { getAccess } from "@/lib/auth";
 import type { TicketDetail } from "@/lib/types";
 import { DoneBanner } from "../ticket-list";
 import { TicketStatusBadge, ticketSubject } from "../ticket-ui";
+import { ProcessTimeline } from "./process-timeline";
 import { PrintButton, TicketActions } from "./ticket-actions";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -133,6 +134,9 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
 
       {tk.actions.length > 0 && <TicketActions ticket={tk} />}
 
+      {/* ขั้นตอนที่กำลังดำเนินการ */}
+      <ProcessTimeline tk={tk} t={t} fmt={fmt} />
+
       {/* ข้อมูลการแจ้งงาน */}
       <Section title={t("tickets.detail.requestSection")} icon={<ClipboardIcon width={15} height={15} />}>
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -149,6 +153,38 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
           </div>
         </dl>
       </Section>
+
+      {tk.approval_steps.length > 0 && (
+        <Section title={t("tickets.approval.title")} icon={<CheckCircleIcon width={15} height={15} />}>
+          <ol className="space-y-3">
+            {tk.approval_steps.map((s) => {
+              const current = s.status === "pending" && s.step_no === tk.current_step;
+              const look = s.status === "approved" ? tone.success : s.status === "rejected" ? tone.danger : current ? tone.warning : tone.idle;
+              const status = current ? "current" : s.status === "pending" ? "waiting" : s.status;
+              return (
+                <li key={s.step_no} className="flex gap-3">
+                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${look.badge}`}>{s.step_no}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-medium">{s.name}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${look.badge}`}>{t(`tickets.approval.status.${status}`)}</span>
+                    </p>
+                    {s.status === "approved" || s.status === "rejected" ? (
+                      <p className="mt-0.5 text-sm text-muted">
+                        {s.acted_by?.name}
+                        {s.acted_at && <span className="text-faint"> · {fmt.dateTime(s.acted_at)}</span>}
+                      </p>
+                    ) : (
+                      s.approvers.length > 0 && <p className="mt-0.5 text-sm text-muted">{t("tickets.approval.anyOf", { names: s.approvers.map((a) => a.name).join(", ") })}</p>
+                    )}
+                    {s.comment && <p className="mt-1 rounded-lg bg-subtle px-3 py-1.5 text-sm">{s.comment}</p>}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </Section>
+      )}
 
       {needsPerson && (
         <Section title={t("tickets.form.section11")} icon={<FileTextIcon width={15} height={15} />}>

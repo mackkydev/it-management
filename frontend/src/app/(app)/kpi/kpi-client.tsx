@@ -3,9 +3,11 @@
 import { useState, useTransition } from "react";
 import { deleteKpi, saveKpi, type KpiResult } from "@/app/actions/kpi";
 import { AlertIcon, CheckCircleIcon, PencilIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { DateInput } from "@/components/date-input";
 import { Tooltip } from "@/components/tooltip";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
+import { localToday as todayIso } from "@/lib/date";
 
 export interface KpiEntry {
   id: number;
@@ -15,11 +17,6 @@ export interface KpiEntry {
   can_edit: boolean;
   updated_at: string | null;
 }
-
-const todayIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
 
 /** ฟอร์มบันทึก/แก้ไข KPI — วันที่ + textarea รายละเอียด */
 export function KpiForm({ entry, onDone }: { entry?: KpiEntry; onDone?: () => void }) {
@@ -63,12 +60,11 @@ export function KpiForm({ entry, onDone }: { entry?: KpiEntry; onDone?: () => vo
           <label htmlFor={`work_date-${entry?.id ?? "new"}`} className="mb-1 block text-sm font-medium">
             {t("kpi.workDate")} <span className="text-red-500">*</span>
           </label>
-          <input
+          <DateInput
             id={`work_date-${entry?.id ?? "new"}`}
-            type="date"
             max={todayIso()}
             value={v.work_date}
-            onChange={(e) => set("work_date", e.target.value)}
+            onChange={(d) => set("work_date", d)}
             className={`${input} ${errors.work_date ? inputError : ""}`}
           />
           {errors.work_date && <p className="mt-1 text-xs font-medium text-red-500">{errors.work_date}</p>}

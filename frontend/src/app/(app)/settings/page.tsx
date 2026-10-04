@@ -4,8 +4,9 @@ import { BellIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getCurrentUser, isAdmin } from "@/lib/auth";
+import { has, getCurrentUser, getUiConfig } from "@/lib/auth";
 import type { AppSettings } from "@/lib/types";
+import { LogoCard } from "./logo-card";
 import { SettingsForm } from "./settings-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -16,12 +17,13 @@ export async function generateMetadata(): Promise<Metadata> {
 /** 5.2 ตั้งค่าการแจ้งเตือนล่วงหน้า + อีเมลรับแจ้งเตือน (admin) */
 export default async function SettingsPage() {
   const user = await getCurrentUser();
-  if (!isAdmin(user)) redirect("/tickets");
-  const [{ data }, { t }] = await Promise.all([apiFetch<{ data: AppSettings }>("/settings"), getI18n()]);
+  if (!has(user, "settings.manage")) redirect("/tickets");
+  const [{ data }, { t }, ui] = await Promise.all([apiFetch<{ data: AppSettings }>("/settings"), getI18n(), getUiConfig()]);
 
   return (
     <div className="space-y-5">
       <PageHeader icon={BellIcon} title={t("settingsPage.title")} subtitle={t("settingsPage.subtitle")} />
+      <LogoCard version={ui.logo_version} />
       <SettingsForm initial={data} />
     </div>
   );

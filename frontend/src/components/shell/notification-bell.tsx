@@ -4,10 +4,11 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { fetchNotifications, markAllNotificationsRead, markNotificationRead } from "@/app/actions/tickets";
 import { BellIcon, CheckIcon, ClipboardIcon, FileTextIcon, SpinnerIcon } from "@/components/icons";
+import { DATA_CHANGED_EVENT } from "@/components/live-refresh";
 import { Tooltip } from "@/components/tooltip";
 import { useI18n } from "@/i18n/client";
-import type { MessageKey } from "@/i18n/types";
 import type { AppNotification } from "@/lib/types";
+import { notificationHref, notificationText } from "./notification-text";
 
 const POLL_MS = 60_000;
 
@@ -15,7 +16,7 @@ const POLL_MS = 60_000;
  * กระดิ่งแจ้งเตือน: ดึงข้อมูลทุก 60 วินาที (และทุกครั้งที่กลับมาที่แท็บ), แสดงจำนวนที่ยังไม่อ่าน
  * คลิกรายการ → ทำเครื่องหมายว่าอ่านแล้ว และไปยังหน้าที่เกี่ยวข้อง
  */
-export function NotificationBell({ tooltipSide = "right" }: { tooltipSide?: "right" | "bottom" }) {
+export function NotificationBell({ tooltipSide = "right", size = "md" }: { tooltipSide?: "right" | "bottom"; size?: "md" | "lg" }) {
   const { t, fmt } = useI18n();
   const router = useRouter();
   const [items, setItems] = useState<AppNotification[]>([]);
@@ -39,9 +40,12 @@ export function NotificationBell({ tooltipSide = "right" }: { tooltipSide?: "rig
     const timer = window.setInterval(load, POLL_MS);
     const onFocus = () => document.visibilityState === "visible" && load();
     document.addEventListener("visibilitychange", onFocus);
+    // ข้อมูลในระบบเปลี่ยน (LiveRefresh) → โหลดการแจ้งเตือนใหม่ทันที ไม่ต้องรอรอบ 60 วินาที
+    window.addEventListener(DATA_CHANGED_EVENT, load);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener(DATA_CHANGED_EVENT, load);
     };
   }, [load]);
 
@@ -76,13 +80,8 @@ export function NotificationBell({ tooltipSide = "right" }: { tooltipSide?: "rig
     setOpen((o) => !o);
   };
 
-  const text = (n: AppNotification) => {
-    if (n.data.kind === "ticket") {
-      return t(`notifications.ticket.${n.data.event}` as MessageKey, { no: n.data.ticket_no, actor: n.data.actor ?? "" });
-    }
-    return t("notifications.expiring", { count: n.data.count });
-  };
-  const href = (n: AppNotification) => (n.data.kind === "ticket" ? `/tickets/${n.data.ticket_id}` : "/contracts");
+  const text = (n: AppNotification) => notificationText(n, t);
+  const href = notificationHref;
 
   const openItem = async (n: AppNotification) => {
     setOpen(false);
@@ -109,12 +108,18 @@ export function NotificationBell({ tooltipSide = "right" }: { tooltipSide?: "rig
           onClick={toggle}
           aria-label={`${t("notifications.title")}${unread ? ` (${unread})` : ""}`}
           aria-expanded={open}
-          className="relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl text-muted transition-colors hover:bg-subtle hover:text-ink"
+          className={`relative flex cursor-pointer items-center justify-center rounded-xl transition-colors hover:bg-subtle hover:text-ink ${
+            size === "lg" ? "h-11 w-11" : "h-9 w-9"
+          } ${unread > 0 ? "text-accent-600 dark:text-accent-300" : "text-muted"}`}
         >
-          <BellIcon width={18} height={18} />
+          {/* มีแจ้งเตือนค้าง → กระดิ่งสั่นเป็นจังหวะ (หยุดตอนเปิดรายการ) */}
+          <BellIcon width={size === "lg" ? 23 : 18} height={size === "lg" ? 23 : 18} className={unread > 0 && !open ? "bell-ring" : undefined} />
           {unread > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger-500 px-1 text-[10px] font-bold text-white ring-2 ring-surface">
-              {unread > 99 ? "99+" : unread}
+            <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center">
+              <span className="absolute inset-0 animate-ping rounded-full bg-danger-400 opacity-60 motion-reduce:hidden" aria-hidden="true" />
+              <span className="relative flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger-500 px-1 text-[10px] font-bold text-white ring-2 ring-surface">
+                {unread > 99 ? "99+" : unread}
+              </span>
             </span>
           )}
         </button>

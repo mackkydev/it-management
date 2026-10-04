@@ -3,7 +3,7 @@ import request from "supertest";
 import { createApp } from "../src/app.js";
 import { config } from "../src/config.js";
 import { first, insert } from "../src/db.js";
-import { nowDb } from "../src/lib/time.js";
+import { localToday, nowDb } from "../src/lib/time.js";
 import { createToken } from "../src/lib/tokens.js";
 import { makeHash } from "../src/lib/validator.js";
 import type { UserRow } from "../src/models/user.js";
@@ -91,6 +91,13 @@ export function day(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** วันที่ตาม timezone ผู้ใช้ (EAM_LOCAL_TIMEZONE) ห่างจากวันนี้ n วัน — ใช้กับ rule "ห้ามเป็นวันในอนาคต" */
+export function localDay(n: number): string {
+  const d = new Date(`${localToday()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 /* ---------------------------------------------- ไฟล์ทดสอบ (แทน UploadedFile::fake()) */
 
 /** PNG 1x1 สำหรับลายเซ็น */
@@ -109,4 +116,16 @@ export function fakeImage(kb = 10, type: "png" | "jpg" = "jpg"): Buffer {
 export function fakePdf(kb = 10): Buffer {
   const head = Buffer.from("%PDF-1.4\n");
   return Buffer.concat([head, Buffer.alloc(Math.max(0, kb * 1024 - head.length), 0x20)]);
+}
+
+/** รูปจริง (decode ได้) สำหรับเทสต์ลายเซ็น: พื้นโปร่งใส (png) หรือขาว (jpg) + ลายเส้นสี่เหลี่ยมกลางภาพ */
+export async function realImage(width = 1200, height = 400, type: "png" | "jpg" = "png", mark: { w: number; h: number } | null = { w: 300, h: 80 }): Promise<Buffer> {
+  const { default: sharp } = await import("sharp");
+  const background = type === "png" ? { r: 0, g: 0, b: 0, alpha: 0 } : { r: 255, g: 255, b: 255, alpha: 1 };
+  let img = sharp({ create: { width, height, channels: 4, background } });
+  if (mark) {
+    const stroke = await sharp({ create: { width: mark.w, height: mark.h, channels: 4, background: { r: 20, g: 30, b: 120, alpha: 1 } } }).png().toBuffer();
+    img = img.composite([{ input: stroke, left: Math.floor((width - mark.w) / 2), top: Math.floor((height - mark.h) / 2) }]);
+  }
+  return type === "png" ? img.png().toBuffer() : img.jpeg().toBuffer();
 }

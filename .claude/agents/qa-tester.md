@@ -8,7 +8,7 @@ tools: Read, Grep, Glob, Bash
 
 ## ชุดตรวจมาตรฐาน
 ```
-docker exec it_api php artisan test
+cd express && npx tsc --noEmit && npx vitest run
 cd frontend && npx next typegen && npx tsc --noEmit && npm run lint && npm run build
 ```
 

@@ -1,17 +1,19 @@
 import { Router } from "express";
 import { config } from "../config.js";
-import { exec, first, update } from "../db.js";
-import { notFound, ValidationError } from "../lib/errors.js";
+import { exec, first, select, update } from "../db.js";
+import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import type { UploadedFile } from "../lib/uploaded-file.js";
-import { deleteStored, readStored, storeUserSignature } from "../services/ticket-files.js";
 import { trans } from "../lib/i18n.js";
 import { limits } from "../lib/rate-limit.js";
 import { addMinutes, iso, nowDb, toDbDateTime } from "../lib/time.js";
 import { createToken, deleteToken, deleteUserTokens } from "../lib/tokens.js";
 import { currentPassword, makeHash, password, unique, validate, verifyHash } from "../lib/validator.js";
 import { me } from "../http.js";
-import { findUser, type UserRow } from "../models/user.js";
+import { can, findUser, isLocal, type UserRow } from "../models/user.js";
 import { userResource } from "../resources.js";
+import { ApiLoginError, loadConnection, loginWithApi, revokeApiSession } from "../services/api-auth.js";
+import { activeSignature, deactivateSignature, mimeOf, readSignature, saveSignature, SignatureError } from "../services/signatures.js";
+import type { Locale } from "../lib/i18n.js";
 
 /** Bearer token แบบ Sanctum — AuthController + ProfileController */
 export const loginRoutes = Router();
@@ -32,7 +34,8 @@ loginRoutes.post("/auth/login", limits.login, async (req, res) => {
   // อีเมลเก็บเป็นตัวพิมพ์เล็ก — เทียบแบบไม่สนตัวพิมพ์เผื่อข้อมูลเดิม
   const user = await first<UserRow>("SELECT * FROM users WHERE LOWER(email) = LOWER(?)", [String(data.email)]);
   // ข้อความเดียวกันทุกกรณี เพื่อไม่ให้เดาได้ว่ามีอีเมลนี้ในระบบหรือไม่
-  if (!user || !user.is_active || !verifyHash(String(data.password), user.password)) {
+  // ช่องนี้ login ได้เฉพาะ LOCAL (API User ไม่มีรหัสผ่านในระบบเรา — login ผ่านต้นทางเท่านั้น)
+  if (!user || !isLocal(user) || !user.is_active || !verifyHash(String(data.password), user.password)) {
     throw ValidationError.withMessages({ email: trans(req.locale, "eam.auth.failed") });
   }
 
@@ -47,15 +50,73 @@ loginRoutes.post("/auth/login", limits.login, async (req, res) => {
   });
 });
 
+/* ---------------------------------------------------------------- API User (login ผ่านระบบต้นทาง) */
+
+/** GET /auth/connections — ช่องทาง login ผ่านระบบต้นทางที่เปิดอยู่ (หน้า login, ไม่ต้อง login) — ไม่มีค่าการเชื่อมต่อ/secret */
+loginRoutes.get("/auth/connections", async (_req, res) => {
+  const rows = await select<{ id: number; name: string; register_url: string | null; forgot_password_url: string | null }>(
+    "SELECT id, name, register_url, forgot_password_url FROM api_connections WHERE is_enabled = true ORDER BY name, id",
+  );
+  res.json({ data: rows });
+});
+
+/** ข้อความ login ไม่สำเร็จ — invalid ใช้ข้อความกลางเสมอ; ประเภทอื่นใช้ข้อความที่ admin ตั้งไว้ (ถ้ามี) */
+function apiLoginMessage(locale: Locale, e: ApiLoginError): string {
+  if (e.kind === "invalid") return trans(locale, "eam.api_auth.failed");
+  const custom = locale === "th" ? e.custom?.message_th : e.custom?.message_en;
+  return custom?.trim() || trans(locale, `eam.api_auth.${e.kind}`);
+}
+
+/**
+ * POST /auth/api-login { connection_id, username, password, device_name }
+ * login ที่ต้นทาง → JIT สร้าง/อัปเดตผู้ใช้ → token ของเรา (รูปแบบ response เดียวกับ /auth/login)
+ * รหัสผ่านส่งต่อไปต้นทางเท่านั้น — ไม่เก็บ/ไม่ log
+ */
+loginRoutes.post("/auth/api-login", limits.apiLogin, async (req, res) => {
+  const data = await validate(
+    req.input,
+    {
+      connection_id: ["required", "integer"],
+      username: ["required", "string", "max:255"],
+      password: ["required", "string", "max:255"],
+      device_name: ["required", "string", "max:100"],
+    },
+    { locale: req.locale },
+  );
+  try {
+    const conn = await loadConnection(Number(data.connection_id));
+    if (!conn) throw new ApiLoginError("connection_disabled");
+    const session = await loginWithApi(conn, String(data.username), String(data.password), String(data.device_name), req);
+    res.json({ token: session.plainText, token_type: "Bearer", expires_at: iso(toDbDateTime(session.expiresAt)), user: userResource(session.user) });
+  } catch (e) {
+    if (!(e instanceof ApiLoginError)) throw e;
+    throw ValidationError.withMessages({ username: apiLoginMessage(req.locale, e) });
+  }
+});
+
 authRoutes.get("/auth/me", async (req, res) => {
   const u = me(req);
   const branch = u.branch_id ? await first<{ id: number; name: string }>("SELECT id, name FROM branches WHERE id = ? AND deleted_at IS NULL", [u.branch_id]) : null;
   const supervisor = u.supervisor_id ? await first<{ id: number; name: string }>("SELECT id, name FROM users WHERE id = ?", [u.supervisor_id]) : null;
-  res.json({ data: userResource(u, { branch, supervisor }, u.id) });
+  // API User: ชื่อระบบต้นทาง + ลิงก์เปลี่ยนรหัสผ่านที่ต้นทาง (ระบบเราไม่มีรหัสผ่านของผู้ใช้กลุ่มนี้)
+  const external =
+    u.type === "API" && u.connection_id
+      ? await first<{ name: string; change_password_url: string | null }>("SELECT name, change_password_url FROM api_connections WHERE id = ?", [u.connection_id])
+      : null;
+  res.json({
+    data: {
+      ...userResource(u, { branch, supervisor, signature_id: (await activeSignature(u.id))?.id ?? null }, u.id),
+      // สิทธิ์จริงของผู้ใช้ — frontend ใช้ซ่อน/แสดงเมนูและปุ่ม (สิทธิ์จริงตรวจที่ API ทุก request)
+      permissions: [...(u.perms ?? [])].sort(),
+      ...(external ? { external_connection: external } : {}),
+    },
+  });
 });
 
-/** เพิกถอนเฉพาะ token ของอุปกรณ์ที่เรียก */
+/** เพิกถอนเฉพาะ token ของอุปกรณ์ที่เรียก (API User: แจ้ง logout ที่ต้นทางด้วยถ้ามี endpoint) */
 authRoutes.post("/auth/logout", async (req, res) => {
+  const u = me(req);
+  if (u.type === "API") await revokeApiSession(req.tokenId!, u);
   await deleteToken(req.tokenId!);
   res.status(204).end();
 });
@@ -78,43 +139,59 @@ authRoutes.patch("/auth/me", async (req, res) => {
   res.json({ data: userResource((await findUser(u.id))!, {}, u.id) });
 });
 
-/* ---------------------------------------------------------------- ลายเซ็นในโปรไฟล์ (แสตมป์ลงใบแจ้งงาน) */
+/* ---------------------------------------------------------------- ลายเซ็นของฉัน (services/signatures.ts) */
 
-/** GET /auth/me/signature — รูปลายเซ็นของตัวเอง */
+/** ลายเซ็นใช้ได้เฉพาะเจ้าของ และต้องมีสิทธิ์ signature.manage_own (ตั้งต้นทุกกลุ่ม) */
+const ownSignature = (req: import("express").Request) => {
+  const u = me(req);
+  authorize(can(u, "signature.manage_own"));
+  return u;
+};
+
+/** GET /auth/me/signature — รูปลายเซ็นของตัวเอง (ถอดรหัสที่ backend) */
 authRoutes.get("/auth/me/signature", async (req, res) => {
-  const path = me(req).signature_path;
-  if (!path) throw notFound();
-  const file = await readStored(path);
-  res.setHeader("Content-Type", file.mime);
-  res.setHeader("Content-Disposition", `inline; filename="${file.name}"`);
-  res.send(file.data);
+  const row = await activeSignature(ownSignature(req).id);
+  const data = row ? await readSignature(row) : null;
+  if (!row || !data) throw notFound();
+  res.setHeader("Content-Type", mimeOf(row));
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.send(data);
 });
 
-/** POST /auth/me/signature (multipart: signature) — PNG/JPG/WebP ≤ 1MB, แทนที่ของเดิม */
-authRoutes.post("/auth/me/signature", async (req, res) => {
-  const u = me(req);
+/**
+ * POST|PUT /auth/me/signature (multipart: signature, source = UPLOAD | DRAW)
+ * PNG/JPG ≤ 1MB (ตรวจจากเนื้อไฟล์) → crop + ย่อ + re-encode PNG → เก็บเข้ารหัส; อันเดิมเป็นประวัติ (is_active = false)
+ */
+async function saveOwnSignature(req: import("express").Request, res: import("express").Response) {
+  const u = ownSignature(req);
   const data = await validate(
     req.input,
-    { signature: ["required", "image", "mimes:png,jpg,jpeg,webp", "max:1024"] },
+    { signature: ["required", "image", "mimes:png,jpg,jpeg", "max:1024"], source: ["sometimes", "nullable", "in:UPLOAD,DRAW"] },
     { locale: req.locale },
   );
-  const path = await storeUserSignature(u.id, data.signature as UploadedFile);
-  await update("users", { signature_path: path, updated_at: nowDb() }, "id = ?", [u.id]);
-  await deleteStored(u.signature_path);
-  res.json({ data: userResource((await findUser(u.id))!, {}, u.id) });
-});
+  try {
+    const file = data.signature as UploadedFile;
+    const row = await saveSignature(u.id, file.buffer, data.source === "DRAW" ? "DRAW" : "UPLOAD", req);
+    res.json({ data: userResource((await findUser(u.id))!, { signature_id: row.id }, u.id) });
+  } catch (e) {
+    if (!(e instanceof SignatureError)) throw e;
+    throw ValidationError.withMessages({ signature: trans(req.locale, `eam.signature.${e.reason}`) });
+  }
+}
+authRoutes.post("/auth/me/signature", limits.signature, saveOwnSignature);
+authRoutes.put("/auth/me/signature", limits.signature, saveOwnSignature);
 
-/** DELETE /auth/me/signature — ลบลายเซ็น (ใบงานที่ส่งไปแล้วยังมีสำเนาของตัวเอง) */
+/** DELETE /auth/me/signature — ลบลายเซ็น (ปิดใช้งาน — ใบงานที่ส่งไปแล้วยังมีสำเนาของตัวเอง) */
 authRoutes.delete("/auth/me/signature", async (req, res) => {
-  const u = me(req);
-  await update("users", { signature_path: null, updated_at: nowDb() }, "id = ?", [u.id]);
-  await deleteStored(u.signature_path);
+  await deactivateSignature(ownSignature(req).id, req);
   res.status(204).end();
 });
 
-/** PUT /auth/password — เปลี่ยนรหัสผ่าน แล้วเพิกถอน token ของอุปกรณ์อื่นทั้งหมด */
+/** PUT /auth/password — เปลี่ยนรหัสผ่าน แล้วเพิกถอน token ของอุปกรณ์อื่นทั้งหมด (เฉพาะ LOCAL — API User เปลี่ยนที่ระบบต้นทาง) */
 authRoutes.put("/auth/password", limits.login, async (req, res) => {
   const u = me(req);
+  authorize(isLocal(u));
   await validate(
     req.input,
     {

@@ -1,13 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition, type ReactNode } from "react";
-import { recordResult, ticketAction, type TicketResult } from "@/app/actions/tickets";
+import { deleteTicket, recordResult, requestCancel, ticketAction, type TicketResult } from "@/app/actions/tickets";
+import { DateInput } from "@/components/date-input";
 import { PhotoPicker } from "@/components/file-pickers";
 import {
   AlertIcon,
   CheckCircleIcon,
   CheckIcon,
+  HistoryIcon,
   InboxIcon,
+  PencilIcon,
   PlusIcon,
   PrinterIcon,
   ResetIcon,
@@ -20,6 +24,7 @@ import {
 import { SignaturePad } from "@/components/signature-pad";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
+import { localToday } from "@/lib/date";
 import type { TicketAction, TicketDetail } from "@/lib/types";
 
 export function PrintButton({ label }: { label: string }) {
@@ -35,51 +40,89 @@ const ICONS: Record<TicketAction, ReactNode> = {
   approve: <CheckCircleIcon />,
   reject: <XIcon />,
   accept: <InboxIcon />,
+  progress: <HistoryIcon />,
   result: <WrenchIcon />,
   close: <CheckIcon />,
   return: <ResetIcon />,
+  edit: <PencilIcon />,
+  delete: <TrashIcon />,
+  cancel_request: <XIcon />,
+  cancel_confirm: <CheckIcon />,
+  cancel_reject: <ResetIcon />,
+  cancel_withdraw: <ResetIcon />,
 };
+
+/** ปุ่มที่ทำทันที (ไม่ต้องเปิดฟอร์ม) */
+const INSTANT: TicketAction[] = ["edit", "delete", "cancel_withdraw"];
+const DANGER: TicketAction[] = ["reject", "return", "delete", "cancel_request", "cancel_confirm"];
 
 /** ปุ่มการทำงานตามสิทธิ์และสถานะ (มาจาก API: ticket.actions) */
 export function TicketActions({ ticket }: { ticket: TicketDetail }) {
   const { t } = useI18n();
   const [active, setActive] = useState<TicketAction | null>(ticket.actions.includes("result") ? null : null);
 
-  const style = (a: TicketAction) => (a === "reject" || a === "return" ? btn.danger : a === "result" ? btn.soft : btn.primary);
+  const [pending, start] = useTransition();
+  const [error, setError] = useState("");
+  const style = (a: TicketAction) => (DANGER.includes(a) ? btn.danger : a === "result" || a === "progress" || a === "edit" ? btn.soft : btn.primary);
+
+  /** แก้ไข = ไปหน้าแก้ไข, ลบ / ถอนคำขอยกเลิก = ยืนยันแล้วทำทันที */
+  const instant = (a: TicketAction) => {
+    if (a === "delete" && !confirm(t("tickets.actions.confirmDelete", { no: ticket.ticket_no }))) return;
+    start(async () => {
+      const res = a === "delete" ? await deleteTicket(ticket.id) : await ticketAction(ticket.id, "cancel_withdraw");
+      if (res) setError(res.message ?? "");
+    });
+  };
 
   return (
     <div className={`space-y-4 p-4 sm:p-5 print:hidden ${card} ring-2 ring-accent-200 dark:ring-accent-400/30`}>
       <div className="flex flex-wrap gap-2">
-        {ticket.actions.map((a) => (
-          <button
-            key={a}
-            type="button"
-            onClick={() => setActive(active === a ? null : a)}
-            aria-expanded={active === a}
-            className={`${style(a)} ${active === a ? "ring-2 ring-offset-1 ring-offset-surface ring-accent-300" : ""}`}
-          >
-            {ICONS[a]}
-            {t(`tickets.actions.${a}`)}
-          </button>
-        ))}
+        {ticket.actions.map((a) =>
+          a === "edit" ? (
+            <Link key={a} href={`/tickets/${ticket.id}/edit`} className={style(a)}>
+              {ICONS[a]}
+              {t("tickets.actions.edit")}
+            </Link>
+          ) : (
+            <button
+              key={a}
+              type="button"
+              disabled={pending}
+              onClick={() => (INSTANT.includes(a) ? instant(a) : setActive(active === a ? null : a))}
+              aria-expanded={INSTANT.includes(a) ? undefined : active === a}
+              className={`${style(a)} disabled:cursor-not-allowed ${active === a ? "ring-2 ring-offset-1 ring-offset-surface ring-accent-300" : ""}`}
+            >
+              {pending && INSTANT.includes(a) ? <SpinnerIcon /> : ICONS[a]}
+              {t(`tickets.actions.${a}`)}
+            </button>
+          ),
+        )}
       </div>
+      {error && (
+        <p role="alert" className={alert.error}>
+          <AlertIcon className="shrink-0 text-danger-400" />
+          {error}
+        </p>
+      )}
       {active === "result" ? (
         <ResultForm ticket={ticket} onCancel={() => setActive(null)} />
-      ) : active ? (
-        <SimpleActionForm ticket={ticket} action={active} onCancel={() => setActive(null)} />
+      ) : active && !INSTANT.includes(active) ? (
+        <SimpleActionForm ticket={ticket} action={active as FormAction} onCancel={() => setActive(null)} />
       ) : null}
     </div>
   );
 }
 
-/** อนุมัติ / ไม่อนุมัติ / รับงาน / ปิดงาน (ลงลายเซ็น) / ส่งกลับ */
-function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; action: Exclude<TicketAction, "result">; onCancel: () => void }) {
+type FormAction = Exclude<TicketAction, "result" | "edit" | "delete" | "cancel_withdraw">;
+
+/** อนุมัติ / ไม่อนุมัติ / รับงาน / ความคืบหน้า / ปิดงาน (ลงลายเซ็น) / ส่งกลับ / ขอยกเลิก / ยืนยัน-ปฏิเสธการยกเลิก */
+function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; action: FormAction; onCancel: () => void }) {
   const { t } = useI18n();
   const [comment, setComment] = useState("");
   const [signature, setSignature] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
-  const commentRequired = action === "reject" || action === "return";
+  const commentRequired = action === "reject" || action === "return" || action === "progress" || action === "cancel_request" || action === "cancel_reject";
   const needsSignature = action === "close";
 
   const submit = () => {
@@ -87,7 +130,8 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
     if (needsSignature && !signature) return setError(t("signature.required"));
     setError("");
     start(async () => {
-      const res: TicketResult | undefined = await ticketAction(ticket.id, action, { comment, signature });
+      const res: TicketResult | undefined =
+        action === "cancel_request" ? await requestCancel(ticket.id, comment) : await ticketAction(ticket.id, action, { comment, signature });
       if (res) setError(res.errors ? Object.values(res.errors)[0] ?? res.message ?? "" : (res.message ?? ""));
     });
   };
@@ -103,11 +147,18 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
       {action !== "accept" && (
         <div>
           <label htmlFor="action-comment" className="mb-1 block text-sm font-medium">
-            {commentRequired ? t("tickets.actions.commentRequired") : t("tickets.actions.comment")}
+            {action === "progress"
+              ? t("tickets.actions.progressLabel")
+              : action === "cancel_request"
+                ? t("tickets.actions.cancelReason")
+                : commentRequired
+                  ? t("tickets.actions.commentRequired")
+                  : t("tickets.actions.comment")}
           </label>
           <textarea
             id="action-comment"
-            rows={2}
+            rows={action === "progress" ? 3 : 2}
+            placeholder={action === "progress" ? t("tickets.actions.progressPlaceholder") : undefined}
             maxLength={2000}
             value={comment}
             onChange={(e) => {
@@ -127,7 +178,7 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
         </div>
       )}
       <div className="flex gap-2">
-        <button type="button" onClick={submit} disabled={pending} aria-busy={pending} className={action === "reject" || action === "return" ? btn.danger : btn.primary}>
+        <button type="button" onClick={submit} disabled={pending} aria-busy={pending} className={DANGER.includes(action) ? btn.danger : btn.primary}>
           {pending ? <SpinnerIcon /> : <CheckIcon />}
           {t("tickets.actions.confirm")}
         </button>
@@ -146,7 +197,7 @@ function ResultForm({ ticket, onCancel }: { ticket: TicketDetail; onCancel: () =
   const { t } = useI18n();
   const isRepair = ticket.type === "repair";
   const [outcome, setOutcome] = useState<"completed" | "cannot_complete">(ticket.result ?? "completed");
-  const [completedOn, setCompletedOn] = useState(ticket.completed_on ?? new Date().toISOString().slice(0, 10));
+  const [completedOn, setCompletedOn] = useState(ticket.completed_on ?? localToday());
   const [cannotReason, setCannotReason] = useState(ticket.cannot_reason ?? "");
   const [method, setMethod] = useState<"in_house" | "external" | "">(ticket.repair_method ?? "");
   const [vendor, setVendor] = useState(ticket.external_vendor ?? "");
@@ -233,13 +284,12 @@ function ResultForm({ ticket, onCancel }: { ticket: TicketDetail; onCancel: () =
               <label htmlFor="completed_on" className="mb-1 block text-xs text-muted">
                 {t("tickets.result.completedOn")}
               </label>
-              <input
+              <DateInput
                 id="completed_on"
-                type="date"
-                max={new Date().toISOString().slice(0, 10)}
+                max={localToday()}
                 value={completedOn}
-                onChange={(e) => {
-                  setCompletedOn(e.target.value);
+                onChange={(d) => {
+                  setCompletedOn(d);
                   clearErr("completed_on");
                 }}
                 className={`${input} ${errors.completed_on ? inputError : ""}`}

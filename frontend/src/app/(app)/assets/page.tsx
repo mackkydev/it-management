@@ -8,11 +8,25 @@ import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
-import { alert, btn, card, input, table } from "@/components/ui";
+import { alert, btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
+import type { Formatters, MessageKey, TFunction } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
 import { getAccess, canManageAssets, getCurrentUser } from "@/lib/auth";
-import { CATEGORIES, STATUSES, type Asset, type Location, type Paginated } from "@/lib/types";
+import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Location, type Paginated } from "@/lib/types";
+
+/** วันหมดอายุ license ในรายการ: หมดแล้ว = แดง, เหลือ ≤ 30 วัน = เหลือง */
+function LicenseExpiry({ license: l, t, fmt }: { license: AssetLicense; t: TFunction; fmt: Formatters }) {
+  if (!l.expires_at || l.days_left === null) return <div className="text-xs text-muted">{t("assets.license.noExpiry")}</div>;
+  const look = l.days_left < 0 ? tone.danger : l.days_left <= 30 ? tone.warning : tone.idle;
+  return (
+    <div className="mt-0.5">
+      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${look.badge}`}>
+        {l.days_left < 0 ? t("assets.license.expiredOn", { date: fmt.date(l.expires_at) }) : t("assets.license.expiresOn", { date: fmt.date(l.expires_at) })}
+      </span>
+    </div>
+  );
+}
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -90,7 +104,7 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
           <option value="">{t("assets.allCategories")}</option>
           {CATEGORIES.map((c) => (
             <option key={c} value={c}>
-              {c}
+              {t(`assets.categories.${c}` as MessageKey)}
             </option>
           ))}
         </select>
@@ -175,7 +189,10 @@ async function AssetResults({ query, canEdit }: { query: URLSearchParams; canEdi
                         {a.serial_number && ` · S/N ${a.serial_number}`}
                       </div>
                     </td>
-                    <td className={table.td}>{a.category}</td>
+                    <td className={table.td}>
+                      {t(`assets.categories.${a.category}` as MessageKey)}
+                      {a.license && <LicenseExpiry license={a.license} t={t} fmt={fmt} />}
+                    </td>
                     <td className={table.td}>{a.location?.name ?? "-"}</td>
                     <td className={table.td}>{a.custodian?.name ?? "-"}</td>
                     <td className={table.td}>
@@ -203,6 +220,7 @@ async function AssetResults({ query, canEdit }: { query: URLSearchParams; canEdi
                   {a.name}
                 </Link>
                 <div className="text-xs text-muted">{[a.brand, a.model].filter(Boolean).join(" ")}</div>
+                {a.license && <LicenseExpiry license={a.license} t={t} fmt={fmt} />}
                 <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                   <dt className="text-muted">{t("assets.col.location")}</dt>
                   <dd>{a.location?.name ?? "-"}</dd>

@@ -9,11 +9,15 @@ import { nowDb } from "../lib/time.js";
 export const DEFAULTS = {
   contract_notify_days: 30,
   credential_notify_days: 14,
+  license_notify_days: 30,
   notify_emails: [] as string[],
   ticket_other_types: ["งานออกแบบ"],
   // หน้า "สิทธิ์การใช้งาน": key เมนู/ปุ่ม → กลุ่มที่ซ่อน, และลำดับเมนู ([] = ยังไม่ตั้งค่า — ตรงกับ PHP array ว่าง)
   ui_permissions: [] as unknown,
   menu_order: [] as unknown,
+  // โลโก้ระบบ (routes/branding.ts) — null = ใช้ icon เดิม
+  logo_path: null as string | null,
+  logo_version: null as string | null,
 };
 
 export type Settings = typeof DEFAULTS & Record<string, unknown>;
