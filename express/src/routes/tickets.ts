@@ -11,7 +11,7 @@ import { person } from "../resources.js";
 import { getSetting } from "../services/settings.js";
 import { readStored, storeSignature, storeUpload, deleteTicketFiles } from "../services/ticket-files.js";
 import {
-  actionsFor, canAccept, canApprove, canClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel,
+  actionsFor, canAccept, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel,
 } from "../services/ticket-workflow.js";
 import { activeSignature, copySignatureTo, mimeOf, readSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
@@ -25,7 +25,7 @@ import { trans } from "../lib/i18n.js";
 export const ticketRoutes = Router();
 
 const TYPES = ["repair", "install", "grant_access", "revoke_access", "other"];
-const STATUSES = ["pending_supervisor", "approved", "in_progress", "pending_it_head", "completed", "rejected", "pending_cancel", "cancelled"];
+const STATUSES = ["pending_supervisor", "approved", "in_progress", "pending_it_head", "pending_requester", "completed", "rejected", "pending_cancel", "cancelled"];
 const PHOTO_RULE: Rule[] = ["image", "mimes:jpg,jpeg,png,webp", "max:1024"]; // ≤ 1MB
 const DOC_RULE: Rule[] = ["file", "mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,zip,jpg,jpeg,png", "max:5120"]; // ≤ 5MB
 const FILLABLE = [
@@ -172,16 +172,23 @@ async function respondDetail(req: Request, res: Response, ticketId: number, stat
 const log = (ticketId: number, userId: number | null, action: string, comment: string | null = null) =>
   insert("it_ticket_events", { it_ticket_id: ticketId, user_id: userId, action, comment, created_at: nowDb() });
 
+/** รหัสแบบฟอร์ม "ใบแจ้งดำเนินงาน IT" — ส่วนหน้าของเลขที่ใบงาน (เดิม "IT") */
+const TICKET_NO_PREFIX = "FM-ITR-01";
+
 /**
- * เลขที่ใบแจ้งงาน IT-YYYY-NNNNN — ต้องเรียกภายใน transaction
+ * เลขที่ใบแจ้งงาน FM-ITR-01-YYYY-NNNNN (เริ่ม 00001 ใหม่ทุกปี) — ต้องเรียกภายใน transaction
+ * ลำดับนับต่อจากใบรูปแบบเดิม IT-YYYY-NNNNN ของปีเดียวกัน (เลขลำดับไม่ซ้ำกับใบเก่า)
  * ล็อกด้วย named lock (GET_LOCK — ปลดเมื่อจบ transaction) กันเลขซ้ำเมื่อแจ้งพร้อมกัน
  */
 async function nextTicketNo(): Promise<string> {
-  const prefix = `IT-${new Date().getUTCFullYear()}-`;
+  const year = new Date().getUTCFullYear();
+  const prefix = `${TICKET_NO_PREFIX}-${year}-`;
   await lockNamed("it_tickets.ticket_no");
-  const last = await scalar<string>("SELECT MAX(ticket_no) FROM it_tickets WHERE ticket_no LIKE ?", [`${prefix}%`]);
-  const seq = last ? Number(last.slice(prefix.length)) + 1 : 1;
-  return prefix + String(seq).padStart(5, "0");
+  const last = await scalar<number>(
+    "SELECT MAX(CAST(SUBSTRING_INDEX(ticket_no, '-', -1) AS UNSIGNED)) FROM it_tickets WHERE ticket_no LIKE ? OR ticket_no LIKE ?",
+    [`${prefix}%`, `IT-${year}-%`],
+  );
+  return prefix + String(Number(last ?? 0) + 1).padStart(5, "0");
 }
 
 /* ---------------------------------------------------------------- list / options */
@@ -544,7 +551,7 @@ ticketRoutes.post("/tickets/:uuid/progress", async (req, res) => {
   await respondDetail(req, res, t.id);
 });
 
-/** 4.3.4 หัวหน้า IT อนุมัติผล (ลงลายเซ็น) → ปิดงาน */
+/** 4.3.4 หัวหน้า IT อนุมัติผล (ลงลายเซ็น) → รอปิดงาน (ผู้แจ้งกดรับงานเพื่อปิดงาน) */
 ticketRoutes.post("/tickets/:uuid/close", async (req, res) => {
   const t = await findTicket(req.params.uuid);
   const u = me(req);
@@ -560,18 +567,33 @@ ticketRoutes.post("/tickets/:uuid/close", async (req, res) => {
     await update(
       "it_tickets",
       {
-        status: "completed",
+        status: "pending_requester",
         it_head_id: u.id,
         it_head_signature: await storeSignature(t.uuid, String(data.signature), "it-head", req.locale),
-        closed_at: now,
         updated_at: now,
       },
       "id = ?",
       [t.id],
     );
-    await log(t.id, u.id, "closed", (data.comment as string) ?? null);
+    await log(t.id, u.id, "head_approved", (data.comment as string) ?? null);
   });
-  await notify({ ...t, status: "completed", it_head_id: u.id }, "closed", u);
+  await notify({ ...t, status: "pending_requester", it_head_id: u.id }, "head_approved", u);
+  await respondDetail(req, res, t.id);
+});
+
+/** ผู้แจ้งกดรับงาน → ปิดงาน */
+ticketRoutes.post("/tickets/:uuid/confirm-close", async (req, res) => {
+  const t = await findTicket(req.params.uuid);
+  const u = me(req);
+  authorize(canConfirmClose(u, t));
+  const data = await validate(req.input, { comment: ["nullable", "string", "max:2000"] }, { locale: req.locale });
+
+  await transaction(async () => {
+    const now = nowDb();
+    await update("it_tickets", { status: "completed", closed_at: now, updated_at: now }, "id = ?", [t.id]);
+    await log(t.id, u.id, "confirmed", (data.comment as string) ?? null);
+  });
+  await notify({ ...t, status: "completed" }, "confirmed", u);
   await respondDetail(req, res, t.id);
 });
 

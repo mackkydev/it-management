@@ -1,0 +1,276 @@
+/*
+ * ใบแจ้งดำเนินงาน IT — กระดาษ A4 (210 × 297 มม.) หน้าเดียว ตามแบบฟอร์มกระดาษเดิม
+ * เอกสารพิมพ์ต้องเป็นขาวดำเสมอ → ใช้สีดำ/ขาวตรงๆ (ไม่ใช้ token ธีมที่เปลี่ยนตามโหมดมืด)
+ */
+.sheet {
+  width: 210mm;
+  height: 297mm;
+  padding: 8mm 9mm;
+  box-sizing: border-box;
+  background: #fff;
+  color: #000;
+  /* เฉพาะเอกสารนี้: Angsana New (ฟอนต์ระบบ Windows — ไม่ฝังไฟล์ฟอนต์ของ Microsoft ในระบบ) */
+  font-family: "Angsana New", "AngsanaUPC", "TH Sarabun New", serif;
+  font-size: 14pt;
+  line-height: 1.15;
+  overflow: hidden;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+.frame {
+  height: 100%;
+  border: 0.35mm solid #000;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* หัวบริษัท */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 3mm;
+  padding: 2.5mm 4mm 1mm;
+}
+.logo {
+  height: 12mm;
+  width: auto;
+  max-width: 32mm;
+  object-fit: contain;
+}
+.nameTh {
+  font-size: 20pt;
+  font-weight: 700;
+  line-height: 1.05;
+}
+.nameEn {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 10pt;
+  font-weight: 700;
+  letter-spacing: 0.15mm;
+  line-height: 1.15;
+}
+.address {
+  margin: 0 4mm;
+  padding-bottom: 0.8mm;
+  border-bottom: 0.35mm solid #000;
+  font-size: 11pt;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.address b {
+  text-decoration: underline;
+}
+
+.title {
+  margin: 4mm 0 1mm;
+  text-align: center;
+  font-size: 19pt;
+  font-weight: 700;
+}
+
+/* ส่วนเนื้อหา */
+.section {
+  padding: 0 5mm;
+}
+.rule {
+  border-top: 0.35mm solid #000;
+  margin-top: 2mm;
+}
+.row {
+  display: flex;
+  align-items: flex-end;
+  gap: 2mm;
+  min-height: 8.5mm;
+}
+.right {
+  justify-content: flex-end;
+}
+.label {
+  white-space: nowrap;
+}
+.labelWide {
+  white-space: nowrap;
+  min-width: 15mm;
+}
+/* ช่องเติมข้อมูลแบบเส้นประ */
+.fill {
+  flex: 1;
+  min-width: 0;
+  min-height: 5.2mm;
+  padding: 0 1.5mm;
+  border-bottom: 0.25mm dotted #000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  font-size: 14pt;
+}
+.fillLeft {
+  text-align: left;
+}
+.fixed {
+  flex: none;
+}
+
+/* ช่องติ๊ก */
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.6mm;
+  white-space: nowrap;
+}
+.box {
+  flex: none;
+  width: 3.4mm;
+  height: 3.4mm;
+  border: 0.3mm solid #000;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10pt;
+  font-weight: 700;
+  line-height: 1;
+}
+.checks {
+  flex: 1;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4mm;
+}
+.branches {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  row-gap: 2.2mm;
+  padding-top: 1.5mm;
+}
+
+/* หลายบรรทัด: เส้นประทุกบรรทัด ข้อความไหลทับ */
+.multi {
+  position: relative;
+  line-height: 8.2mm;
+  overflow: hidden;
+  word-break: break-word;
+}
+.dotline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-bottom: 0.25mm dotted #000;
+}
+.multiText {
+  position: relative;
+  font-size: 14pt;
+}
+.multiLabel {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  padding-right: 1.5mm;
+  font-size: 14pt;
+}
+
+/* ส่วนผู้แจ้ง (วันที่ต้องการ + ลายเซ็น) */
+.requestFoot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6mm;
+  padding-bottom: 1mm;
+}
+.sign {
+  width: 52mm;
+  text-align: center;
+  font-size: 14pt;
+  line-height: 1.25;
+}
+.sigArea {
+  height: 13mm;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.sigImg {
+  max-height: 13mm;
+  max-width: 48mm;
+  object-fit: contain;
+}
+.sigLine {
+  border-top: 0.25mm solid #000;
+  margin: 0 3mm;
+}
+.signName {
+  display: flex;
+  align-items: flex-end;
+  white-space: nowrap;
+  margin-top: 0.8mm;
+}
+.signNameText {
+  flex: 1;
+  min-width: 0;
+  margin: 0 0.8mm;
+  border-bottom: 0.25mm dotted #000;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.signDate {
+  display: inline-block;
+  min-width: 26mm;
+  border-bottom: 0.25mm dotted #000;
+}
+
+/* ผลการดำเนินงาน */
+.resultHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 3mm;
+}
+.tag {
+  flex: none;
+  margin-bottom: 1.8mm;
+  margin-right: -5mm;
+  padding: 0.4mm 3mm;
+  border: 0.3mm solid #000;
+  background: #d9d9d9;
+  font-size: 13pt;
+}
+.resultLabel {
+  flex: none;
+  width: 27mm;
+  text-align: right;
+  white-space: nowrap;
+}
+.indent {
+  padding-left: 29mm;
+}
+.parts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3mm;
+  flex: 1;
+}
+
+/* ลายเซ็นท้ายเอกสาร */
+.signs {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8mm;
+  padding: 3mm 7mm 4mm;
+}
+.signs .sign {
+  width: auto;
+}
+
+/* กันปัดเศษความสูงจนล้นเป็นหน้า 2 ตอนพิมพ์ */
+@media print {
+  .sheet {
+    height: 296.5mm;
+  }
+}

@@ -262,7 +262,7 @@ export async function DoneBanner({ done }: { done?: string }) {
   if (!done) return null;
   const { t } = await getI18n();
   const key = done === "created" ? "tickets.created" : `tickets.actions.done.${done}`;
-  const known = ["created", "approve", "reject", "accept", "progress", "result", "close", "return", "edited", "deleted", "cancel_request", "cancel_confirm", "cancel_reject", "cancel_withdraw"].includes(done);
+  const known = ["created", "approve", "reject", "accept", "progress", "result", "close", "return", "confirm_close", "edited", "deleted", "cancel_request", "cancel_confirm", "cancel_reject", "cancel_withdraw"].includes(done);
   if (!known) return null;
   return (
     <div role="status" className={alert.success}>

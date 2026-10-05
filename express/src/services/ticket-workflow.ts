@@ -100,6 +100,9 @@ export const canProgress = canRecordResult;
 
 export const canClose = (u: UserRow, t: TicketRow) => t.status === "pending_it_head" && can(u, "it_tickets.close");
 
+/** หัวหน้า IT อนุมัติผลแล้ว (รอปิดงาน) → ผู้แจ้งกดรับงานเพื่อปิดงาน */
+export const canConfirmClose = (u: UserRow, t: TicketRow) => t.status === "pending_requester" && u.id === t.requester_id;
+
 /** ผู้แจ้งแก้ไขได้ก่อนมีผู้อนุมัติ (ยังไม่มีขั้นใดอนุมัติ) */
 export const canEdit = (u: UserRow, t: TicketRow) => u.id === t.requester_id && t.status === "pending_supervisor" && Number(t.approved_steps ?? 0) === 0;
 
@@ -126,6 +129,7 @@ export function actionsFor(u: UserRow, t: TicketRow): string[] {
     ["result", canRecordResult(u, t)],
     ["close", canClose(u, t)],
     ["return", canClose(u, t)],
+    ["confirm_close", canConfirmClose(u, t)],
     ["edit", canEdit(u, t)],
     ["delete", canDelete(u, t)],
     ["cancel_request", canRequestCancel(u, t)],
@@ -198,6 +202,14 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
     case "cancelled":
     case "cancel_rejected":
       recipients = [requester];
+      break;
+    // หัวหน้า IT อนุมัติผล → ผู้แจ้งต้องกดรับงานเพื่อปิดงาน
+    case "head_approved":
+      recipients = [requester, assignee];
+      break;
+    // ผู้แจ้งรับงาน → ปิดงาน (แจ้งเจ้าหน้าที่ผู้รับงานและหัวหน้า IT ที่อนุมัติผล)
+    case "confirmed":
+      recipients = [assignee, await byId(t.it_head_id)];
       break;
     case "closed":
       recipients = [requester, assignee];

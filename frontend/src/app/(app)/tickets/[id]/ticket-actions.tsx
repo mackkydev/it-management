@@ -13,7 +13,6 @@ import {
   InboxIcon,
   PencilIcon,
   PlusIcon,
-  PrinterIcon,
   ResetIcon,
   SaveIcon,
   SpinnerIcon,
@@ -27,15 +26,6 @@ import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { TicketAction, TicketDetail } from "@/lib/types";
 
-export function PrintButton({ label }: { label: string }) {
-  return (
-    <button type="button" onClick={() => window.print()} className={`${btn.secondary} ${btn.sm}`}>
-      <PrinterIcon width={14} height={14} className="text-accent-500" />
-      {label}
-    </button>
-  );
-}
-
 const ICONS: Record<TicketAction, ReactNode> = {
   approve: <CheckCircleIcon />,
   reject: <XIcon />,
@@ -44,6 +34,7 @@ const ICONS: Record<TicketAction, ReactNode> = {
   result: <WrenchIcon />,
   close: <CheckIcon />,
   return: <ResetIcon />,
+  confirm_close: <CheckCircleIcon />,
   edit: <PencilIcon />,
   delete: <TrashIcon />,
   cancel_request: <XIcon />,
@@ -115,7 +106,7 @@ export function TicketActions({ ticket }: { ticket: TicketDetail }) {
 
 type FormAction = Exclude<TicketAction, "result" | "edit" | "delete" | "cancel_withdraw">;
 
-/** อนุมัติ / ไม่อนุมัติ / รับงาน / ความคืบหน้า / ปิดงาน (ลงลายเซ็น) / ส่งกลับ / ขอยกเลิก / ยืนยัน-ปฏิเสธการยกเลิก */
+/** อนุมัติ / ไม่อนุมัติ / รับงาน / ความคืบหน้า / อนุมัติผล (ลงลายเซ็น) / ส่งกลับ / ผู้แจ้งรับงาน / ขอยกเลิก / ยืนยัน-ปฏิเสธการยกเลิก */
 function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; action: FormAction; onCancel: () => void }) {
   const { t } = useI18n();
   const [comment, setComment] = useState("");

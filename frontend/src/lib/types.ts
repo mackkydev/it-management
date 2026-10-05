@@ -157,10 +157,10 @@ export interface Contract {
 
 export const TICKET_TYPES = ["repair", "install", "grant_access", "revoke_access", "other"] as const;
 export type TicketType = (typeof TICKET_TYPES)[number];
-export const TICKET_STATUSES = ["pending_supervisor", "approved", "in_progress", "pending_it_head", "completed", "rejected", "pending_cancel", "cancelled"] as const;
+export const TICKET_STATUSES = ["pending_supervisor", "approved", "in_progress", "pending_it_head", "pending_requester", "completed", "rejected", "pending_cancel", "cancelled"] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 export type TicketAction =
-  | "approve" | "reject" | "accept" | "progress" | "result" | "close" | "return"
+  | "approve" | "reject" | "accept" | "progress" | "result" | "close" | "return" | "confirm_close"
   | "edit" | "delete" | "cancel_request" | "cancel_confirm" | "cancel_reject" | "cancel_withdraw";
 
 type Person = { id: number; name: string } | null;

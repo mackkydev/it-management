@@ -1,5 +1,5 @@
 import { tone } from "@/components/ui";
-import type { TicketStatus, TicketType } from "@/lib/types";
+import type { TicketDetail, TicketStatus, TicketType } from "@/lib/types";
 import type { TFunction } from "@/i18n/types";
 
 /** สีสถานะใบแจ้งงาน — ใช้ token สีสถานะของระบบ (ไม่ชนกับสีธีม) */
@@ -11,6 +11,7 @@ const STATUS_STYLE: Record<TicketStatus, { badge: string; dot: string }> = {
     badge: "bg-accent-100 text-accent-800 dark:bg-accent-400/15 dark:text-accent-200",
     dot: "bg-accent-400",
   },
+  pending_requester: tone.warning,
   completed: tone.success,
   rejected: tone.danger,
   pending_cancel: tone.danger,
@@ -25,6 +26,11 @@ export function TicketStatusBadge({ status, t }: { status: TicketStatus; t: TFun
       {t(`tickets.statuses.${status}`)}
     </span>
   );
+}
+
+/** เวลาที่หัวหน้า IT อนุมัติผล ("closed" = ใบเดิมที่หัวหน้า IT ปิดงานเองก่อนมีขั้นผู้แจ้งรับงาน) */
+export function headApprovedAt(tk: Pick<TicketDetail, "events">): string | null {
+  return [...tk.events].reverse().find((e) => e.action === "head_approved" || e.action === "closed")?.created_at ?? null;
 }
 
 /** ชื่อเรื่อง: "อื่นๆ" แสดงสิ่งที่ผู้แจ้งระบุ */

@@ -132,7 +132,7 @@ npm run dev
 | อีเมล | บทบาท |
 |---|---|
 | `admin@example.com` | ผู้ดูแลระบบ |
-| `it.head@example.com` | หัวหน้า IT (อนุมัติปิดงาน) |
+| `it.head@example.com` | หัวหน้า IT (อนุมัติผล → ผู้แจ้งกดรับงานเพื่อปิดงาน) |
 | `it.staff@example.com` | เจ้าหน้าที่ IT (รับงาน/บันทึกผล) |
 | `chief@example.com` | หัวหน้าแผนก (อนุมัติใบแจ้งของลูกทีม) |
 | `staff@example.com` | พนักงาน (ผู้แจ้ง) — หัวหน้าคือ `chief@` |

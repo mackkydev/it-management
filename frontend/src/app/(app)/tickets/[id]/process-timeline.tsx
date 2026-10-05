@@ -2,8 +2,9 @@ import { AlertIcon, CheckIcon, XIcon } from "@/components/icons";
 import { card, tone } from "@/components/ui";
 import type { Formatters, TFunction } from "@/i18n/types";
 import type { TicketDetail, TicketStatus } from "@/lib/types";
+import { headApprovedAt } from "../ticket-ui";
 
-type StageKey = "submitted" | "approval" | "accepted" | "working" | "review" | "completed";
+type StageKey = "submitted" | "approval" | "accepted" | "working" | "review" | "confirm" | "completed";
 type State = "done" | "current" | "upcoming" | "failed";
 
 interface Stage {
@@ -15,7 +16,7 @@ interface Stage {
   note?: string | null;
 }
 
-const ORDER: StageKey[] = ["submitted", "approval", "accepted", "working", "review", "completed"];
+const ORDER: StageKey[] = ["submitted", "approval", "accepted", "working", "review", "confirm", "completed"];
 
 /** สถานะ → ขั้นที่กำลังทำ (index ใน ORDER) */
 const CURRENT: Partial<Record<TicketStatus, number>> = {
@@ -23,11 +24,12 @@ const CURRENT: Partial<Record<TicketStatus, number>> = {
   approved: 2,
   in_progress: 3,
   pending_it_head: 4,
-  completed: 6,
+  pending_requester: 5,
+  completed: 7,
 };
 
 /**
- * ไทม์ไลน์ขั้นตอนของใบแจ้งงาน: แจ้งงาน → หัวหน้าอนุมัติ → IT รับงาน → ดำเนินการ → หัวหน้า IT ตรวจรับ → ปิดงาน
+ * ไทม์ไลน์ขั้นตอนของใบแจ้งงาน: แจ้งงาน → หัวหน้าอนุมัติ → IT รับงาน → ดำเนินการ → หัวหน้า IT ตรวจรับ → ผู้แจ้งรับงาน → ปิดงาน
  * ไฮไลต์ขั้นที่กำลังดำเนินการ, ไม่อนุมัติ/ยกเลิก = ขั้นนั้นเป็นสีแดง, รอยกเลิก = แถบแจ้งเหตุผล
  */
 export function ProcessTimeline({ tk, t, fmt }: { tk: TicketDetail; t: TFunction; fmt: Formatters }) {
@@ -35,6 +37,7 @@ export function ProcessTimeline({ tk, t, fmt }: { tk: TicketDetail; t: TFunction
   const base: TicketStatus = tk.status === "pending_cancel" || tk.status === "cancelled" ? (tk.cancel_requested_status ?? "approved") : tk.status;
   const current = tk.status === "rejected" ? 1 : (CURRENT[base] ?? 1);
   const progressCount = tk.events.filter((e) => e.action === "progress").length;
+  const confirmed = tk.events.find((e) => e.action === "confirmed");
   const waitingApprovers = tk.approval_steps.find((s) => s.step_no === tk.current_step)?.approvers.map((a) => a.name).join(", ");
 
   const info: Record<StageKey, Pick<Stage, "who" | "at" | "note">> = {
@@ -46,7 +49,9 @@ export function ProcessTimeline({ tk, t, fmt }: { tk: TicketDetail; t: TFunction
     },
     accepted: { who: tk.assignee?.name ?? null, at: tk.accepted_at },
     working: { who: tk.assignee?.name ?? null, at: tk.resulted_at, note: progressCount ? t("tickets.timeline.updates", { count: progressCount }) : null },
-    review: { who: tk.it_head?.name ?? null, at: tk.status === "completed" ? tk.closed_at : null },
+    review: { who: tk.it_head?.name ?? null, at: headApprovedAt(tk) },
+    // ใบเดิมที่หัวหน้า IT ปิดงานเอง (ไม่มีเหตุการณ์ confirmed) ไม่มีผู้รับงาน
+    confirm: { who: confirmed ? tk.requester?.name : null, at: confirmed?.created_at ?? null },
     completed: { at: tk.status === "completed" ? tk.closed_at : null },
   };
 

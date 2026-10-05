@@ -10,10 +10,13 @@ import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
 import { getAccess } from "@/lib/auth";
 import type { TicketDetail } from "@/lib/types";
+import type { TicketFormOptions } from "../new/ticket-form";
 import { DoneBanner } from "../ticket-list";
-import { TicketStatusBadge, ticketSubject } from "../ticket-ui";
+import { headApprovedAt, TicketStatusBadge, ticketSubject } from "../ticket-ui";
 import { ProcessTimeline } from "./process-timeline";
-import { PrintButton, TicketActions } from "./ticket-actions";
+import { PrintModal } from "./print-modal";
+import { TicketActions } from "./ticket-actions";
+import { TicketPaper } from "./ticket-paper";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -97,13 +100,20 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
   const { id } = await params;
   if (!UUID_RE.test(id)) notFound();
   const { done } = await searchParams;
-  const [tk, { t, fmt }, can] = await Promise.all([getTicket(id), getI18n(), getAccess()]);
+  const [tk, { t, fmt }, can, branches] = await Promise.all([
+    getTicket(id),
+    getI18n(),
+    getAccess(),
+    // รายการสาขาสำหรับช่องติ๊กในแบบฟอร์มพิมพ์ (โหลดไม่ได้ = แสดงเฉพาะสาขาของใบงาน)
+    apiFetch<{ data: TicketFormOptions }>("/tickets/form-options").then((r) => r.data.branches, () => []),
+  ]);
 
   const requestPhotos = tk.attachments.filter((a) => a.kind === "request");
   const resultPhotos = tk.attachments.filter((a) => a.kind === "result");
   const documents = tk.attachments.filter((a) => a.kind === "document");
   const isRepair = tk.type === "repair";
   const needsPerson = tk.type === "grant_access" || tk.type === "revoke_access";
+  const headAt = headApprovedAt(tk);
 
   return (
     <div className="space-y-5">
@@ -112,7 +122,12 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
           <LinkPendingIcon icon={<ChevronLeftIcon width={15} height={15} />} size={15} />
           {t("tickets.detail.back")}
         </Link>
-        {can("btn:tickets:print") && <PrintButton label={t("tickets.detail.print")} />}
+        {/* พิมพ์ / PDF: modal แสดงแบบฟอร์ม A4 */}
+        {can("btn:tickets:print") && (
+          <PrintModal label={t("tickets.detail.print")} fileName={tk.ticket_no}>
+            <TicketPaper tk={tk} branches={branches} t={t} fmt={fmt} />
+          </PrintModal>
+        )}
       </div>
 
       {typeof done === "string" && <DoneBanner done={done} />}
@@ -313,7 +328,7 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
           url={tk.signatures.it_head}
           name={tk.it_head?.name}
           role={t("tickets.detail.sigItHead")}
-          date={tk.closed_at && tk.status === "completed" ? fmt.date(tk.closed_at) : null}
+          date={headAt ? fmt.date(headAt) : null}
           t={t}
         />
         <Signature url={tk.signatures.requester} name={tk.requester?.name} role={t("tickets.detail.sigRequester")} date={fmt.date(tk.requested_at)} t={t} />

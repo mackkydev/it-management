@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { first, scalar } from "../src/db.js";
+import { exec, first, scalar, select } from "../src/db.js";
 import type { UserRow } from "../src/models/user.js";
 import { as, day, fakeImage, fakePdf, makeAsset, makeBranch, makeUser, SIG } from "./helpers.js";
 
@@ -56,11 +56,21 @@ async function submitRepair(): Promise<string> {
 }
 
 describe("IT tickets", () => {
+  it("ticket numbers are FM-ITR-01-YYYY-NNNNN and continue after old IT-YYYY numbers of the same year", async () => {
+    const year = new Date().getUTCFullYear();
+    await submitRepair();
+    await exec("UPDATE it_tickets SET ticket_no = ?", [`IT-${year}-00009`]);
+    await submitRepair();
+    await submitRepair();
+    const numbers = (await select<{ ticket_no: string }>("SELECT ticket_no FROM it_tickets ORDER BY id")).map((r) => r.ticket_no);
+    expect(numbers).toEqual([`IT-${year}-00009`, `FM-ITR-01-${year}-00010`, `FM-ITR-01-${year}-00011`]);
+  });
+
   it("full workflow from request to close", async () => {
     const id = await submitRepair();
     const ticket = await first<{ approver_id: number; ticket_no: string }>("SELECT approver_id, ticket_no FROM it_tickets WHERE uuid = ?", [id]);
     expect(ticket!.approver_id).toBe(chief.id);
-    expect(ticket!.ticket_no).toMatch(/^IT-\d{4}-00001$/);
+    expect(ticket!.ticket_no).toBe(`FM-ITR-01-${new Date().getUTCFullYear()}-00001`);
     expect(await unread(chief)).toBe(1);
 
     // หัวหน้าเท่านั้นที่อนุมัติได้
@@ -112,13 +122,30 @@ describe("IT tickets", () => {
     expect(again.status).toBe(200);
     expect(again.body.data.parts).toHaveLength(0);
 
-    const closed = await headApi.post(`/api/v1/tickets/${id}/close`).send({ signature: SIG });
+    // หัวหน้า IT อนุมัติผล → รอปิดงาน + แจ้งผู้แจ้งให้กดรับงาน
+    const requesterUnread = await unread(staff);
+    const approvedResult = await headApi.post(`/api/v1/tickets/${id}/close`).send({ signature: SIG });
+    expect(approvedResult.status).toBe(200);
+    expect(approvedResult.body.data).toMatchObject({ status: "pending_requester", closed_at: null });
+    expect(approvedResult.body.data.it_head.id).toBe(itHead.id);
+    expect(await unread(staff)).toBe(requesterUnread + 1);
+    expect((await headApi.post(`/api/v1/tickets/${id}/confirm-close`)).status).toBe(403); // เฉพาะผู้แจ้ง
+    expect((await itApi.post(`/api/v1/tickets/${id}/confirm-close`)).status).toBe(403);
+
+    // ผู้แจ้งกดรับงาน → ปิดงาน + แจ้งเจ้าหน้าที่และหัวหน้า IT
+    const staffApi = await as(staff);
+    const waiting = (await staffApi.get(`/api/v1/tickets/${id}`)).body.data.actions;
+    expect(waiting).toContain("confirm_close");
+    expect(waiting).not.toContain("cancel_request"); // งานเสร็จแล้ว ขอยกเลิกไม่ได้
+    const itUnread = await unread(it_);
+    const closed = await staffApi.post(`/api/v1/tickets/${id}/confirm-close`).send({ comment: "ใช้งานได้ปกติ" });
     expect(closed.status).toBe(200);
     expect(closed.body.data.status).toBe("completed");
-    expect(closed.body.data.it_head.id).toBe(itHead.id);
-    // submitted, approved, accepted, resulted, returned, resulted, closed
+    expect(closed.body.data.closed_at).not.toBeNull();
+    expect(await unread(it_)).toBe(itUnread + 1);
+    expect((await staffApi.post(`/api/v1/tickets/${id}/confirm-close`)).status).toBe(403); // ปิดแล้ว
     expect(closed.body.data.events.map((e: { action: string }) => e.action)).toEqual([
-      "submitted", "approved", "accepted", "resulted", "returned", "resulted", "closed",
+      "submitted", "approved", "accepted", "resulted", "returned", "resulted", "head_approved", "confirmed",
     ]);
   });
 
