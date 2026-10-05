@@ -123,7 +123,7 @@ licenseInstallationRoutes.get("/license-installations", async (req, res) => {
   const term = String(f.search ?? "").trim();
   if (term) {
     const esc = `%${likeEscape(term)}%`;
-    where.push("(i.device_name ILIKE ? OR da.asset_tag ILIKE ? OR da.name ILIKE ? OR u.name ILIKE ?)");
+    where.push("(i.device_name LIKE ? OR da.asset_tag LIKE ? OR da.name LIKE ? OR u.name LIKE ?)");
     params.push(esc, esc, esc, esc);
   }
   const whereSql = where.join(" AND ");

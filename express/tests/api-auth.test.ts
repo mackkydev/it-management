@@ -352,7 +352,7 @@ describe("API connections — admin settings", () => {
     expect(edited.body.data).toMatchObject({ name: "HR ใหม่", has_auth_secret: true, is_enabled: true });
     expect(await scalar("SELECT auth_secret FROM api_connections WHERE id = ?", [id])).toBe(stored);
 
-    const logs = await select<{ action: string; before: unknown; after: unknown }>("SELECT action, before, after FROM audit_logs ORDER BY id");
+    const logs = await select<{ action: string; before: unknown; after: unknown }>('SELECT action, "before", "after" FROM audit_logs ORDER BY id');
     expect(logs.map((l) => l.action)).toEqual(["api_connection.created", "api_connection.updated"]);
     expect(JSON.stringify(logs)).not.toContain("super-secret-key");
     expect(JSON.stringify(logs)).not.toContain(stored!);

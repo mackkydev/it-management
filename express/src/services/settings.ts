@@ -23,7 +23,7 @@ export const DEFAULTS = {
 export type Settings = typeof DEFAULTS & Record<string, unknown>;
 
 export async function allSettings(): Promise<Settings> {
-  // pg แปลง JSONB เป็น object ให้แล้ว
+  // mysql2 แปลง JSON เป็น object ให้แล้ว
   const rows = await select<{ key: string; value: unknown }>('SELECT "key", "value" FROM app_settings');
   const stored = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   return { ...DEFAULTS, ...stored } as Settings;
@@ -36,8 +36,8 @@ export async function getSetting<K extends keyof typeof DEFAULTS>(key: K): Promi
 export async function putSetting(key: string, value: unknown, userId: number | null): Promise<void> {
   const now = nowDb();
   await exec(
-    'INSERT INTO app_settings ("key", "value", updated_by, created_at, updated_at) VALUES (?, ?::jsonb, ?, ?, ?) ' +
-      'ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at',
+    'INSERT INTO app_settings ("key", "value", updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?) AS new ' +
+      'ON DUPLICATE KEY UPDATE "value" = new."value", updated_by = new.updated_by, updated_at = new.updated_at',
     [key, JSON.stringify(value), userId, now, now],
   );
   await forgetLaravelCache("app_settings:all");

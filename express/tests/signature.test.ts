@@ -96,7 +96,7 @@ describe("my signature", () => {
   it("needs signature.manage_own and is rate limited", async () => {
     const u = await makeUser();
     const api = await as(u);
-    await exec("DELETE FROM role_permissions WHERE role = 'viewer' AND permission_id = (SELECT id FROM permissions WHERE key = 'signature.manage_own')");
+    await exec("DELETE FROM role_permissions WHERE role = 'viewer' AND permission_id = (SELECT id FROM permissions WHERE \"key\" = 'signature.manage_own')");
     expect((await api.post("/api/v1/auth/me/signature").attach("signature", await realImage(), "sig.png")).status).toBe(403);
     expect((await api.get("/api/v1/auth/me/signature")).status).toBe(403);
 

@@ -41,7 +41,7 @@ describe("ticket edit / delete before approval", () => {
 
     expect((await api.delete(`/api/v1/tickets/${id}`)).status).toBe(204);
     expect(await scalar("SELECT COUNT(*) FROM it_tickets WHERE uuid = ?", [id])).toBe(0);
-    expect(await scalar("SELECT COUNT(*) FROM notifications WHERE (data::jsonb ->> 'ticket_id') = ?", [id])).toBe(0); // แจ้งเตือนหัวหน้าถูกลบตาม
+    expect(await scalar("SELECT COUNT(*) FROM notifications WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.ticket_id')) = ?", [id])).toBe(0); // แจ้งเตือนหัวหน้าถูกลบตาม
     expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'ticket.deleted'")).toBe(1);
   });
 

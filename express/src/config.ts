@@ -63,7 +63,7 @@ export const config = {
 export function dbConfig() {
   return {
     host: env("DB_HOST", "127.0.0.1"),
-    port: Number(env("DB_PORT", "5432")),
+    port: Number(env("DB_PORT", "3306")),
     database: env("DB_DATABASE", "it_system"),
     user: env("DB_USERNAME", "it_app"),
     password: env("DB_PASSWORD"),

@@ -1,9 +1,9 @@
 # IT-SYSTEM — กฎการพัฒนา (Claude Code)
 
 ระบบงานฝ่าย IT (ใบแจ้งงาน IT, คลังบัญชี/รหัสผ่าน, สัญญา vendor, สินทรัพย์ IT):
-**Next.js 16 (App Router) + Express.js 5 API + PostgreSQL 17** — รันบน Docker (`docker compose up -d`)
-- Container: `it_express` (8020, API + scheduler), `it_postgres` (5433, db `it_system`, user `it_app`), `it_adminer` (8081)
-- MariaDB เดิมเก็บเป็นสำรอง (profile `legacy-mariadb`, volume `it-system_it_db`) — ไม่ใช้งานแล้ว
+**Next.js 16 (App Router) + Express.js 5 API + MySQL 8.4** — รันบน Docker (`docker compose up -d`)
+- Container: `it_express` (8020, API + scheduler), `it_mysql` (3308, db `it_system`, user `it_app`), `it_adminer` (8081)
+- ฐานเดิมเก็บเป็นสำรอง ไม่ใช้งานแล้ว: PostgreSQL (profile `legacy-postgres`, volume `it-system_it_pg` — ย้ายมา MySQL 2026-10-05), MariaDB (profile `legacy-mariadb`, volume `it-system_it_db`)
 - ชื่อภายในเดิมที่ตั้งใจคงไว้: cookie `eam_*`, prefix ข้อความ `eam.*`, `EAM_TOKEN_TTL_MINUTES`
 - **ตั้งแต่ 2026-10-04 ใช้ Express อย่างเดียว** — ถอด Laravel (`backend/`, `it_api`) ออกแล้ว (ดูโค้ดเดิมจาก git history) ห้ามสร้างกลับมา
 - ไฟล์แนบ/ลายเซ็น/ไฟล์ license อยู่ที่ `storage/private` (mount เป็น `/data/private` ใน container, ไม่ขึ้น git — ต้องสำรองแยก)
@@ -71,9 +71,14 @@
 - **โครงสร้างฐานข้อมูลเป็นของ Prisma migrations** (`express/prisma/`) — เพิ่ม/แก้ตาราง: แก้ `schema.prisma` → `npm run db:migrate -- --name <ชื่อ>` (ใน `express/`)
   - เพิ่มแบบ additive เท่านั้น (ไม่ลบ/เปลี่ยนชื่อ/เปลี่ยนชนิดคอลัมน์เดิม) และใส่ `down.sql` สำหรับย้อนกลับ — ทดสอบกับสำเนาฐานจริงก่อน
   - ห้ามแก้ไฟล์ migration ที่ deploy แล้ว — สร้าง migration ใหม่เสมอ; ข้อมูลตั้งต้นอยู่ที่ `express/src/cli/seed.ts`
-  - Prisma ใช้จัดการ schema เท่านั้น — API เรียกฐานข้อมูลผ่าน pg (`src/db.ts`) เพิ่มคอลัมน์แล้วต้องแก้ query/resource ที่เกี่ยวข้องด้วย
-- SQL ใน Express เป็น PostgreSQL: placeholder `?` (db.ts แปลงเป็น $n ให้), ชื่อคอลัมน์ใช้ `"..."`, boolean ใช้ `true/false`,
-  ค้นหาข้อความใช้ `ILIKE` (ไม่สนตัวพิมพ์), ตรวจรูปแบบ uuid ด้วย `isUuid()` ก่อน query คอลัมน์ uuid
+  - Prisma ใช้จัดการ schema เท่านั้น — API เรียกฐานข้อมูลผ่าน mysql2 (`src/db.ts`) เพิ่มคอลัมน์แล้วต้องแก้ query/resource ที่เกี่ยวข้องด้วย
+  - migration ที่ Prisma สร้างใส่ `COLLATE utf8mb4_unicode_ci` — **ต้องแก้เป็น `utf8mb4_0900_as_ci`** ก่อน deploy (unicode_ci/ai_ci ถือว่า "ขาย" = "ข่าย")
+  - MySQL ห้าม CHECK บนคอลัมน์ที่ FK มี referential action (Prisma ตั้ง `ON UPDATE CASCADE` เป็นค่าตั้งต้น — ใส่ `onUpdate: Restrict`)
+- SQL ใน Express เป็น MySQL 8.4: placeholder `?` (db.ts escape ให้ — array = รายการสำหรับ `IN (?)`, object = JSON),
+  session ใช้ `ANSI_QUOTES` → ชื่อคอลัมน์ใช้ `"..."` และ**ต้องครอบคำสงวน** เช่น `"key"`, `"group"`, `"before"`, `"after"` (หลัง `alias.` ไม่ต้อง), ข้อความใช้ `'...'` เท่านั้น,
+  ค้นหาข้อความใช้ `LIKE` + `likeEscape()` (collation ไม่สนตัวพิมพ์อยู่แล้ว), JSON ใช้ `JSON_EXTRACT`/`->>'$.x'`/`JSON_CONTAINS`/`JSON_TABLE`,
+  upsert ใช้ `INSERT ... AS new ON DUPLICATE KEY UPDATE col = new.col`, ค่าว่างเทียบกันใช้ `<=>`, lock ตามชื่อใน transaction ใช้ `lockNamed()`,
+  นิพจน์ boolean ใน SELECT (เช่น `EXISTS(...)`, `x IS NULL`) คืน 1/0 ไม่ใช่ true/false (คอลัมน์ BOOLEAN คืน true/false), ตรวจรูปแบบ uuid ด้วย `isUuid()` ก่อน query คอลัมน์ uuid
 - ค่า env อยู่ใน `express/.env`
 - ห้ามเปลี่ยนรูปแบบ token (Sanctum), bcrypt `$2y$`, การเข้ารหัส `APP_KEY` และ path ไฟล์ที่เก็บใน DB — ข้อมูลเดิมใช้รูปแบบนี้อยู่
 - เทสต์ Express ใช้ฐาน `it_system_test` เท่านั้น (บังคับใน `vitest.config.ts` + `tests/setup.ts`) — ห้ามชี้เทสต์ไปที่ `it_system`

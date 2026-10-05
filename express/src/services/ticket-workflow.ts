@@ -59,7 +59,7 @@ export interface TicketRow {
 
 /** คอลัมน์เพิ่มเติมของ it_tickets t สำหรับกติกาสายอนุมัติ — ใส่ใน SELECT ทุกที่ที่โหลด TicketRow */
 export const TICKET_APPROVAL_COLUMNS = `(SELECT s.approver_ids FROM it_ticket_approval_steps s WHERE s.it_ticket_id = t.id AND s.step_no = t.current_step) AS step_approver_ids,
-  (SELECT COALESCE(jsonb_agg(DISTINCT x.v), '[]'::jsonb) FROM it_ticket_approval_steps s CROSS JOIN LATERAL jsonb_array_elements(s.approver_ids) AS x(v) WHERE s.it_ticket_id = t.id) AS approval_user_ids,
+  (SELECT JSON_ARRAYAGG(x.v) FROM it_ticket_approval_steps s, JSON_TABLE(s.approver_ids, '$[*]' COLUMNS (v BIGINT PATH '$')) AS x WHERE s.it_ticket_id = t.id) AS approval_user_ids,
   (SELECT COUNT(*) FROM it_ticket_approval_steps s WHERE s.it_ticket_id = t.id AND s.status = 'approved') AS approved_steps`;
 
 /** สถานะที่ผู้แจ้งขอยกเลิกได้ (อนุมัติแล้วแต่ยังไม่เสร็จ) */

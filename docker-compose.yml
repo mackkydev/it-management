@@ -1,12 +1,41 @@
 name: it-system
 
 services:
-  # ฐานข้อมูลหลัก — PostgreSQL 17 (collation ICU รองรับการเรียงภาษาไทย)
-  # ครั้งแรกที่สร้าง volume: docker/postgres/init.sh สร้างผู้ใช้ it_app + ฐาน it_system / it_system_test / it_system_shadow
+  # ฐานข้อมูลหลัก — MySQL 8.4 LTS
+  # utf8mb4_0900_as_ci = ไม่สนตัวพิมพ์เล็ก-ใหญ่ แต่แยกวรรณยุกต์/สระไทย (ai_ci จะถือว่า "ขาย" = "ข่าย")
+  # ครั้งแรกที่สร้าง volume: docker/mysql/init.sh สร้างฐาน it_system_test / it_system_shadow ให้ it_app
+  mysql:
+    image: mysql:8.4
+    container_name: it_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${IT_DB_ROOT_PASSWORD:-root_change_me}
+      MYSQL_DATABASE: it_system
+      MYSQL_USER: it_app
+      MYSQL_PASSWORD: ${IT_DB_PASSWORD:-change_me_strong_password}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_as_ci
+      - --default-time-zone=+00:00
+    ports:
+      - "127.0.0.1:3308:3306" # 3307 = MariaDB เดิม (profile legacy-mariadb)
+    volumes:
+      - it_mysql:/var/lib/mysql
+      - ./docker/mysql/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # ฐานเดิม (PostgreSQL 17) — เก็บไว้เป็นสำรองหลังย้ายไป MySQL ไม่ได้เปิดตามปกติ
+  # เปิดดูข้อมูลเดิม: docker compose --profile legacy-postgres up -d postgres
   postgres:
     image: postgres:17-alpine
     container_name: it_postgres
     restart: unless-stopped
+    profiles: ["legacy-postgres"]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${IT_DB_ROOT_PASSWORD:-root_change_me}
@@ -36,9 +65,9 @@ services:
     env_file:
       - ./express/.env
     environment:
-      # ค่าที่ต่างจากตอนรันบนเครื่อง (express/.env ชี้ 127.0.0.1:5433)
-      DB_HOST: postgres
-      DB_PORT: "5432"
+      # ค่าที่ต่างจากตอนรันบนเครื่อง (express/.env ชี้ 127.0.0.1:3308)
+      DB_HOST: mysql
+      DB_PORT: "3306"
       PORT: "8020"
       FILES_ROOT: /data/private
       SKIP_ENV_FILES: "1"
@@ -49,21 +78,21 @@ services:
     ports:
       - "127.0.0.1:8020:8020"
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
 
-  # จัดการฐานข้อมูลผ่านเว็บ (แทน phpMyAdmin ที่ใช้กับ PostgreSQL ไม่ได้)
-  # login: ระบบ PostgreSQL, เซิร์ฟเวอร์ postgres, ผู้ใช้ it_app (หรือ postgres), ฐาน it_system
+  # จัดการฐานข้อมูลผ่านเว็บ
+  # login: ระบบ MySQL, เซิร์ฟเวอร์ mysql, ผู้ใช้ it_app (หรือ root), ฐาน it_system
   adminer:
     image: adminer:5
     container_name: it_adminer
     restart: unless-stopped
     environment:
-      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DEFAULT_SERVER: mysql
     ports:
       - "127.0.0.1:8081:8080" # bind เฉพาะ localhost
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
 
   # ฐานเดิม (MariaDB) — เก็บไว้เป็นสำรองหลังย้ายไป PostgreSQL ไม่ได้เปิดตามปกติ
@@ -90,5 +119,6 @@ services:
       retries: 20
 
 volumes:
-  it_pg:
+  it_mysql:
+  it_pg: # ข้อมูล PostgreSQL เดิม (สำรอง)
   it_db: # ข้อมูล MariaDB เดิม (สำรอง)

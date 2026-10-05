@@ -46,7 +46,7 @@ describe("access management (local admin)", () => {
     expect(back.body.data.overrides).toEqual({ "vault.use": "allow" });
 
     const logs = await first<{ before: { role: string }; after: { role: string; overrides: Record<string, string> } }>(
-      "SELECT before, after FROM audit_logs WHERE action = 'user.permissions_updated' ORDER BY id LIMIT 1",
+      `SELECT "before", "after" FROM audit_logs WHERE action = 'user.permissions_updated' ORDER BY id LIMIT 1`,
     );
     expect(logs).toMatchObject({ before: { role: "viewer", overrides: {} }, after: { role: "manager" } });
     expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'user.permissions_updated'")).toBe(2);

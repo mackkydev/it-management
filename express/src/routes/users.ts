@@ -45,7 +45,7 @@ function searchWhere(term: unknown): { sql: string; params: unknown[] } {
   const t = String(term ?? "").trim();
   if (!t) return { sql: "1 = 1", params: [] };
   const esc = likeEscape(t);
-  return { sql: "(u.name ILIKE ? OR u.email ILIKE ? OR u.username ILIKE ?)", params: [`%${esc}%`, `${esc}%`, `${esc}%`] };
+  return { sql: "(u.name LIKE ? OR u.email LIKE ? OR u.username LIKE ?)", params: [`%${esc}%`, `${esc}%`, `${esc}%`] };
 }
 
 const routeUser = async (req: Request): Promise<UserRow> => {

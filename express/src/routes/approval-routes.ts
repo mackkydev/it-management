@@ -82,7 +82,7 @@ async function validated(req: Request, ignoreId?: number) {
       const dup = await scalar(
         `SELECT 1 FROM approval_routes
           WHERE is_active = true AND id <> ?
-            AND branch_id IS NOT DISTINCT FROM ?
+            AND branch_id <=> ?
             AND COALESCE(LOWER(TRIM(department)), '') = ?
           LIMIT 1`,
         [ignoreId ?? 0, int(input.branch_id), normDept(input.department as string | null) ?? ""],

@@ -1,4 +1,4 @@
-import { exec, scalar, select } from "../db.js";
+import { exec, insert, select } from "../db.js";
 import { nowDb } from "../lib/time.js";
 import { AUDIENCES, PERMISSION_KEYS, PERMISSIONS, type Audience } from "../models/permission.js";
 import { isLocalAdmin, type UserRow } from "../models/user.js";
@@ -9,15 +9,12 @@ import { isLocalAdmin, type UserRow } from "../models/user.js";
  */
 export async function ensurePermissions(): Promise<void> {
   const now = nowDb();
+  const existing = new Set((await select<{ key: string }>('SELECT "key" FROM permissions')).map((r) => r.key));
   for (const [i, p] of PERMISSIONS.entries()) {
-    const created = await scalar<number>(
-      `INSERT INTO permissions (key, "group", name_th, name_en, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING RETURNING id`,
-      [p.key, p.group, p.name_th, p.name_en, i, now, now],
-    );
-    if (created === null) continue;
+    if (existing.has(p.key)) continue;
+    const created = await insert("permissions", { key: p.key, group: p.group, name_th: p.name_th, name_en: p.name_en, sort_order: i, created_at: now, updated_at: now });
     for (const audience of p.defaults) {
-      await exec("INSERT INTO role_permissions (role, permission_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", [audience, created, now]);
+      await exec("INSERT IGNORE INTO role_permissions (role, permission_id, created_at) VALUES (?, ?, ?)", [audience, created, now]);
     }
   }
 }
@@ -35,7 +32,7 @@ export async function permissionsOf(u: UserRow): Promise<Set<string>> {
   if (isLocalAdmin(u)) return new Set(PERMISSION_KEYS);
   const rows = await select<{ key: string }>(
     `SELECT p.key FROM permissions p
-     WHERE (EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.permission_id = p.id AND rp.role = ANY(?::text[]))
+     WHERE (EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.permission_id = p.id AND rp.role IN (?))
             OR EXISTS (SELECT 1 FROM user_permissions up WHERE up.permission_id = p.id AND up.user_id = ? AND up.effect = 'allow'))
        AND NOT EXISTS (SELECT 1 FROM user_permissions up WHERE up.permission_id = p.id AND up.user_id = ? AND up.effect = 'deny')`,
     [audiencesOf(u), u.id, u.id],

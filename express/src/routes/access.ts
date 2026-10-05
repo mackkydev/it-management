@@ -82,7 +82,7 @@ accessRoutes.put("/permissions/roles/:group", async (req, res) => {
   await transaction(async () => {
     await exec("DELETE FROM role_permissions WHERE role = ?", [group]);
     for (const key of new Set(keys)) {
-      await exec("INSERT INTO role_permissions (role, permission_id, created_at) SELECT ?, id, ? FROM permissions WHERE key = ?", [group, nowDb(), key]);
+      await exec("INSERT INTO role_permissions (role, permission_id, created_at) SELECT ?, id, ? FROM permissions WHERE \"key\" = ?", [group, nowDb(), key]);
     }
   });
   const after = (await audiencePermissions())[group as (typeof AUDIENCES)[number]];
@@ -123,13 +123,13 @@ accessRoutes.put("/users/:id/permissions", async (req, res) => {
   await transaction(async () => {
     if ("role" in data && data.role !== u.role) await update("users", { role: data.role, updated_at: nowDb() }, "id = ?", [u.id]);
     for (const [key, effect] of Object.entries((input.overrides ?? {}) as Record<string, string>)) {
-      const pid = await scalar<number>("SELECT id FROM permissions WHERE key = ?", [key]);
+      const pid = await scalar<number>('SELECT id FROM permissions WHERE "key" = ?', [key]);
       if (pid === null) continue;
       if (effect === "inherit") await exec("DELETE FROM user_permissions WHERE user_id = ? AND permission_id = ?", [u.id, pid]);
       else
         await exec(
           `INSERT INTO user_permissions (user_id, permission_id, effect, created_by, created_at) VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT (user_id, permission_id) DO UPDATE SET effect = EXCLUDED.effect, created_by = EXCLUDED.created_by, created_at = EXCLUDED.created_at`,
+           AS new ON DUPLICATE KEY UPDATE effect = new.effect, created_by = new.created_by, created_at = new.created_at`,
           [u.id, pid, effect, me(req).id, nowDb()],
         );
     }
@@ -182,15 +182,15 @@ accessRoutes.get("/api-users", async (req, res) => {
   const term = String(f.search ?? "").trim();
   if (term) {
     const esc = likeEscape(term);
-    where.push("(u.name ILIKE ? OR u.email ILIKE ? OR u.external_id ILIKE ?)");
+    where.push("(u.name LIKE ? OR u.email LIKE ? OR u.external_id LIKE ?)");
     params.push(`%${esc}%`, `%${esc}%`, `${esc}%`);
   }
   if (f.role) (where.push("u.role = ?"), params.push(f.role));
   if (f.status) (where.push("u.is_active = ?"), params.push(f.status === "active"));
   if (f.connection_id) (where.push("u.connection_id = ?"), params.push(int(f.connection_id)));
   // อีเมลจากต้นทางซ้ำกับผู้ใช้อื่นที่ยังมีอยู่ และยังไม่ได้ใช้อีเมลนั้น — รอ admin ผูกบัญชี
-  const conflict = `(SELECT a.after->>'email' FROM audit_logs a WHERE a.action = 'api_user.email_conflict' AND a.subject_type = 'user' AND a.subject_id = u.id::text
-      AND EXISTS (SELECT 1 FROM users o WHERE LOWER(o.email) = LOWER(a.after->>'email') AND o.id <> u.id) ORDER BY a.id DESC LIMIT 1)`;
+  const conflict = `(SELECT a.after->>'$.email' FROM audit_logs a WHERE a.action = 'api_user.email_conflict' AND a.subject_type = 'user' AND a.subject_id = CAST(u.id AS CHAR)
+      AND EXISTS (SELECT 1 FROM users o WHERE LOWER(o.email) = LOWER(a.after->>'$.email') AND o.id <> u.id) ORDER BY a.id DESC LIMIT 1)`;
   if (bool(f.conflict)) where.push(`${conflict} IS NOT NULL`);
   const whereSql = where.join(" AND ");
 
@@ -293,8 +293,8 @@ accessRoutes.get("/audit-logs", async (req, res) => {
   const total = Number(await scalar(`SELECT COUNT(*) FROM audit_logs a WHERE ${whereSql}`, params));
   const rows = await select<{ id: number; actor_id: number | null; actor_name: string | null; action: string; subject_type: string; subject_id: string | null; subject_name: string | null; before: unknown; after: unknown; ip: string | null; created_at: string }>(
     `SELECT a.*, u.name AS actor_name,
-       CASE a.subject_type WHEN 'user' THEN (SELECT s.name FROM users s WHERE s.id::text = a.subject_id)
-                           WHEN 'api_connection' THEN (SELECT c.name FROM api_connections c WHERE c.id::text = a.subject_id) END AS subject_name
+       CASE a.subject_type WHEN 'user' THEN (SELECT s.name FROM users s WHERE CAST(s.id AS CHAR) = a.subject_id)
+                           WHEN 'api_connection' THEN (SELECT c.name FROM api_connections c WHERE CAST(c.id AS CHAR) = a.subject_id) END AS subject_name
      FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id
      WHERE ${whereSql} ORDER BY a.id DESC LIMIT ? OFFSET ?`,
     [...params, perPage, (page - 1) * perPage],

@@ -1,33 +1,35 @@
 # IT-SYSTEM — ระบบงานฝ่าย IT
 
 ระบบแจ้งงาน IT, คลังบัญชี/รหัสผ่าน, สัญญา vendor และทะเบียนสินทรัพย์ IT แบบ Decoupled —
-**Next.js 16 (App Router) + Express.js 5 REST API + PostgreSQL 17 + Prisma migrations** รองรับมือถือ
-(Laravel API เดิมถูกถอดออกเมื่อ 4 ต.ค. 2569 — โค้ดเดิมดูได้จาก git history)
+**Next.js 16 (App Router) + Express.js 5 REST API + MySQL 8.4 + Prisma migrations** รองรับมือถือ
+(Laravel API เดิมถูกถอดออกเมื่อ 4 ต.ค. 2569 — โค้ดเดิมดูได้จาก git history; ย้ายจาก PostgreSQL มา MySQL เมื่อ 5 ต.ค. 2569)
 
 ```
 it-management/
 ├── express/            REST API — Express.js 5 + TypeScript + Prisma migrations (container it_express)
 ├── frontend/           Next.js 16 + Tailwind CSS 4 (รันบนเครื่อง)
 ├── storage/private/    ไฟล์แนบ / ลายเซ็น / ไฟล์ license (ไม่ขึ้น git — ต้องสำรองแยก)
-├── docker/postgres/    init.sh: สร้างผู้ใช้ it_app + ฐาน it_system / _test / _shadow (ครั้งแรกที่สร้าง volume)
-├── docker-compose.yml  it_postgres + it_express + it_adminer (+ it_mariadb เป็น profile)
-└── database/           SQL สำหรับกรณีติดตั้ง PostgreSQL เองโดยไม่ใช้ Docker
+├── docker/mysql/       init.sh: สร้างฐาน it_system_test / _shadow ให้ it_app (ครั้งแรกที่สร้าง volume)
+├── docker/postgres/    init.sh ของฐาน PostgreSQL เดิม (profile legacy-postgres)
+├── docker-compose.yml  it_mysql + it_express + it_adminer (+ it_postgres / it_mariadb เดิมเป็น profile)
+└── database/           SQL สำหรับกรณีติดตั้ง MySQL เองโดยไม่ใช้ Docker
 ```
 
 ## ความต้องการของเครื่อง
 
-- Docker Desktop (Compose v2) — Node (API) และ PostgreSQL อยู่ใน container
+- Docker Desktop (Compose v2) — Node (API) และ MySQL อยู่ใน container
 - Node.js 20.9+ (ทดสอบด้วย 24) สำหรับ frontend
 
 | Service | Container | พอร์ตบนเครื่อง |
 |---|---|---|
 | **Express API** | `it_express` | http://127.0.0.1:8020 (+ งานแจ้งเตือนใกล้หมดอายุทุกวัน 08:00 เวลาไทย) |
-| **PostgreSQL 17** | `it_postgres` | 127.0.0.1:5433 (user `it_app`, db `it_system`) |
-| Adminer | `it_adminer` | http://127.0.0.1:8081 (ระบบ PostgreSQL, เซิร์ฟเวอร์ `postgres`, ผู้ใช้ `it_app`, ฐาน `it_system`) |
-| MariaDB (เดิม) | `it_mariadb` | ไม่เปิดตามปกติ — สำรองข้อมูลเดิม: `docker compose --profile legacy-mariadb up -d mariadb` (127.0.0.1:3307) |
+| **MySQL 8.4** | `it_mysql` | 127.0.0.1:3308 (user `it_app`, db `it_system`, collation `utf8mb4_0900_as_ci`) |
+| Adminer | `it_adminer` | http://127.0.0.1:8081 (ระบบ MySQL, เซิร์ฟเวอร์ `mysql`, ผู้ใช้ `it_app`, ฐาน `it_system`) |
+| PostgreSQL (เดิม) | `it_postgres` | ไม่เปิดตามปกติ — ข้อมูลก่อนย้าย: `docker compose --profile legacy-postgres up -d postgres` (127.0.0.1:5433) |
+| MariaDB (เดิม) | `it_mariadb` | ไม่เปิดตามปกติ — `docker compose --profile legacy-mariadb up -d mariadb` (127.0.0.1:3307) |
 | Next.js | (บนเครื่อง) | http://localhost:3000 |
 
-> ใช้พอร์ต 8020/5433/8081 เพื่อไม่ชนกับ stack `system_*` ที่ใช้ 8000/3306/8080 อยู่แล้ว
+> ใช้พอร์ต 8020/3308/8081 เพื่อไม่ชนกับ stack `system_*` ที่ใช้ 8000/3306/8080 อยู่แล้ว
 > ทุกพอร์ต bind เฉพาะ 127.0.0.1 — เข้าได้จากเครื่องนี้เท่านั้น
 
 ---
@@ -39,7 +41,7 @@ it-management/
 ```powershell
 cd E:\Claude_Jobs\it-management
 Copy-Item express\.env.example express\.env       # แล้วใส่ APP_KEY, DB_PASSWORD, SEED_ADMIN_PASSWORD
-docker compose up -d postgres express
+docker compose up -d mysql express
 docker compose exec express npx prisma migrate deploy   # สร้าง/อัปเดตตาราง
 docker compose exec express npx prisma db seed          # สาขา + admin@example.com (รหัส = SEED_ADMIN_PASSWORD)
 ```
@@ -48,9 +50,9 @@ docker compose exec express npx prisma db seed          # สาขา + admin@e
 
 ```powershell
 docker compose up -d                                      # เปิด
-docker compose down                                       # ปิด (ข้อมูล DB อยู่ใน volume it-system_it_pg)
-docker compose exec postgres psql -U it_app -d it_system  # เข้า PostgreSQL console
-docker compose exec postgres pg_dump -U it_app it_system > backup.sql   # สำรองข้อมูล (+ สำรองโฟลเดอร์ storage/private)
+docker compose down                                       # ปิด (ข้อมูล DB อยู่ใน volume it-system_it_mysql)
+docker compose exec mysql mysql -u it_app -p --default-character-set=utf8mb4 it_system   # เข้า MySQL console
+docker compose exec mysql sh -c 'mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction --default-character-set=utf8mb4 it_system' > backup.sql   # สำรองข้อมูล (+ สำรองโฟลเดอร์ storage/private)
 docker compose logs -f express
 ```
 
@@ -71,7 +73,7 @@ MAIL_FROM_ADDRESS=it-system@your-company.com
 รูปแบบข้อมูลเดิมจากยุค Laravel ยังคงไว้ (ข้อมูลที่มีอยู่ใช้ต่อได้): token แบบ Sanctum (`id|token`, sha256 ใน `personal_access_tokens`),
 รหัสผ่าน bcrypt `$2y$`, ข้อมูลเข้ารหัสรูปแบบ `Crypt::encryptString` ด้วย `APP_KEY` (**ห้ามเปลี่ยน `APP_KEY`** — ถอดรหัสข้อมูลเดิมไม่ได้)
 
-- ค่า env ทั้งหมดอยู่ใน `express/.env` — Docker ส่งค่าให้ผ่าน `env_file` และแทน `DB_HOST/DB_PORT` เป็น `postgres:5432`
+- ค่า env ทั้งหมดอยู่ใน `express/.env` — Docker ส่งค่าให้ผ่าน `env_file` และแทน `DB_HOST/DB_PORT` เป็น `mysql:3306`
   production ใช้ตัวแปร environment ของเซิร์ฟเวอร์แทนไฟล์ได้ (ตั้ง `SKIP_ENV_FILES=1`)
 
 ```powershell
@@ -84,8 +86,9 @@ docker compose exec express node dist/cli/notify-expiring.js --dry-run   # ด�
 
 ### โครงสร้างฐานข้อมูล (Prisma migrations)
 
-Prisma เป็นเจ้าของโครงสร้างตาราง (`express/prisma/schema.prisma` + `express/prisma/migrations`) — API เรียกฐานข้อมูลผ่าน `pg` (SQL ตรง ไม่ใช้ Prisma Client)
-migration แรก `0_init` คือโครงสร้างเดียวกับที่ Laravel เคยสร้าง (แปลงเป็น PostgreSQL + index trigram สำหรับค้นหา)
+Prisma เป็นเจ้าของโครงสร้างตาราง (`express/prisma/schema.prisma` + `express/prisma/migrations`) — API เรียกฐานข้อมูลผ่าน `mysql2` (SQL ตรง ไม่ใช้ Prisma Client)
+migration แรก `0_init` คือโครงสร้างทั้งหมด ณ วันที่ย้ายมา MySQL (ไฟล์ migration ของ PostgreSQL เดิมดูได้จาก git history)
+— ส่วนที่ Prisma ไม่ได้ model (CHECK, unique index แบบ `LOWER(username)`, ลายเซ็นที่ใช้งานได้คนละ 1 อัน) เขียนต่อท้ายไฟล์เอง
 
 | งาน | คำสั่ง (ใน `express/`) |
 |---|---|
@@ -97,18 +100,21 @@ migration แรก `0_init` คือโครงสร้างเดียว
 
 > ตรวจไฟล์ `migration.sql` ที่ Prisma สร้างทุกครั้งก่อน deploy (การลบ/เปลี่ยนชนิดคอลัมน์ทำให้ข้อมูลหายได้)
 > เพิ่มคอลัมน์แล้วต้องแก้ query/resource ใน `express/src` ด้วย
-> migration ที่ย้อนกลับได้มี `down.sql` ในโฟลเดอร์เดียวกัน (Prisma ไม่รันให้ — รันด้วย psql เอง)
+> migration ที่ย้อนกลับได้มี `down.sql` ในโฟลเดอร์เดียวกัน (Prisma ไม่รันให้ — รันด้วย mysql client เอง)
+> MySQL ไม่มี transaction ให้ DDL — migration ที่ล้มกลางทางต้องแก้ด้วยมือ จึงต้องทดสอบกับสำเนาฐานจริงก่อนเสมอ
 
-ฐาน `it_system_test` (เทสต์) และ `it_system_shadow` (prisma migrate dev) ถูกสร้างอัตโนมัติโดย `docker/postgres/init.sh`
+ฐาน `it_system_test` (เทสต์) และ `it_system_shadow` (prisma migrate dev) ถูกสร้างอัตโนมัติโดย `docker/mysql/init.sh`
 
-### ย้ายมาจาก MariaDB (ทำไปแล้ว 3 ต.ค. 2569)
+### ย้ายมาจาก PostgreSQL (ทำไปแล้ว 5 ต.ค. 2569)
 
-ข้อมูลเดิมย้ายด้วย `express/scripts/migrate-from-mariadb.ts` (ตรวจจำนวนแถวทุกตารางตรงกัน) — ไฟล์ dump เดิมอยู่ที่ `E:\Claude_Jobs\backups\`
-ถ้าต้องย้ายข้อมูลจากเครื่องอื่นที่ยังใช้ MariaDB:
+ข้อมูลเดิมย้ายด้วย `express/scripts/migrate-from-postgres.ts` (ตรวจจำนวนแถวทุกตารางตรงกัน) — ฐาน PostgreSQL เดิมยังอยู่ใน volume `it-system_it_pg`
+ถ้าต้องย้ายข้อมูลจากเครื่องอื่นที่ยังใช้ PostgreSQL:
 ```powershell
 cd express; npx prisma migrate deploy
-$env:LEGACY_MARIADB_URL = 'mysql://it_app:รหัส@127.0.0.1:3307/it_system'; npm run db:import-mariadb   # เพิ่ม -- --truncate เพื่อแทนที่ข้อมูลเดิม
+docker compose --profile legacy-postgres up -d postgres
+$env:LEGACY_POSTGRES_URL = 'postgresql://it_app:รหัส@127.0.0.1:5433/it_system'; npm run db:import-postgres   # เพิ่ม -- --truncate เพื่อแทนที่ข้อมูลเดิม
 ```
+(ก่อนหน้านั้นย้ายจาก MariaDB มา PostgreSQL เมื่อ 3 ต.ค. 2569 — สคริปต์เดิมดูได้จาก git history)
 
 ## 2) Frontend (Next.js) — รันที่ `E:\Claude_Jobs\it-management\frontend`
 

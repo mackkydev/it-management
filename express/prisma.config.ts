@@ -4,15 +4,15 @@ import { defineConfig } from "prisma/config";
 
 /**
  * Prisma = เจ้าของโครงสร้างฐานข้อมูล (migration) ของ IT-SYSTEM
- * - API เรียกฐานข้อมูลผ่าน pg (src/db.ts) — Prisma ใช้จัดการ schema/migration เท่านั้น
- * - PostgreSQL — URL ประกอบจาก DB_* ใน express/.env (หรือ env ของเซิร์ฟเวอร์) ไม่ต้องตั้ง DATABASE_URL แยก
+ * - API เรียกฐานข้อมูลผ่าน mysql2 (src/db.ts) — Prisma ใช้จัดการ schema/migration เท่านั้น
+ * - MySQL — URL ประกอบจาก DB_* ใน express/.env (หรือ env ของเซิร์ฟเวอร์) ไม่ต้องตั้ง DATABASE_URL แยก
  */
 const envFile = path.join(import.meta.dirname, ".env");
 if (!process.env.SKIP_ENV_FILES && existsSync(envFile)) process.loadEnvFile(envFile);
 
 const v = (key: string, fallback = "") => (process.env[key] ?? fallback).replace(/^"(.*)"$/, "$1");
 const url = (database: string) =>
-  `postgresql://${encodeURIComponent(v("DB_USERNAME", "it_app"))}:${encodeURIComponent(v("DB_PASSWORD"))}@${v("DB_HOST", "127.0.0.1")}:${v("DB_PORT", "5432")}/${encodeURIComponent(database)}?schema=public`;
+  `mysql://${encodeURIComponent(v("DB_USERNAME", "it_app"))}:${encodeURIComponent(v("DB_PASSWORD"))}@${v("DB_HOST", "127.0.0.1")}:${v("DB_PORT", "3306")}/${encodeURIComponent(database)}`;
 
 const production = process.env.NODE_ENV === "production";
 

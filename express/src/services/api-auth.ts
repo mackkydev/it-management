@@ -259,7 +259,7 @@ export async function provisionUser(conn: ApiConnectionRow, profile: MappedProfi
 
   if (conflictWith && profile.email && user.email !== profile.email) {
     const already = await first(
-      "SELECT 1 FROM audit_logs WHERE action = 'api_user.email_conflict' AND subject_type = 'user' AND subject_id = ? AND after->>'email' = ? LIMIT 1",
+      "SELECT 1 FROM audit_logs WHERE action = 'api_user.email_conflict' AND subject_type = 'user' AND subject_id = ? AND JSON_UNQUOTE(JSON_EXTRACT(\"after\", '$.email')) = ? LIMIT 1",
       [String(user.id), profile.email],
     );
     if (!already) {

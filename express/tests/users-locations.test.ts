@@ -134,7 +134,7 @@ describe("locations", () => {
     expect((await api.delete(`/api/v1/locations/${child}`)).status).toBe(422);
     const empty = await makeLocation();
     expect((await api.delete(`/api/v1/locations/${empty}`)).status).toBe(204);
-    expect(await scalar("SELECT deleted_at IS NOT NULL FROM locations WHERE id = ?", [empty])).toBe(true);
+    expect(Boolean(await scalar("SELECT deleted_at IS NOT NULL FROM locations WHERE id = ?", [empty]))).toBe(true);
   });
 
   it("permissions", async () => {

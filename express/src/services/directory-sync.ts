@@ -118,7 +118,7 @@ export async function syncConnection(conn: ApiConnectionRow, actor: AuditActor =
     result.error = e instanceof Error ? e.message : "error";
   }
 
-  await exec("UPDATE api_connections SET last_synced_at = ?, last_sync_result = ?::jsonb WHERE id = ?", [nowDb(), JSON.stringify(result), conn.id]);
+  await exec("UPDATE api_connections SET last_synced_at = ?, last_sync_result = ? WHERE id = ?", [nowDb(), JSON.stringify(result), conn.id]);
   // บันทึก audit เมื่อมีการเปลี่ยนแปลงหรือผิดพลาด (ไม่บันทึกทุกรอบที่ไม่มีอะไรเปลี่ยน)
   if (!result.ok || result.created || result.disabled || result.reactivated || result.missing) {
     await audit(actor, { action: "api_connection.synced", subjectType: "api_connection", subjectId: conn.id, after: result });

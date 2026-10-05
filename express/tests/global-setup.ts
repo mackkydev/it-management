@@ -1,11 +1,11 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import mysql from "mysql2/promise";
 
 /**
  * สร้างฐาน it_system_test ใหม่จาก Prisma migrations ทุกครั้งที่รันเทสต์
- * (ลบ schema public ทั้งหมด → `prisma migrate deploy`) — พิสูจน์ว่า migration สร้างฐานที่ API ใช้งานได้จริง
+ * (ลบฐานทั้งหมด → สร้างใหม่ → `prisma migrate deploy`) — พิสูจน์ว่า migration สร้างฐานที่ API ใช้งานได้จริง
  * ป้องกันพลาด: ยอมรันเฉพาะฐานที่ชื่อลงท้าย _test
  */
 export default async function setup() {
@@ -18,19 +18,18 @@ export default async function setup() {
   const target = process.env.DB_DATABASE;
   if (!target.endsWith("_test")) throw new Error(`Refusing to run tests against non-test database "${target}"`);
 
-  const client = new pg.Client({
+  const conn = await mysql.createConnection({
     host: process.env.DB_HOST,
     port: Number(process.env.DB_PORT),
     user: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
-    database: target,
   });
-  await client.connect();
   try {
-    // it_app เป็นเจ้าของ schema public ของฐานเทสต์ (docker/postgres/init.sh) — ลบตาราง/extension ทั้งหมดได้
-    await client.query("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;");
+    // it_app มีสิทธิ์ทั้งหมดบนฐาน it_system_test (docker/mysql/init.sh) — ลบ/สร้างฐานนี้ได้
+    await conn.query(`DROP DATABASE IF EXISTS \`${target}\``);
+    await conn.query(`CREATE DATABASE \`${target}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_as_ci`);
   } finally {
-    await client.end();
+    await conn.end();
   }
 
   execSync("npx prisma migrate deploy", { cwd: root, env: { ...process.env, DB_DATABASE: target }, stdio: "pipe" });

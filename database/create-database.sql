@@ -1,20 +1,17 @@
--- สำหรับติดตั้ง PostgreSQL เองโดยไม่ใช้ Docker (ใน Docker ใช้ docker/postgres/init.sh แทน)
--- รันด้วย superuser:  psql -U postgres -f database/create-database.sql
+-- สำหรับติดตั้ง MySQL 8.4 เองโดยไม่ใช้ Docker (ใน Docker ใช้ docker/mysql/init.sh แทน)
+-- รันด้วย root:  mysql -u root -p < database/create-database.sql
 -- แล้วสร้างตาราง: cd express && npx prisma migrate deploy && npx prisma db seed
+-- ตั้งค่าเซิร์ฟเวอร์ (my.cnf): character-set-server=utf8mb4, collation-server=utf8mb4_0900_as_ci, default-time-zone='+00:00'
 
--- บัญชีของแอป (ไม่ใช่ superuser) — เปลี่ยนรหัสผ่านให้ตรงกับ DB_PASSWORD ใน express/.env
-CREATE ROLE it_app LOGIN PASSWORD 'change_me_strong_password';
-
--- ICU collation 'und' = เรียงลำดับตามมาตรฐาน Unicode (รองรับภาษาไทย)
-CREATE DATABASE it_system OWNER it_app TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER icu ICU_LOCALE 'und' LOCALE 'C.UTF-8';
+-- utf8mb4_0900_as_ci = ไม่สนตัวพิมพ์เล็ก-ใหญ่ แต่แยกวรรณยุกต์/สระไทย (ai_ci / unicode_ci ถือว่า "ขาย" = "ข่าย")
+CREATE DATABASE IF NOT EXISTS it_system CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_as_ci;
 -- เฉพาะเครื่องพัฒนา: ฐานเทสต์ และฐานชั่วคราวของ prisma migrate dev
-CREATE DATABASE it_system_test OWNER it_app TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER icu ICU_LOCALE 'und' LOCALE 'C.UTF-8';
-CREATE DATABASE it_system_shadow OWNER it_app TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER icu ICU_LOCALE 'und' LOCALE 'C.UTF-8';
+CREATE DATABASE IF NOT EXISTS it_system_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_as_ci;
+CREATE DATABASE IF NOT EXISTS it_system_shadow CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_as_ci;
 
--- PostgreSQL 15+: schema public ต้องเป็นของ it_app จึงสร้างตารางได้
-\c it_system
-ALTER SCHEMA public OWNER TO it_app;
-\c it_system_test
-ALTER SCHEMA public OWNER TO it_app;
-\c it_system_shadow
-ALTER SCHEMA public OWNER TO it_app;
+-- บัญชีของแอป (ไม่ใช่ root) — เปลี่ยนรหัสผ่านให้ตรงกับ DB_PASSWORD ใน express/.env
+CREATE USER IF NOT EXISTS 'it_app'@'%' IDENTIFIED BY 'change_me_strong_password';
+GRANT ALL PRIVILEGES ON it_system.* TO 'it_app'@'%';
+GRANT ALL PRIVILEGES ON it_system_test.* TO 'it_app'@'%';
+GRANT ALL PRIVILEGES ON it_system_shadow.* TO 'it_app'@'%';
+FLUSH PRIVILEGES;

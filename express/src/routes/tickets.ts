@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { exec, first, insert, isUuid, likeEscape, scalar, select, transaction, update } from "../db.js";
+import { exec, first, insert, isUuid, likeEscape, lockNamed, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { dateOnly, iso, localToday, nowDb } from "../lib/time.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
@@ -174,11 +174,11 @@ const log = (ticketId: number, userId: number | null, action: string, comment: s
 
 /**
  * เลขที่ใบแจ้งงาน IT-YYYY-NNNNN — ต้องเรียกภายใน transaction
- * PostgreSQL ใช้ FOR UPDATE กับ MAX() ไม่ได้ จึงล็อกด้วย advisory lock (ปลดเองเมื่อจบ transaction) กันเลขซ้ำเมื่อแจ้งพร้อมกัน
+ * ล็อกด้วย named lock (GET_LOCK — ปลดเมื่อจบ transaction) กันเลขซ้ำเมื่อแจ้งพร้อมกัน
  */
 async function nextTicketNo(): Promise<string> {
   const prefix = `IT-${new Date().getUTCFullYear()}-`;
-  await exec("SELECT pg_advisory_xact_lock(hashtext('it_tickets.ticket_no'))");
+  await lockNamed("it_tickets.ticket_no");
   const last = await scalar<string>("SELECT MAX(ticket_no) FROM it_tickets WHERE ticket_no LIKE ?", [`${prefix}%`]);
   const seq = last ? Number(last.slice(prefix.length)) + 1 : 1;
   return prefix + String(seq).padStart(5, "0");
@@ -197,7 +197,7 @@ const approvalsWhere = (u: UserRow) => {
     sql: `t.status = 'pending_supervisor' AND (
       (t.current_step IS NULL AND ${legacy})
       OR (t.current_step IS NOT NULL AND EXISTS (SELECT 1 FROM it_ticket_approval_steps s
-            WHERE s.it_ticket_id = t.id AND s.step_no = t.current_step AND s.approver_ids @> ?::jsonb)))`,
+            WHERE s.it_ticket_id = t.id AND s.step_no = t.current_step AND JSON_CONTAINS(s.approver_ids, ?))))`,
     params: [u.id, JSON.stringify([u.id])],
   };
 };
@@ -252,7 +252,7 @@ ticketRoutes.get("/tickets", async (req, res) => {
   if (f.type) (where.push("t.type = ?"), params.push(f.type));
   const term = likeEscape(String(f.search ?? "").trim());
   if (term) {
-    where.push("(t.ticket_no ILIKE ? OR t.details ILIKE ? OR t.asset_tag ILIKE ? OR t.person_name_th ILIKE ?)");
+    where.push("(t.ticket_no LIKE ? OR t.details LIKE ? OR t.asset_tag LIKE ? OR t.person_name_th LIKE ?)");
     params.push(`%${term}%`, `%${term}%`, `${term}%`, `%${term}%`);
   }
   const whereSql = where.join(" AND ");
@@ -662,7 +662,7 @@ ticketRoutes.delete("/tickets/:uuid", async (req, res) => {
   authorize(canDelete(u, t));
   await transaction(async () => {
     // แจ้งเตือนที่อ้างถึงใบนี้ (ลิงก์จะเสีย)
-    await exec("DELETE FROM notifications WHERE (data::jsonb ->> 'ticket_id') = ?", [t.uuid]);
+    await exec("DELETE FROM notifications WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.ticket_id')) = ?", [t.uuid]);
     await exec("DELETE FROM it_tickets WHERE id = ?", [t.id]);
   });
   await deleteTicketFiles(t.uuid);

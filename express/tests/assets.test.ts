@@ -79,7 +79,7 @@ describe("auth + assets", () => {
     const api = await as(await makeUser({ role: "admin" }));
     const asset = await makeAsset();
     expect((await api.delete(`/api/v1/assets/${asset.uuid}`)).status).toBe(204);
-    expect(await scalar("SELECT deleted_at IS NOT NULL FROM assets WHERE id = ?", [asset.id])).toBe(true);
+    expect(Boolean(await scalar("SELECT deleted_at IS NOT NULL FROM assets WHERE id = ?", [asset.id]))).toBe(true);
     expect((await api.get(`/api/v1/assets/${asset.uuid}`)).status).toBe(404);
   });
 

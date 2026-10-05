@@ -148,7 +148,7 @@ assetRoutes.get("/assets", async (req, res) => {
   if (term) {
     const esc = likeEscape(term);
     // asset_tag / serial ใช้ prefix match, ชื่อ/ยี่ห้อ/รุ่น ค้นหาบางส่วนของคำ (index trigram — รองรับภาษาไทย)
-    where.push("(a.asset_tag ILIKE ? OR a.serial_number ILIKE ? OR a.name ILIKE ? OR a.brand ILIKE ? OR a.model ILIKE ?)");
+    where.push("(a.asset_tag LIKE ? OR a.serial_number LIKE ? OR a.name LIKE ? OR a.brand LIKE ? OR a.model LIKE ?)");
     params.push(`${esc}%`, `${esc}%`, `%${esc}%`, `%${esc}%`, `%${esc}%`);
   }
   if (f.status) (where.push("a.status = ?"), params.push(f.status));
@@ -172,7 +172,7 @@ assetRoutes.get("/assets", async (req, res) => {
        LEFT JOIN users c ON c.id = a.custodian_id
        LEFT JOIN asset_licenses li ON li.asset_id = a.id
       WHERE ${whereSql}
-      ORDER BY a."${column}" ${dir}${column === "purchase_date" ? (dir === "ASC" ? " NULLS FIRST" : " NULLS LAST") : ""}, a.id ${dir}
+      ORDER BY a."${column}" ${dir}, a.id ${dir}
       LIMIT ? OFFSET ?`,
     [...params, perPage, (page - 1) * perPage],
   );
@@ -207,7 +207,7 @@ assetRoutes.get("/assets/suggestions", async (req, res) => {
   const where = [`a.deleted_at IS NULL`, `a.${column} IS NOT NULL`, `TRIM(a.${column}) <> ''`];
   const params: unknown[] = [];
   const term = String(f.q ?? "").trim();
-  if (term) (where.push(`a.${column} ILIKE ?`), params.push(`%${likeEscape(term)}%`));
+  if (term) (where.push(`a.${column} LIKE ?`), params.push(`%${likeEscape(term)}%`));
   const brand = String(f.brand ?? "").trim();
   if (column === "model" && brand) (where.push("LOWER(TRIM(a.brand)) = LOWER(?)"), params.push(brand));
   // ค่าเดียวกันที่ต่างแค่ตัวพิมพ์ ใช้ตัวสะกดที่บันทึกก่อน แล้วเรียงตามตัวอักษร (ไม่สนตัวพิมพ์)
@@ -443,7 +443,7 @@ assetRoutes.get("/movements", async (req, res) => {
   const where: string[] = ["1 = 1"];
   const params: unknown[] = [];
   const search = String(f.search ?? "").trim();
-  if (search) (where.push("a.asset_tag ILIKE ?"), params.push(`${likeEscape(search)}%`));
+  if (search) (where.push("a.asset_tag LIKE ?"), params.push(`${likeEscape(search)}%`));
   if (f.location_id) (where.push("(m.to_location_id = ? OR m.from_location_id = ?)"), params.push(int(f.location_id), int(f.location_id)));
   if (f.type) (where.push("m.type = ?"), params.push(f.type));
   if (f.from) (where.push("m.moved_at >= ?"), params.push(String(f.from).slice(0, 10)));

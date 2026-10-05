@@ -10,10 +10,10 @@ import { as, guest, makeUser } from "./helpers.js";
 
 /** เฟส 3: สิทธิ์ตาม permission — สิทธิ์ของกลุ่ม + เพิ่มรายคน − ถอดรายคน และพฤติกรรมเดิมต้องไม่เปลี่ยน */
 
-const permissionId = async (key: string) => (await scalar<number>("SELECT id FROM permissions WHERE key = ?", [key]))!;
+const permissionId = async (key: string) => (await scalar<number>("SELECT id FROM permissions WHERE \"key\" = ?", [key]))!;
 const override = async (user: UserRow, key: string, effect: "allow" | "deny") =>
   insert("user_permissions", { user_id: user.id, permission_id: await permissionId(key), effect, created_at: nowDb() }).catch(async () => {
-    // ตาราง user_permissions ไม่มีคอลัมน์ id — insert() ใช้ RETURNING id ไม่ได้
+    // ตาราง user_permissions ไม่มีคอลัมน์ id (AUTO_INCREMENT) — ใช้ exec แทน insert()
     await exec("INSERT INTO user_permissions (user_id, permission_id, effect, created_at) VALUES (?, ?, ?, ?)", [user.id, await permissionId(key), effect, nowDb()]);
   });
 
@@ -48,10 +48,10 @@ describe("permissions", () => {
   });
 
   it("re-running the seeder never overwrites what an admin changed", async () => {
-    await exec("UPDATE permissions SET name_th = 'ชื่อที่ admin ตั้ง', sort_order = 99 WHERE key = 'vault.use'");
+    await exec("UPDATE permissions SET name_th = 'ชื่อที่ admin ตั้ง', sort_order = 99 WHERE \"key\" = 'vault.use'");
     await exec("DELETE FROM role_permissions WHERE role = 'it_staff' AND permission_id = ?", [await permissionId("vault.use")]);
     await ensurePermissions();
-    expect(await first("SELECT name_th, sort_order FROM permissions WHERE key = 'vault.use'")).toEqual({ name_th: "ชื่อที่ admin ตั้ง", sort_order: 99 });
+    expect(await first("SELECT name_th, sort_order FROM permissions WHERE \"key\" = 'vault.use'")).toEqual({ name_th: "ชื่อที่ admin ตั้ง", sort_order: 99 });
     expect(await scalar("SELECT COUNT(*) FROM role_permissions WHERE role = 'it_staff' AND permission_id = ?", [await permissionId("vault.use")])).toBe(0);
   });
 
@@ -109,7 +109,7 @@ describe("permissions", () => {
   });
 
   it("ticket workflow follows permissions: a non-IT user granted the IT queue sees approved tickets", async () => {
-    const rows = await select("SELECT key FROM permissions WHERE key LIKE 'it_tickets.%' ORDER BY key");
+    const rows = await select("SELECT \"key\" FROM permissions WHERE \"key\" LIKE 'it_tickets.%' ORDER BY \"key\"");
     expect(rows.map((r) => r.key)).toEqual(["it_tickets.accept", "it_tickets.close", "it_tickets.manage_all", "it_tickets.queue"]);
     const helper = await makeUser({ role: "manager" });
     expect((await (await as(helper)).get("/api/v1/tickets?scope=it")).status).toBe(403);

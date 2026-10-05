@@ -21,9 +21,9 @@ export const SYNC_TABLES = [
 
 syncRoutes.get("/sync/version", async (req, res) => {
   const u = me(req);
-  const parts = SYNC_TABLES.map((t) => `SELECT '${t}' AS k, COUNT(*) AS c, CAST(MAX(updated_at) AS TEXT) AS m FROM ${t}`);
+  const parts = SYNC_TABLES.map((t) => `SELECT '${t}' AS k, COUNT(*) AS c, CAST(MAX(updated_at) AS CHAR) AS m FROM ${t}`);
   parts.push(
-    "SELECT 'notifications' AS k, COUNT(*) AS c, CAST(COUNT(read_at) AS TEXT) AS m FROM notifications WHERE notifiable_type = ? AND notifiable_id = ?",
+    "SELECT 'notifications' AS k, COUNT(*) AS c, CAST(COUNT(read_at) AS CHAR) AS m FROM notifications WHERE notifiable_type = ? AND notifiable_id = ?",
   );
   const rows = await select<{ k: string; c: number | string; m: string | null }>(parts.join(" UNION ALL "), [USER_TYPE, u.id]);
   const fingerprint = rows.map((r) => `${r.k}:${Number(r.c)}:${r.m ?? ""}`).sort().join("|");

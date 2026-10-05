@@ -306,7 +306,7 @@ itDataRoutes.get("/credentials", async (req, res) => {
   const term = String(f.search ?? "").trim();
   if (term) {
     const t = `%${likeEscape(term)}%`;
-    where.push("(c.title ILIKE ? OR c.username ILIKE ? OR c.url ILIKE ?)");
+    where.push("(c.title LIKE ? OR c.username LIKE ? OR c.url LIKE ?)");
     params.push(t, t, t);
   }
   if (f.category) (where.push("c.category = ?"), params.push(f.category));
@@ -502,7 +502,7 @@ itDataRoutes.get("/contracts", async (req, res) => {
   const defaultDays = Number(await getSetting("contract_notify_days"));
   const term = likeEscape(String(f.search ?? "").trim());
   const rows = await select<ContractRow>(
-    `SELECT ${CONTRACT_SELECT} WHERE c.deleted_at IS NULL${term ? " AND (c.title ILIKE ? OR c.vendor_name ILIKE ? OR c.contract_no ILIKE ?)" : ""} ORDER BY c.end_date`,
+    `SELECT ${CONTRACT_SELECT} WHERE c.deleted_at IS NULL${term ? " AND (c.title LIKE ? OR c.vendor_name LIKE ? OR c.contract_no LIKE ?)" : ""} ORDER BY c.end_date`,
     term ? [`%${term}%`, `%${term}%`, `${term}%`] : [],
   );
   // สถานะขึ้นกับจำนวนวันแจ้งเตือนของแต่ละสัญญา จึงกรองหลังคำนวณ

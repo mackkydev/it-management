@@ -1,17 +1,17 @@
-// โครงสร้างฐานข้อมูล IT-SYSTEM (PostgreSQL) — Prisma เป็นเจ้าของ schema/migration
-// API เรียกฐานข้อมูลผ่าน pg (src/db.ts) ไม่ได้ใช้ Prisma Client
+// โครงสร้างฐานข้อมูล IT-SYSTEM (MySQL 8.4) — Prisma เป็นเจ้าของ schema/migration
+// API เรียกฐานข้อมูลผ่าน mysql2 (src/db.ts) ไม่ได้ใช้ Prisma Client
 // แก้ไฟล์นี้แล้วสร้าง migration: npm run db:migrate -- --name <ชื่อ>
 // ชื่อตาราง/คอลัมน์ตรงกับ Laravel (backend) เพื่อให้ Laravel ใช้เป็นตัวสำรองได้
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
 }
 
 model app_settings {
   key        String    @id @db.VarChar(100)
-  value      Json?     @db.JsonB
+  value      Json?    
   updated_by BigInt?
-  created_at DateTime? @db.Timestamp(0)
-  updated_at DateTime? @db.Timestamp(0)
+  created_at DateTime? @db.DateTime(0)
+  updated_at DateTime? @db.DateTime(0)
   users      users?    @relation(fields: [updated_by], references: [id], onUpdate: Restrict, map: "app_settings_updated_by_foreign")
 
   @@index([updated_by], map: "app_settings_updated_by_index")
@@ -29,8 +29,8 @@ model announcements {
   ends_on    DateTime? @db.Date
   sort_order Int       @default(0) @db.SmallInt
   created_by BigInt?
-  created_at DateTime? @db.Timestamp(0)
-  updated_at DateTime? @db.Timestamp(0)
+  created_at DateTime? @db.DateTime(0)
+  updated_at DateTime? @db.DateTime(0)
   users      users?    @relation(fields: [created_by], references: [id], onDelete: SetNull, map: "announcements_created_by_foreign")
 
   @@index([is_active, sort_order], map: "announcements_is_active_sort_order_index")
@@ -43,8 +43,8 @@ model approval_routes {
   branch_id            BigInt?
   department           String?                @db.VarChar(100)
   is_active            Boolean                @default(true)
-  created_at           DateTime?              @db.Timestamp(0)
-  updated_at           DateTime?              @db.Timestamp(0)
+  created_at           DateTime?              @db.DateTime(0)
+  updated_at           DateTime?              @db.DateTime(0)
   branches             branches?              @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "approval_routes_branch_id_foreign")
   approval_route_steps approval_route_steps[]
   users                users[]
@@ -58,8 +58,8 @@ model approval_route_steps {
   approval_route_id       BigInt
   step_no                 Int                       @db.SmallInt
   name                    String                    @db.VarChar(100)
-  created_at              DateTime?                 @db.Timestamp(0)
-  updated_at              DateTime?                 @db.Timestamp(0)
+  created_at              DateTime?                 @db.DateTime(0)
+  updated_at              DateTime?                 @db.DateTime(0)
   approval_routes         approval_routes           @relation(fields: [approval_route_id], references: [id], onDelete: Cascade, map: "approval_route_steps_approval_route_id_foreign")
   approval_step_approvers approval_step_approvers[]
 
@@ -83,13 +83,13 @@ model it_ticket_approval_steps {
   it_ticket_id BigInt
   step_no      Int        @db.SmallInt
   name         String     @db.VarChar(100)
-  approver_ids Json       @db.JsonB
+  approver_ids Json      
   status       String     @default("pending") @db.VarChar(20)
   acted_by     BigInt?
-  acted_at     DateTime?  @db.Timestamp(0)
+  acted_at     DateTime?  @db.DateTime(0)
   comment      String?    @db.Text
-  created_at   DateTime?  @db.Timestamp(0)
-  updated_at   DateTime?  @db.Timestamp(0)
+  created_at   DateTime?  @db.DateTime(0)
+  updated_at   DateTime?  @db.DateTime(0)
   it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, map: "it_ticket_approval_steps_it_ticket_id_foreign")
   users        users?     @relation(fields: [acted_by], references: [id], onUpdate: Restrict, map: "it_ticket_approval_steps_acted_by_foreign")
 
@@ -110,8 +110,8 @@ model asset_licenses {
   license_key             String?   @db.Text
   notify_days_before      Int?      @db.SmallInt
   notified_for_expires_at DateTime? @db.Date
-  created_at              DateTime? @db.Timestamp(0)
-  updated_at              DateTime? @db.Timestamp(0)
+  created_at              DateTime? @db.DateTime(0)
+  updated_at              DateTime? @db.DateTime(0)
   assets                  assets    @relation(fields: [asset_id], references: [id], onDelete: Cascade, map: "asset_licenses_asset_id_foreign")
 
   @@index([expires_at], map: "asset_licenses_expires_at_index")
@@ -130,8 +130,8 @@ model license_installations {
   uninstalled_at                                        DateTime? @db.Date
   notes                                                 String?   @db.Text
   created_by                                            BigInt?
-  created_at                                            DateTime? @db.Timestamp(0)
-  updated_at                                            DateTime? @db.Timestamp(0)
+  created_at                                            DateTime? @db.DateTime(0)
+  updated_at                                            DateTime? @db.DateTime(0)
   assets_license_installations_license_asset_idToassets assets    @relation("license_installations_license_asset_idToassets", fields: [license_asset_id], references: [id], onDelete: Cascade, map: "license_installations_license_asset_id_foreign")
   assets_license_installations_device_asset_idToassets  assets?   @relation("license_installations_device_asset_idToassets", fields: [device_asset_id], references: [id], onDelete: SetNull, map: "license_installations_device_asset_id_foreign")
   users_license_installations_user_idTousers            users?    @relation("license_installations_user_idTousers", fields: [user_id], references: [id], onDelete: SetNull, map: "license_installations_user_id_foreign")
@@ -154,8 +154,8 @@ model asset_files {
   mime          String    @db.VarChar(100)
   size          Int
   uploaded_by   BigInt?
-  created_at    DateTime? @db.Timestamp(0)
-  updated_at    DateTime? @db.Timestamp(0)
+  created_at    DateTime? @db.DateTime(0)
+  updated_at    DateTime? @db.DateTime(0)
   assets        assets    @relation(fields: [asset_id], references: [id], onDelete: Cascade, map: "asset_files_asset_id_foreign")
   users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "asset_files_uploaded_by_foreign")
 
@@ -171,10 +171,10 @@ model asset_movements {
   to_location_id                                        BigInt?
   from_custodian_id                                     BigInt?
   to_custodian_id                                       BigInt?
-  moved_at                                              DateTime   @db.Timestamp(0)
+  moved_at                                              DateTime   @db.DateTime(0)
   reason                                                String?    @db.Text
   performed_by                                          BigInt?
-  created_at                                            DateTime   @default(now()) @db.Timestamp(0)
+  created_at                                            DateTime   @default(now()) @db.DateTime(0)
   assets                                                assets     @relation(fields: [asset_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "asset_movements_asset_id_foreign")
   users_asset_movements_from_custodian_idTousers        users?     @relation("asset_movements_from_custodian_idTousers", fields: [from_custodian_id], references: [id], onUpdate: Restrict, map: "asset_movements_from_custodian_id_foreign")
   locations_asset_movements_from_location_idTolocations locations? @relation("asset_movements_from_location_idTolocations", fields: [from_location_id], references: [id], onUpdate: Restrict, map: "asset_movements_from_location_id_foreign")
@@ -192,7 +192,7 @@ model asset_movements {
 
 model assets {
   id                               BigInt                  @id @default(autoincrement())
-  uuid                             String                  @unique(map: "assets_uuid_unique") @db.Uuid
+  uuid                             String                  @unique(map: "assets_uuid_unique") @db.Char(36)
   asset_tag                        String                  @unique(map: "assets_asset_tag_unique") @db.VarChar(50)
   name                             String                  @db.VarChar(255)
   category                         String                  @db.VarChar(50)
@@ -208,9 +208,9 @@ model assets {
   notes                            String?                 @db.Text
   created_by                       BigInt?
   updated_by                       BigInt?
-  created_at                       DateTime?               @db.Timestamp(0)
-  updated_at                       DateTime?               @db.Timestamp(0)
-  deleted_at                       DateTime?               @db.Timestamp(0)
+  created_at                       DateTime?               @db.DateTime(0)
+  updated_at                       DateTime?               @db.DateTime(0)
+  deleted_at                       DateTime?               @db.DateTime(0)
   asset_files                      asset_files[]
   asset_licenses                   asset_licenses?
   license_installations_license    license_installations[] @relation("license_installations_license_asset_idToassets")
@@ -230,9 +230,6 @@ model assets {
   @@index([serial_number], map: "assets_serial_number_index")
   @@index([status, location_id], map: "assets_status_location_id_index")
   @@index([updated_by], map: "assets_updated_by_index")
-  @@index([name(ops: raw("gin_trgm_ops"))], map: "assets_name_trgm_index", type: Gin)
-  @@index([brand(ops: raw("gin_trgm_ops"))], map: "assets_brand_trgm_index", type: Gin)
-  @@index([model(ops: raw("gin_trgm_ops"))], map: "assets_model_trgm_index", type: Gin)
 }
 
 model branches {
@@ -241,9 +238,9 @@ model branches {
   name                  String                  @db.VarChar(255)
   sort_order            Int                     @default(0) @db.SmallInt
   is_active             Boolean                 @default(true)
-  created_at            DateTime?               @db.Timestamp(0)
-  updated_at            DateTime?               @db.Timestamp(0)
-  deleted_at            DateTime?               @db.Timestamp(0)
+  created_at            DateTime?               @db.DateTime(0)
+  updated_at            DateTime?               @db.DateTime(0)
+  deleted_at            DateTime?               @db.DateTime(0)
   approval_routes       approval_routes[]
   license_installations license_installations[]
   contracts             contracts[]
@@ -284,13 +281,13 @@ model contracts {
   notify_days_before    Int?      @db.SmallInt
   notify_enabled        Boolean   @default(true)
   notified_for_end_date DateTime? @db.Date
-  notified_at           DateTime? @db.Timestamp(0)
+  notified_at           DateTime? @db.DateTime(0)
   notes                 String?   @db.Text
   branch_id             BigInt?
   created_by            BigInt?
-  created_at            DateTime? @db.Timestamp(0)
-  updated_at            DateTime? @db.Timestamp(0)
-  deleted_at            DateTime? @db.Timestamp(0)
+  created_at            DateTime? @db.DateTime(0)
+  updated_at            DateTime? @db.DateTime(0)
+  deleted_at            DateTime? @db.DateTime(0)
   branches              branches? @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "contracts_branch_id_foreign")
   users                 users?    @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "contracts_created_by_foreign")
 
@@ -305,7 +302,7 @@ model credential_access_logs {
   user_id       BigInt?
   action        String      @db.VarChar(20)
   ip            String?     @db.VarChar(45)
-  created_at    DateTime    @default(now()) @db.Timestamp(0)
+  created_at    DateTime    @default(now()) @db.DateTime(0)
   credentials   credentials @relation(fields: [credential_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "credential_access_logs_credential_id_foreign")
   users         users?      @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "credential_access_logs_user_id_foreign")
 
@@ -328,10 +325,10 @@ model credentials {
   notified_for_expires_at             DateTime?                @db.Date
   created_by                          BigInt?
   updated_by                          BigInt?
-  password_changed_at                 DateTime?                @db.Timestamp(0)
-  created_at                          DateTime?                @db.Timestamp(0)
-  updated_at                          DateTime?                @db.Timestamp(0)
-  deleted_at                          DateTime?                @db.Timestamp(0)
+  password_changed_at                 DateTime?                @db.DateTime(0)
+  created_at                          DateTime?                @db.DateTime(0)
+  updated_at                          DateTime?                @db.DateTime(0)
+  deleted_at                          DateTime?                @db.DateTime(0)
   credential_access_logs              credential_access_logs[]
   branches                            branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "credentials_branch_id_foreign")
   users_credentials_created_byTousers users?                   @relation("credentials_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "credentials_created_by_foreign")
@@ -352,7 +349,7 @@ model failed_jobs {
   queue      String   @db.VarChar(255)
   payload    String   @db.Text
   exception  String   @db.Text
-  failed_at  DateTime @default(now()) @db.Timestamp(0)
+  failed_at  DateTime @default(now()) @db.DateTime(0)
 
   @@index([connection, queue, failed_at], map: "failed_jobs_connection_queue_failed_at_index")
 }
@@ -366,8 +363,8 @@ model it_ticket_attachments {
   mime          String?    @db.VarChar(100)
   size          Int        @default(0)
   uploaded_by   BigInt?
-  created_at    DateTime?  @db.Timestamp(0)
-  updated_at    DateTime?  @db.Timestamp(0)
+  created_at    DateTime?  @db.DateTime(0)
+  updated_at    DateTime?  @db.DateTime(0)
   it_tickets    it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_attachments_it_ticket_id_foreign")
   users         users?     @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "it_ticket_attachments_uploaded_by_foreign")
 
@@ -381,7 +378,7 @@ model it_ticket_events {
   user_id      BigInt?
   action       String     @db.VarChar(30)
   comment      String?    @db.Text
-  created_at   DateTime   @default(now()) @db.Timestamp(0)
+  created_at   DateTime   @default(now()) @db.DateTime(0)
   it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_events_it_ticket_id_foreign")
   users        users?     @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "it_ticket_events_user_id_foreign")
 
@@ -395,8 +392,8 @@ model it_ticket_parts {
   name         String     @db.VarChar(255)
   quantity     Int        @default(1) @db.SmallInt
   photo_path   String?    @db.VarChar(255)
-  created_at   DateTime?  @db.Timestamp(0)
-  updated_at   DateTime?  @db.Timestamp(0)
+  created_at   DateTime?  @db.DateTime(0)
+  updated_at   DateTime?  @db.DateTime(0)
   it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_parts_it_ticket_id_foreign")
 
   @@index([it_ticket_id], map: "it_ticket_parts_it_ticket_id_index")
@@ -404,7 +401,7 @@ model it_ticket_parts {
 
 model it_tickets {
   id                                   BigInt                     @id @default(autoincrement())
-  uuid                                 String                     @unique(map: "it_tickets_uuid_unique") @db.Uuid
+  uuid                                 String                     @unique(map: "it_tickets_uuid_unique") @db.Char(36)
   ticket_no                            String                     @unique(map: "it_tickets_ticket_no_unique") @db.VarChar(30)
   type                                 String                     @db.VarChar(20)
   type_other                           String?                    @db.VarChar(255)
@@ -416,7 +413,7 @@ model it_tickets {
   details                              String                     @db.Text
   due_date                             DateTime?                  @db.Date
   requester_signature                  String?                    @db.VarChar(255)
-  requested_at                         DateTime                   @db.Timestamp(0)
+  requested_at                         DateTime                   @db.DateTime(0)
   person_name_th                       String?                    @db.VarChar(255)
   person_name_en                       String?                    @db.VarChar(255)
   device_name                          String?                    @db.VarChar(255)
@@ -424,9 +421,9 @@ model it_tickets {
   asset_id                             BigInt?
   symptom                              String?                    @db.Text
   approver_id                          BigInt?
-  approved_at                          DateTime?                  @db.Timestamp(0)
+  approved_at                          DateTime?                  @db.DateTime(0)
   assignee_id                          BigInt?
-  accepted_at                          DateTime?                  @db.Timestamp(0)
+  accepted_at                          DateTime?                  @db.DateTime(0)
   result                               String?                    @db.VarChar(20)
   completed_on                         DateTime?                  @db.Date
   cannot_reason                        String?                    @db.Text
@@ -435,20 +432,20 @@ model it_tickets {
   warranty                             String?                    @db.VarChar(20)
   repair_details                       String?                    @db.Text
   staff_signature                      String?                    @db.VarChar(255)
-  resulted_at                          DateTime?                  @db.Timestamp(0)
+  resulted_at                          DateTime?                  @db.DateTime(0)
   it_head_id                           BigInt?
   it_head_signature                    String?                    @db.VarChar(255)
-  closed_at                            DateTime?                  @db.Timestamp(0)
+  closed_at                            DateTime?                  @db.DateTime(0)
   /// ขอยกเลิกหลังอนุมัติ: status = pending_cancel ระหว่างรอเจ้าหน้าที่ IT ยืนยัน → cancelled (ปฏิเสธ/ถอน = กลับสถานะเดิม)
-  cancel_reason                        String?
-  cancel_requested_at                  DateTime?                  @db.Timestamp(0)
+  cancel_reason                        String?                    @db.Text
+  cancel_requested_at                  DateTime?                  @db.DateTime(0)
   cancel_requested_status              String?                    @db.VarChar(30)
-  cancelled_at                         DateTime?                  @db.Timestamp(0)
+  cancelled_at                         DateTime?                  @db.DateTime(0)
   cancelled_by                         BigInt?
   /// ขั้นอนุมัติปัจจุบัน (it_ticket_approval_steps.step_no) — null = ใบที่ใช้ระบบเดิม (หัวหน้าคนเดียว) หรืออนุมัติครบแล้ว
   current_step                         Int?                       @db.SmallInt
-  created_at                           DateTime?                  @db.Timestamp(0)
-  updated_at                           DateTime?                  @db.Timestamp(0)
+  created_at                           DateTime?                  @db.DateTime(0)
+  updated_at                           DateTime?                  @db.DateTime(0)
   it_ticket_approval_steps             it_ticket_approval_steps[]
   it_ticket_attachments                it_ticket_attachments[]
   it_ticket_events                     it_ticket_events[]
@@ -500,8 +497,8 @@ model kpi_entries {
   user_id    BigInt
   work_date  DateTime  @db.Date
   details    String    @db.Text
-  created_at DateTime? @db.Timestamp(0)
-  updated_at DateTime? @db.Timestamp(0)
+  created_at DateTime? @db.DateTime(0)
+  updated_at DateTime? @db.DateTime(0)
   users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "kpi_entries_user_id_foreign")
 
   @@index([user_id, work_date], map: "kpi_entries_user_id_work_date_index")
@@ -516,9 +513,9 @@ model locations {
   parent_id                                                   BigInt?
   address                                                     String?           @db.Text
   is_active                                                   Boolean           @default(true)
-  created_at                                                  DateTime?         @db.Timestamp(0)
-  updated_at                                                  DateTime?         @db.Timestamp(0)
-  deleted_at                                                  DateTime?         @db.Timestamp(0)
+  created_at                                                  DateTime?         @db.DateTime(0)
+  updated_at                                                  DateTime?         @db.DateTime(0)
+  deleted_at                                                  DateTime?         @db.DateTime(0)
   asset_movements_asset_movements_from_location_idTolocations asset_movements[] @relation("asset_movements_from_location_idTolocations")
   asset_movements_asset_movements_to_location_idTolocations   asset_movements[] @relation("asset_movements_to_location_idTolocations")
   assets                                                      assets[]
@@ -536,14 +533,14 @@ model migrations {
 }
 
 model notifications {
-  id              String    @id @db.Uuid
+  id              String    @id @db.Char(36)
   type            String    @db.VarChar(255)
   notifiable_type String    @db.VarChar(255)
   notifiable_id   BigInt
   data            String    @db.Text
-  read_at         DateTime? @db.Timestamp(0)
-  created_at      DateTime? @db.Timestamp(0)
-  updated_at      DateTime? @db.Timestamp(0)
+  read_at         DateTime? @db.DateTime(0)
+  created_at      DateTime? @db.DateTime(0)
+  updated_at      DateTime? @db.DateTime(0)
 
   @@index([notifiable_type, notifiable_id], map: "notifications_notifiable_type_notifiable_id_index")
 }
@@ -551,7 +548,7 @@ model notifications {
 model password_reset_tokens {
   email      String    @id @db.VarChar(255)
   token      String    @db.VarChar(255)
-  created_at DateTime? @db.Timestamp(0)
+  created_at DateTime? @db.DateTime(0)
 }
 
 model personal_access_tokens {
@@ -561,10 +558,10 @@ model personal_access_tokens {
   name           String    @db.Text
   token          String    @unique(map: "personal_access_tokens_token_unique") @db.VarChar(64)
   abilities      String?   @db.Text
-  last_used_at   DateTime? @db.Timestamp(0)
-  expires_at     DateTime? @db.Timestamp(0)
-  created_at     DateTime? @db.Timestamp(0)
-  updated_at     DateTime? @db.Timestamp(0)
+  last_used_at   DateTime? @db.DateTime(0)
+  expires_at     DateTime? @db.DateTime(0)
+  created_at     DateTime? @db.DateTime(0)
+  updated_at     DateTime? @db.DateTime(0)
 
   external_session external_sessions?
 
@@ -599,7 +596,7 @@ model users {
   supervisor_id                                            BigInt?
   is_it_staff                                              Boolean                    @default(false)
   is_it_head                                               Boolean                    @default(false)
-  email_verified_at                                        DateTime?                  @db.Timestamp(0)
+  email_verified_at                                        DateTime?                  @db.DateTime(0)
   /// hash รหัสผ่าน — ใช้เฉพาะ LOCAL (API User ไม่เก็บรหัสผ่านใด ๆ = null; CHECK users_local_password_check)
   password                                                 String?                    @db.VarChar(255)
   /// LOCAL = ผู้ใช้ของระบบเรา (ค่าเริ่มต้น — ผู้ใช้เดิมทั้งหมด) / API = ผู้ใช้จาก REST API ต้นทาง (JIT provisioning)
@@ -608,7 +605,7 @@ model users {
   connection_id                                            BigInt?
   external_id                                              String?                    @db.VarChar(191)
   /// ซิงก์โปรไฟล์/สถานะกับต้นทางล่าสุดเมื่อไร (API User)
-  external_synced_at                                       DateTime?                  @db.Timestamp(0)
+  external_synced_at                                       DateTime?                  @db.DateTime(0)
   /// สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing (null = ยังไม่เคยซิงค์) — ซิงค์ปิดใช้งาน/เปิดคืนเฉพาะที่ซิงค์เป็นคนปิด
   external_status                                          String?                    @db.VarChar(20)
   remember_token                                           String?                    @db.VarChar(100)
@@ -616,8 +613,8 @@ model users {
   signature_path                                           String?                    @db.VarChar(255)
   /// สายอนุมัติที่กำหนดรายบุคคล (null = จับคู่อัตโนมัติตามสาขา+แผนก)
   approval_route_id                                        BigInt?
-  created_at                                               DateTime?                  @db.Timestamp(0)
-  updated_at                                               DateTime?                  @db.Timestamp(0)
+  created_at                                               DateTime?                  @db.DateTime(0)
+  updated_at                                               DateTime?                  @db.DateTime(0)
   approval_routes                                          approval_routes?           @relation(fields: [approval_route_id], references: [id], onDelete: SetNull, map: "users_approval_route_id_foreign")
   approval_step_approvers                                  approval_step_approvers[]
   asset_files                                              asset_files[]
@@ -647,7 +644,7 @@ model users {
   branches                                                 branches?                  @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "users_branch_id_foreign")
   users                                                    users?                     @relation("usersTousers", fields: [supervisor_id], references: [id], onUpdate: Restrict, map: "users_supervisor_id_foreign")
   other_users                                              users[]                    @relation("usersTousers")
-  api_connection                                           api_connections?           @relation("users_connection", fields: [connection_id], references: [id], onDelete: Restrict, map: "users_connection_id_foreign")
+  api_connection                                           api_connections?           @relation("users_connection", fields: [connection_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "users_connection_id_foreign")
   api_connections_created                                  api_connections[]          @relation("api_connections_created_by")
   api_connections_updated                                  api_connections[]          @relation("api_connections_updated_by")
   external_sessions                                        external_sessions[]
@@ -705,7 +702,7 @@ model api_connections {
   auth_type                 String              @default("none") @db.VarChar(20)
   auth_header_name          String?             @db.VarChar(100)
   auth_username             String?             @db.VarChar(255)
-  auth_secret               String?
+  auth_secret               String?             @db.Text
   /// ป้องกัน SSRF: IP ภายใน/loopback/link-local ถูกบล็อก ยกเว้น host/IP/CIDR ในรายการนี้
   allowed_hosts             Json                @default("[]")
   max_redirects             Int                 @default(0) @db.SmallInt
@@ -723,12 +720,12 @@ model api_connections {
   active_values             Json                @default("[]")
   /// 0 = ปิดการซิงค์ตามเวลา
   sync_interval_minutes     Int                 @default(0)
-  last_synced_at            DateTime?           @db.Timestamp(0)
+  last_synced_at            DateTime?           @db.DateTime(0)
   last_sync_result          Json?
   created_by                BigInt?
   updated_by                BigInt?
-  created_at                DateTime?           @db.Timestamp(0)
-  updated_at                DateTime?           @db.Timestamp(0)
+  created_at                DateTime?           @db.DateTime(0)
+  updated_at                DateTime?           @db.DateTime(0)
   creator                   users?              @relation("api_connections_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "api_connections_created_by_foreign")
   updater                   users?              @relation("api_connections_updated_by", fields: [updated_by], references: [id], onDelete: SetNull, map: "api_connections_updated_by_foreign")
   users                     users[]             @relation("users_connection")
@@ -742,13 +739,13 @@ model external_sessions {
   token_id           BigInt                 @unique(map: "external_sessions_token_id_unique")
   user_id            BigInt
   connection_id      BigInt
-  access_token       String
-  refresh_token      String?
-  expires_at         DateTime               @db.Timestamp(0)
+  access_token       String                 @db.Text
+  refresh_token      String?                @db.Text
+  expires_at         DateTime               @db.DateTime(0)
   /// ตรวจโปรไฟล์/สถานะกับต้นทางล่าสุด (cache ตาม profile_cache_seconds)
-  profile_checked_at DateTime?              @db.Timestamp(0)
-  created_at         DateTime?              @db.Timestamp(0)
-  updated_at         DateTime?              @db.Timestamp(0)
+  profile_checked_at DateTime?              @db.DateTime(0)
+  created_at         DateTime?              @db.DateTime(0)
+  updated_at         DateTime?              @db.DateTime(0)
   token              personal_access_tokens @relation(fields: [token_id], references: [id], onDelete: Cascade, map: "external_sessions_token_id_foreign")
   user               users                  @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "external_sessions_user_id_foreign")
   connection         api_connections        @relation(fields: [connection_id], references: [id], onDelete: Cascade, map: "external_sessions_connection_id_foreign")
@@ -765,8 +762,8 @@ model permissions {
   name_th          String             @db.VarChar(200)
   name_en          String             @db.VarChar(200)
   sort_order       Int                @default(0) @db.SmallInt
-  created_at       DateTime?          @db.Timestamp(0)
-  updated_at       DateTime?          @db.Timestamp(0)
+  created_at       DateTime?          @db.DateTime(0)
+  updated_at       DateTime?          @db.DateTime(0)
   role_permissions role_permissions[]
   user_permissions user_permissions[]
 }
@@ -775,7 +772,7 @@ model permissions {
 model role_permissions {
   role          String      @db.VarChar(20)
   permission_id BigInt
-  created_at    DateTime?   @db.Timestamp(0)
+  created_at    DateTime?   @db.DateTime(0)
   permission    permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, map: "role_permissions_permission_id_foreign")
 
   @@id([role, permission_id])
@@ -787,7 +784,7 @@ model user_permissions {
   permission_id BigInt
   effect        String      @db.VarChar(10)
   created_by    BigInt?
-  created_at    DateTime?   @db.Timestamp(0)
+  created_at    DateTime?   @db.DateTime(0)
   user          users       @relation("user_permissions_user", fields: [user_id], references: [id], onDelete: Cascade, map: "user_permissions_user_id_foreign")
   permission    permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, map: "user_permissions_permission_id_foreign")
   creator       users?      @relation("user_permissions_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "user_permissions_created_by_foreign")
@@ -805,7 +802,7 @@ model audit_logs {
   before       Json?
   after        Json?
   ip           String?  @db.VarChar(45)
-  created_at   DateTime @default(now()) @db.Timestamp(0)
+  created_at   DateTime @default(now()) @db.DateTime(0)
   actor        users?   @relation(fields: [actor_id], references: [id], onDelete: SetNull, map: "audit_logs_actor_id_foreign")
 
   @@index([subject_type, subject_id], map: "audit_logs_subject_index")
@@ -819,8 +816,8 @@ model departments {
   name       String    @unique(map: "departments_name_unique") @db.VarChar(100)
   is_active  Boolean   @default(true)
   sort_order Int       @default(0) @db.SmallInt
-  created_at DateTime? @db.Timestamp(0)
-  updated_at DateTime? @db.Timestamp(0)
+  created_at DateTime? @db.DateTime(0)
+  updated_at DateTime? @db.DateTime(0)
 }
 
 /// ฝ่าย (ข้อมูลหลัก) — users.division เก็บเป็นชื่อ (ข้อความ) เหมือนเดิม
@@ -829,8 +826,8 @@ model divisions {
   name       String    @unique(map: "divisions_name_unique") @db.VarChar(100)
   is_active  Boolean   @default(true)
   sort_order Int       @default(0) @db.SmallInt
-  created_at DateTime? @db.Timestamp(0)
-  updated_at DateTime? @db.Timestamp(0)
+  created_at DateTime? @db.DateTime(0)
+  updated_at DateTime? @db.DateTime(0)
 }
 
 /// ลายเซ็นของผู้ใช้ (เก็บในระบบเรา ไม่เกี่ยวกับระบบต้นทาง) — ลายเซ็นใหม่ทำให้อันเดิม is_active = false (ห้ามลบแถว = เก็บประวัติ)
@@ -846,7 +843,7 @@ model user_signatures {
   is_active    Boolean  @default(true)
   /// false = ไฟล์เดิมก่อนมีตารางนี้ (ไม่ได้เข้ารหัส)
   is_encrypted Boolean  @default(true)
-  created_at   DateTime @default(now()) @db.Timestamp(0)
+  created_at   DateTime @default(now()) @db.DateTime(0)
   created_by   BigInt?
   user         users    @relation("user_signatures_user", fields: [user_id], references: [id], onDelete: Cascade, map: "user_signatures_user_id_foreign")
   creator      users?   @relation("user_signatures_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "user_signatures_created_by_foreign")

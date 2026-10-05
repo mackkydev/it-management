@@ -2,7 +2,7 @@
   "name": "it-system-express-api",
   "version": "1.0.0",
   "private": true,
-  "description": "IT-SYSTEM REST API (Express.js) — drop-in replacement of the Laravel API, sharing the same PostgreSQL database",
+  "description": "IT-SYSTEM REST API (Express.js) on MySQL 8.4",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -20,14 +20,14 @@
     "db:status": "prisma migrate status",
     "db:seed": "prisma db seed",
     "db:validate": "prisma validate && prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code",
-    "db:import-mariadb": "tsx scripts/migrate-from-mariadb.ts"
+    "db:import-postgres": "tsx scripts/migrate-from-postgres.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "express": "^5.2.1",
     "multer": "^2.0.2",
+    "mysql2": "3.24.5",
     "nodemailer": "^7.0.13",
-    "pg": "8.23.1",
     "prisma": "7.10.0",
     "sharp": "^0.35.5"
   },
@@ -38,7 +38,7 @@
     "@types/nodemailer": "^7.0.0",
     "@types/pg": "8.23.1",
     "@types/supertest": "^6.0.3",
-    "mysql2": "3.24.5",
+    "pg": "8.23.1",
     "supertest": "^7.1.4",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",

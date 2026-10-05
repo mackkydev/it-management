@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { as, makeAsset, makeBranch, makeUser } from "./helpers.js";
 
-/** พฤติกรรมที่ต้องคงเดิมหลังย้ายจาก MariaDB (collation ไม่สนตัวพิมพ์) มา PostgreSQL */
-describe("PostgreSQL behaviour parity", () => {
-  it("unique checks ignore letter case (like MariaDB utf8mb4_unicode_ci)", async () => {
+/** พฤติกรรมที่ต้องคงเดิมบน MySQL (collation utf8mb4_0900_as_ci: ไม่สนตัวพิมพ์ แต่แยกวรรณยุกต์/สระไทย) */
+describe("MySQL behaviour parity", () => {
+  it("unique checks ignore letter case", async () => {
     const admin = await as(await makeUser({ role: "admin" }));
     await makeBranch({ code: "PKT" });
     const dup = await admin.post("/api/v1/branches").send({ code: "pkt", name: "ภูเก็ต" });
@@ -37,5 +37,23 @@ describe("PostgreSQL behaviour parity", () => {
     await makeUser({ email: "case@example.com", password: "Pass-1234" });
     const res = await (await import("./helpers.js")).guest().post("/api/v1/auth/login").send({ email: "CASE@Example.com", password: "Pass-1234", device_name: "t" });
     expect(res.status).toBe(200);
+  });
+});
+
+describe("MySQL Thai collation", () => {
+  it("names that differ only by a Thai tone mark or vowel are different values", async () => {
+    const admin = await as(await makeUser({ role: "admin" }));
+    expect((await admin.post("/api/v1/departments").send({ name: "ขาย" })).status).toBe(201);
+    expect((await admin.post("/api/v1/departments").send({ name: "ข่าย" })).status).toBe(201);
+    expect((await admin.post("/api/v1/departments").send({ name: "ขาย" })).status).toBe(422);
+    const names = (await admin.get("/api/v1/departments")).body.data.map((d: { name: string }) => d.name);
+    expect(names).toEqual(expect.arrayContaining(["ขาย", "ข่าย"]));
+  });
+
+  it("stores and returns Thai text, JSON and booleans unchanged", async () => {
+    const admin = await as(await makeUser({ role: "admin" }));
+    const res = await admin.post("/api/v1/announcements").send({ title: "ปิดปรับปรุงระบบ 🛠️", body: "วันเสาร์ ๒๒:๐๐ น.", level: "warning", is_active: false });
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({ title: "ปิดปรับปรุงระบบ 🛠️", body: "วันเสาร์ ๒๒:๐๐ น.", is_active: false });
   });
 });
