@@ -41,6 +41,12 @@ export interface UserRow {
 export const ROLES = ["admin", "division_manager", "manager", "it_staff", "viewer"] as const;
 export type Role = (typeof ROLES)[number];
 
+/** ลำดับตำแหน่ง (มาก = สูงกว่า): ผู้ดูแลระบบ > ผู้จัดการ > ผู้จัดการฝ่าย > พนักงาน / เจ้าหน้าที่ IT — ใช้กรองผู้อนุมัติที่ผู้แจ้งเลือกได้ */
+export const ROLE_RANK: Record<Role, number> = { admin: 4, manager: 3, division_manager: 2, it_staff: 1, viewer: 1 };
+export const roleRank = (role: string): number => ROLE_RANK[role as Role] ?? 1;
+/** บทบาทที่สูงกว่าบทบาทนี้ */
+export const rolesAbove = (role: string): Role[] => ROLES.filter((r) => ROLE_RANK[r] > roleRank(role));
+
 export const USER_TYPES = ["LOCAL", "API"] as const;
 export type UserType = (typeof USER_TYPES)[number];
 

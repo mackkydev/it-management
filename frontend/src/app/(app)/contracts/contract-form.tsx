@@ -8,6 +8,7 @@ import { AlertIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { Branch, Contract } from "@/lib/types";
+import { AppSelect } from "@/components/app-select";
 
 export function ContractForm({ contract, branches, defaultNotifyDays }: { contract?: Contract; branches: Branch[]; defaultNotifyDays: number }) {
   const { t } = useI18n();
@@ -126,14 +127,14 @@ export function ContractForm({ contract, branches, defaultNotifyDays }: { contra
             {field(
               "branch_id",
               t("contracts.form.branch"),
-              <select id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
+              <AppSelect id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
                 <option value="">{t("common.none")}</option>
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
                   </option>
                 ))}
-              </select>,
+              </AppSelect>,
             )}
             {field("notes", t("contracts.form.notes"), <textarea id="notes" rows={3} maxLength={5000} value={v.notes} onChange={(e) => set("notes", e.target.value)} className={cls("notes")} />, { wide: true })}
           </>,

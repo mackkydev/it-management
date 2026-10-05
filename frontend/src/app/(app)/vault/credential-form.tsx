@@ -8,6 +8,7 @@ import { AlertIcon, EyeIcon, EyeOffIcon, KeyIcon, SaveIcon, SpinnerIcon, TrashIc
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { CREDENTIAL_CATEGORIES, type Branch, type Credential } from "@/lib/types";
+import { AppSelect } from "@/components/app-select";
 
 /** สร้างรหัสผ่านแบบสุ่ม (crypto) 20 ตัว */
 function generatePassword(length = 20): string {
@@ -93,13 +94,13 @@ export function CredentialForm({ credential, branches }: { credential?: Credenti
         {field(
           "category",
           t("vault.form.category"),
-          <select id="category" value={v.category} onChange={(e) => set("category", e.target.value)} className={cls("category")}>
+          <AppSelect id="category" value={v.category} onChange={(e) => set("category", e.target.value)} className={cls("category")}>
             {CREDENTIAL_CATEGORIES.map((c) => (
               <option key={c} value={c}>
                 {t(`vault.categories.${c}`)}
               </option>
             ))}
-          </select>,
+          </AppSelect>,
           true,
         )}
         {field("url", t("vault.form.url"), <input id="url" value={v.url} maxLength={500} onChange={(e) => set("url", e.target.value)} className={`${cls("url")} font-mono`} />, false, undefined, true)}
@@ -152,14 +153,14 @@ export function CredentialForm({ credential, branches }: { credential?: Credenti
         {field(
           "branch_id",
           t("vault.form.branch"),
-          <select id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
+          <AppSelect id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
             <option value="">{t("common.none")}</option>
             {branches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
               </option>
             ))}
-          </select>,
+          </AppSelect>,
         )}
         {field("expires_at", t("vault.form.expiresAt"), <DateInput id="expires_at" value={v.expires_at} onChange={(d) => set("expires_at", d)} className={cls("expires_at")} />)}
         {field("notes", t("vault.form.notes"), <textarea id="notes" rows={3} maxLength={5000} value={v.notes} onChange={(e) => set("notes", e.target.value)} className={cls("notes")} />, false, undefined, true)}

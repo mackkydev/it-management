@@ -14,6 +14,7 @@ import type { Formatters, MessageKey, TFunction } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
 import { getAccess, canManageAssets, getCurrentUser } from "@/lib/auth";
 import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Location, type Paginated } from "@/lib/types";
+import { AppSelect } from "@/components/app-select";
 
 /** วันหมดอายุ license ในรายการ: หมดแล้ว = แดง, เหลือ ≤ 30 วัน = เหลือง */
 function LicenseExpiry({ license: l, t, fmt }: { license: AssetLicense; t: TFunction; fmt: Formatters }) {
@@ -92,30 +93,30 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
             className={`${input} pl-9`}
           />
         </div>
-        <select name="status" defaultValue={params.status as string | undefined} className={input}>
+        <AppSelect name="status" defaultValue={params.status as string | undefined} className={input}>
           <option value="">{t("assets.allStatuses")}</option>
           {STATUSES.map((s) => (
             <option key={s} value={s}>
               {t(`status.${s}`)}
             </option>
           ))}
-        </select>
-        <select name="category" defaultValue={params.category as string | undefined} className={input}>
+        </AppSelect>
+        <AppSelect name="category" defaultValue={params.category as string | undefined} className={input}>
           <option value="">{t("assets.allCategories")}</option>
           {CATEGORIES.map((c) => (
             <option key={c} value={c}>
               {t(`assets.categories.${c}` as MessageKey)}
             </option>
           ))}
-        </select>
-        <select name="location_id" defaultValue={params.location_id as string | undefined} className={input}>
+        </AppSelect>
+        <AppSelect name="location_id" defaultValue={params.location_id as string | undefined} className={input}>
           <option value="">{t("assets.allLocations")}</option>
           {locations.data.map((l) => (
             <option key={l.id} value={l.id}>
               {l.code} — {l.name}
             </option>
           ))}
-        </select>
+        </AppSelect>
         <div className="flex gap-2 sm:col-span-2 lg:col-span-5 lg:justify-end">
           <Link href="/assets" className={`${btn.secondary} flex-1 lg:flex-none`}>
             <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />

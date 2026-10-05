@@ -132,7 +132,8 @@ describe("signatures in IT tickets", () => {
     const branch = await makeBranch();
     const staff = await makeUser({ name: "Staff" });
     const api = await as(staff);
-    const submit = () => api.post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "ติดตั้งโปรแกรม" });
+    const assignee = await makeUser({ is_it_staff: true });
+    const submit = () => api.post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "ติดตั้งโปรแกรม", assignee_id: assignee.id });
 
     const noSig = await submit();
     expect(noSig.status).toBe(201);
@@ -154,12 +155,12 @@ describe("signatures in IT tickets", () => {
     const branch = await makeBranch();
     const staff = await makeUser({ name: "Staff" });
     const api = await as(staff);
-    const ticket = (await api.post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x" })).body.data.id;
+    const it_ = await makeUser({ is_it_staff: true });
+    const ticket = (await api.post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x", assignee_id: it_.id })).body.data.id;
     await api.post("/api/v1/auth/me/signature").attach("signature", await realImage(), "sig.png");
     const url = `/api/v1/tickets/${ticket}/files/requester-signature`;
 
     expect((await api.get(url)).status).toBe(200); // เจ้าของ
-    const it_ = await makeUser({ is_it_staff: true });
     const admin = await makeUser({ role: "admin" });
     await exec("UPDATE it_tickets SET status = 'approved' WHERE uuid = ?", [ticket]);
     expect((await (await as(it_)).get(url)).status).toBe(404); // เห็นใบงานได้ แต่ไม่มีสิทธิ์ใช้ลายเซ็นคนอื่น

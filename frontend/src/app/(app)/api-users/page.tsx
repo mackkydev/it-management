@@ -15,6 +15,7 @@ import { apiFetch } from "@/lib/api";
 import { getCurrentUser, isLocalAdmin } from "@/lib/auth";
 import type { ApiConnection, ApiUser, Paginated } from "@/lib/types";
 import { LinkAccountButton } from "./link-account-button";
+import { AppSelect } from "@/components/app-select";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -52,24 +53,24 @@ export default async function ApiUsersPage({ searchParams }: PageProps<"/api-use
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
           <input name="search" defaultValue={str("search")} placeholder={t("access.searchPlaceholder")} maxLength={100} className={`${input} pl-9`} />
         </div>
-        <select name="role" defaultValue={str("role")} className={input} aria-label={t("access.col.role")}>
+        <AppSelect name="role" defaultValue={str("role")} className={input} aria-label={t("access.col.role")}>
           <option value="">{t("access.allRoles")}</option>
           <option value="manager">{t("roles.manager")}</option>
           <option value="viewer">{t("roles.viewer")}</option>
-        </select>
-        <select name="status" defaultValue={str("status")} className={input} aria-label={t("access.col.status")}>
+        </AppSelect>
+        <AppSelect name="status" defaultValue={str("status")} className={input} aria-label={t("access.col.status")}>
           <option value="">{t("access.allStatuses")}</option>
           <option value="active">{t("users.statuses.active")}</option>
           <option value="inactive">{t("users.statuses.inactive")}</option>
-        </select>
-        <select name="connection_id" defaultValue={str("connection_id")} className={input} aria-label={t("access.col.connection")}>
+        </AppSelect>
+        <AppSelect name="connection_id" defaultValue={str("connection_id")} className={input} aria-label={t("access.col.connection")}>
           <option value="">{t("access.allConnections")}</option>
           {connections.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>
           ))}
-        </select>
+        </AppSelect>
         <label className="flex cursor-pointer items-center gap-2 text-sm">
           <input type="checkbox" name="conflict" value="1" defaultChecked={str("conflict") === "1"} className="cursor-pointer accent-[var(--accent-500)]" />
           {t("access.onlyConflicts")}

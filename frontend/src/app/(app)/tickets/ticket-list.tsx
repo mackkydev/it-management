@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/api";
 import { getAccess } from "@/lib/auth";
 import { TICKET_STATUSES, TICKET_TYPES, type Paginated, type TicketCounts, type TicketSummary } from "@/lib/types";
 import { TicketStatusBadge, ticketSubject } from "./ticket-ui";
+import { AppSelect } from "@/components/app-select";
 
 export type TicketScope = "mine" | "approvals" | "it";
 
@@ -60,22 +61,22 @@ export async function TicketListPage({ scope, params }: { scope: TicketScope; pa
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
           <input name="search" defaultValue={str("search")} placeholder={t("tickets.searchPlaceholder")} maxLength={100} className={`${input} pl-9`} />
         </div>
-        <select name="type" defaultValue={str("type")} className={input} aria-label={t("tickets.col.subject")}>
+        <AppSelect name="type" defaultValue={str("type")} className={input} aria-label={t("tickets.col.subject")}>
           <option value="">{t("tickets.allTypes")}</option>
           {TICKET_TYPES.map((ty) => (
             <option key={ty} value={ty}>
               {t(`tickets.types.${ty}`)}
             </option>
           ))}
-        </select>
-        <select name="status" defaultValue={str("status")} className={input} aria-label={t("tickets.col.status")}>
+        </AppSelect>
+        <AppSelect name="status" defaultValue={str("status")} className={input} aria-label={t("tickets.col.status")}>
           <option value="">{t("tickets.allStatuses")}</option>
           {TICKET_STATUSES.map((s) => (
             <option key={s} value={s}>
               {t(`tickets.statuses.${s}`)}
             </option>
           ))}
-        </select>
+        </AppSelect>
         <div className="flex gap-2">
           <Link href={BASE[scope]} className={`${btn.secondary} px-3`} aria-label={t("common.clearFilters")}>
             <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />

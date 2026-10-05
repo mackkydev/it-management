@@ -9,6 +9,7 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { ApprovalRoute, Branch } from "@/lib/types";
 import { CustodianPicker } from "../assets/custodian-picker";
+import { AppSelect } from "@/components/app-select";
 
 const MAX_STEPS = 5;
 const MAX_APPROVERS = 20;
@@ -128,14 +129,14 @@ export function RouteForm({ route, branches, departments }: { route?: ApprovalRo
             {field(
               "branch_id",
               t("approvalRoutes.form.branch"),
-              <select id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
+              <AppSelect id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
                 <option value="">{t("approvalRoutes.allBranches")}</option>
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
                   </option>
                 ))}
-              </select>,
+              </AppSelect>,
             )}
             {field(
               "department",

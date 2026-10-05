@@ -22,6 +22,7 @@ import {
   type UserOption,
 } from "@/lib/types";
 import { CustodianPicker } from "./custodian-picker";
+import { AppSelect } from "@/components/app-select";
 
 const EMPTY: AssetFormValues = {
   asset_tag: "",
@@ -216,26 +217,26 @@ export function AssetForm({ locations, assetId, initial, initialCustodian = null
             {field(
               "category",
               t("assets.form.category"),
-              <select id="category" name="category" value={values.category} onChange={onChange} className={cls("category")}>
+              <AppSelect id="category" name="category" value={values.category} onChange={onChange} className={cls("category")}>
                 <option value="">{t("assets.form.chooseCategory")}</option>
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
                     {t(`assets.categories.${c}` as MessageKey)}
                   </option>
                 ))}
-              </select>,
+              </AppSelect>,
               true,
             )}
             {field(
               "status",
               t("assets.form.status"),
-              <select id="status" name="status" value={values.status} onChange={onChange} className={cls("status")}>
+              <AppSelect id="status" name="status" value={values.status} onChange={onChange} className={cls("status")}>
                 {STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {t(`status.${s}`)}
                   </option>
                 ))}
-              </select>,
+              </AppSelect>,
             )}
             {field(
               "brand",
@@ -257,14 +258,14 @@ export function AssetForm({ locations, assetId, initial, initialCustodian = null
             {field(
               "location_id",
               t("assets.form.location"),
-              <select id="location_id" name="location_id" value={values.location_id} onChange={onChange} className={cls("location_id")}>
+              <AppSelect id="location_id" name="location_id" value={values.location_id} onChange={onChange} className={cls("location_id")}>
                 <option value="">{t("common.none")}</option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.code} — {l.name}
                   </option>
                 ))}
-              </select>,
+              </AppSelect>,
             )}
             {field(
               "custodian_id",

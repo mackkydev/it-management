@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { exec, first, insert, isUuid, likeEscape, scalar, select, transaction, update } from "../db.js";
-import { authorize, notFound } from "../lib/errors.js";
+import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { dateOnly, iso, localToday, nowDb } from "../lib/time.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
 import { exists, int, validate, type Rule } from "../lib/validator.js";
@@ -15,7 +15,8 @@ import {
 } from "../services/ticket-workflow.js";
 import { activeSignature, copySignatureTo, mimeOf, readSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
-import { planFor, snapshotPlan, ticketSteps } from "../services/approval-routes.js";
+import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
+import { trans } from "../lib/i18n.js";
 
 /**
  * 4.2 / 4.3 ใบแจ้งดำเนินงาน IT — เหมือน TicketController ของ Laravel
@@ -265,21 +266,35 @@ ticketRoutes.get("/tickets", async (req, res) => {
   res.json({ data: rows.map((t) => summary(t, u)), meta: shortMeta(total, page, perPage, rows.length), counts: await counts(u) });
 });
 
-/** ตัวเลือกของฟอร์มแจ้งงาน: สาขาที่เปิดใช้งาน, เจ้าหน้าที่ IT, ตัวเลือกเรื่อง "อื่นๆ" */
-ticketRoutes.get("/tickets/form-options", async (_req, res) => {
+/** ตัวเลือกของฟอร์มแจ้งงาน: สาขาที่เปิดใช้งาน, แผนก/ฝ่าย (ข้อมูลหลัก), ผู้อนุมัติที่เลือกได้, เจ้าหน้าที่ IT, ตัวเลือกเรื่อง "อื่นๆ" */
+ticketRoutes.get("/tickets/form-options", async (req, res) => {
   const branches = await select<{ id: number; code: string; name: string }>(
     "SELECT id, code, name FROM branches WHERE is_active = true AND deleted_at IS NULL ORDER BY sort_order, name",
   );
-  const staff = await itStaff();
-  const otherTypes = await getSetting("ticket_other_types");
+  const units = (table: "departments" | "divisions") =>
+    select<{ name: string }>(`SELECT name FROM ${table} WHERE is_active = true ORDER BY sort_order, name`).then((rows) => rows.map((r) => r.name));
+  const [staff, otherTypes, departments, divisions, approvers] = await Promise.all([
+    itStaff(), getSetting("ticket_other_types"), units("departments"), units("divisions"), approverCandidates(me(req)),
+  ]);
   res.json({
     data: {
       branches: branches.map((b) => ({ id: b.id, code: b.code, name: b.name })),
+      departments,
+      divisions,
+      approvers: approvers.map((a) => ({ id: a.id, name: a.name, branch_id: Number(a.branch_id), role: a.role })),
       it_staff: staff.map((s) => ({ id: s.id, name: s.name })),
       other_types: Array.isArray(otherTypes) ? otherTypes : Object.values(otherTypes ?? {}),
     },
   });
 });
+
+/** ผู้อนุมัติที่ผู้แจ้งเลือก — ต้องอยู่สาขาที่เลือกและตำแหน่งสูงกว่า (คืน null = ไม่ได้เลือก) */
+async function chosenApprover(req: Request, data: Record<string, unknown>) {
+  if (data.approver_id === undefined || data.approver_id === null || data.approver_id === "") return null;
+  const found = (await approverCandidates(me(req), int(data.branch_id) ?? 0)).find((a) => a.id === int(data.approver_id));
+  if (!found) throw ValidationError.withMessages({ approver_id: trans(req.locale, "eam.approval.approver_not_allowed") });
+  return { id: Number(found.id), name: found.name };
+}
 
 /** เจ้าหน้าที่ IT สำหรับ dropdown */
 ticketRoutes.get("/it-staff", async (_req, res) => {
@@ -301,7 +316,10 @@ ticketRoutes.post("/tickets", async (req, res) => {
       division: ["nullable", "string", "max:100"],
       details: ["required", "string", "max:5000"],
       due_date: ["nullable", "date", "after_or_equal:today"],
-      assignee_id: ["nullable", "integer", exists("users", "id", IT_STAFF_WHERE)],
+      // เจ้าหน้าที่ IT: ผู้แจ้งต้องระบุคน
+      assignee_id: ["required", "integer", exists("users", "id", IT_STAFF_WHERE)],
+      // ผู้อนุมัติที่ผู้แจ้งเลือก (แทนขั้นแรกของสาย) — ไม่ส่ง = ตามสายอนุมัติ
+      approver_id: ["nullable", "integer"],
       person_name_th: ["required_if:type,grant_access,revoke_access", "nullable", "string", "max:255"],
       person_name_en: ["required_if:type,grant_access,revoke_access", "nullable", "string", "max:255"],
       device_name: ["required_if:type,repair", "nullable", "string", "max:255"],
@@ -317,7 +335,9 @@ ticketRoutes.post("/tickets", async (req, res) => {
     { locale: req.locale },
   );
 
-  const plan = await planFor(u);
+  const chosen = await chosenApprover(req, data);
+  const routePlan = await planFor(u);
+  const plan = chosen ? withChosenApprover(routePlan, chosen) : routePlan;
   const ticketId = await transaction(async () => {
     const type = String(data.type);
     const values: Record<string, unknown> = {};
@@ -342,7 +362,7 @@ ticketRoutes.post("/tickets", async (req, res) => {
       status: "pending_supervisor",
       requester_id: u.id,
       // ระบบเดิม: หัวหน้าตามสายบังคับบัญชา (null = admin อนุมัติ) — สายอนุมัติ: ใส่ผู้อนุมัติขั้นสุดท้ายตอนอนุมัติครบ
-      approver_id: plan.source === "legacy" ? u.supervisor_id : null,
+      approver_id: plan.source === "legacy" ? (chosen?.id ?? u.supervisor_id) : null,
       requested_at: now,
       created_at: now,
       updated_at: now,
@@ -587,7 +607,8 @@ async function updateTicket(req: Request, res: Response) {
       division: ["nullable", "string", "max:100"],
       details: ["required", "string", "max:5000"],
       due_date: ["nullable", "date", "after_or_equal:today"],
-      assignee_id: ["nullable", "integer", exists("users", "id", IT_STAFF_WHERE)],
+      assignee_id: ["required", "integer", exists("users", "id", IT_STAFF_WHERE)],
+      approver_id: ["nullable", "integer"],
       person_name_th: ["required_if:type,grant_access,revoke_access", "nullable", "string", "max:255"],
       person_name_en: ["required_if:type,grant_access,revoke_access", "nullable", "string", "max:255"],
       device_name: ["required_if:type,repair", "nullable", "string", "max:255"],
@@ -596,6 +617,7 @@ async function updateTicket(req: Request, res: Response) {
     },
     { locale: req.locale },
   );
+  const chosen = await chosenApprover(req, data);
   const type = String(data.type);
   const values: Record<string, unknown> = {};
   for (const key of FILLABLE) values[key] = key in data ? data[key] : null;
@@ -606,10 +628,28 @@ async function updateTicket(req: Request, res: Response) {
   for (const key of ["branch_id", "assignee_id"]) values[key] = int(values[key]);
   const assetId = values.asset_tag ? await scalar<number>("SELECT id FROM assets WHERE asset_tag = ? AND deleted_at IS NULL", [values.asset_tag]) : null;
 
+  // เปลี่ยนผู้อนุมัติ (ยังไม่มีใครอนุมัติ — canEdit): แทนผู้อนุมัติของขั้นปัจจุบัน / ระบบเดิมแทน approver_id
+  let approverChanged = false;
   await transaction(async () => {
     await update("it_tickets", { ...values, asset_id: assetId, updated_at: nowDb() }, "id = ?", [t.id]);
+    if (chosen) {
+      if (t.current_step !== null) {
+        const step = await first<{ id: number; approver_ids: unknown }>(
+          "SELECT id, approver_ids FROM it_ticket_approval_steps WHERE it_ticket_id = ? AND step_no = ?",
+          [t.id, t.current_step],
+        );
+        const ids = typeof step?.approver_ids === "string" ? JSON.parse(step.approver_ids) : step?.approver_ids;
+        approverChanged = Boolean(step) && JSON.stringify((ids as unknown[]).map(Number)) !== JSON.stringify([chosen.id]);
+        if (step && approverChanged) await update("it_ticket_approval_steps", { approver_ids: JSON.stringify([chosen.id]), updated_at: nowDb() }, "id = ?", [step.id]);
+      } else if (t.approver_id !== chosen.id) {
+        approverChanged = true;
+        await update("it_tickets", { approver_id: chosen.id }, "id = ?", [t.id]);
+      }
+    }
     await log(t.id, u.id, "edited");
   });
+  // แจ้งผู้อนุมัติคนใหม่ (submitted = ส่งถึงผู้อนุมัติของขั้นปัจจุบัน)
+  if (approverChanged) await notify((await loadTicket("t.id = ?", t.id))!, "submitted", u);
   await respondDetail(req, res, t.id);
 }
 ticketRoutes.put("/tickets/:uuid", updateTicket);

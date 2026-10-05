@@ -14,6 +14,7 @@ import { apiFetch } from "@/lib/api";
 import { has, getAccess, getCurrentUser } from "@/lib/auth";
 import { CREDENTIAL_CATEGORIES, type Credential, type Paginated } from "@/lib/types";
 import { RevealPassword } from "./reveal-password";
+import { AppSelect } from "@/components/app-select";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -62,14 +63,14 @@ export default async function VaultPage({ searchParams }: PageProps<"/vault">) {
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
           <input name="search" defaultValue={str("search")} placeholder={t("vault.searchPlaceholder")} maxLength={100} className={`${input} pl-9`} />
         </div>
-        <select name="category" defaultValue={str("category")} className={input} aria-label={t("vault.col.category")}>
+        <AppSelect name="category" defaultValue={str("category")} className={input} aria-label={t("vault.col.category")}>
           <option value="">{t("vault.allCategories")}</option>
           {CREDENTIAL_CATEGORIES.map((c) => (
             <option key={c} value={c}>
               {t(`vault.categories.${c}`)}
             </option>
           ))}
-        </select>
+        </AppSelect>
         <div className="flex gap-2">
           <Link href="/vault" className={`${btn.secondary} px-3`} aria-label={t("common.clearFilters")}>
             <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />

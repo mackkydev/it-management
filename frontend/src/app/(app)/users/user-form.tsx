@@ -9,6 +9,7 @@ import { useI18n } from "@/i18n/client";
 import type { TFunction } from "@/i18n/types";
 import { ROLES, type ManagedUser, type UserFormValues } from "@/lib/types";
 import { CustodianPicker } from "../assets/custodian-picker";
+import { AppSelect } from "@/components/app-select";
 
 type Field = keyof UserFormValues;
 type Errors = Partial<Record<Field, string>>;
@@ -182,14 +183,14 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
             {field(
               "branch_id",
               t("users.form.branch"),
-              <select id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
+              <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
                 <option value="">{t("users.form.noBranch")}</option>
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
                   </option>
                 ))}
-              </select>,
+              </AppSelect>,
             )}
             {field(
               "supervisor_id",
@@ -213,7 +214,7 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
               {field(
                 "approval_route_id",
                 t("users.form.approvalRoute"),
-                <select id="approval_route_id" name="approval_route_id" value={values.approval_route_id} onChange={onChange} className={cls("approval_route_id")}>
+                <AppSelect id="approval_route_id" name="approval_route_id" value={values.approval_route_id} onChange={onChange} className={cls("approval_route_id")}>
                   <option value="">{t("users.form.approvalRouteAuto")}</option>
                   {routes.map((r) => (
                     <option key={r.id} value={r.id}>
@@ -221,7 +222,7 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
                       {r.is_active ? "" : ` (${t("approvalRoutes.inactive")})`}
                     </option>
                   ))}
-                </select>,
+                </AppSelect>,
                 false,
                 t("users.form.approvalRouteHint"),
               )}
@@ -300,7 +301,7 @@ function OrgSelect({
 }) {
   const known = options.some((o) => o.name.toLowerCase() === value.trim().toLowerCase());
   return (
-    <select id={id} name={id} value={value} onChange={onChange} className={className}>
+    <AppSelect id={id} name={id} value={value} onChange={onChange} className={className}>
       <option value="">{placeholder}</option>
       {value && !known && <option value={value}>{value}</option>}
       {options.map((o) => (
@@ -308,6 +309,6 @@ function OrgSelect({
           {o.name}
         </option>
       ))}
-    </select>
+    </AppSelect>
   );
 }

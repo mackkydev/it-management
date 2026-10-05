@@ -85,6 +85,7 @@ const eamTh = {
     approvers_max: "ผู้อนุมัติไม่เกิน 20 คนต่อขั้น",
     approver_invalid: "ผู้อนุมัติต้องเป็นผู้ใช้ที่เปิดใช้งาน และไม่ซ้ำกันในขั้นเดียวกัน",
     duplicate_scope: "มีสายอนุมัติที่เปิดใช้งานสำหรับสาขาและแผนกนี้อยู่แล้ว",
+    approver_not_allowed: "ผู้อนุมัติต้องอยู่สาขาที่เลือกและมีตำแหน่งสูงกว่าผู้แจ้ง",
   },
   expiring: {
     subject: "แจ้งเตือน: รายการใกล้หมดอายุ :count รายการ",
@@ -185,6 +186,7 @@ const eamEn: Eam = {
     approvers_max: "No more than 20 approvers per step.",
     approver_invalid: "Approvers must be active users and must not repeat within a step.",
     duplicate_scope: "An active approval route already exists for this branch and department.",
+    approver_not_allowed: "The approver must be in the selected branch and hold a higher position than the requester.",
   },
   expiring: {
     subject: "Reminder: :count item(s) expiring soon",
@@ -300,7 +302,7 @@ const attributesTh: Record<string, string> = {
   password: "รหัสผ่าน", current_password: "รหัสผ่านปัจจุบัน", search: "คำค้นหา", code: "รหัส", type: "ประเภท",
   parent_id: "สถานที่แม่", address: "ที่อยู่", is_active: "สถานะการใช้งาน", role: "บทบาท", branch_id: "สาขา",
   department: "แผนก", division: "ฝ่าย", supervisor_id: "หัวหน้า", details: "รายละเอียด",
-  due_date: "วันที่ต้องการให้แล้วเสร็จ", type_other: "เรื่องอื่นๆ", assignee_id: "เจ้าหน้าที่ IT",
+  due_date: "วันที่ต้องการให้แล้วเสร็จ", type_other: "เรื่องอื่นๆ", assignee_id: "เจ้าหน้าที่ IT", approver_id: "ผู้อนุมัติ",
   person_name_th: "ชื่อ-สกุล (ไทย)", person_name_en: "ชื่อ-สกุล (อังกฤษ)", device_name: "อุปกรณ์ที่ส่งซ่อม",
   symptom: "อาการเสีย", photos: "รูปภาพ", "photos.*": "รูปภาพ", documents: "เอกสารแนบ", "documents.*": "เอกสารแนบ",
   logo: "โลโก้", connection_id: "ช่องทางเข้าสู่ระบบ", base_url: "Base URL", login_path: "Login endpoint",

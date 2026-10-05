@@ -13,6 +13,7 @@ import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import type { AssetMovement, Location, Paginated } from "@/lib/types";
 import { MOVEMENT_STYLE, MovementChanges } from "../assets/movement-timeline";
+import { AppSelect } from "@/components/app-select";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -48,19 +49,19 @@ export default async function MovementsPage({ searchParams }: PageProps<"/moveme
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
           <input name="search" defaultValue={str("search")} placeholder={t("movements.searchPlaceholder")} maxLength={100} className={`${input} pl-9`} />
         </div>
-        <select name="type" defaultValue={str("type")} className={input} aria-label={t("movements.col.type")}>
+        <AppSelect name="type" defaultValue={str("type")} className={input} aria-label={t("movements.col.type")}>
           <option value="">{t("movements.allTypes")}</option>
           <option value="registered">{t("movements.types.registered")}</option>
           <option value="transfer">{t("movements.types.transfer")}</option>
-        </select>
-        <select name="location_id" defaultValue={str("location_id")} className={input} aria-label={t("movements.location")}>
+        </AppSelect>
+        <AppSelect name="location_id" defaultValue={str("location_id")} className={input} aria-label={t("movements.location")}>
           <option value="">{t("assets.allLocations")}</option>
           {locations.data.map((l) => (
             <option key={l.id} value={l.id}>
               {l.code} — {l.name}
             </option>
           ))}
-        </select>
+        </AppSelect>
         <div className="text-xs text-muted">
           <span className="mb-1 block">{t("movements.from")}</span>
           <DateInput name="from" defaultValue={str("from")} aria-label={t("movements.from")} className={input} />

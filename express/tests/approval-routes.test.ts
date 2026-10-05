@@ -12,6 +12,7 @@ let lead1: UserRow;
 let lead2: UserRow;
 let manager: UserRow;
 let chief: UserRow;
+let itUser: UserRow;
 
 const unread = async (u: UserRow) =>
   Number(await scalar("SELECT COUNT(*) FROM notifications WHERE notifiable_id = ? AND read_at IS NULL", [u.id]));
@@ -25,6 +26,7 @@ beforeEach(async () => {
   lead1 = await makeUser({ name: "Lead A" });
   lead2 = await makeUser({ name: "Lead B" });
   manager = await makeUser({ name: "Manager" });
+  itUser = await makeUser({ name: "IT", is_it_staff: true });
 });
 
 const route = (body: Record<string, unknown>) => as(admin).then((api) => api.post("/api/v1/approval-routes").send(body));
@@ -41,7 +43,7 @@ const twoSteps = (extra: Record<string, unknown> = {}) => ({
 });
 
 async function submit(u: UserRow = staff): Promise<string> {
-  const res = await (await as(u)).post("/api/v1/tickets").send({ type: "install", branch_id: kkn, details: "ติดตั้งโปรแกรม" });
+  const res = await (await as(u)).post("/api/v1/tickets").send({ type: "install", branch_id: kkn, details: "ติดตั้งโปรแกรม", assignee_id: itUser.id });
   expect(res.status).toBe(201);
   return res.body.data.id;
 }
@@ -177,5 +179,60 @@ describe("approval routes", () => {
     expect((await (await as(lead1)).post(`/api/v1/tickets/${id}/approve`)).status).toBe(403);
     const res = await (await as(chief)).post(`/api/v1/tickets/${id}/approve`);
     expect(res.body.data).toMatchObject({ status: "approved", approval_steps: [] });
+  });
+});
+
+describe("approver chosen by the requester", () => {
+  const send = (u: UserRow, body: Record<string, unknown>) =>
+    as(u).then((api) => api.post("/api/v1/tickets").send({ type: "install", branch_id: kkn, details: "ติดตั้งโปรแกรม", assignee_id: itUser.id, ...body }));
+
+  it("form options list only higher positions; the branch filter is checked on submit", async () => {
+    const head = await makeUser({ name: "KKN Head", role: "division_manager", branch_id: kkn });
+    const boss = await makeUser({ name: "KKN Manager", role: "manager", branch_id: kkn });
+    const bkkHead = await makeUser({ name: "BKK Head", role: "division_manager", branch_id: bkk });
+    await makeUser({ name: "KKN Peer", branch_id: kkn });
+    await makeUser({ name: "Off", role: "manager", branch_id: kkn, is_active: false });
+
+    const forStaff = (await (await as(staff)).get("/api/v1/tickets/form-options")).body.data.approvers.map((a: { name: string }) => a.name);
+    expect(forStaff).toEqual(["BKK Head", "KKN Head", "KKN Manager"]);
+    const forHead = (await (await as(head)).get("/api/v1/tickets/form-options")).body.data.approvers.map((a: { name: string }) => a.name);
+    expect(forHead).toEqual(["KKN Manager"]);
+
+    const wrongBranch = await send(staff, { approver_id: bkkHead.id });
+    expect(wrongBranch.status).toBe(422);
+    expect(wrongBranch.body.errors.approver_id[0]).toBe("ผู้อนุมัติต้องอยู่สาขาที่เลือกและมีตำแหน่งสูงกว่าผู้แจ้ง");
+    expect((await send(head, { approver_id: (await makeUser({ role: "division_manager", branch_id: kkn })).id })).status).toBe(422);
+    expect((await send(staff, { approver_id: boss.id })).status).toBe(201);
+
+    // เจ้าหน้าที่ IT ต้องระบุคน
+    const noAssignee = await send(staff, { assignee_id: null });
+    expect(noAssignee.status).toBe(422);
+    expect(noAssignee.body.errors).toHaveProperty("assignee_id");
+  });
+
+  it("replaces the first step of the route; later steps stay", async () => {
+    await route(twoSteps());
+    const boss = await makeUser({ name: "KKN Manager", role: "manager", branch_id: kkn });
+    const res = await send(staff, { approver_id: boss.id });
+    expect(res.status).toBe(201);
+    expect(res.body.data.approval_steps.map((s: { approvers: { name: string }[] }) => s.approvers.map((a) => a.name))).toEqual([["KKN Manager"], ["Manager"]]);
+    expect(await unread(boss)).toBe(1);
+    expect(await unread(lead1)).toBe(0);
+    expect((await (await as(lead1)).post(`/api/v1/tickets/${res.body.data.id}/approve`)).status).toBe(403);
+    expect((await (await as(boss)).post(`/api/v1/tickets/${res.body.data.id}/approve`)).status).toBe(200);
+  });
+
+  it("without a route the chosen person is the single approver; editing changes it and notifies", async () => {
+    const head = await makeUser({ name: "KKN Head", role: "division_manager", branch_id: kkn });
+    const boss = await makeUser({ name: "KKN Manager", role: "manager", branch_id: kkn });
+    const res = await send(staff, { approver_id: head.id });
+    expect(res.body.data).toMatchObject({ approver: { name: "KKN Head" }, approval_steps: [] });
+    expect(await unread(chief)).toBe(0);
+
+    const id = res.body.data.id;
+    const edited = await (await as(staff)).put(`/api/v1/tickets/${id}`).send({ type: "install", branch_id: kkn, details: "x", assignee_id: itUser.id, approver_id: boss.id });
+    expect(edited.body.data.approver).toMatchObject({ name: "KKN Manager" });
+    expect(await unread(boss)).toBe(1);
+    expect((await (await as(head)).post(`/api/v1/tickets/${id}/approve`)).status).toBe(403);
   });
 });

@@ -8,6 +8,7 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { TFunction } from "@/i18n/types";
 import { LOCATION_TYPES, type Location, type LocationFormValues } from "@/lib/types";
+import { AppSelect } from "@/components/app-select";
 
 type Field = keyof LocationFormValues;
 type Errors = Partial<Record<Field, string>>;
@@ -137,20 +138,20 @@ export function LocationForm({ locations, location, canDelete = false }: Props) 
           {field(
             "type",
             t("locations.form.type"),
-            <select id="type" name="type" value={values.type} onChange={onChange} className={cls("type")}>
+            <AppSelect id="type" name="type" value={values.type} onChange={onChange} className={cls("type")}>
               <option value="">{t("locations.form.chooseType")}</option>
               {LOCATION_TYPES.map((ty) => (
                 <option key={ty} value={ty}>
                   {t(`locations.types.${ty}`)}
                 </option>
               ))}
-            </select>,
+            </AppSelect>,
             true,
           )}
           {field(
             "parent_id",
             t("locations.form.parent"),
-            <select id="parent_id" name="parent_id" value={values.parent_id} onChange={onChange} className={cls("parent_id")}>
+            <AppSelect id="parent_id" name="parent_id" value={values.parent_id} onChange={onChange} className={cls("parent_id")}>
               <option value="">{t("locations.form.noParent")}</option>
               {parents.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -158,7 +159,7 @@ export function LocationForm({ locations, location, canDelete = false }: Props) 
                   {l.is_active === false ? ` (${t("locations.inactive")})` : ""}
                 </option>
               ))}
-            </select>,
+            </AppSelect>,
           )}
           {field(
             "address",

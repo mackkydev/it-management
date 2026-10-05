@@ -9,6 +9,7 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/types";
 import { API_AUTH_TYPES, API_ERROR_KINDS, type ApiConnection, type ApiConnectionTest, type ApiErrorKind, type SyncResult } from "@/lib/types";
+import { AppSelect } from "@/components/app-select";
 
 type Rule = { value: string; role: "manager" | "viewer" };
 type ErrorRow = { code: string; kind: ApiErrorKind; message_th: string; message_en: string };
@@ -106,13 +107,13 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
       <label htmlFor={key} className="mb-1 block text-sm font-medium">
         {label(key)}
       </label>
-      <select id={key} value={String(v[key])} onChange={(e) => set(key, e.target.value as never)} className={cls(key)}>
+      <AppSelect id={key} value={String(v[key])} onChange={(e) => set(key, e.target.value as never)} className={cls(key)}>
         {options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
           </option>
         ))}
-      </select>
+      </AppSelect>
       {err(key) && <p className="mt-1 text-xs font-medium text-red-500">{err(key)}</p>}
     </div>
   );
@@ -260,10 +261,10 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
                 onChange={(e) => setRules((s) => s.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
                 className={`${input} flex-1 ${errPrefix(`role_rules.${i}`) ? inputError : ""}`}
               />
-              <select value={r.role} onChange={(e) => setRules((s) => s.map((x, j) => (j === i ? { ...x, role: e.target.value as Rule["role"] } : x)))} className={`${input} w-48`}>
+              <AppSelect value={r.role} onChange={(e) => setRules((s) => s.map((x, j) => (j === i ? { ...x, role: e.target.value as Rule["role"] } : x)))} className={`${input} w-48`}>
                 <option value="manager">{t("roles.manager")}</option>
                 <option value="viewer">{t("roles.viewer")}</option>
-              </select>
+              </AppSelect>
               <button type="button" onClick={() => setRules((s) => s.filter((_, j) => j !== i))} aria-label={t("apiConnections.remove")} className={`${btn.secondary} px-3`}>
                 <XIcon width={14} height={14} />
               </button>
@@ -294,13 +295,13 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
             return (
               <div key={i} className="grid grid-cols-1 gap-2 rounded-xl p-3 ring-1 ring-line sm:grid-cols-[8rem_12rem_1fr_1fr_auto]">
                 <input value={r.code} placeholder={t("apiConnections.code")} onChange={(ev) => upd({ code: ev.target.value })} className={`${input} font-mono text-xs ${e ? inputError : ""}`} />
-                <select value={r.kind} onChange={(ev) => upd({ kind: ev.target.value as ApiErrorKind })} className={input} aria-label={t("apiConnections.kind")}>
+                <AppSelect value={r.kind} onChange={(ev) => upd({ kind: ev.target.value as ApiErrorKind })} className={input} aria-label={t("apiConnections.kind")}>
                   {API_ERROR_KINDS.map((k) => (
                     <option key={k} value={k}>
                       {t(`apiConnections.errorKinds.${k}`)}
                     </option>
                   ))}
-                </select>
+                </AppSelect>
                 <input value={r.message_th} placeholder={t("apiConnections.messageTh")} disabled={r.kind === "invalid"} onChange={(ev) => upd({ message_th: ev.target.value })} className={`${input} disabled:opacity-50`} />
                 <input value={r.message_en} placeholder={t("apiConnections.messageEn")} disabled={r.kind === "invalid"} onChange={(ev) => upd({ message_en: ev.target.value })} className={`${input} disabled:opacity-50`} />
                 <button type="button" onClick={() => setErrorRows((s) => s.filter((_, j) => j !== i))} aria-label={t("apiConnections.remove")} className={`${btn.secondary} px-3`}>

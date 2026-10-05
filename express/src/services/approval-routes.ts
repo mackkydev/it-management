@@ -1,6 +1,6 @@
 import { first, insert, select } from "../db.js";
 import { nowDb } from "../lib/time.js";
-import type { UserRow } from "../models/user.js";
+import { rolesAbove, type UserRow } from "../models/user.js";
 
 /**
  * สายอนุมัติใบแจ้งงาน — เหมือน App\Services\ApprovalRouteResolver ของ Laravel
@@ -116,6 +116,27 @@ export async function planFor(user: UserRow): Promise<ApprovalPlan> {
     ? await first<Person>("SELECT id, name FROM users WHERE id = ? AND is_active = true", [user.supervisor_id])
     : null;
   return { source: "legacy", route: null, steps: [], legacy_approver: supervisor };
+}
+
+/**
+ * ผู้อนุมัติที่ผู้แจ้งเลือกได้: เปิดใช้งาน มีสาขา และตำแหน่งสูงกว่าผู้แจ้ง (ไม่รวมตัวเอง)
+ * ฟอร์มกรองตามสาขาที่เลือกอีกชั้น — branchId = ตรวจเฉพาะสาขานั้น
+ */
+export async function approverCandidates(user: UserRow, branchId?: number): Promise<Array<Person & { branch_id: number; role: string }>> {
+  const roles = rolesAbove(user.role);
+  if (roles.length === 0) return [];
+  const params: unknown[] = [user.id, ...roles];
+  let sql = `SELECT id, name, branch_id, role FROM users
+             WHERE is_active = true AND branch_id IS NOT NULL AND id <> ? AND role IN (${roles.map(() => "?").join(", ")})`;
+  if (branchId !== undefined) (sql += " AND branch_id = ?"), params.push(branchId);
+  return select(`${sql} ORDER BY name, id`, params);
+}
+
+/** ผู้แจ้งเลือกผู้อนุมัติเอง → แทนผู้อนุมัติของขั้นแรกที่ต้องอนุมัติ (ขั้นถัดไปตามสายเดิม); ไม่มีสาย = ผู้อนุมัติคนเดียวแบบระบบเดิม */
+export function withChosenApprover(plan: ApprovalPlan, approver: Person): ApprovalPlan {
+  const index = plan.steps.findIndex((s) => !s.skipped);
+  if (plan.source === "legacy" || index < 0) return { ...plan, legacy_approver: approver };
+  return { ...plan, steps: plan.steps.map((s, i) => (i === index ? { ...s, approvers: [approver], skipped: false } : s)) };
 }
 
 /**

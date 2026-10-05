@@ -16,6 +16,7 @@ import type { MessageKey } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser, isLocalAdmin } from "@/lib/auth";
 import type { AuditLog, Paginated } from "@/lib/types";
+import { AppSelect } from "@/components/app-select";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -41,14 +42,14 @@ export default async function AuditLogsPage({ searchParams }: PageProps<"/audit-
     <div className="space-y-5">
       <PageHeader icon={HistoryIcon} title={t("audit.title")} subtitle={t("audit.subtitle")} />
       <Form action="/audit-logs" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_12rem_12rem_auto] ${card}`}>
-        <select name="action" defaultValue={str("action")} className={input} aria-label={t("audit.col.action")}>
+        <AppSelect name="action" defaultValue={str("action")} className={input} aria-label={t("audit.col.action")}>
           <option value="">{t("audit.allActions")}</option>
           {actions.map((a) => (
             <option key={a} value={a}>
               {actionLabel(t, a)}
             </option>
           ))}
-        </select>
+        </AppSelect>
         <DateInput name="from" defaultValue={str("from")} aria-label={t("audit.from")} className={input} />
         <DateInput name="to" defaultValue={str("to")} aria-label={t("audit.to")} className={input} />
         <div className="flex gap-2">

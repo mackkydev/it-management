@@ -173,22 +173,22 @@ describe("IT tickets", () => {
 
   it("access requests require names and other requires text", async () => {
     const api = await as(staff);
-    const access = await api.post("/api/v1/tickets").field("type", "grant_access").field("branch_id", String(branch)).field("details", "VPN").field("signature", SIG);
+    const access = await api.post("/api/v1/tickets").field("type", "grant_access").field("branch_id", String(branch)).field("assignee_id", String(it_.id)).field("details", "VPN").field("signature", SIG);
     expect(access.status).toBe(422);
     expect(Object.keys(access.body.errors)).toEqual(expect.arrayContaining(["person_name_th", "person_name_en"]));
     expect(access.body.errors.person_name_th[0]).toBe("กรุณากรอกชื่อ-สกุล (ไทย)");
 
-    const other = await api.post("/api/v1/tickets").field("type", "other").field("branch_id", String(branch)).field("details", "ออกแบบโลโก้").field("signature", SIG);
+    const other = await api.post("/api/v1/tickets").field("type", "other").field("branch_id", String(branch)).field("assignee_id", String(it_.id)).field("details", "ออกแบบโลโก้").field("signature", SIG);
     expect(other.body.errors).toHaveProperty("type_other");
 
-    const ok = await api.post("/api/v1/tickets").field("type", "other").field("type_other", "งานออกแบบ").field("branch_id", String(branch)).field("details", "ออกแบบโลโก้").field("signature", SIG);
+    const ok = await api.post("/api/v1/tickets").field("type", "other").field("type_other", "งานออกแบบ").field("branch_id", String(branch)).field("assignee_id", String(it_.id)).field("details", "ออกแบบโลโก้").field("signature", SIG);
     expect(ok.status).toBe(201);
     expect(ok.body.data.type_other).toBe("งานออกแบบ");
   });
 
   it("upload limits and signature validation", async () => {
     const api = await as(staff);
-    const base = (r: ReturnType<typeof api.post>) => r.field("type", "install").field("branch_id", String(branch)).field("details", "ติดตั้งโปรแกรม");
+    const base = (r: ReturnType<typeof api.post>) => r.field("type", "install").field("branch_id", String(branch)).field("assignee_id", String(it_.id)).field("details", "ติดตั้งโปรแกรม");
 
     let tooMany = base(api.post("/api/v1/tickets")).field("signature", SIG);
     for (let i = 1; i <= 5; i++) tooMany = tooMany.attach("photos[]", fakeImage(5), `${i}.jpg`);
@@ -237,7 +237,7 @@ describe("IT tickets", () => {
   it("requester without supervisor is approved by admin", async () => {
     const lonely = await makeUser({ name: "No boss" });
     const admin = await makeUser({ role: "admin" });
-    const id = (await (await as(lonely)).post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x", signature: SIG })).body.data.id;
+    const id = (await (await as(lonely)).post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x", assignee_id: it_.id, signature: SIG })).body.data.id;
     expect(await unread(admin)).toBe(1);
 
     const api = await as(admin);

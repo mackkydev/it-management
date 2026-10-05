@@ -10,6 +10,7 @@ import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { Branch, LicenseSummary, UserOption } from "@/lib/types";
 import { CustodianPicker } from "../assets/custodian-picker";
+import { AppSelect } from "@/components/app-select";
 
 type Device = { id: string; asset_tag: string; name: string };
 const deviceLabel = (d: Device) => `${d.asset_tag} — ${d.name}`;
@@ -123,7 +124,7 @@ export function InstallForm({ licenses, branches, defaultLicense }: { licenses: 
           <label htmlFor="license_id" className="mb-1 block text-sm font-medium">
             {t("installations.license")} <span className="text-red-500">*</span>
           </label>
-          <select id="license_id" value={v.license_id} onChange={(e) => set("license_id", e.target.value)} className={cls("license_id")}>
+          <AppSelect id="license_id" value={v.license_id} onChange={(e) => set("license_id", e.target.value)} className={cls("license_id")}>
             <option value="">{t("installations.chooseLicense")}</option>
             {licenses.map((l) => (
               <option key={l.id} value={l.id}>
@@ -131,7 +132,7 @@ export function InstallForm({ licenses, branches, defaultLicense }: { licenses: 
                 {l.seats === null ? t("installations.unlimited") : t("installations.availableOf", { available: fmt.number(l.available ?? 0), seats: fmt.number(l.seats) })}
               </option>
             ))}
-          </select>
+          </AppSelect>
           {errors.license_id ? err("license_id") : full && <p className="mt-1 text-xs font-medium text-red-500">{t("installations.validate.full")}</p>}
         </div>
 
@@ -183,14 +184,14 @@ export function InstallForm({ licenses, branches, defaultLicense }: { licenses: 
           <label htmlFor="branch_id" className="mb-1 block text-sm font-medium">
             {t("installations.branch")}
           </label>
-          <select id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
+          <AppSelect id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
             <option value="">{t("common.none")}</option>
             {branches.filter((b) => b.is_active).map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
               </option>
             ))}
-          </select>
+          </AppSelect>
           {err("branch_id")}
         </div>
         <div>

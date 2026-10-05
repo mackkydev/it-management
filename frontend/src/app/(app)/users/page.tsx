@@ -14,6 +14,7 @@ import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
 import { ROLES, type ManagedUser, type Paginated, type User, type UserOption } from "@/lib/types";
+import { AppSelect } from "@/components/app-select";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -89,19 +90,19 @@ export default async function UsersPage({ searchParams }: PageProps<"/users">) {
         </div>
         {canManageUsers && (
           <>
-            <select name="role" defaultValue={str("role")} className={input} aria-label={t("users.col.role")}>
+            <AppSelect name="role" defaultValue={str("role")} className={input} aria-label={t("users.col.role")}>
               <option value="">{t("users.allRoles")}</option>
               {ROLES.map((r) => (
                 <option key={r} value={r}>
                   {t(`roles.${r}`)}
                 </option>
               ))}
-            </select>
-            <select name="status" defaultValue={str("status")} className={input} aria-label={t("users.col.status")}>
+            </AppSelect>
+            <AppSelect name="status" defaultValue={str("status")} className={input} aria-label={t("users.col.status")}>
               <option value="">{t("users.allStatuses")}</option>
               <option value="active">{t("users.statuses.active")}</option>
               <option value="inactive">{t("users.statuses.inactive")}</option>
-            </select>
+            </AppSelect>
           </>
         )}
         <div className="flex gap-2">

@@ -8,26 +8,50 @@ import { DocumentPicker, PhotoPicker } from "@/components/file-pickers";
 import { AlertIcon, CheckCircleIcon, ClipboardIcon, PenIcon, SendIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
+import type { MessageKey } from "@/i18n/types";
 import { localToday } from "@/lib/date";
 import { has } from "@/lib/permissions";
 import { TICKET_TYPES, type ApprovalPlan, type TicketDetail, type TicketType, type User } from "@/lib/types";
 import { PlanView } from "../../approval-routes/plan-view";
+import { AppSelect } from "@/components/app-select";
 
 export interface TicketFormOptions {
   branches: { id: number; code: string; name: string }[];
+  /** แผนก / ฝ่าย จากข้อมูลหลัก (ชื่อ) */
+  departments: string[];
+  divisions: string[];
+  /** ผู้อนุมัติที่เลือกได้ (ตำแหน่งสูงกว่าผู้แจ้ง) — ฟอร์มกรองตามสาขาที่เลือก */
+  approvers: { id: number; name: string; branch_id: number; role: string }[];
   it_staff: { id: number; name: string }[];
   other_types: string[];
 }
 
 type Field =
-  | "type" | "type_other" | "branch_id" | "department" | "division" | "details" | "due_date" | "assignee_id"
+  | "type" | "type_other" | "branch_id" | "department" | "division" | "approver_id" | "details" | "due_date" | "assignee_id"
   | "person_name_th" | "person_name_en" | "device_name" | "asset_tag" | "symptom" | "photos" | "documents";
 type Errors = Partial<Record<Field, string>>;
 
+type Person = { id: number; name: string };
+
+/** ขั้นแรกที่ต้องอนุมัติของแผน (ระบบเดิม = หัวหน้าตามสาย) */
+const firstApprovers = (plan: ApprovalPlan | null): Person[] =>
+  !plan ? [] : plan.source === "legacy" ? (plan.legacy_approver ? [plan.legacy_approver] : []) : (plan.steps.find((s) => !s.skipped)?.approvers ?? []);
+
+/** ผู้อนุมัติที่เลือกแทนขั้นแรก — ตรงกับ withChosenApprover ของ API */
+function withApprover(plan: ApprovalPlan, approver: Person | undefined): ApprovalPlan {
+  if (!approver) return plan;
+  const index = plan.steps.findIndex((s) => !s.skipped);
+  if (plan.source === "legacy" || index < 0) return { ...plan, legacy_approver: approver };
+  return { ...plan, steps: plan.steps.map((s, i) => (i === index ? { ...s, approvers: [approver], skipped: false } : s)) };
+}
+
+/** รายการ dropdown จากข้อมูลหลัก + ค่าเดิมที่ไม่มีในรายการแล้ว (ไม่ให้ค่าหาย) */
+const withCurrent = (names: string[], current: string) => (current && !names.includes(current) ? [current, ...names] : names);
 
 /**
- * ฟอร์ม "ใบแจ้งดำเนินงาน IT" — ลำดับช่องตามแบบฟอร์มกระดาษ
- * เรื่อง → แผนก/ฝ่าย → สาขา → เจ้าหน้าที่ IT → รายละเอียด → วันที่ต้องการ → (1.1 / 1.2) → ไฟล์แนบ → ผู้แจ้ง
+ * ฟอร์ม "ใบแจ้งดำเนินงาน IT"
+ * เรื่อง → ข้อมูลผู้แจ้ง (สาขา → แผนก → ฝ่าย → ผู้อนุมัติ → วัตถุประสงค์) → (1.1 / 1.2) → เจ้าหน้าที่ (เจ้าหน้าที่ IT, วันที่ต้องการ) → ไฟล์แนบ → ผู้แจ้ง
+ * ผู้อนุมัติ: เฉพาะคนในสาขาที่เลือกและตำแหน่งสูงกว่า — แทนขั้นแรกของสายอนุมัติ (ว่าง = ตามสาย)
  * ลายเซ็นผู้แจ้งไม่ต้องวาด — API ใช้ลายเซ็นที่อัปโหลดในข้อมูลส่วนตัว แล้วแสตมป์ลงเอกสารตอนดู/พิมพ์
  * editing = แก้ไขใบเดิม (ผู้แจ้ง ก่อนอนุมัติ) — ไม่มีส่วนไฟล์แนบ/ลายเซ็น/สายอนุมัติ
  */
@@ -44,6 +68,19 @@ export function TicketForm({
 }) {
   const { t, fmt } = useI18n();
   const [type, setType] = useState<TicketType>(editing?.type ?? "repair");
+
+  // ผู้อนุมัติ: เลือกให้ตามสาย (ใบใหม่) / ผู้อนุมัติเดิมของขั้นปัจจุบัน (แก้ไข) ถ้าอยู่ในรายชื่อของสาขาที่เลือก
+  const preferredApprovers: Person[] = editing
+    ? (editing.approval_steps.find((s) => s.step_no === editing.current_step)?.approvers ?? (editing.approver ? [editing.approver] : []))
+    : firstApprovers(plan);
+  const candidatesOf = (branchId: string) => options.approvers.filter((a) => String(a.branch_id) === branchId);
+  const pickApprover = (branchId: string) => {
+    const list = candidatesOf(branchId);
+    return String(preferredApprovers.find((p) => list.some((c) => c.id === p.id))?.id ?? "");
+  };
+  // 4.2.2 สาขา: เลือกให้อัตโนมัติจากสาขาที่ผู้ใช้สังกัด (ถ้าสาขานั้นยังเปิดใช้งาน)
+  const userBranch = options.branches.some((b) => b.id === user.branch_id) ? String(user.branch_id) : "";
+
   const [v, setV] = useState(() =>
     editing
       ? {
@@ -51,6 +88,7 @@ export function TicketForm({
           branch_id: editing.branch ? String(editing.branch.id) : "",
           department: editing.department ?? "",
           division: editing.division ?? "",
+          approver_id: editing.branch ? pickApprover(String(editing.branch.id)) : "",
           details: editing.details ?? "",
           due_date: editing.due_date ?? "",
           assignee_id: editing.assignee ? String(editing.assignee.id) : "",
@@ -62,10 +100,10 @@ export function TicketForm({
         }
       : {
           type_other: "",
-          // 4.2.2 สาขา: เลือกให้อัตโนมัติจากสาขาที่ผู้ใช้สังกัด (ถ้าสาขานั้นยังเปิดใช้งาน)
-          branch_id: options.branches.some((b) => b.id === user.branch_id) ? String(user.branch_id) : "",
+          branch_id: userBranch,
           department: user.department ?? "",
           division: user.division ?? "",
+          approver_id: userBranch ? pickApprover(userBranch) : "",
           details: "",
           due_date: "",
           assignee_id: "",
@@ -90,10 +128,26 @@ export function TicketForm({
     setErrors((e) => ({ ...e, [name]: "" }));
   };
 
+  // สาขา → แผนก → ฝ่าย: เปลี่ยนสาขาแล้วผู้อนุมัติที่ไม่อยู่สาขาใหม่ถูกเลือกใหม่ตามสาย / ล้างแผนกแล้วล้างฝ่าย
+  const changeBranch = (branch: string) => {
+    const keep = candidatesOf(branch).some((c) => String(c.id) === v.approver_id);
+    setV((s) => ({ ...s, branch_id: branch, approver_id: keep ? s.approver_id : pickApprover(branch) }));
+    setErrors((e) => ({ ...e, branch_id: "", approver_id: "" }));
+  };
+  const changeDepartment = (department: string) => {
+    setV((s) => ({ ...s, department, division: department ? s.division : "" }));
+    setErrors((e) => ({ ...e, department: "" }));
+  };
+
+  const approverOptions = candidatesOf(v.branch_id);
+  const chosenApprover = approverOptions.find((a) => String(a.id) === v.approver_id);
+  const shownPlan = plan && withApprover(plan, chosenApprover);
+
   const validate = (): Errors => {
     const e: Errors = {};
     if (type === "other" && !v.type_other.trim()) e.type_other = t("tickets.validate.otherType");
     if (!v.branch_id) e.branch_id = t("tickets.validate.branch");
+    if (!v.assignee_id) e.assignee_id = t("tickets.validate.assignee");
     if (!v.details.trim()) e.details = t("tickets.validate.details");
     if (needsPerson && !v.person_name_th.trim()) e.person_name_th = t("tickets.validate.nameTh");
     if (needsPerson && !v.person_name_en.trim()) e.person_name_en = t("tickets.validate.nameEn");
@@ -115,7 +169,7 @@ export function TicketForm({
     const fd = new FormData();
     fd.set("type", type);
     if (type === "other") fd.set("type_other", v.type_other.trim());
-    for (const key of ["branch_id", "department", "division", "details", "due_date", "assignee_id"] as const) {
+    for (const key of ["branch_id", "department", "division", "approver_id", "details", "due_date", "assignee_id"] as const) {
       if (v[key].trim()) fd.set(key, v[key].trim());
     }
     if (needsPerson) {
@@ -179,13 +233,13 @@ export function TicketForm({
         </div>
       )}
 
-      {plan && !editing && (
+      {shownPlan && !editing && (
         <div className={`flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:gap-3 sm:px-6 ${card}`}>
           <span className="flex shrink-0 items-center gap-2 text-sm font-medium">
             <CheckCircleIcon width={16} height={16} className="text-accent-500" />
             {t("tickets.approval.preview")}
           </span>
-          <PlanView plan={plan} />
+          <PlanView plan={shownPlan} />
         </div>
       )}
 
@@ -255,22 +309,21 @@ export function TicketForm({
           )}
         </section>
 
-        {/* ข้อมูลผู้แจ้ง + รายละเอียด */}
+        {/* ข้อมูลผู้แจ้ง: สาขา → แผนก → ฝ่าย → ผู้อนุมัติ → วัตถุประสงค์ */}
         <section className={`p-4 sm:p-6 ${card}`}>
+          <h2 className="mb-3 font-semibold">{t("tickets.form.requesterSection")}</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {field("department", t("tickets.form.department"), text("department", { maxLength: 100 }))}
-            {field("division", t("tickets.form.division"), text("division", { maxLength: 100 }))}
             {field(
               "branch_id",
               t("tickets.form.branch"),
-              <select id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
+              <AppSelect id="branch_id" value={v.branch_id} onValueChange={changeBranch} className={cls("branch_id")}>
                 <option value="">{t("tickets.form.chooseBranch")}</option>
                 {options.branches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
                   </option>
                 ))}
-              </select>,
+              </AppSelect>,
               true,
               (user.branch_id || has(user, "branches.manage")) && (
                 <span className="flex flex-wrap items-center justify-between gap-2">
@@ -285,18 +338,52 @@ export function TicketForm({
               ),
             )}
             {field(
-              "assignee_id",
-              t("tickets.form.assignee"),
-              <select id="assignee_id" value={v.assignee_id} onChange={(e) => set("assignee_id", e.target.value)} className={cls("assignee_id")}>
-                <option value="">{t("tickets.form.anyIt")}</option>
-                {options.it_staff.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
+              "department",
+              t("tickets.form.department"),
+              <AppSelect id="department" value={v.department} onValueChange={changeDepartment} disabled={!v.branch_id} className={cls("department")}>
+                <option value="">{t("tickets.form.chooseDepartment")}</option>
+                {withCurrent(options.departments, v.department).map((d) => (
+                  <option key={d} value={d}>
+                    {d}
                   </option>
                 ))}
-              </select>,
+              </AppSelect>,
               false,
-              t("tickets.form.assigneeHint"),
+              !v.branch_id && t("tickets.form.branchFirst"),
+            )}
+            {field(
+              "division",
+              t("tickets.form.division"),
+              <AppSelect id="division" value={v.division} onValueChange={(d) => set("division", d)} disabled={!v.department} className={cls("division")}>
+                <option value="">{t("tickets.form.chooseDivision")}</option>
+                {withCurrent(options.divisions, v.division).map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </AppSelect>,
+              false,
+              !v.department && t("tickets.form.departmentFirst"),
+            )}
+            {field(
+              "approver_id",
+              t("tickets.form.approver"),
+              <AppSelect
+                id="approver_id"
+                value={v.approver_id}
+                onValueChange={(a) => set("approver_id", a)}
+                disabled={!v.branch_id || approverOptions.length === 0}
+                className={cls("approver_id")}
+              >
+                <option value="">{t("tickets.form.approverByRoute")}</option>
+                {approverOptions.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({t(`roles.${a.role}` as MessageKey)})
+                  </option>
+                ))}
+              </AppSelect>,
+              false,
+              !v.branch_id ? t("tickets.form.branchFirst") : approverOptions.length === 0 ? t("tickets.form.noApprover") : t("tickets.form.approverHint"),
             )}
             {field(
               "details",
@@ -306,7 +393,6 @@ export function TicketForm({
               undefined,
               "sm:col-span-2",
             )}
-            {field("due_date", t("tickets.form.dueDate"), <DateInput id="due_date" min={localToday()} value={v.due_date} onChange={(d) => set("due_date", d)} className={cls("due_date")} />)}
           </div>
         </section>
 
@@ -339,6 +425,28 @@ export function TicketForm({
             </div>
           </section>
         )}
+
+        {/* เจ้าหน้าที่: ต้องระบุเจ้าหน้าที่ IT + วันที่ต้องการให้แล้วเสร็จ */}
+        <section className={`p-4 sm:p-6 ${card}`}>
+          <h2 className="mb-3 font-semibold">{t("tickets.form.staffSection")}</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {field(
+              "assignee_id",
+              t("tickets.form.assignee"),
+              <AppSelect id="assignee_id" value={v.assignee_id} onValueChange={(a) => set("assignee_id", a)} className={cls("assignee_id")}>
+                <option value="">{t("tickets.form.chooseIt")}</option>
+                {options.it_staff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </AppSelect>,
+              true,
+              t("tickets.form.assigneeHint"),
+            )}
+            {field("due_date", t("tickets.form.dueDate"), <DateInput id="due_date" min={localToday()} value={v.due_date} onChange={(d) => set("due_date", d)} className={cls("due_date")} />)}
+          </div>
+        </section>
 
         {/* ไฟล์แนบ */}
         {!editing && (

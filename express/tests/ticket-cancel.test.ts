@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { scalar } from "../src/db.js";
+import { exec, scalar } from "../src/db.js";
 import type { UserRow } from "../src/models/user.js";
 import { as, makeBranch, makeUser } from "./helpers.js";
 
@@ -34,9 +34,9 @@ describe("ticket edit / delete before approval", () => {
     expect((await api.get(`/api/v1/tickets/${id}`)).body.data.actions).toEqual(expect.arrayContaining(["edit", "delete"]));
     expect((await (await as(chief)).put(`/api/v1/tickets/${id}`).send({ type: "install", branch_id: branch, details: "x" })).status).toBe(403);
 
-    const edited = await api.put(`/api/v1/tickets/${id}`).send({ type: "other", type_other: "งานออกแบบ", branch_id: branch, details: "แก้รายละเอียดแล้ว" });
+    const edited = await api.put(`/api/v1/tickets/${id}`).send({ type: "other", type_other: "งานออกแบบ", branch_id: branch, details: "แก้รายละเอียดแล้ว", assignee_id: other.id });
     expect(edited.status).toBe(200);
-    expect(edited.body.data).toMatchObject({ type: "other", type_other: "งานออกแบบ", details: "แก้รายละเอียดแล้ว", assignee: null });
+    expect(edited.body.data).toMatchObject({ type: "other", type_other: "งานออกแบบ", details: "แก้รายละเอียดแล้ว", assignee: { id: other.id } });
     expect(edited.body.data.events.map((e: { action: string }) => e.action)).toContain("edited");
 
     expect((await api.delete(`/api/v1/tickets/${id}`)).status).toBe(204);
@@ -100,8 +100,10 @@ describe("ticket cancellation after approval", () => {
   });
 
   it("unassigned tickets: any IT staff who can accept decides; completed tickets cannot be cancelled", async () => {
-    const res = await (await as(staff)).post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x" });
+    const res = await (await as(staff)).post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x", assignee_id: it_.id });
     const id = res.body.data.id;
+    // ใบเดิมที่ยังไม่มีผู้รับ (ฟอร์มใหม่บังคับระบุเจ้าหน้าที่ IT แล้ว)
+    await exec("UPDATE it_tickets SET assignee_id = NULL WHERE uuid = ?", [id]);
     await (await as(chief)).post(`/api/v1/tickets/${id}/approve`);
     await (await as(staff)).post(`/api/v1/tickets/${id}/cancel`).send({ reason: "ไม่ต้องการ" });
     expect(await unread(other)).toBeGreaterThan(0); // ยังไม่มีผู้รับ → แจ้ง IT ทุกคน

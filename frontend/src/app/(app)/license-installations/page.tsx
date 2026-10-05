@@ -16,6 +16,7 @@ import type { Branch, LicenseInstallation, LicenseSummary } from "@/lib/types";
 import { InstallForm } from "./install-form";
 import { RowActions } from "./row-actions";
 import { UsageBar } from "./usage-bar";
+import { AppSelect } from "@/components/app-select";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -84,21 +85,21 @@ export default async function LicenseInstallationsPage({ searchParams }: PagePro
               <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
               <input name="search" defaultValue={str("search")} placeholder={t("installations.searchPlaceholder")} maxLength={100} className={`${input} pl-9`} />
             </div>
-            <select name="license" defaultValue={license} className={input} aria-label={t("installations.license")}>
+            <AppSelect name="license" defaultValue={license} className={input} aria-label={t("installations.license")}>
               <option value="">{t("installations.allLicenses")}</option>
               {licenses.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
                 </option>
               ))}
-            </select>
-            <select name="status" defaultValue={status} className={input} aria-label={t("installations.status")}>
+            </AppSelect>
+            <AppSelect name="status" defaultValue={status} className={input} aria-label={t("installations.status")}>
               {STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {t(`installations.statuses.${s}`)}
                 </option>
               ))}
-            </select>
+            </AppSelect>
             <div className="flex gap-2">
               <Link href="/license-installations" className={`${btn.secondary} px-3`} aria-label={t("common.clearFilters")}>
                 <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
