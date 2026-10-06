@@ -29,5 +29,7 @@ export async function getAccess(): Promise<(key: string) => boolean> {
  */
 export { has, isLocalAdmin };
 export const canManageAssets = (user: User) => has(user, "assets.manage");
+/** เห็นสินทรัพย์ทั้งหมด — ไม่มี = เห็นเฉพาะที่ตัวเองถือครอง (API กรองให้) */
+export const canViewAllAssets = (user: User) => has(user, "assets.view_all") || has(user, "assets.manage");
 export const canDeleteAssets = (user: User) => has(user, "assets.delete");
 export const canDeleteLocations = (user: User) => has(user, "locations.delete");

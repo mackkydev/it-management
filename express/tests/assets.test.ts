@@ -39,7 +39,7 @@ describe("auth + assets", () => {
   });
 
   it("index paginates and filters", async () => {
-    const api = await as(await makeUser());
+    const api = await as(await makeUser({ is_it_staff: true })); // ฝ่าย IT เห็นสินทรัพย์ทั้งหมด
     for (let i = 0; i < 5; i++) await makeAsset({ status: "active" });
     for (let i = 0; i < 2; i++) await makeAsset({ status: "in_repair" });
 
@@ -219,10 +219,32 @@ describe("asset movements", () => {
     expect(future.body.errors.moved_at[0]).toBe("วันที่โอนย้ายต้องไม่เกินเวลาปัจจุบัน");
   });
 
-  it("viewer can read history but not transfer", async () => {
-    const api = await as(await makeUser());
-    const asset = await makeAsset();
+  it("viewer can read history of their own asset but not transfer", async () => {
+    const user = await makeUser();
+    const api = await as(user);
+    const asset = await makeAsset({ custodian_id: user.id });
     expect((await api.get(`/api/v1/assets/${asset.uuid}/movements`)).status).toBe(200);
     expect((await api.post(`/api/v1/assets/${asset.uuid}/movements`).send({ location_id: await makeLocation() })).status).toBe(403);
+  });
+
+  it("users without assets.view_all only see assets they hold (custodian or matching user name)", async () => {
+    const user = await makeUser({ name: "สมชาย ใจดี" });
+    const api = await as(user);
+    const mine = await makeAsset({ asset_tag: "MINE-1", custodian_id: user.id });
+    const byName = await makeAsset({ asset_tag: "PC-001", category: "COMPUTER", user_name: " สมชาย ใจดี " });
+    const other = await makeAsset({ asset_tag: "OTHER-1" });
+
+    const list = await api.get("/api/v1/assets");
+    expect(list.body.data.map((a: { asset_tag: string }) => a.asset_tag).sort()).toEqual(["MINE-1", "PC-001"]);
+    expect((await api.get(`/api/v1/assets/${mine.uuid}`)).status).toBe(200);
+    expect((await api.get(`/api/v1/assets/${byName.uuid}`)).status).toBe(200);
+    expect((await api.get(`/api/v1/assets/${other.uuid}`)).status).toBe(404);
+    expect((await api.get(`/api/v1/assets/${other.uuid}/movements`)).status).toBe(404);
+    expect((await api.get("/api/v1/movements")).status).toBe(403);
+
+    // ฝ่าย IT (assets.view_all) เห็นทั้งหมด
+    const it = await as(await makeUser({ is_it_staff: true }));
+    expect((await it.get("/api/v1/assets")).body.meta.total).toBe(3);
+    expect((await it.get("/api/v1/movements")).status).toBe(200);
   });
 });

@@ -83,6 +83,20 @@ export async function markNotificationRead(id: string): Promise<void> {
 
 export async function markAllNotificationsRead(): Promise<void> {
   await apiFetch("/notifications/read-all", { method: "POST" }).catch(() => undefined);
+  revalidatePath("/notifications");
+}
+
+/** ลบแจ้งเตือนรายการเดียว (ของตัวเอง) */
+export async function deleteNotification(id: string): Promise<void> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return;
+  await apiFetch(`/notifications/${id}`, { method: "DELETE" }).catch(() => undefined);
+  revalidatePath("/notifications");
+}
+
+/** ล้างแจ้งเตือนของตัวเอง — "read" = เฉพาะที่อ่านแล้ว, "all" = ทั้งหมด */
+export async function clearNotifications(which: "read" | "all"): Promise<void> {
+  await apiFetch(which === "read" ? "/notifications?only=read" : "/notifications", { method: "DELETE" }).catch(() => undefined);
+  revalidatePath("/notifications");
 }
 
 /** ผู้แจ้งขอยกเลิก (อนุมัติแล้ว) — ต้องมีเหตุผล */

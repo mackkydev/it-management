@@ -2,7 +2,7 @@
 
 ระบบงานฝ่าย IT (ใบแจ้งงาน IT, คลังบัญชี/รหัสผ่าน, สัญญา vendor, สินทรัพย์ IT):
 **Next.js 16 (App Router) + Express.js 5 API + MySQL 8.4** — รันบน Docker (`docker compose up -d`)
-- Container: `it_express` (8020, API + scheduler), `it_mysql` (3308, db `it_system`, user `it_app`), `it_adminer` (8081)
+- Container: `it_express` (8020, API + scheduler), `it_mysql` (3308, db `it_system`, user `it_app`), `it_phpmyadmin` (8082), `it_adminer` (8081)
 - ฐานเดิมเก็บเป็นสำรอง ไม่ใช้งานแล้ว: PostgreSQL (profile `legacy-postgres`, volume `it-system_it_pg` — ย้ายมา MySQL 2026-10-05), MariaDB (profile `legacy-mariadb`, volume `it-system_it_db`)
 - ชื่อภายในเดิมที่ตั้งใจคงไว้: cookie `eam_*`, prefix ข้อความ `eam.*`, `EAM_TOKEN_TTL_MINUTES`
 - **ตั้งแต่ 2026-10-04 ใช้ Express อย่างเดียว** — ถอด Laravel (`backend/`, `it_api`) ออกแล้ว (ดูโค้ดเดิมจาก git history) ห้ามสร้างกลับมา
@@ -37,8 +37,11 @@
 ## API User (login ผ่าน REST API ต้นทาง)
 - โค้ดกลาง: `express/src/services/api-auth.ts` (login / JIT / session), `upstream-http.ts` (เรียกต้นทาง: https เท่านั้น, กัน SSRF + allowlist, จำกัด redirect/ขนาด), `audit.ts`
 - ห้ามเก็บ/ log รหัสผ่านหรือ token ของต้นทาง — token เก็บเข้ารหัสใน `external_sessions` ผูกกับ token ของเรา; อ่านค่าจาก response ด้วย `readPath` (dot path) เท่านั้น
-- JIT ครั้งถัดไปอัปเดตเฉพาะชื่อ/อีเมล — ห้ามทับ role / สิทธิ์ / สถานะ / ลายเซ็น; อีเมลซ้ำ → เว้นว่าง + audit `api_user.email_conflict` (admin ผูกบัญชีเองที่ `/api-users`)
+- JIT ครั้งถัดไป (login / ตรวจซ้ำ / directory sync) อัปเดตชื่อ/อีเมล + role ตามต้นทางเมื่อตั้ง `field_map.role_code` (audit `api_user.role_synced`, admin แก้ role รายคนไม่ได้ → 422) — ห้ามทับสิทธิ์รายคน / it_staff / it_head / สถานะ / ลายเซ็น; อีเมลซ้ำ → เว้นว่าง + audit `api_user.email_conflict` (admin ผูกบัญชีเองที่ `/api-users`)
 - เทสต์ใช้ upstream จำลอง `setUpstreamTestHooks()` — ห้ามออกเน็ตจริงในเทสต์
+- ต้นทางจริง = STEC SyteLine API (คู่มือ STEC API Portal): login → `{ token, expiresAt }`, ตรวจซ้ำด้วย `GET /api/v1/auth/permissions` (`{ appIds }`), logout, `/health`
+  ไม่มีโปรไฟล์/รายชื่อผู้ใช้/refresh → field_map ใช้ `$login` (ชื่อผู้ใช้ที่ login) เป็นรหัส/ชื่อ (ชื่อนี้ไม่เขียนทับชื่อที่ admin แก้), role จาก array `appIds` (ตรงกฎแรก)
+  ค่าตามคู่มือใส่ด้วยปุ่ม "ตั้งค่าตามคู่มือ STEC" ในฟอร์ม — เทสต์ที่ `express/tests/stec-api.test.ts`
 - ทุกการเปลี่ยนสิทธิ์/การตั้งค่า/การผูกบัญชีต้องลง `audit_logs` (ใช้ `audit()` — ตัด key ที่เป็น secret ให้อัตโนมัติ)
 
 ## ลายเซ็น (user_signatures)
@@ -63,6 +66,9 @@
 - Dropdown ทุกที่ใช้ `<AppSelect>` (`components/app-select.tsx` — รายการลอย ตัวที่เลือกพื้นจาง + เครื่องหมายถูก, คีย์บอร์ด, ค้นหาเมื่อรายการ > 8) **ห้ามใช้ `<select>` ตรงๆ หรือสร้าง dropdown เอง**; ใส่ `<option>` เป็น children หรือส่ง `options` ได้, `onChange` รับ handler เดิมของ `<select>` ได้, ฟอร์ม GET ใช้ `name` + `defaultValue` (ส่งค่าผ่าน hidden input); กล่องลอยใหม่ใช้ `useFloating`/`useDismiss` จาก `components/floating.ts`
 - ใบแจ้งงาน: ฝ่าย IT (และเจ้าหน้าที่ที่ผู้แจ้งเลือก) เห็น/ได้แจ้งเตือนหลังหัวหน้าอนุมัติแล้วเท่านั้น (`PRE_APPROVAL` ใน `express/src/services/ticket-workflow.ts`)
 - การติดตั้ง license (`license_installations`): นับ seat จากรายการที่ `uninstalled_at` เป็น null — บันทึกเกิน `asset_licenses.seats` ไม่ได้ และลด seats ต่ำกว่าที่ใช้อยู่ไม่ได้
+- หมวด `COMPUTER` = ทะเบียนคอมพิวเตอร์ตาม Excel ของฝ่าย IT: `asset_tag` = Host Name, ข้อมูลเครื่องอยู่ในคอลัมน์ของ `assets` (department, user_name, ip_address, os, office ฯลฯ)
+  นำเข้า/template ที่ `express/src/services/asset-import.ts` (Host Name เดิม = อัปเดต, สาขาจับคู่จาก `branches.work_group`, ผิดแม้แถวเดียว = ไม่บันทึกเลย)
+  department / user_name / os / office เป็นข้อความชั่วคราว — ภายหลังผูกกับผู้ใช้จาก API และการติดตั้ง license
 - หมวดสินทรัพย์กำหนดฟอร์มเพิ่มเติมที่ `CATEGORY_FORM` (`frontend/src/lib/types.ts`) — `SOFTWARE` = ข้อมูล license (`asset_licenses`, key เข้ารหัส APP_KEY) + ไฟล์ (`asset_files`) และรวมในการแจ้งเตือนหมดอายุ
 
 ## API (Express)

@@ -83,8 +83,9 @@ export const NAV: NavGroup[] = [
     label: "nav.assets",
     icon: BoxIcon,
     items: [
+      // ทุกคนเห็น — ไม่มีสิทธิ์ assets.view_all = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง
       { label: "nav.assetList", href: "/assets", icon: ListIcon },
-      { label: "nav.movements", href: "/movements", icon: HistoryIcon },
+      { label: "nav.movements", href: "/movements", icon: HistoryIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.manage") },
       { label: "nav.licenseInstallations", href: "/license-installations", icon: MonitorIcon, visible: perm("licenses.install") },
     ],
   },

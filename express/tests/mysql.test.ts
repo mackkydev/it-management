@@ -16,14 +16,14 @@ describe("MySQL behaviour parity", () => {
   });
 
   it("search is case-insensitive and matches part of a Thai word", async () => {
-    const api = await as(await makeUser());
+    const api = await as(await makeUser({ is_it_staff: true }));
     await makeAsset({ asset_tag: "NB-001", name: "โน้ตบุ๊ก Dell Latitude", brand: "Dell" });
     await makeAsset({ asset_tag: "PR-001", name: "เครื่องพิมพ์", brand: "Canon" });
 
     expect((await api.get("/api/v1/assets?search=nb-0")).body.data.map((a: { asset_tag: string }) => a.asset_tag)).toEqual(["NB-001"]);
     expect((await api.get("/api/v1/assets?search=latitude")).body.data).toHaveLength(1);
     expect((await api.get(`/api/v1/assets?search=${encodeURIComponent("พิมพ์")}`)).body.data[0].asset_tag).toBe("PR-001");
-    expect((await api.get("/api/v1/users?search=x")).status).toBe(403); // viewer
+    expect((await (await as(await makeUser())).get("/api/v1/users?search=x")).status).toBe(403); // viewer
   });
 
   it("malformed uuid in the URL is 404, not a database error", async () => {

@@ -31,6 +31,8 @@ export function PermissionEditor({
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, start] = useTransition();
   const isApi = view.user.type === "API";
+  // role ตาม appIds จากต้นทางอัตโนมัติ → แก้รายคนไม่ได้
+  const roleEditable = isApi && !view.role_synced;
 
   // สิทธิ์จากกลุ่มตามบทบาทที่เลือกอยู่ (+ it_staff / it_head ตาม flag)
   const inherited = useMemo(() => {
@@ -81,14 +83,14 @@ export function PermissionEditor({
 
       <section className={`p-4 sm:p-6 ${card}`}>
         <h2 className="font-semibold">{t("access.role")}</h2>
-        <p className="mt-1 text-sm text-muted">{isApi ? t("access.roleHint") : t("access.roleLocal")}</p>
+        <p className="mt-1 text-sm text-muted">{!isApi ? t("access.roleLocal") : view.role_synced ? t("access.roleSynced") : t("access.roleHint")}</p>
         <div className="mt-4 flex flex-wrap gap-3">
           {(isApi ? (["manager", "viewer"] as const) : [view.user.role]).map((r) => (
             <label
               key={r}
-              className={`flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-sm ring-1 transition-colors ${role === r ? "bg-accent-100 ring-accent-300 dark:bg-accent-400/15 dark:ring-accent-400/40" : "ring-line hover:bg-subtle"} ${!isApi ? "cursor-not-allowed opacity-70" : ""}`}
+              className={`flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-sm ring-1 transition-colors ${role === r ? "bg-accent-100 ring-accent-300 dark:bg-accent-400/15 dark:ring-accent-400/40" : "ring-line hover:bg-subtle"} ${!roleEditable ? "cursor-not-allowed opacity-70" : ""}`}
             >
-              <input type="radio" name="role" value={r} checked={role === r} disabled={!isApi} onChange={() => setRole(r)} className="cursor-pointer accent-[var(--accent-500)]" />
+              <input type="radio" name="role" value={r} checked={role === r} disabled={!roleEditable} onChange={() => setRole(r)} className="cursor-pointer accent-[var(--accent-500)]" />
               {t(`roles.${r}`)}
             </label>
           ))}

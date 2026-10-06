@@ -8,7 +8,7 @@ import { bool, int, validate } from "../lib/validator.js";
 import { me, pageParam, paginated } from "../http.js";
 import { AUDIENCES, PERMISSION_KEYS, PERMISSIONS } from "../models/permission.js";
 import { findUser, hasHistory, isLocalAdmin, ROLES, type UserRow } from "../models/user.js";
-import { API_ROLES } from "../services/api-auth.js";
+import { API_ROLES, loadConnection } from "../services/api-auth.js";
 import { audit } from "../services/audit.js";
 import { audiencePermissions, audiencesOf, permissionsOf } from "../services/permissions.js";
 
@@ -47,6 +47,12 @@ const overridesOf = async (userId: number) =>
     ).map((r) => [r.key, r.effect]),
   ) as Record<string, "allow" | "deny">;
 
+/** API User ที่การเชื่อมต่อ map รหัส role ไว้ → role ตามต้นทางอัตโนมัติ (admin แก้รายคนไม่ได้) */
+async function roleSynced(u: UserRow): Promise<boolean> {
+  if (u.type !== "API" || u.connection_id === null) return false;
+  return Boolean((await loadConnection(u.connection_id))?.field_map?.role_code);
+}
+
 async function permissionView(u: UserRow) {
   const groups = audiencesOf(u);
   const byGroup = await audiencePermissions();
@@ -59,6 +65,7 @@ async function permissionView(u: UserRow) {
     effective: [...(await permissionsOf(u))].sort(),
     /** Local Admin ผ่านทุกสิทธิ์ — เพิ่ม/ถอดรายคนไม่มีผล */
     is_local_admin: isLocalAdmin(u),
+    role_synced: await roleSynced(u),
   };
 }
 
@@ -101,6 +108,7 @@ accessRoutes.put("/users/:id/permissions", async (req, res) => {
   guard(req);
   const u = await target(req);
   const input = req.input;
+  const synced = await roleSynced(u);
   const data = await validate(
     input,
     { role: ["sometimes", `in:${ROLES.join(",")}`], overrides: ["sometimes", "nullable"] },
@@ -109,6 +117,7 @@ accessRoutes.put("/users/:id/permissions", async (req, res) => {
       after: ({ errors }) => {
         // API User เป็นได้เฉพาะ manager / viewer; บทบาทของผู้ใช้ LOCAL แก้ที่หน้าผู้ใช้
         if ("role" in input && (u.type !== "API" || !API_ROLES.includes(input.role))) errors.add("role", trans(req.locale, "eam.api_connection.invalid_role"));
+        else if ("role" in input && synced && input.role !== u.role) errors.add("role", trans(req.locale, "eam.api_connection.role_synced"));
         const o = input.overrides;
         if (o === undefined || o === null) return;
         if (typeof o !== "object" || Array.isArray(o)) return errors.add("overrides", trans(req.locale, "eam.access.invalid_override"));

@@ -25,12 +25,12 @@ async function blocked(e: unknown, key: string): Promise<ItResult> {
 
 /* ---------------- สาขา (admin) ---------------- */
 
-export async function saveBranch(id: number | null, values: { code: string; name: string; sort_order: number; is_active: boolean }): Promise<ItResult> {
+export async function saveBranch(id: number | null, values: { code: string; name: string; work_group: string; sort_order: number; is_active: boolean }): Promise<ItResult> {
   const { t } = await getI18n();
   try {
     await apiFetch(id ? `/branches/${id}` : "/branches", {
       method: id ? "PATCH" : "POST",
-      body: JSON.stringify({ ...values, code: values.code.trim().toUpperCase(), name: values.name.trim() }),
+      body: JSON.stringify({ ...values, code: values.code.trim().toUpperCase(), name: values.name.trim(), work_group: values.work_group.trim().toUpperCase() || null }),
     });
   } catch (e) {
     return toActionResult(e);

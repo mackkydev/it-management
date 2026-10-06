@@ -41,6 +41,23 @@ export interface Asset {
   purchase_cost: string | null;
   warranty_expires_at: string | null;
   notes: string | null;
+  branch?: { id: number; name: string } | null;
+  /** ข้อมูลเครื่องคอมพิวเตอร์ (หมวด COMPUTER — asset_tag = Host Name) */
+  department: string | null;
+  user_name: string | null;
+  received_date: string | null;
+  start_use_date: string | null;
+  work_group: string | null;
+  mac_address: string | null;
+  computer_type: string | null;
+  ip_address: string | null;
+  os: string | null;
+  office: string | null;
+  email_365: string | null;
+  antivirus: string | null;
+  notebook_tag: string | null;
+  cpu_tag: string | null;
+  monitor_tag: string | null;
   /** เฉพาะหมวด SOFTWARE (null = ไม่มี) */
   license?: AssetLicense | null;
   /** เฉพาะหน้ารายละเอียด */
@@ -98,6 +115,8 @@ export interface Branch {
   id: number;
   code: string;
   name: string;
+  /** Work Group ของ Windows (เช่น LAMPHUN) — ใช้จับคู่สาขาตอน import ทะเบียนคอมพิวเตอร์ */
+  work_group: string | null;
   sort_order: number;
   is_active: boolean;
   users_count?: number;
@@ -326,15 +345,26 @@ export interface UserOption {
   email: string;
 }
 
-export const CATEGORIES = ["IT", "SOFTWARE", "FURNITURE", "VEHICLE", "EQUIPMENT"];
+export const CATEGORIES = ["COMPUTER", "IT", "SOFTWARE", "FURNITURE", "VEHICLE", "EQUIPMENT"];
 
 /**
- * หมวดหมู่กำหนดฟอร์มเพิ่มเติม — license: แสดงส่วนข้อมูล license (+ ไฟล์ license), hide: ซ่อนช่องที่ไม่เกี่ยว
+ * หมวดหมู่กำหนดฟอร์มเพิ่มเติม — license: แสดงส่วนข้อมูล license (+ ไฟล์ license), computer: ข้อมูลเครื่องคอมพิวเตอร์, hide: ซ่อนช่องที่ไม่เกี่ยว
  * หมวดที่ไม่อยู่ในนี้ใช้ฟอร์มปกติ — เพิ่มหมวด/ฟิลด์ใหม่แก้ที่นี่ที่เดียว
  */
-export const CATEGORY_FORM: Record<string, { license?: boolean; hide?: (keyof AssetFormValues)[] }> = {
+export const CATEGORY_FORM: Record<string, { license?: boolean; computer?: boolean; hide?: (keyof AssetFormValues)[] }> = {
+  // ทะเบียนคอมพิวเตอร์: รหัส = Host Name + ข้อมูลเครื่อง (COMPUTER_FIELDS)
+  COMPUTER: { computer: true },
   SOFTWARE: { license: true, hide: ["serial_number", "warranty_expires_at"] },
 };
+
+/** ช่องข้อมูลเครื่องคอมพิวเตอร์ตามลำดับทะเบียน Excel — ข้อความ / วันที่ */
+export const COMPUTER_TEXT_FIELDS = [
+  "department", "user_name", "work_group", "mac_address", "computer_type", "ip_address", "os", "office", "email_365", "antivirus",
+  "notebook_tag", "cpu_tag", "monitor_tag",
+] as const;
+export const COMPUTER_DATE_FIELDS = ["received_date", "start_use_date"] as const;
+/** ค่าที่เลือกได้ของ Computer Type (พิมพ์ค่าอื่นจาก Excel ได้ — แสดงตามที่บันทึก) */
+export const COMPUTER_TYPES = ["Desktop", "Laptop", "All-in-One", "Server", "Tablet"];
 
 export const LICENSE_BILLINGS = ["yearly", "custom", "perpetual"] as const;
 export type LicenseBilling = (typeof LICENSE_BILLINGS)[number];
@@ -456,6 +486,23 @@ export interface AssetFormValues {
   purchase_cost: string;
   warranty_expires_at: string;
   notes: string;
+  branch_id: string;
+  /** ข้อมูลเครื่องคอมพิวเตอร์ (CATEGORY_FORM.computer) */
+  department: string;
+  user_name: string;
+  received_date: string;
+  start_use_date: string;
+  work_group: string;
+  mac_address: string;
+  computer_type: string;
+  ip_address: string;
+  os: string;
+  office: string;
+  email_365: string;
+  antivirus: string;
+  notebook_tag: string;
+  cpu_tag: string;
+  monitor_tag: string;
   /** เหตุผลการโอนย้าย — ส่งเฉพาะตอนแก้ไขและสถานที่/ผู้ถือครองเปลี่ยน */
   movement_reason: string;
   /** ใช้เมื่อหมวดมี license (CATEGORY_FORM) */
@@ -488,6 +535,8 @@ export interface UserPermissionView {
   overrides: Record<string, OverrideEffect>;
   effective: string[];
   is_local_admin: boolean;
+  /** role ตามรหัสจากต้นทาง (appIds) อัตโนมัติ */
+  role_synced: boolean;
 }
 
 /** GET /api-users */
@@ -532,6 +581,8 @@ export interface ApiConnection {
   profile_root_path: string | null;
   logout_path: string | null;
   refresh_path: string | null;
+  /** ตรวจการเข้าถึงต้นทาง (ไม่ใช้บัญชี) เช่น /health */
+  health_path: string | null;
   token_path: string;
   token_ttl_path: string | null;
   refresh_token_path: string | null;

@@ -19,6 +19,7 @@ export interface ApiConnectionRow {
   profile_root_path: string | null;
   logout_path: string | null;
   refresh_path: string | null;
+  health_path: string | null;
   token_path: string;
   token_ttl_path: string | null;
   refresh_token_path: string | null;

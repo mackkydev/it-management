@@ -121,7 +121,7 @@ describe("my signature", () => {
     expect(calls).toHaveLength(0);
 
     const conn_ = (await first<ApiConnectionRow>("SELECT * FROM api_connections WHERE id = ?", [conn]))!;
-    await provisionUser(conn_, { external_id: "E1", name: "ชื่อใหม่", email: null, role_code: null, role: "viewer" }, {});
+    await provisionUser(conn_, { external_id: "E1", name: "ชื่อใหม่", name_from_login: false, email: null, role_code: null, role: "viewer" }, {});
     expect((await signatures(id)).filter((r) => r.is_active)).toHaveLength(1);
     expect((await first<UserRow>("SELECT * FROM users WHERE id = ?", [id]))!.name).toBe("ชื่อใหม่");
   });

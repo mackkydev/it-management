@@ -10,7 +10,9 @@ import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
 import { btn, card, input, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
+import { redirect } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { canViewAllAssets, getCurrentUser } from "@/lib/auth";
 import type { AssetMovement, Location, Paginated } from "@/lib/types";
 import { MOVEMENT_STYLE, MovementChanges } from "../assets/movement-timeline";
 import { AppSelect } from "@/components/app-select";
@@ -35,6 +37,8 @@ function buildQuery(params: Record<string, string | string[] | undefined>) {
 }
 
 export default async function MovementsPage({ searchParams }: PageProps<"/movements">) {
+  // รายงานรวมของทุกสินทรัพย์ — ผู้ที่เห็นเฉพาะของตัวเองดูประวัติได้ในหน้ารายละเอียดสินทรัพย์
+  if (!canViewAllAssets(await getCurrentUser())) redirect("/assets");
   const params = await searchParams;
   const query = buildQuery(params);
   const [{ t }, locations] = await Promise.all([getI18n(), apiFetch<{ data: Location[] }>("/locations")]);

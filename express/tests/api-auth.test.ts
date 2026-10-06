@@ -125,15 +125,26 @@ describe("API users — login through the upstream API", () => {
     expect(res.body.user).toMatchObject({ role: "viewer", email: null });
   });
 
-  it("later logins update the profile only — never the role or permissions set by an admin", async () => {
+  it("later logins update the profile and the mapped role — never the IT flags or other data set by an admin", async () => {
     const conn = await makeConnection();
     await login(conn, "somchai");
     const user = (await userByExternal("E100"))!;
     await exec("UPDATE users SET role = 'viewer', is_it_staff = true, department = 'IT' WHERE id = ?", [user.id]);
     people.somchai.name = "สมชาย (เปลี่ยนชื่อ)";
 
+    // role ตามต้นทาง (position MGR → manager) ทุกครั้ง
     const again = await login(conn, "somchai");
-    expect(again.body.user).toMatchObject({ name: "สมชาย (เปลี่ยนชื่อ)", role: "viewer", is_it_staff: true, department: "IT" });
+    expect(again.body.user).toMatchObject({ name: "สมชาย (เปลี่ยนชื่อ)", role: "manager", is_it_staff: true, department: "IT" });
+    expect(await first("SELECT 1 FROM audit_logs WHERE action = 'api_user.role_synced' AND subject_id = ?", [String(user.id)])).toBeTruthy();
+  });
+
+  it("without a role_code mapping the role set by an admin is kept", async () => {
+    const conn = await makeConnection({ field_map: JSON.stringify({ external_id: "id", name: "name", email: "email" }) });
+    await login(conn, "somchai");
+    const user = (await userByExternal("E100"))!;
+    expect(user.role).toBe("viewer");
+    await exec("UPDATE users SET role = 'manager' WHERE id = ?", [user.id]);
+    expect((await login(conn, "somchai")).body.user.role).toBe("manager");
   });
 
   it("wrong password and unknown user give the same generic message (even if an admin wrote a revealing one)", async () => {

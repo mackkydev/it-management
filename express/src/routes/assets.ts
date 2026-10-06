@@ -8,7 +8,7 @@ import { exists, int, regex, unique, validate, type ErrorBag, type Rules } from 
 import { limits } from "../lib/rate-limit.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
 import { me, pageParam, paginated } from "../http.js";
-import { can } from "../models/user.js";
+import { can, type UserRow } from "../models/user.js";
 import {
   activeCount, BILLINGS, deleteLicense, LICENSE_CATEGORY, loadFiles, loadLicense, revealKey, saveLicense, type AssetFileRow, type LicenseRow,
 } from "../services/asset-licenses.js";
@@ -18,6 +18,8 @@ import {
   type AssetRow, type LocationRow, type MovementJoinedRow,
 } from "../resources.js";
 import { recordIfMoved, recordRegistration } from "../services/asset-movements.js";
+import { COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, buildTemplate, importRows, parseWorkbook } from "../services/asset-import.js";
+import { audit } from "../services/audit.js";
 
 /** AssetController + AssetMovementController + MovementController */
 export const assetRoutes = Router();
@@ -27,7 +29,9 @@ const SORTABLE = ["asset_tag", "name", "category", "status", "purchase_date", "c
 const TAG = /^[A-Za-z0-9\-_/]+$/;
 const FILLABLE = [
   "asset_tag", "name", "category", "brand", "model", "serial_number", "status", "location_id",
-  "custodian_id", "purchase_date", "purchase_cost", "warranty_expires_at", "notes",
+  "custodian_id", "purchase_date", "purchase_cost", "warranty_expires_at", "notes", "branch_id",
+  ...(Object.keys(COMPUTER_TEXT_FIELDS) as (keyof typeof COMPUTER_TEXT_FIELDS)[]),
+  ...COMPUTER_DATE_FIELDS,
 ] as const;
 
 async function findAsset(uuid: string): Promise<AssetRow> {
@@ -37,13 +41,30 @@ async function findAsset(uuid: string): Promise<AssetRow> {
   return asset;
 }
 
+/** เห็นสินทรัพย์ทั้งหมด (ฝ่าย IT / ผู้จัดการสินทรัพย์) — ไม่มีสิทธิ์ = เห็นเฉพาะที่ตัวเองถือครอง */
+const seesAllAssets = (u: UserRow) => can(u, "assets.view_all") || can(u, "assets.manage");
+
+/** สินทรัพย์ "ของฉัน": เป็นผู้ถือครอง หรือชื่อผู้ใช้งาน (ทะเบียนคอมพิวเตอร์ — ข้อความจาก Excel) ตรงกับชื่อตัวเอง */
+const OWN_SQL = "(a.custodian_id = ? OR (a.user_name IS NOT NULL AND LOWER(TRIM(a.user_name)) = LOWER(TRIM(?))))";
+const isOwn = (u: UserRow, a: AssetRow) =>
+  Number(a.custodian_id) === u.id || (a.user_name !== null && a.user_name.trim().toLowerCase() === u.name.trim().toLowerCase());
+
+/** findAsset + ตรวจว่าผู้ใช้เห็นได้ (ของคนอื่น = ไม่พบ ไม่บอกว่ามีอยู่) */
+async function findVisibleAsset(req: Request, uuid: string): Promise<AssetRow> {
+  const asset = await findAsset(uuid);
+  const u = me(req);
+  if (!seesAllAssets(u) && !isOwn(u, asset)) throw notFound();
+  return asset;
+}
+
 /** โหลด location (เต็ม) + custodian + license + ไฟล์ แบบ $asset->load([...]) */
 async function withRelations(a: AssetRow) {
   const location = a.location_id
     ? await first<LocationRow>("SELECT id, code, name, type, parent_id, address, is_active FROM locations WHERE id = ? AND deleted_at IS NULL", [a.location_id])
     : null;
   const custodian = a.custodian_id ? await first<{ id: number; name: string }>("SELECT id, name FROM users WHERE id = ?", [a.custodian_id]) : null;
-  return { location, custodian, license: await loadLicense(a.id), files: await loadFiles(a.id) };
+  const branch = a.branch_id ? await first<{ id: number; name: string }>("SELECT id, name FROM branches WHERE id = ?", [a.branch_id]) : null;
+  return { location, custodian, branch, license: await loadLicense(a.id), files: await loadFiles(a.id) };
 }
 
 /**
@@ -100,6 +121,10 @@ function assetRules(ignoreId?: number): Rules {
     purchase_cost: r(["nullable", "numeric", "min:0", "max:9999999999999.99"]),
     warranty_expires_at: r(["nullable", "date"]),
     notes: r(["nullable", "string", "max:5000"]),
+    branch_id: r(["nullable", "integer", exists("branches", "id", "deleted_at IS NULL")]),
+    // ข้อมูลเครื่องคอมพิวเตอร์ (ใช้กับหมวด COMPUTER — หมวดอื่นส่งมาได้แต่ฟอร์มไม่แสดง)
+    ...Object.fromEntries(Object.entries(COMPUTER_TEXT_FIELDS).map(([k, max]) => [k, r(["nullable", "string", `max:${max}`])])),
+    ...Object.fromEntries(COMPUTER_DATE_FIELDS.map((k) => [k, r(["nullable", "date"])])),
     ...(ignoreId ? { movement_reason: ["sometimes", "nullable", "string", "max:1000"] } : {}),
   };
 }
@@ -113,7 +138,8 @@ const assetMessages = (req: Request) => ({
 /** ค่าจาก input → ค่าที่เก็บใน DB (ตาม cast ของ model) */
 function columnValue(key: string, v: unknown): unknown {
   if (v === null || v === undefined) return v;
-  if (key === "location_id" || key === "custodian_id") return int(v);
+  if (key === "location_id" || key === "custodian_id" || key === "branch_id") return int(v);
+  if ((COMPUTER_DATE_FIELDS as readonly string[]).includes(key)) return String(v).slice(0, 10);
   if (key === "purchase_date" || key === "warranty_expires_at") return String(v).slice(0, 10);
   if (key === "purchase_cost") return Number(v).toFixed(2);
   return v;
@@ -121,7 +147,7 @@ function columnValue(key: string, v: unknown): unknown {
 
 /* ---------------------------------------------------------------- assets */
 
-/** GET /assets?search=&status=&category=&location_id=&sort=-created_at&per_page=25&page=1 */
+/** GET /assets?search=&status=&category=&location_id=&branch_id=&sort=-created_at&per_page=25&page=1 */
 assetRoutes.get("/assets", async (req, res) => {
   const f = await validate(
     req.input,
@@ -130,6 +156,7 @@ assetRoutes.get("/assets", async (req, res) => {
       status: ["nullable", `in:${STATUSES.join(",")}`],
       category: ["nullable", "string", "max:50"],
       location_id: ["nullable", "integer"],
+      branch_id: ["nullable", "integer"],
       sort: ["nullable", "string", `in:${[...SORTABLE, ...SORTABLE.map((c) => `-${c}`)].join(",")}`],
       per_page: ["nullable", "integer", "min:1", "max:100"],
     },
@@ -147,13 +174,17 @@ assetRoutes.get("/assets", async (req, res) => {
   const term = String(f.search ?? "").trim();
   if (term) {
     const esc = likeEscape(term);
-    // asset_tag / serial ใช้ prefix match, ชื่อ/ยี่ห้อ/รุ่น ค้นหาบางส่วนของคำ (index trigram — รองรับภาษาไทย)
-    where.push("(a.asset_tag LIKE ? OR a.serial_number LIKE ? OR a.name LIKE ? OR a.brand LIKE ? OR a.model LIKE ?)");
-    params.push(`${esc}%`, `${esc}%`, `%${esc}%`, `%${esc}%`, `%${esc}%`);
+    // asset_tag (Host Name) / serial ใช้ prefix match, ชื่อ/ยี่ห้อ/รุ่น/ผู้ใช้งาน/IP ค้นหาบางส่วนของคำ
+    where.push("(a.asset_tag LIKE ? OR a.serial_number LIKE ? OR a.name LIKE ? OR a.brand LIKE ? OR a.model LIKE ? OR a.user_name LIKE ? OR a.ip_address LIKE ?)");
+    params.push(`${esc}%`, `${esc}%`, `%${esc}%`, `%${esc}%`, `%${esc}%`, `%${esc}%`, `${esc}%`);
   }
   if (f.status) (where.push("a.status = ?"), params.push(f.status));
   if (f.category) (where.push("a.category = ?"), params.push(f.category));
   if (f.location_id) (where.push("a.location_id = ?"), params.push(int(f.location_id)));
+  if (f.branch_id) (where.push("a.branch_id = ?"), params.push(int(f.branch_id)));
+  // ไม่มีสิทธิ์ดูทั้งหมด → เฉพาะที่ตัวเองถือครอง
+  const viewer = me(req);
+  if (!seesAllAssets(viewer)) (where.push(OWN_SQL), params.push(viewer.id, viewer.name));
   const whereSql = where.join(" AND ");
 
   const total = Number(await scalar(`SELECT COUNT(*) FROM assets a WHERE ${whereSql}`, params));
@@ -161,16 +192,17 @@ assetRoutes.get("/assets", async (req, res) => {
     AssetRow & {
       l_id: number | null; l_code: string; l_name: string; l_type: string; l_parent_id: number | null; c_id: number | null; c_name: string;
       li_id: number | null; li_billing: string; li_start_date: string; li_expires_at: string | null; li_seats: number | null;
-      li_vendor: string | null; li_notify: number | null; li_has_key: boolean;
+      li_vendor: string | null; li_notify: number | null; li_has_key: boolean; b_name: string | null;
     }
   >(
     `SELECT a.*, l.id AS l_id, l.code AS l_code, l.name AS l_name, l.type AS l_type, l.parent_id AS l_parent_id, c.id AS c_id, c.name AS c_name,
             li.id AS li_id, li.billing AS li_billing, li.start_date AS li_start_date, li.expires_at AS li_expires_at, li.seats AS li_seats,
-            li.vendor AS li_vendor, li.notify_days_before AS li_notify, (li.license_key IS NOT NULL) AS li_has_key
+            li.vendor AS li_vendor, li.notify_days_before AS li_notify, (li.license_key IS NOT NULL) AS li_has_key, br.name AS b_name
        FROM assets a
        LEFT JOIN locations l ON l.id = a.location_id AND l.deleted_at IS NULL
        LEFT JOIN users c ON c.id = a.custodian_id
        LEFT JOIN asset_licenses li ON li.asset_id = a.id
+       LEFT JOIN branches br ON br.id = a.branch_id
       WHERE ${whereSql}
       ORDER BY a."${column}" ${dir}, a.id ${dir}
       LIMIT ? OFFSET ?`,
@@ -182,6 +214,7 @@ assetRoutes.get("/assets", async (req, res) => {
       // index โหลด location เฉพาะ id,code,name,type,parent_id
       location: r.l_id ? { id: r.l_id, code: r.l_code, name: r.l_name, type: r.l_type, parent_id: r.l_parent_id } : null,
       custodian: r.c_id ? { id: r.c_id, name: r.c_name } : null,
+      branch: r.branch_id && r.b_name ? { id: r.branch_id, name: r.b_name } : null,
       license: r.li_id
         ? ({
             id: r.li_id, asset_id: r.id, billing: r.li_billing, start_date: r.li_start_date, expires_at: r.li_expires_at, seats: r.li_seats,
@@ -222,6 +255,41 @@ assetRoutes.get("/assets/suggestions", async (req, res) => {
   res.json({ data: values.slice(0, 10) });
 });
 
+/* ---------------------------------------------------------------- import ทะเบียนคอมพิวเตอร์ (Excel) */
+
+/** GET /assets/import-template — template .xlsx (หัวตารางตามทะเบียนเดิม + แผ่นคำอธิบาย) */
+assetRoutes.get("/assets/import-template", async (req, res) => {
+  authorize(can(me(req), "assets.manage"));
+  const name = "asset-import-template.xlsx";
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${name}"; filename*=utf-8''${encodeURIComponent(name)}`);
+  res.send(await buildTemplate(req.locale));
+});
+
+/**
+ * POST /assets/import (multipart: file) — นำเข้าทะเบียนคอมพิวเตอร์ (หมวด COMPUTER, Host Name = รหัส, เจอเดิม = อัปเดต)
+ * ตรวจทุกแถวก่อน: ผิดแม้แถวเดียว = 422 + รายการแถวที่ผิด (ไม่บันทึกเลย)
+ */
+assetRoutes.post("/assets/import", async (req, res) => {
+  const u = me(req);
+  authorize(can(u, "assets.manage"));
+  const data = await validate(req.input, { file: ["required", "file", "mimes:xlsx", "max:5120"] }, { locale: req.locale });
+  const file = data.file as UploadedFile;
+
+  const parsed = await parseWorkbook(file.buffer, req.locale);
+  const outcome = parsed.errors.length ? { errors: parsed.errors } : await importRows(parsed.rows, u.id, req.locale);
+  if ("errors" in outcome) {
+    res.status(422).json({ message: trans(req.locale, "eam.asset_import.failed"), rows: outcome.errors });
+    return;
+  }
+  await audit(req, {
+    action: "asset.imported",
+    subjectType: "asset",
+    after: { file: file.originalName, created: outcome.created, updated: outcome.updated, warnings: outcome.warnings.length },
+  });
+  res.json({ data: outcome });
+});
+
 assetRoutes.post("/assets", async (req, res) => {
   const data = await validate(req.input, { ...assetRules(), ...licenseRules(req.input) }, { locale: req.locale, messages: assetMessages(req), after: licenseAfter(req) });
   const u = me(req);
@@ -250,7 +318,7 @@ assetRoutes.post("/assets", async (req, res) => {
 });
 
 assetRoutes.get("/assets/:uuid", async (req, res) => {
-  const asset = await findAsset(req.params.uuid);
+  const asset = await findVisibleAsset(req, req.params.uuid);
   res.json({ data: assetResource(asset, req.locale, await withRelations(asset)) });
 });
 
@@ -334,7 +402,7 @@ assetRoutes.post("/assets/:uuid/files", async (req, res) => {
 
 /** GET /assets/{uuid}/files/{id}[?download=1] — pdf/รูป/ข้อความเปิดดูในเบราว์เซอร์ได้, ไฟล์อื่นดาวน์โหลด */
 assetRoutes.get("/assets/:uuid/files/:id", async (req, res) => {
-  const asset = await findAsset(req.params.uuid);
+  const asset = await findVisibleAsset(req, req.params.uuid);
   const file = await findFile(asset.id, req.params.id);
   const stored = await readStored(file.path);
   const inline = !("download" in req.query) && INLINE_MIME.test(file.mime);
@@ -364,7 +432,7 @@ async function findFile(assetId: number, id: string): Promise<AssetFileRow> {
 
 /** GET /assets/{uuid}/movements?per_page=20 — ล่าสุดก่อน */
 assetRoutes.get("/assets/:uuid/movements", async (req, res) => {
-  const asset = await findAsset(req.params.uuid);
+  const asset = await findVisibleAsset(req, req.params.uuid);
   const f = await validate(req.input, { per_page: ["nullable", "integer", "min:1", "max:100"] }, { locale: req.locale });
   const perPage = int(f.per_page) ?? 20;
   const page = pageParam(req);
@@ -425,6 +493,8 @@ assetRoutes.post("/assets/:uuid/movements", async (req, res) => {
 
 /** GET /movements?search=เลขครุภัณฑ์&location_id=&type=&from=&to=&per_page= */
 assetRoutes.get("/movements", async (req, res) => {
+  // รายงานรวมของทุกสินทรัพย์ — เฉพาะผู้ที่เห็นสินทรัพย์ทั้งหมด
+  authorize(seesAllAssets(me(req)));
   const f = await validate(
     req.input,
     {

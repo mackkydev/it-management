@@ -97,6 +97,23 @@ export interface AssetRow {
   purchase_cost: string | null;
   warranty_expires_at: string | null;
   notes: string | null;
+  branch_id: number | null;
+  /** ข้อมูลเครื่องคอมพิวเตอร์ (หมวด COMPUTER) — ดู COMPUTER_FIELDS */
+  department: string | null;
+  user_name: string | null;
+  received_date: string | null;
+  start_use_date: string | null;
+  work_group: string | null;
+  mac_address: string | null;
+  computer_type: string | null;
+  ip_address: string | null;
+  os: string | null;
+  office: string | null;
+  email_365: string | null;
+  antivirus: string | null;
+  notebook_tag: string | null;
+  cpu_tag: string | null;
+  monitor_tag: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -108,6 +125,7 @@ export function assetResource(
   rel: {
     location?: LocationRow | null;
     custodian?: { id: number; name: string } | null;
+    branch?: { id: number; name: string } | null;
     license?: LicenseRow | null;
     files?: AssetFileRow[];
   } = {},
@@ -128,6 +146,22 @@ export function assetResource(
     purchase_cost: a.purchase_cost,
     warranty_expires_at: dateOnly(a.warranty_expires_at),
     notes: a.notes,
+    ...("branch" in rel ? { branch: rel.branch ? { id: Number(rel.branch.id), name: rel.branch.name } : null } : {}),
+    department: a.department,
+    user_name: a.user_name,
+    received_date: dateOnly(a.received_date),
+    start_use_date: dateOnly(a.start_use_date),
+    work_group: a.work_group,
+    mac_address: a.mac_address,
+    computer_type: a.computer_type,
+    ip_address: a.ip_address,
+    os: a.os,
+    office: a.office,
+    email_365: a.email_365,
+    antivirus: a.antivirus,
+    notebook_tag: a.notebook_tag,
+    cpu_tag: a.cpu_tag,
+    monitor_tag: a.monitor_tag,
     ...("license" in rel ? { license: rel.license ? licenseJson(rel.license) : null } : {}),
     ...("files" in rel ? { files: (rel.files ?? []).map((f) => fileJson(a.uuid, f)) } : {}),
     created_at: iso(a.created_at),

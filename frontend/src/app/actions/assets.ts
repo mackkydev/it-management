@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { toActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
-import { CATEGORY_FORM, type AssetFormValues, type FieldErrors, type UserOption } from "@/lib/types";
+import { CATEGORY_FORM, COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, type AssetFormValues, type FieldErrors, type UserOption } from "@/lib/types";
 
 export interface SaveResult {
   errors?: FieldErrors;
@@ -48,10 +48,41 @@ function toPayload(v: AssetFormValues) {
     purchase_cost: text(v.purchase_cost),
     warranty_expires_at: form?.hide?.includes("warranty_expires_at") ? null : text(v.warranty_expires_at),
     notes: text(v.notes),
+    branch_id: v.branch_id ? Number(v.branch_id) : null,
+    // ข้อมูลเครื่องคอมพิวเตอร์: หมวดอื่นส่งเป็น null (ไม่เก็บค่าค้างจากหมวดเดิม)
+    ...Object.fromEntries([...COMPUTER_TEXT_FIELDS, ...COMPUTER_DATE_FIELDS].map((k) => [k, form?.computer ? text(v[k]) : null])),
   };
 }
 
 const toResult = (e: unknown) => toActionResult<keyof FieldErrors>(e, "assets.form.notFound");
+
+export type ImportIssue = { row: number; message: string };
+export type ImportResult =
+  | { ok: true; created: number; updated: number; warnings: ImportIssue[] }
+  | { ok: false; message: string; rows: ImportIssue[] };
+
+/** นำเข้าทะเบียนคอมพิวเตอร์จาก Excel (multipart: file) — ผิดแม้แถวเดียว API ไม่บันทึกเลยและส่งรายการแถวที่ผิดกลับมา */
+export async function importAssets(form: FormData): Promise<ImportResult> {
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    const { t } = await getI18n();
+    return { ok: false, message: t("assets.import.noFile"), rows: [] };
+  }
+  const body = new FormData();
+  body.set("file", file, file.name);
+  try {
+    const res = await apiFetch<{ data: { created: number; updated: number; warnings: ImportIssue[] } }>("/assets/import", { method: "POST", body });
+    revalidatePath("/assets");
+    return { ok: true, ...res.data };
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 422) {
+      const b = e.body as { message?: string; rows?: ImportIssue[]; errors?: Record<string, string[]> };
+      return { ok: false, message: b.errors?.file?.[0] ?? b.message ?? "", rows: b.rows ?? [] };
+    }
+    const r = await toResult(e);
+    return { ok: false, message: r.message ?? "", rows: [] };
+  }
+}
 
 /** ค่ายี่ห้อ/รุ่นที่มีอยู่แล้ว (ช่องพิมพ์แล้วแนะนำ) */
 export async function suggestAssetValues(field: "brand" | "model", q: string, brand = ""): Promise<string[]> {

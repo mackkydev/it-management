@@ -8,12 +8,14 @@ import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
+import { Tooltip } from "@/components/tooltip";
 import { alert, btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { Formatters, MessageKey, TFunction } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
-import { getAccess, canManageAssets, getCurrentUser } from "@/lib/auth";
-import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Location, type Paginated } from "@/lib/types";
+import { getAccess, canManageAssets, canViewAllAssets, getCurrentUser } from "@/lib/auth";
+import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Branch, type Location, type Paginated } from "@/lib/types";
+import { ImportAssets } from "./import-assets";
 import { AppSelect } from "@/components/app-select";
 
 /** วันหมดอายุ license ในรายการ: หมดแล้ว = แดง, เหลือ ≤ 30 วัน = เหลือง */
@@ -39,7 +41,7 @@ const SAVED = ["created", "updated", "deleted"] as const;
 /** อนุญาตเฉพาะพารามิเตอร์ที่รู้จัก ก่อนส่งต่อไปยัง API */
 function buildQuery(params: Record<string, string | string[] | undefined>) {
   const q = new URLSearchParams();
-  for (const key of ["search", "status", "category", "location_id", "page"]) {
+  for (const key of ["search", "status", "category", "branch_id", "location_id", "page"]) {
     const value = params[key];
     if (typeof value === "string" && value !== "") q.set(key, value);
   }
@@ -53,23 +55,35 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
   const { t } = await getI18n();
 
   // ข้อมูลส่วนหัว/ตัวกรอง (เร็ว: locations ถูก cache, user ถูก dedupe กับ layout)
-  const [locations, user, can] = await Promise.all([apiFetch<{ data: Location[] }>("/locations"), getCurrentUser(), getAccess()]);
+  const [locations, branches, user, can] = await Promise.all([
+    apiFetch<{ data: Location[] }>("/locations"),
+    apiFetch<{ data: Branch[] }>("/branches"),
+    getCurrentUser(),
+    getAccess(),
+  ]);
   // สิทธิ์เดิม (admin/manager) + การตั้งค่าหน้าสิทธิ์การใช้งาน
   const canCreate = canManageAssets(user) && can("btn:assets:create");
   const canEdit = canManageAssets(user) && can("btn:assets:edit");
   const saved = SAVED.find((s) => s === params.saved);
+  // ไม่มีสิทธิ์ดูทั้งหมด → API ส่งเฉพาะสินทรัพย์ที่ผู้ใช้ถือครอง
+  const mineOnly = !canViewAllAssets(user);
 
   return (
     <div className="space-y-5">
       <PageHeader
         icon={BoxIcon}
-        title={t("assets.title")}
+        title={mineOnly ? t("assets.mine.title") : t("assets.title")}
+        subtitle={mineOnly ? t("assets.mine.subtitle") : undefined}
         actions={
           canCreate && (
-            <Link href="/assets/new" className={btn.primary}>
-              <LinkPendingIcon icon={<PlusIcon />} />
-              {t("assets.add")}
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              {/* นำเข้าทะเบียนคอมพิวเตอร์จาก Excel (มีปุ่มดาวน์โหลด template ใน modal) */}
+              <ImportAssets />
+              <Link href="/assets/new" className={btn.primary}>
+                <LinkPendingIcon icon={<PlusIcon />} />
+                {t("assets.add")}
+              </Link>
+            </div>
           )
         }
       />
@@ -82,8 +96,9 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
       )}
 
       {/* ตัวกรอง: next/form = GET form ที่เปลี่ยนหน้าแบบ client-side (ยังทำงานได้แม้ปิด JavaScript) */}
-      <Form action="/assets" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5 ${card}`}>
-        <div className="relative lg:col-span-2">
+      {/* จอใหญ่: ตัวกรองทั้งหมด + ปุ่มอยู่บรรทัดเดียวกัน */}
+      <Form action="/assets" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.6fr)_repeat(4,minmax(0,1fr))_auto] ${card}`}>
+        <div className="relative sm:col-span-2 xl:col-span-1">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
           <input
             name="search"
@@ -109,6 +124,14 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
             </option>
           ))}
         </AppSelect>
+        <AppSelect name="branch_id" defaultValue={params.branch_id as string | undefined} className={input} aria-label={t("assets.col.branch")}>
+          <option value="">{t("assets.allBranches")}</option>
+          {branches.data.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </AppSelect>
         <AppSelect name="location_id" defaultValue={params.location_id as string | undefined} className={input}>
           <option value="">{t("assets.allLocations")}</option>
           {locations.data.map((l) => (
@@ -117,12 +140,13 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
             </option>
           ))}
         </AppSelect>
-        <div className="flex gap-2 sm:col-span-2 lg:col-span-5 lg:justify-end">
-          <Link href="/assets" className={`${btn.secondary} flex-1 lg:flex-none`}>
-            <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
-            {t("common.clearFilters")}
-          </Link>
-          <SubmitButton icon={<SearchIcon />} pendingText={t("common.searching")} className={`${btn.primary} flex-1 lg:flex-none`}>
+        <div className="flex gap-2 sm:col-span-2 xl:col-span-1">
+          <Tooltip label={t("common.clearFilters")} side="top">
+            <Link href="/assets" className={`${btn.secondary} h-full`} aria-label={t("common.clearFilters")}>
+              <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
+            </Link>
+          </Tooltip>
+          <SubmitButton icon={<SearchIcon />} pendingText={t("common.searching")} className={`${btn.primary} flex-1 whitespace-nowrap`}>
             {t("common.search")}
           </SubmitButton>
         </div>
@@ -130,13 +154,13 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
 
       {/* key ตามเงื่อนไขค้นหา: เปลี่ยนตัวกรอง/หน้า → แสดง skeleton ระหว่างรอข้อมูลชุดใหม่ */}
       <Suspense key={query.toString()} fallback={<TableSkeleton />}>
-        <AssetResults query={query} canEdit={canEdit} />
+        <AssetResults query={query} canEdit={canEdit} mineOnly={mineOnly} />
       </Suspense>
     </div>
   );
 }
 
-async function AssetResults({ query, canEdit }: { query: URLSearchParams; canEdit: boolean }) {
+async function AssetResults({ query, canEdit, mineOnly }: { query: URLSearchParams; canEdit: boolean; mineOnly: boolean }) {
   const [assets, { t, fmt }] = await Promise.all([apiFetch<Paginated<Asset>>(`/assets?${query}`), getI18n()]);
   const { meta } = assets;
 
@@ -159,7 +183,7 @@ async function AssetResults({ query, canEdit }: { query: URLSearchParams; canEdi
       <p className="text-sm text-muted">{t("common.total", { count: fmt.number(meta.total) })}</p>
 
       {assets.data.length === 0 ? (
-        <div className={`p-10 text-center text-muted ${card}`}>{t("assets.empty")}</div>
+        <div className={`p-10 text-center text-muted ${card}`}>{mineOnly && !query.get("search") ? t("assets.mine.empty") : t("assets.empty")}</div>
       ) : (
         <>
           {/* Desktop / Tablet แนวนอน: ตาราง */}
@@ -170,6 +194,7 @@ async function AssetResults({ query, canEdit }: { query: URLSearchParams; canEdi
                   <th className={table.th}>{t("assets.col.tag")}</th>
                   <th className={table.th}>{t("assets.col.name")}</th>
                   <th className={table.th}>{t("assets.col.category")}</th>
+                  <th className={table.th}>{t("assets.col.branch")}</th>
                   <th className={table.th}>{t("assets.col.location")}</th>
                   <th className={table.th}>{t("assets.col.custodian")}</th>
                   <th className={table.th}>{t("assets.col.status")}</th>
@@ -189,11 +214,16 @@ async function AssetResults({ query, canEdit }: { query: URLSearchParams; canEdi
                         {[a.brand, a.model].filter(Boolean).join(" ")}
                         {a.serial_number && ` · S/N ${a.serial_number}`}
                       </div>
+                      {/* คอมพิวเตอร์: ผู้ใช้งาน / IP / OS */}
+                      {(a.user_name || a.ip_address || a.os) && (
+                        <div className="text-xs text-muted">{[a.user_name, a.ip_address, a.os].filter(Boolean).join(" · ")}</div>
+                      )}
                     </td>
                     <td className={table.td}>
                       {t(`assets.categories.${a.category}` as MessageKey)}
                       {a.license && <LicenseExpiry license={a.license} t={t} fmt={fmt} />}
                     </td>
+                    <td className={table.td}>{a.branch?.name ?? "-"}</td>
                     <td className={table.td}>{a.location?.name ?? "-"}</td>
                     <td className={table.td}>{a.custodian?.name ?? "-"}</td>
                     <td className={table.td}>
@@ -222,7 +252,10 @@ async function AssetResults({ query, canEdit }: { query: URLSearchParams; canEdi
                 </Link>
                 <div className="text-xs text-muted">{[a.brand, a.model].filter(Boolean).join(" ")}</div>
                 {a.license && <LicenseExpiry license={a.license} t={t} fmt={fmt} />}
+                {(a.user_name || a.ip_address) && <div className="text-xs text-muted">{[a.user_name, a.ip_address].filter(Boolean).join(" · ")}</div>}
                 <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                  <dt className="text-muted">{t("assets.col.branch")}</dt>
+                  <dd>{a.branch?.name ?? "-"}</dd>
                   <dt className="text-muted">{t("assets.col.location")}</dt>
                   <dd>{a.location?.name ?? "-"}</dd>
                   <dt className="text-muted">{t("assets.col.custodian")}</dt>

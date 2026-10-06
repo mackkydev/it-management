@@ -211,6 +211,26 @@ model assets {
   created_at                       DateTime?               @db.DateTime(0)
   updated_at                       DateTime?               @db.DateTime(0)
   deleted_at                       DateTime?               @db.DateTime(0)
+  /// สาขาของสินทรัพย์ (ตัวกรองหน้ารายการ) — import Excel จับคู่จาก Work Group ของสาขา
+  branch_id                        BigInt?
+  /// ข้อมูลเครื่องคอมพิวเตอร์ (หมวด COMPUTER — asset_tag = Host Name) ตามทะเบียน Excel ของฝ่าย IT
+  /// department / user_name เก็บเป็นข้อความไปก่อน — ภายหลังดึงจากผู้ใช้ที่ได้จาก API; os / office ภายหลังผูกกับการติดตั้ง license
+  department                       String?                 @db.VarChar(100)
+  user_name                        String?                 @db.VarChar(255)
+  received_date                    DateTime?               @db.Date
+  start_use_date                   DateTime?               @db.Date
+  work_group                       String?                 @db.VarChar(50)
+  mac_address                      String?                 @db.VarChar(50)
+  computer_type                    String?                 @db.VarChar(30)
+  ip_address                       String?                 @db.VarChar(45)
+  os                               String?                 @db.VarChar(100)
+  office                           String?                 @db.VarChar(100)
+  email_365                        String?                 @db.VarChar(255)
+  antivirus                        String?                 @db.VarChar(100)
+  notebook_tag                     String?                 @db.VarChar(100)
+  cpu_tag                          String?                 @db.VarChar(100)
+  monitor_tag                      String?                 @db.VarChar(255)
+  branches                         branches?               @relation(fields: [branch_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "assets_branch_id_foreign")
   asset_files                      asset_files[]
   asset_licenses                   asset_licenses?
   license_installations_license    license_installations[] @relation("license_installations_license_asset_idToassets")
@@ -230,6 +250,7 @@ model assets {
   @@index([serial_number], map: "assets_serial_number_index")
   @@index([status, location_id], map: "assets_status_location_id_index")
   @@index([updated_by], map: "assets_updated_by_index")
+  @@index([branch_id], map: "assets_branch_id_index")
 }
 
 model branches {
@@ -241,7 +262,10 @@ model branches {
   created_at            DateTime?               @db.DateTime(0)
   updated_at            DateTime?               @db.DateTime(0)
   deleted_at            DateTime?               @db.DateTime(0)
+  /// ชื่อ Work Group ของ Windows ที่สาขานี้ใช้ (เช่น LAMPHUN) — import ทะเบียนคอมพิวเตอร์จับคู่สาขาจากค่านี้ (ไม่ซ้ำ ไม่สนตัวพิมพ์)
+  work_group            String?                 @unique(map: "branches_work_group_unique") @db.VarChar(50)
   approval_routes       approval_routes[]
+  assets                assets[]
   license_installations license_installations[]
   contracts             contracts[]
   credentials           credentials[]
@@ -683,6 +707,8 @@ model api_connections {
   profile_root_path         String?             @db.VarChar(255)
   logout_path               String?             @db.VarChar(255)
   refresh_path              String?             @db.VarChar(255)
+  /// ตรวจว่าเข้าถึงต้นทางได้ (ไม่ต้องใช้บัญชี) เช่น /health ของ STEC SyteLine API — ปุ่ม "ตรวจการเข้าถึง"
+  health_path               String?             @db.VarChar(255)
   /// path ของ token / อายุ token (วินาที) / refresh token ใน response — ไม่มีอายุ → default_token_ttl_seconds
   token_path                String              @default("token") @db.VarChar(255)
   token_ttl_path            String?             @db.VarChar(255)

@@ -144,6 +144,14 @@ describe("IT tickets", () => {
     expect(closed.body.data.closed_at).not.toBeNull();
     expect(await unread(it_)).toBe(itUnread + 1);
     expect((await staffApi.post(`/api/v1/tickets/${id}/confirm-close`)).status).toBe(403); // ปิดแล้ว
+
+    // ผู้จัดการ IT ได้แจ้งเตือนเฉพาะตอนถึงลำดับอนุมัติผล (resulted — บันทึกผล 2 ครั้งเพราะถูกส่งกลับ) แต่ยังเปิดดูใบงานได้
+    const headEvents = await select<{ ev: string }>(
+      "SELECT JSON_UNQUOTE(JSON_EXTRACT(data, '$.event')) AS ev FROM notifications WHERE notifiable_id = ? ORDER BY created_at",
+      [itHead.id],
+    );
+    expect(headEvents.map((e) => e.ev)).toEqual(["resulted", "resulted"]);
+    expect((await headApi.get(`/api/v1/tickets/${id}`)).status).toBe(200);
     expect(closed.body.data.events.map((e: { action: string }) => e.action)).toEqual([
       "submitted", "approved", "accepted", "resulted", "returned", "resulted", "head_approved", "confirmed",
     ]);

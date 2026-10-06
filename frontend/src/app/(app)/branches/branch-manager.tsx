@@ -9,8 +9,8 @@ import { alert, btn, input, inputError, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { Branch } from "@/lib/types";
 
-type Draft = { code: string; name: string; sort_order: string; is_active: boolean };
-const EMPTY: Draft = { code: "", name: "", sort_order: "0", is_active: true };
+type Draft = { code: string; name: string; work_group: string; sort_order: string; is_active: boolean };
+const EMPTY: Draft = { code: "", name: "", work_group: "", sort_order: "0", is_active: true };
 
 /** ตารางสาขาแบบแก้ไขในแถว: เพิ่มแถวใหม่ด้านบน, กดแก้ไขแล้วแถวกลายเป็นช่องกรอก */
 export function BranchManager({ branches }: { branches: Branch[] }) {
@@ -24,7 +24,7 @@ export function BranchManager({ branches }: { branches: Branch[] }) {
 
   const startEdit = (b: Branch | null) => {
     setEditing(b ? b.id : "new");
-    setDraft(b ? { code: b.code, name: b.name, sort_order: String(b.sort_order), is_active: b.is_active } : { ...EMPTY, sort_order: String((branches.length + 1) * 10) });
+    setDraft(b ? { code: b.code, name: b.name, work_group: b.work_group ?? "", sort_order: String(b.sort_order), is_active: b.is_active } : { ...EMPTY, sort_order: String((branches.length + 1) * 10) });
     setErrors({});
     setFeedback(null);
   };
@@ -33,11 +33,13 @@ export function BranchManager({ branches }: { branches: Branch[] }) {
     const e: typeof errors = {};
     if (!/^[A-Za-z0-9\-_]+$/.test(draft.code.trim())) e.code = t("branches.validate.code");
     if (!draft.name.trim()) e.name = t("branches.validate.name");
+    if (draft.work_group.trim() && !/^[A-Za-z0-9._-]+$/.test(draft.work_group.trim())) e.work_group = t("branches.validate.workGroup");
     if (Object.keys(e).length) return setErrors(e);
     start(async () => {
       const res = await saveBranch(editing === "new" ? null : (editing as number), {
         code: draft.code,
         name: draft.name,
+        work_group: draft.work_group,
         sort_order: Number(draft.sort_order) || 0,
         is_active: draft.is_active,
       });
@@ -70,6 +72,17 @@ export function BranchManager({ branches }: { branches: Branch[] }) {
       <td className={table.td}>
         <input aria-label={t("branches.name")} value={draft.name} maxLength={255} onChange={(e) => (setDraft({ ...draft, name: e.target.value }), setErrors({ ...errors, name: "" }))} className={`${input} ${errors.name ? inputError : ""}`} />
         {errors.name && <p className="mt-1 text-xs font-medium text-red-500">{errors.name}</p>}
+      </td>
+      <td className={table.td}>
+        <input
+          aria-label={t("branches.workGroup")}
+          value={draft.work_group}
+          maxLength={50}
+          placeholder="LAMPHUN"
+          onChange={(e) => (setDraft({ ...draft, work_group: e.target.value }), setErrors({ ...errors, work_group: "" }))}
+          className={`${input} font-mono uppercase ${errors.work_group ? inputError : ""}`}
+        />
+        {errors.work_group && <p className="mt-1 text-xs font-medium text-red-500">{errors.work_group}</p>}
       </td>
       <td className={table.td}>
         <input aria-label={t("branches.order")} type="number" min={0} max={9999} value={draft.sort_order} onChange={(e) => setDraft({ ...draft, sort_order: e.target.value })} className={`${input} w-24`} />
@@ -115,6 +128,7 @@ export function BranchManager({ branches }: { branches: Branch[] }) {
             <tr>
               <th className={table.th}>{t("branches.code")}</th>
               <th className={table.th}>{t("branches.name")}</th>
+              <th className={table.th}>{t("branches.workGroup")}</th>
               <th className={table.th}>{t("branches.order")}</th>
               <th className={table.th}>{t("common.manage")}</th>
               <th className={table.th} />
@@ -130,6 +144,7 @@ export function BranchManager({ branches }: { branches: Branch[] }) {
                 <tr key={b.id} className={`${table.row} ${b.is_active ? "" : "opacity-60"}`}>
                   <td className={`${table.td} font-mono text-xs`}>{b.code}</td>
                   <td className={`${table.td} font-medium`}>{b.name}</td>
+                  <td className={`${table.td} font-mono text-xs text-muted`}>{b.work_group ?? "-"}</td>
                   <td className={`${table.td} text-muted`}>{b.sort_order}</td>
                   <td className={table.td}>
                     <span className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${b.is_active ? tone.success.badge : tone.idle.badge}`}>

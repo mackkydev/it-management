@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { fetchNotifications, markAllNotificationsRead, markNotificationRead } from "@/app/actions/tickets";
-import { BellIcon, CheckIcon, ClipboardIcon, FileTextIcon, SpinnerIcon } from "@/components/icons";
+import { BellIcon, CheckIcon, ChevronRightIcon, ClipboardIcon, FileTextIcon, SpinnerIcon } from "@/components/icons";
 import { DATA_CHANGED_EVENT } from "@/components/live-refresh";
 import { Tooltip } from "@/components/tooltip";
 import { useI18n } from "@/i18n/client";
@@ -145,7 +146,7 @@ export function NotificationBell({ tooltipSide = "right", size = "md" }: { toolt
               </button>
             )}
           </div>
-          <ul className="max-h-[calc(min(70vh,520px)-52px)] overflow-y-auto py-1">
+          <ul className="max-h-[calc(min(70vh,520px)-96px)] overflow-y-auto py-1">
             {items.length === 0 && <li className="px-4 py-8 text-center text-sm text-muted">{t("notifications.empty")}</li>}
             {items.map((n) => {
               const Icon = n.data.kind === "ticket" ? ClipboardIcon : FileTextIcon;
@@ -175,6 +176,15 @@ export function NotificationBell({ tooltipSide = "right", size = "md" }: { toolt
               );
             })}
           </ul>
+          {/* หน้ารวมแจ้งเตือนทั้งหมด (ดูย้อนหลัง / ล้างแจ้งเตือน) */}
+          <Link
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="flex h-11 cursor-pointer items-center justify-center gap-1 border-t border-line text-sm font-medium text-accent-700 transition-colors hover:bg-subtle dark:text-accent-300"
+          >
+            {t("notifications.viewAll")}
+            <ChevronRightIcon width={14} height={14} />
+          </Link>
         </div>
       )}
     </>

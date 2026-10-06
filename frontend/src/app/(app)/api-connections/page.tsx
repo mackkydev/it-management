@@ -9,6 +9,7 @@ import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser, isLocalAdmin } from "@/lib/auth";
 import type { ApiConnection } from "@/lib/types";
+import { ConnectionGuide } from "./connection-guide";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -33,6 +34,8 @@ export default async function ApiConnectionsPage() {
           </Link>
         }
       />
+      {/* วิธีเชื่อมต่อ STEC SyteLine API — เปิดไว้เมื่อยังไม่มีการเชื่อมต่อ */}
+      <ConnectionGuide />
       {data.length === 0 ? (
         <div className={`p-10 text-center text-muted ${card}`}>{t("apiConnections.empty")}</div>
       ) : (

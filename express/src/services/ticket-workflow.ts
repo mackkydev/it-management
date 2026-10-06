@@ -207,9 +207,9 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
     case "head_approved":
       recipients = [requester, assignee];
       break;
-    // ผู้แจ้งรับงาน → ปิดงาน (แจ้งเจ้าหน้าที่ผู้รับงานและหัวหน้า IT ที่อนุมัติผล)
+    // ผู้แจ้งรับงาน → ปิดงาน (แจ้งเจ้าหน้าที่ผู้รับงาน — ผู้จัดการ IT ได้แจ้งเตือนเฉพาะตอนถึงลำดับอนุมัติผล "resulted")
     case "confirmed":
-      recipients = [assignee, await byId(t.it_head_id)];
+      recipients = [assignee];
       break;
     case "closed":
       recipients = [requester, assignee];

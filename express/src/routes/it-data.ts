@@ -1,5 +1,5 @@
 import { Router, type Request } from "express";
-import { first, insert, isUuid, likeEscape, scalar, select, transaction, update } from "../db.js";
+import { exec, first, insert, isUuid, likeEscape, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
 import { decryptNullable, encryptNullable } from "../lib/laravel-crypt.js";
@@ -25,13 +25,14 @@ const settings = (req: Request) => authorize(can(me(req), "settings.manage"));
 
 /* ================================================================ 5.1 สาขา */
 
-interface BranchRow { id: number; code: string; name: string; sort_order: number; is_active: number; users_count?: number; tickets_count?: number }
+interface BranchRow { id: number; code: string; name: string; work_group: string | null; sort_order: number; is_active: number; users_count?: number; tickets_count?: number }
 
 /** array_filter(... !== null) — ไม่ส่ง users_count/tickets_count ถ้าไม่ได้นับ */
 const branchJson = (b: BranchRow) => ({
   id: b.id,
   code: b.code,
   name: b.name,
+  work_group: b.work_group,
   sort_order: Number(b.sort_order),
   is_active: Boolean(Number(b.is_active)),
   ...(b.users_count !== undefined ? { users_count: Number(b.users_count) } : {}),
@@ -51,6 +52,8 @@ async function branchInput(req: Request, current: BranchRow | null) {
     {
       code: [...s, "required", "string", "max:30", regex(/^[A-Za-z0-9\-_]+$/), unique("branches", "code", current?.id)],
       name: [...s, "required", "string", "max:255"],
+      // Work Group ของ Windows (เช่น LAMPHUN) — ใช้จับคู่สาขาตอน import ทะเบียนคอมพิวเตอร์
+      work_group: ["sometimes", "nullable", "string", "max:50", regex(/^[A-Za-z0-9._-]+$/), unique("branches", "work_group", current?.id)],
       sort_order: ["sometimes", "integer", "min:0", "max:9999"],
       is_active: ["sometimes", "boolean"],
     },
@@ -59,6 +62,7 @@ async function branchInput(req: Request, current: BranchRow | null) {
   const out: Record<string, unknown> = {};
   if ("code" in data) out.code = data.code;
   if ("name" in data) out.name = data.name;
+  if ("work_group" in data) out.work_group = data.work_group ? String(data.work_group).trim().toUpperCase() : null;
   if ("sort_order" in data) out.sort_order = int(data.sort_order);
   if ("is_active" in data) out.is_active = bool(data.is_active);
   return out;
@@ -100,7 +104,7 @@ itDataRoutes.delete("/branches/:id", async (req, res) => {
   const b = await findBranch(req);
   branches(req);
   const used = Number(
-    await scalar("SELECT EXISTS(SELECT 1 FROM users WHERE branch_id = ?) OR EXISTS(SELECT 1 FROM it_tickets WHERE branch_id = ?)", [b.id, b.id]),
+    await scalar("SELECT EXISTS(SELECT 1 FROM users WHERE branch_id = ?) OR EXISTS(SELECT 1 FROM it_tickets WHERE branch_id = ?) OR EXISTS(SELECT 1 FROM assets WHERE branch_id = ? AND deleted_at IS NULL)", [b.id, b.id, b.id]),
   );
   if (used) throw ValidationError.withMessages({ branch: trans(req.locale, "eam.branch.in_use") });
   await update("branches", { deleted_at: nowDb(), updated_at: nowDb() }, "id = ?", [b.id]);
@@ -203,6 +207,24 @@ itDataRoutes.get("/notifications", async (req, res) => {
 
 itDataRoutes.post("/notifications/read-all", async (req, res) => {
   await update("notifications", { read_at: nowDb() }, "notifiable_type = ? AND notifiable_id = ? AND read_at IS NULL", [USER_TYPE, me(req).id]);
+  res.status(204).end();
+});
+
+/** DELETE /notifications?only=read — ล้างแจ้งเตือนของตัวเอง (ไม่ระบุ = ทั้งหมด, read = เฉพาะที่อ่านแล้ว) */
+itDataRoutes.delete("/notifications", async (req, res) => {
+  const f = await validate(req.input, { only: ["nullable", "in:read"] }, { locale: req.locale });
+  await exec(
+    `DELETE FROM notifications WHERE notifiable_type = ? AND notifiable_id = ?${f.only === "read" ? " AND read_at IS NOT NULL" : ""}`,
+    [USER_TYPE, me(req).id],
+  );
+  res.status(204).end();
+});
+
+/** DELETE /notifications/{id} — ลบแจ้งเตือนรายการเดียว (ของตัวเองเท่านั้น — ของคนอื่น/ไม่พบ = ไม่มีอะไรเปลี่ยน) */
+itDataRoutes.delete("/notifications/:id", async (req, res) => {
+  if (isUuid(req.params.id)) {
+    await exec("DELETE FROM notifications WHERE id = ? AND notifiable_type = ? AND notifiable_id = ?", [req.params.id, USER_TYPE, me(req).id]);
+  }
   res.status(204).end();
 });
 

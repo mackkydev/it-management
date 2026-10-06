@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
-import { deleteConnection, saveConnection, syncNow, testConnection, type ConnectionPayload } from "@/app/actions/access";
+import { checkHealth, deleteConnection, saveConnection, syncNow, testConnection, type ConnectionPayload } from "@/app/actions/access";
+import { ConnectionGuide } from "./connection-guide";
 import { ChipList } from "@/components/chip-list";
-import { AlertIcon, CheckCircleIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { AlertIcon, CheckCircleIcon, FileTextIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/types";
@@ -31,6 +32,7 @@ function initialValues(c: ApiConnection | null) {
     profile_root_path: c?.profile_root_path ?? "",
     logout_path: c?.logout_path ?? "",
     refresh_path: c?.refresh_path ?? "",
+    health_path: c?.health_path ?? "",
     token_path: c?.token_path ?? "token",
     token_ttl_path: c?.token_ttl_path ?? "",
     refresh_token_path: c?.refresh_token_path ?? "",
@@ -74,6 +76,7 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
   const [activeValues, setActiveValues] = useState<string[]>(connection?.active_values ?? []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [presetApplied, setPresetApplied] = useState(false);
   const [pending, start] = useTransition();
 
   const set = <K extends keyof Values>(key: K, value: Values[K]) => {
@@ -143,6 +146,7 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
     profile_root_path: v.profile_root_path.trim() || null,
     logout_path: v.logout_path.trim() || null,
     refresh_path: v.refresh_path.trim() || null,
+    health_path: v.health_path.trim() || null,
     token_path: v.token_path.trim(),
     token_ttl_path: v.token_ttl_path.trim() || null,
     refresh_token_path: v.refresh_token_path.trim() || null,
@@ -186,6 +190,45 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
       }
     });
 
+  /**
+   * ค่าตามคู่มือ STEC SyteLine API: login → { token, expiresAt }, ตรวจซ้ำด้วย /auth/permissions ({ appIds }),
+   * ไม่มีโปรไฟล์/รายชื่อผู้ใช้/refresh → รหัส+ชื่อ = ชื่อผู้ใช้ที่ login ($login), ไม่ใช้ซิงค์ตามเวลา — Base URL / กฎบทบาท ให้ผู้ดูแลกรอกเอง
+   */
+  const applyStecPreset = () => {
+    setV((s) => ({
+      ...s,
+      name: s.name.trim() || "STEC SyteLine API",
+      login_method: "POST",
+      login_path: "/api/v1/auth/login",
+      login_username_field: "username",
+      login_password_field: "password",
+      login_body_type: "json",
+      token_path: "token",
+      token_ttl_path: "expiresAt",
+      refresh_token_path: "",
+      refresh_path: "",
+      logout_path: "/api/v1/auth/logout",
+      health_path: "/health",
+      profile_method: "GET",
+      profile_path: "/api/v1/auth/permissions",
+      profile_root_path: "",
+      map_external_id: "$login",
+      map_name: "$login",
+      map_email: "",
+      map_role_code: "appIds",
+      map_status: "",
+      error_code_path: "",
+      auth_type: "none",
+      users_list_path: "",
+      users_list_root_path: "",
+      users_page_param: "",
+      users_page_size_param: "",
+      sync_interval_minutes: "0",
+    }));
+    setErrors({});
+    setPresetApplied(true);
+  };
+
   const remove = () => {
     if (!connection || !confirm(t("apiConnections.deleteConfirm", { name: connection.name }))) return;
     start(async () => {
@@ -197,12 +240,28 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
 
   return (
     <div className="space-y-5">
+      {/* วิธีเชื่อมต่อ STEC (เปิดไว้ตอนเพิ่มใหม่) + ปุ่มใส่ค่าตามคู่มือ */}
+      <ConnectionGuide />
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" onClick={applyStecPreset} disabled={pending} className={`${btn.soft} disabled:cursor-not-allowed`}>
+          <FileTextIcon width={15} height={15} />
+          {t("apiConnections.stecPreset")}
+        </button>
+      </div>
+      {presetApplied && (
+        <p role="status" className={alert.success}>
+          <CheckCircleIcon className="shrink-0 text-success-500" />
+          {t("apiConnections.stecPresetDone")}
+        </p>
+      )}
+
       {section(
         "apiConnections.sections.general",
         <>
           {field("name")}
           {field("base_url", { hint: t("apiConnections.hints.baseUrl"), placeholder: "https://hr.example.com/api" })}
           {field("timeout_ms", { type: "number" })}
+          {field("health_path", { hint: t("apiConnections.hints.healthPath"), placeholder: "/health", mono: true })}
           <label className="flex cursor-pointer items-center gap-2 self-end pb-2 text-sm font-medium">
             <input type="checkbox" checked={v.is_enabled} onChange={(e) => set("is_enabled", e.target.checked)} className="cursor-pointer accent-[var(--accent-500)]" />
             {label("is_enabled")}
@@ -242,8 +301,8 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
           {select("profile_method", opt(["GET", "POST"]))}
           {field("profile_root_path", { hint: jsonHint, mono: true })}
           <div />
-          {field("map_external_id", { errorKey: "field_map.external_id", mono: true })}
-          {field("map_name", { errorKey: "field_map.name", mono: true })}
+          {field("map_external_id", { errorKey: "field_map.external_id", hint: t("apiConnections.hints.loginName"), mono: true })}
+          {field("map_name", { errorKey: "field_map.name", hint: t("apiConnections.hints.loginName"), mono: true })}
           {field("map_email", { errorKey: "field_map.email", mono: true })}
           {field("map_role_code", { errorKey: "field_map.role_code", mono: true })}
         </>,
@@ -411,8 +470,46 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
         </button>
       </div>
 
+      {connection?.health_path && <HealthPanel id={connection.id} />}
       {connection ? <TestPanel id={connection.id} fmtSeconds={(s) => fmt.number(Math.round(s / 3600)) + " h"} /> : <p className="text-sm text-muted">{t("apiConnections.test.saveFirst")}</p>}
     </div>
+  );
+}
+
+/** ตรวจการเข้าถึงต้นทาง (health_path) — ไม่ใช้บัญชีผู้ใช้ */
+function HealthPanel({ id }: { id: number }) {
+  const { t } = useI18n();
+  const [res, setRes] = useState<{ ok: boolean; text: string } | null>(null);
+  const [pending, start] = useTransition();
+
+  const run = () =>
+    start(async () => {
+      const r = await checkHealth(id);
+      if (r.data) {
+        const params = { status: r.data.status || "-", ms: r.data.ms };
+        setRes({ ok: r.data.ok, text: r.data.error ?? t(r.data.ok ? "apiConnections.health.ok" : "apiConnections.health.failed", params) });
+      } else setRes({ ok: false, text: r.message ?? "" });
+    });
+
+  return (
+    <section className={`p-4 sm:p-6 ${card}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">{t("apiConnections.health.title")}</h2>
+          <p className="mt-1 text-sm text-muted">{t("apiConnections.health.hint")}</p>
+        </div>
+        <button type="button" onClick={run} disabled={pending} className={`${btn.secondary} disabled:cursor-not-allowed disabled:opacity-60`}>
+          {pending ? <SpinnerIcon /> : <CheckCircleIcon className="text-accent-500" />}
+          {pending ? t("apiConnections.health.running") : t("apiConnections.health.run")}
+        </button>
+      </div>
+      {res && (
+        <p role="status" className={`mt-3 ${res.ok ? alert.success : alert.error}`}>
+          {res.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
+          {res.text}
+        </p>
+      )}
+    </section>
   );
 }
 

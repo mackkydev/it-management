@@ -40,11 +40,15 @@ const eamTh = {
     invalid_json_path: "รูปแบบ path ไม่ถูกต้อง (เช่น data.access_token)",
     invalid_host: "host / IP / CIDR ไม่ถูกต้อง",
     invalid_role: "บทบาทต้องเป็น manager หรือ viewer",
+    role_synced: "บทบาทของผู้ใช้นี้อัปเดตตามรหัสจากต้นทาง (เช่น appIds) อัตโนมัติ — แก้ที่กฎ map บทบาทของการเชื่อมต่อ",
     invalid_rule: "กฎ map บทบาทไม่ถูกต้อง",
     invalid_error_map: "การ map error ไม่ถูกต้อง",
     secret_required: "กรุณากรอก secret สำหรับประเภทการยืนยันตัวตนนี้",
     in_use: "ลบไม่ได้ เพราะมีผู้ใช้จากการเชื่อมต่อนี้แล้ว — ให้ปิดใช้งานแทน",
     sync_not_configured: "ยังไม่ได้ตั้ง endpoint รายชื่อผู้ใช้",
+    health_not_configured: "ยังไม่ได้ตั้ง endpoint ตรวจการเข้าถึง (เช่น /health)",
+    health_blocked: "ถูกบล็อก — ต้องเป็น https และถ้าเป็น IP ภายในต้องใส่ในรายการ host ที่อนุญาต",
+    health_unreachable: "เชื่อมต่อต้นทางไม่ได้ (ตรวจ URL / เครือข่าย / firewall)",
   },
   signature: {
     type: "ลายเซ็นต้องเป็นไฟล์ PNG หรือ JPG",
@@ -86,6 +90,32 @@ const eamTh = {
     approver_invalid: "ผู้อนุมัติต้องเป็นผู้ใช้ที่เปิดใช้งาน และไม่ซ้ำกันในขั้นเดียวกัน",
     duplicate_scope: "มีสายอนุมัติที่เปิดใช้งานสำหรับสาขาและแผนกนี้อยู่แล้ว",
     approver_not_allowed: "ผู้อนุมัติต้องอยู่สาขาที่เลือกและมีตำแหน่งสูงกว่าผู้แจ้ง",
+  },
+  asset_import: {
+    sheet: "ทะเบียนคอมพิวเตอร์",
+    help_sheet: "คำอธิบาย",
+    help:
+      "วิธีกรอกทะเบียนคอมพิวเตอร์|\n" +
+      "1 แถว|เครื่องคอมพิวเตอร์ 1 ชุด — Host Name ต้องมีและไม่ซ้ำ (ใช้เป็นรหัสสินทรัพย์) ถ้ามีในระบบแล้วจะอัปเดตข้อมูลเดิม\n" +
+      "Work Group|ใช้จับคู่สาขา — ตั้งค่า Work Group ของแต่ละสาขาที่ ข้อมูลหลัก → สาขา (ไม่ตรงสาขาใด = นำเข้าแต่ไม่ระบุสาขา)\n" +
+      "วันที่|ใส่เป็นวันที่ของ Excel หรือพิมพ์ วว/ดด/ปปปป — ปี พ.ศ. หรือ ค.ศ. ก็ได้\n" +
+      "Computer Type|เช่น Desktop, Laptop, All-in-One\n" +
+      "ช่องที่ไม่มีข้อมูล|เว้นว่าง หรือใส่ - ได้\n" +
+      "Department / ชื่อ-สกุลผู้ใช้งาน|เก็บเป็นข้อความไปก่อน (ภายหลังเชื่อมกับผู้ใช้จากระบบต้นทาง)\n" +
+      "OS / Office|เก็บเป็นข้อความไปก่อน (ภายหลังผูกกับข้อมูลการติดตั้ง license)\n" +
+      "ถ้ามีแถวที่ผิด|ระบบจะไม่นำเข้าเลยทั้งไฟล์ และแจ้งแถวที่ต้องแก้ทั้งหมด",
+    unreadable: "อ่านไฟล์ไม่ได้ — ต้องเป็นไฟล์ Excel (.xlsx)",
+    no_header: "ไม่พบหัวตาราง — แถวหัวตารางต้องมีคอลัมน์ Host Name (ดาวน์โหลด template)",
+    empty: "ไม่มีข้อมูลในไฟล์",
+    host_required: "ไม่มี Host Name",
+    host_invalid: "Host Name \":value\" ใช้ได้เฉพาะ A-Z, 0-9, - _ / และยาวไม่เกิน 50 ตัว",
+    host_duplicate: "Host Name \":value\" ซ้ำกับแถวที่ :row",
+    host_deleted: "Host Name \":value\" เป็นสินทรัพย์ที่ถูกลบไปแล้ว",
+    host_other_category: "Host Name \":value\" ซ้ำกับรหัสสินทรัพย์หมวดอื่น",
+    date_invalid: "รูปแบบวันที่ในคอลัมน์ \":column\" ไม่ถูกต้อง",
+    too_long: "คอลัมน์ \":column\" ยาวเกิน :max ตัวอักษร",
+    branch_not_found: "Work Group \":value\" ไม่ตรงกับสาขาใด — นำเข้าโดยไม่ระบุสาขา",
+    failed: "นำเข้าไม่สำเร็จ — แก้ไขแถวที่แจ้งแล้วนำเข้าใหม่ (ยังไม่มีข้อมูลใดถูกบันทึก)",
   },
   expiring: {
     subject: "แจ้งเตือน: รายการใกล้หมดอายุ :count รายการ",
@@ -141,11 +171,15 @@ const eamEn: Eam = {
     invalid_json_path: "Invalid path format (e.g. data.access_token).",
     invalid_host: "Invalid host / IP / CIDR.",
     invalid_role: "The role must be manager or viewer.",
+    role_synced: "This user's role follows the upstream code (e.g. appIds) automatically — change the connection's role mapping instead.",
     invalid_rule: "Invalid role mapping rule.",
     invalid_error_map: "Invalid error mapping.",
     secret_required: "Please enter the secret for this authentication type.",
     in_use: "Cannot delete: users already belong to this connection. Disable it instead.",
     sync_not_configured: "The user list endpoint is not set.",
+    health_not_configured: "The health-check endpoint (e.g. /health) is not set.",
+    health_blocked: "Blocked — must be https, and internal IPs must be in the allowed hosts.",
+    health_unreachable: "Cannot reach the source (check the URL / network / firewall).",
   },
   signature: {
     type: "The signature must be a PNG or JPG file.",
@@ -187,6 +221,32 @@ const eamEn: Eam = {
     approver_invalid: "Approvers must be active users and must not repeat within a step.",
     duplicate_scope: "An active approval route already exists for this branch and department.",
     approver_not_allowed: "The approver must be in the selected branch and hold a higher position than the requester.",
+  },
+  asset_import: {
+    sheet: "Computers",
+    help_sheet: "Instructions",
+    help:
+      "How to fill in the computer register|\n" +
+      "1 row|One computer — Host Name is required and unique (used as the asset code); an existing Host Name is updated\n" +
+      "Work Group|Matches the branch — set each branch's Work Group under Master data → Branches (no match = imported without a branch)\n" +
+      "Dates|Excel dates or dd/mm/yyyy — Buddhist or Gregorian years\n" +
+      "Computer Type|e.g. Desktop, Laptop, All-in-One\n" +
+      "Empty values|Leave blank or enter -\n" +
+      "Department / user name|Stored as text for now (to be linked to users from the source system)\n" +
+      "OS / Office|Stored as text for now (to be linked to license installations)\n" +
+      "If any row is invalid|Nothing is imported and every row to fix is listed",
+    unreadable: "The file cannot be read — it must be an Excel file (.xlsx).",
+    no_header: "No header row found — it must include a Host Name column (download the template).",
+    empty: "The file has no data.",
+    host_required: "Host Name is missing.",
+    host_invalid: "Host Name \":value\" may only contain A-Z, 0-9, - _ / and be at most 50 characters.",
+    host_duplicate: "Host Name \":value\" duplicates row :row.",
+    host_deleted: "Host Name \":value\" belongs to a deleted asset.",
+    host_other_category: "Host Name \":value\" is already the code of an asset in another category.",
+    date_invalid: "Invalid date in column \":column\".",
+    too_long: "Column \":column\" is longer than :max characters.",
+    branch_not_found: "Work Group \":value\" matches no branch — imported without a branch.",
+    failed: "Import failed — fix the listed rows and import again (nothing was saved).",
   },
   expiring: {
     subject: "Reminder: :count item(s) expiring soon",
@@ -315,6 +375,9 @@ const attributesTh: Record<string, string> = {
   "notify_emails.*": "อีเมลรับแจ้งเตือน", contract_notify_days: "แจ้งเตือนสัญญาล่วงหน้า",
   credential_notify_days: "แจ้งเตือนบัญชีล่วงหน้า", license_notify_days: "แจ้งเตือน license ล่วงหน้า", from: "วันที่เริ่มต้น", to: "วันที่สิ้นสุด",
   work_date: "วันที่ปฏิบัติงาน", user_id: "ผู้ใช้", approval_route_id: "สายอนุมัติ", steps: "ขั้นอนุมัติ",
+  user_name: "ชื่อ-สกุลผู้ใช้งาน", received_date: "วันที่รับเข้า", start_use_date: "วันที่เริ่มใช้งาน", work_group: "Work Group",
+  mac_address: "MAC Address", computer_type: "Computer Type", ip_address: "IP", os: "OS", office: "Office", email_365: "Email 365",
+  antivirus: "Anti Virus", notebook_tag: "เลขที่ทรัพย์สิน Notebook", cpu_tag: "เลขที่ทรัพย์สิน CPU", monitor_tag: "เลขที่ทรัพย์สิน Monitor", file: "ไฟล์",
   license: "ข้อมูล license", "license.billing": "ประเภทการซื้อ", "license.start_date": "วันเริ่มใช้งาน", "license.expires_at": "วันหมดอายุ",
   "license.seats": "จำนวน seat", "license.vendor": "ผู้ขาย", "license.license_key": "license key", "license.notify_days_before": "แจ้งเตือนล่วงหน้า",
   files: "ไฟล์", "files.*": "ไฟล์", field: "ช่องข้อมูล", q: "คำค้นหา",

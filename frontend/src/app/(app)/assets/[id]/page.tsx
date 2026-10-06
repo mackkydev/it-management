@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
-import { BoxIcon, ChevronLeftIcon, KeyIcon, MapPinIcon, PaperclipIcon, PencilIcon, UserIcon } from "@/components/icons";
+import { BoxIcon, ChevronLeftIcon, KeyIcon, MapPinIcon, MonitorIcon, PaperclipIcon, PencilIcon, UserIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
 import { LoadingLabel } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
@@ -131,6 +131,30 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
         <Item label={t("assets.form.notes")}>{asset.notes && <span className="whitespace-pre-line font-normal">{asset.notes}</span>}</Item>
       </Section>
 
+      {/* ทะเบียนคอมพิวเตอร์ — ช่องตามไฟล์ Excel ของฝ่าย IT */}
+      {form?.computer && (
+        <Section title={t("assets.computer.section")} icon={<MonitorIcon width={15} height={15} />}>
+          <Item label={t("assets.computer.hostName")}>
+            <span className="font-mono text-sm">{asset.asset_tag}</span>
+          </Item>
+          <Item label={t("assets.computer.computerType")}>{asset.computer_type}</Item>
+          <Item label={t("assets.computer.department")}>{asset.department}</Item>
+          <Item label={t("assets.computer.userName")}>{asset.user_name}</Item>
+          <Item label={t("assets.computer.receivedDate")}>{asset.received_date && fmt.date(asset.received_date)}</Item>
+          <Item label={t("assets.computer.startUseDate")}>{asset.start_use_date && fmt.date(asset.start_use_date)}</Item>
+          <Item label={t("assets.computer.workGroup")}>{asset.work_group}</Item>
+          <Item label={t("assets.computer.ip")}>{asset.ip_address && <span className="font-mono text-sm">{asset.ip_address}</span>}</Item>
+          <Item label={t("assets.computer.mac")}>{asset.mac_address && <span className="font-mono text-sm">{asset.mac_address}</span>}</Item>
+          <Item label={t("assets.computer.email365")}>{asset.email_365}</Item>
+          <Item label={t("assets.computer.os")}>{asset.os}</Item>
+          <Item label={t("assets.computer.office")}>{asset.office}</Item>
+          <Item label={t("assets.computer.antivirus")}>{asset.antivirus}</Item>
+          <Item label={t("assets.computer.notebookTag")}>{asset.notebook_tag && <span className="font-mono text-sm">{asset.notebook_tag}</span>}</Item>
+          <Item label={t("assets.computer.cpuTag")}>{asset.cpu_tag && <span className="font-mono text-sm">{asset.cpu_tag}</span>}</Item>
+          <Item label={t("assets.computer.monitorTag")}>{asset.monitor_tag && <span className="font-mono text-sm">{asset.monitor_tag}</span>}</Item>
+        </Section>
+      )}
+
       {lic && (
         <Section title={t("assets.license.section")} icon={<KeyIcon width={15} height={15} />}>
           <Item label={t("assets.license.billing")}>{t(`assets.license.billings.${lic.billing}`)}</Item>
@@ -187,6 +211,13 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
       )}
 
       <Section title={t("assets.detail.sectionPlace")} icon={<MapPinIcon width={15} height={15} />}>
+        <Item label={t("assets.col.branch")}>
+          {asset.branch && (
+            <Link href={`/assets?branch_id=${asset.branch.id}`} className="cursor-pointer text-accent-700 hover:underline dark:text-accent-300">
+              {asset.branch.name}
+            </Link>
+          )}
+        </Item>
         <Item label={t("assets.col.location")}>
           {asset.location && (
             <Link href={`/assets?location_id=${asset.location.id}`} className="cursor-pointer text-accent-700 hover:underline dark:text-accent-300">

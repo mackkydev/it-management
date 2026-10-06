@@ -81,7 +81,23 @@ services:
       mysql:
         condition: service_healthy
 
-  # จัดการฐานข้อมูลผ่านเว็บ
+  # phpMyAdmin ของ IT-SYSTEM (ต่อ it_mysql) — คนละตัวกับ system_phpmyadmin :8080 ของระบบอื่น
+  # login: ผู้ใช้ it_app (หรือ root) + รหัสผ่านใน express/.env (DB_PASSWORD) / IT_DB_ROOT_PASSWORD
+  phpmyadmin:
+    image: phpmyadmin:5
+    container_name: it_phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: "3306"
+      UPLOAD_LIMIT: 64M
+    ports:
+      - "127.0.0.1:8082:80" # bind เฉพาะ localhost (8080 = phpMyAdmin ของระบบอื่น, 8081 = Adminer)
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # จัดการฐานข้อมูลผ่านเว็บ (ทางเลือกเบากว่า phpMyAdmin)
   # login: ระบบ MySQL, เซิร์ฟเวอร์ mysql, ผู้ใช้ it_app (หรือ root), ฐาน it_system
   adminer:
     image: adminer:5

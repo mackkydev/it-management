@@ -10,10 +10,10 @@ import { bool, custom, regex, validate, type ErrorBag } from "../lib/validator.j
 import { me } from "../http.js";
 import { apiConnectionResource, AUTH_TYPES, ERROR_KINDS, HTTP_METHODS, LOGIN_BODY_TYPES, type ApiConnectionRow } from "../models/api-connection.js";
 import { isLocalAdmin } from "../models/user.js";
-import { API_ROLES, ApiLoginError, loadConnection, upstreamLogin, upstreamLogout } from "../services/api-auth.js";
+import { API_ROLES, ApiLoginError, callUpstream, LOGIN_USERNAME, loadConnection, upstreamLogin, upstreamLogout } from "../services/api-auth.js";
 import { audit } from "../services/audit.js";
 import { syncConnection } from "../services/directory-sync.js";
-import { isValidAllowEntry } from "../services/upstream-http.js";
+import { isValidAllowEntry, UpstreamError } from "../services/upstream-http.js";
 
 /**
  * การเชื่อมต่อ REST API ต้นทางสำหรับ API User — เฉพาะ Local Admin
@@ -73,6 +73,8 @@ function checkJsonFields(req: Request, data: Record<string, unknown>, errors: Er
     else
       for (const key of ["external_id", "name", "email", "role_code", "status"]) {
         const v = fm[key];
+        // "$login" = ใช้ชื่อผู้ใช้ที่กรอกตอน login (ต้นทางไม่มีข้อมูลโปรไฟล์ เช่น STEC SyteLine API) — ใช้ได้กับรหัส/ชื่อ
+        if (v === LOGIN_USERNAME && (key === "external_id" || key === "name")) continue;
         if (v !== undefined && v !== null && v !== "" && !isJsonPath(v)) errors.add(`field_map.${key}`, t("invalid_json_path"));
       }
   }
@@ -138,6 +140,7 @@ async function validated(req: Request, current: ApiConnectionRow | null) {
       profile_root_path: ["sometimes", "nullable", "string", "max:255", jsonPath],
       logout_path: ["sometimes", "nullable", "string", "max:255", path],
       refresh_path: ["sometimes", "nullable", "string", "max:255", path],
+      health_path: ["sometimes", "nullable", "string", "max:255", path],
       token_path: ["sometimes", "string", "max:255", jsonPath],
       token_ttl_path: ["sometimes", "nullable", "string", "max:255", jsonPath],
       refresh_token_path: ["sometimes", "nullable", "string", "max:255", jsonPath],
@@ -167,7 +170,7 @@ async function validated(req: Request, current: ApiConnectionRow | null) {
 
 const SCALARS = [
   "name", "base_url", "timeout_ms", "login_method", "login_path", "login_username_field", "login_password_field", "login_body_type",
-  "profile_method", "profile_path", "profile_root_path", "logout_path", "refresh_path", "token_path", "token_ttl_path", "refresh_token_path",
+  "profile_method", "profile_path", "profile_root_path", "logout_path", "refresh_path", "health_path", "token_path", "token_ttl_path", "refresh_token_path",
   "default_token_ttl_seconds", "profile_cache_seconds", "default_role", "error_code_path", "auth_type", "auth_header_name", "auth_username",
   "max_redirects", "register_url", "forgot_password_url", "change_password_url",
   "users_list_path", "users_list_root_path", "users_page_param", "users_page_size_param", "users_page_size", "sync_interval_minutes",
@@ -278,6 +281,24 @@ apiConnectionRoutes.post("/api-connections/:id/test", limits.apiLogin, async (re
   }
 });
 
+
+/**
+ * ตรวจว่าเข้าถึงต้นทางได้ (GET health_path เช่น /health ของ STEC) — ไม่ใช้บัญชีผู้ใช้
+ * คืนเฉพาะสถานะ HTTP + เวลาที่ใช้ (ไม่ส่งเนื้อหาจากต้นทางกลับไปหน้าเว็บ)
+ */
+apiConnectionRoutes.post("/api-connections/:id/health", async (req, res) => {
+  guard(req);
+  const conn = await find(req.params.id as string);
+  if (!conn.health_path) throw ValidationError.withMessages({ health_path: trans(req.locale, "eam.api_connection.health_not_configured") });
+  const started = Date.now();
+  try {
+    const r = await callUpstream(conn, { method: "GET", path: conn.health_path });
+    res.json({ data: { ok: r.status >= 200 && r.status < 300, status: r.status, ms: Date.now() - started } });
+  } catch (e) {
+    const kind = e instanceof UpstreamError ? e.kind : "network";
+    res.json({ data: { ok: false, status: 0, ms: Date.now() - started, error: trans(req.locale, `eam.api_connection.health_${kind === "blocked" || kind === "insecure" ? "blocked" : "unreachable"}`) } });
+  }
+});
 
 /** ซิงค์รายชื่อผู้ใช้จากต้นทางตอนนี้ — คืนสรุปผล (สร้าง / อัปเดต / ปิด / เปิดคืน / หายจากต้นทาง) */
 apiConnectionRoutes.post("/api-connections/:id/sync", async (req, res) => {

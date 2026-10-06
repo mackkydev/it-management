@@ -94,6 +94,19 @@ export async function testConnection(id: number, username: string, password: str
   }
 }
 
+/** ตรวจการเข้าถึงต้นทาง (GET health_path เช่น /health) — ไม่ใช้บัญชีผู้ใช้ */
+export async function checkHealth(id: number): Promise<ActionResult & { data?: { ok: boolean; status: number; ms: number; error?: string } }> {
+  const { t } = await getI18n();
+  if (!validId(id)) return { message: t("common.saveFailed") };
+  try {
+    const res = await apiFetch<{ data: { ok: boolean; status: number; ms: number; error?: string } }>(`/api-connections/${id}/health`, { method: "POST" });
+    return { ok: res.data.ok, data: res.data };
+  } catch (e) {
+    const r = await toActionResult(e);
+    return { ...r, message: Object.values(r.errors ?? {})[0] ?? r.message };
+  }
+}
+
 /** กำหนดสิทธิ์ทั้งชุดของกลุ่ม (บทบาท / it_staff / it_head) */
 export async function saveRolePermissions(group: string, keys: string[]): Promise<ActionResult> {
   const { t } = await getI18n();

@@ -86,7 +86,7 @@ describe("scheduled directory sync for API users", () => {
   }
   const byExt = (ext: string) => first<UserRow>("SELECT * FROM users WHERE external_id = ?", [ext]);
 
-  it("pre-creates active users (all pages, connection auth), skips disabled ones, never touches roles set by admins", async () => {
+  it("pre-creates active users (all pages, connection auth), skips disabled ones, keeps the role in line with the source", async () => {
     directory = [
       { id: "E1", name: "สมชาย", email: "somchai@corp.example", status: "active", position: "MGR" },
       { id: "E2", name: "สุดา", status: "active" },
@@ -103,7 +103,8 @@ describe("scheduled directory sync for API users", () => {
     await exec("UPDATE users SET role = 'viewer' WHERE external_id = 'E1'");
     directory[0].name = "สมชาย (ใหม่)";
     await syncConnection(conn);
-    expect(await byExt("E1")).toMatchObject({ role: "viewer", name: "สมชาย (ใหม่)" });
+    // role ตามต้นทาง (position MGR → manager) ทุกรอบซิงก์
+    expect(await byExt("E1")).toMatchObject({ role: "manager", name: "สมชาย (ใหม่)" });
   });
 
   it("disables users disabled or removed at the source (cutting sessions) and re-enables only those it disabled", async () => {

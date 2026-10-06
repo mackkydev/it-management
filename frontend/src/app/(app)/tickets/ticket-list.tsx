@@ -111,12 +111,14 @@ const ticketCounts = () => apiFetch<{ counts: TicketCounts }>("/tickets?per_page
 
 /** แท็บฝั่งผู้แจ้ง: ของฉัน / รออนุมัติ — พร้อมตัวเลขค้าง (คิวงาน IT แยกไปเมนู "งานฝ่าย IT") */
 async function ScopeTabs({ scope }: { scope: TicketScope }) {
-  const [{ t }, c] = await Promise.all([getI18n(), ticketCounts()]);
+  const [{ t }, c, can] = await Promise.all([getI18n(), ticketCounts(), getAccess()]);
+  // แท็บรออนุมัติตามการมองเห็นเมนู /tickets/approvals (ตั้งค่าระบบ → สิทธิ์การใช้งาน) — แต่ถ้ามีใบรอตัวเองอนุมัติจริงยังแสดง
+  const showApprovals = can(BASE.approvals) || Boolean(c.approvals) || scope === "approvals";
   return (
     <Tabs
       tabs={[
         { href: BASE.mine, label: t("tickets.tabs.mine"), count: c.mine_open, active: scope === "mine" },
-        { href: BASE.approvals, label: t("tickets.tabs.approvals"), count: c.approvals, active: scope === "approvals" },
+        ...(showApprovals ? [{ href: BASE.approvals, label: t("tickets.tabs.approvals"), count: c.approvals, active: scope === "approvals" }] : []),
       ]}
     />
   );
@@ -202,15 +204,16 @@ async function TicketResults({ scope, query }: { scope: TicketScope; query: URLS
           </thead>
           <tbody className={table.body}>
             {res.data.map((tk) => (
-              <tr key={tk.id} className={table.row}>
+              // ทั้งแถวคลิกได้: ลิงก์ชื่อเรื่องขยายพื้นที่คลิกเต็มแถว (after:inset-0) — ยังเป็นลิงก์จริง (Ctrl/คลิกกลาง = แท็บใหม่ได้)
+              <tr key={tk.id} className={`${table.row} relative cursor-pointer`}>
                 <td className={`${table.td} whitespace-nowrap`}>
-                  <Link href={`/tickets/${tk.id}`} className="cursor-pointer font-mono text-xs font-semibold text-accent-700 hover:underline dark:text-accent-300">
+                  <Link href={`/tickets/${tk.id}`} className="cursor-pointer font-mono text-xs font-semibold text-accent-700 dark:text-accent-300">
                     {tk.ticket_no}
                   </Link>
                   <div className="text-xs text-faint">{fmt.date(tk.requested_at)}</div>
                 </td>
                 <td className={table.td}>
-                  <Link href={`/tickets/${tk.id}`} className="cursor-pointer font-medium text-ink hover:underline">
+                  <Link href={`/tickets/${tk.id}`} className="cursor-pointer font-medium text-ink after:absolute after:inset-0">
                     {ticketSubject(tk.type, tk.type_other, t)}
                   </Link>
                   <div className="line-clamp-1 max-w-md text-xs text-muted">{tk.details}</div>

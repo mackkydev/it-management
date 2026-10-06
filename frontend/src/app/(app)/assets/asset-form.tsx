@@ -12,10 +12,14 @@ import type { MessageKey, TFunction } from "@/i18n/types";
 import { addToIsoDate, localToday } from "@/lib/date";
 import {
   CATEGORIES,
+  COMPUTER_DATE_FIELDS,
+  COMPUTER_TEXT_FIELDS,
+  COMPUTER_TYPES,
   CATEGORY_FORM,
   LICENSE_BILLINGS,
   STATUSES,
   type AssetFormValues,
+  type Branch,
   type FieldErrors,
   type LicenseFormValues,
   type Location,
@@ -24,10 +28,13 @@ import {
 import { CustodianPicker } from "./custodian-picker";
 import { AppSelect } from "@/components/app-select";
 
+type ComputerField = (typeof COMPUTER_TEXT_FIELDS)[number] | (typeof COMPUTER_DATE_FIELDS)[number];
+
 const EMPTY: AssetFormValues = {
   asset_tag: "",
   name: "",
-  category: "",
+  // ใช้ทำทะเบียนคอมพิวเตอร์เป็นหลัก
+  category: "COMPUTER",
   brand: "",
   model: "",
   serial_number: "",
@@ -38,6 +45,8 @@ const EMPTY: AssetFormValues = {
   purchase_cost: "",
   warranty_expires_at: "",
   notes: "",
+  branch_id: "",
+  ...(Object.fromEntries([...COMPUTER_TEXT_FIELDS, ...COMPUTER_DATE_FIELDS].map((k) => [k, ""])) as Record<ComputerField, string>),
   movement_reason: "",
   license: {
     billing: "yearly",
@@ -84,6 +93,7 @@ function validate(v: AssetFormValues, t: TFunction): FieldErrors {
 
 interface Props {
   locations: Location[];
+  branches: Branch[];
   /** ไม่ระบุ = โหมดเพิ่มใหม่ */
   assetId?: string;
   initial?: AssetFormValues;
@@ -93,7 +103,7 @@ interface Props {
   hasLicenseKey?: boolean;
 }
 
-export function AssetForm({ locations, assetId, initial, initialCustodian = null, canDelete = false, hasLicenseKey = false }: Props) {
+export function AssetForm({ locations, branches, assetId, initial, initialCustodian = null, canDelete = false, hasLicenseKey = false }: Props) {
   const { t } = useI18n();
   const [values, setValues] = useState<AssetFormValues>(initial ?? EMPTY);
   const [custodian, setCustodian] = useState(initialCustodian);
@@ -166,7 +176,7 @@ export function AssetForm({ locations, assetId, initial, initialCustodian = null
     setValues((v) => ({ ...v, [name]: value }));
     setErrors((prev) => ({ ...prev, [name]: "" }));
   };
-  const dateInput = (name: "purchase_date" | "warranty_expires_at", props: { min?: string; max?: string } = {}) => (
+  const dateInput = (name: "purchase_date" | "warranty_expires_at" | (typeof COMPUTER_DATE_FIELDS)[number], props: { min?: string; max?: string } = {}) => (
     <DateInput id={name} value={values[name]} onChange={(d) => setField(name, d)} className={cls(name)} {...props} />
   );
 
@@ -212,8 +222,14 @@ export function AssetForm({ locations, assetId, initial, initialCustodian = null
         <section className={`p-4 sm:p-6 ${card}`}>
           <h2 className="mb-4 font-semibold">{t("assets.form.sectionInfo")}</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {field("asset_tag", t("assets.form.tag"), input("asset_tag", { maxLength: 50, placeholder: t("assets.form.tagPlaceholder") }), true)}
-            {field("name", t("assets.form.name"), input("name", { maxLength: 255 }), true)}
+            {/* หมวด COMPUTER: รหัสสินทรัพย์ = Host Name */}
+            {field(
+              "asset_tag",
+              form?.computer ? t("assets.computer.hostName") : t("assets.form.tag"),
+              input("asset_tag", { maxLength: 50, placeholder: form?.computer ? "LPPCPRD001" : t("assets.form.tagPlaceholder") }),
+              true,
+            )}
+            {field("name", t("assets.form.name"), input("name", { maxLength: 255, placeholder: form?.computer ? t("assets.computer.namePlaceholder") : undefined }), true)}
             {field(
               "category",
               t("assets.form.category"),
@@ -256,6 +272,18 @@ export function AssetForm({ locations, assetId, initial, initialCustodian = null
             )}
             {!hidden("serial_number") && field("serial_number", t("assets.form.serial"), input("serial_number", { maxLength: 100 }))}
             {field(
+              "branch_id",
+              t("assets.form.branch"),
+              <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
+                <option value="">{t("common.none")}</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </AppSelect>,
+            )}
+            {field(
               "location_id",
               t("assets.form.location"),
               <AppSelect id="location_id" name="location_id" value={values.location_id} onChange={onChange} className={cls("location_id")}>
@@ -289,6 +317,43 @@ export function AssetForm({ locations, assetId, initial, initialCustodian = null
             )}
           </div>
         </section>
+
+        {/* ข้อมูลเครื่องคอมพิวเตอร์ — ช่องตามทะเบียน Excel ของฝ่าย IT */}
+        {form?.computer && (
+          <section className={`p-4 sm:p-6 ${card}`}>
+            <h2 className="font-semibold">{t("assets.computer.section")}</h2>
+            <p className="mb-4 mt-1 text-sm text-muted">{t("assets.computer.sectionHint")}</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {field("department", t("assets.computer.department"), input("department", { maxLength: 100 }))}
+              {field("user_name", t("assets.computer.userName"), input("user_name", { maxLength: 255 }))}
+              {field(
+                "computer_type",
+                t("assets.computer.computerType"),
+                <AppSelect id="computer_type" name="computer_type" value={values.computer_type} onChange={onChange} className={cls("computer_type")}>
+                  <option value="">{t("common.none")}</option>
+                  {/* ค่าจาก Excel ที่ไม่อยู่ในรายการยังแสดงได้ */}
+                  {[...COMPUTER_TYPES, ...(values.computer_type && !COMPUTER_TYPES.includes(values.computer_type) ? [values.computer_type] : [])].map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </AppSelect>,
+              )}
+              {field("received_date", t("assets.computer.receivedDate"), dateInput("received_date"))}
+              {field("start_use_date", t("assets.computer.startUseDate"), dateInput("start_use_date"))}
+              {field("work_group", t("assets.computer.workGroup"), input("work_group", { maxLength: 50, placeholder: "LAMPHUN" }))}
+              {field("ip_address", t("assets.computer.ip"), input("ip_address", { maxLength: 45, placeholder: "192.168.4.36", className: `${cls("ip_address")} font-mono` }))}
+              {field("mac_address", t("assets.computer.mac"), input("mac_address", { maxLength: 50, placeholder: "A0:36:BC:25:1C:5C", className: `${cls("mac_address")} font-mono` }))}
+              {field("email_365", t("assets.computer.email365"), input("email_365", { maxLength: 255, type: "email" }))}
+              {field("os", t("assets.computer.os"), input("os", { maxLength: 100, placeholder: "Windows 11 Pro" }))}
+              {field("office", t("assets.computer.office"), input("office", { maxLength: 100, placeholder: "Office 2016" }))}
+              {field("antivirus", t("assets.computer.antivirus"), input("antivirus", { maxLength: 100, placeholder: "BitDefender" }))}
+              {field("notebook_tag", t("assets.computer.notebookTag"), input("notebook_tag", { maxLength: 100, className: `${cls("notebook_tag")} font-mono` }))}
+              {field("cpu_tag", t("assets.computer.cpuTag"), input("cpu_tag", { maxLength: 100, className: `${cls("cpu_tag")} font-mono` }))}
+              {field("monitor_tag", t("assets.computer.monitorTag"), input("monitor_tag", { maxLength: 255, className: `${cls("monitor_tag")} font-mono` }))}
+            </div>
+          </section>
+        )}
 
         {form?.license && (
           <section className={`p-4 sm:p-6 ${card}`}>

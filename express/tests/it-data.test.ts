@@ -87,7 +87,7 @@ describe("IT data", () => {
 
     const created = await admin.post("/api/v1/branches").send({ code: "PKT", name: "ภูเก็ต" });
     expect(created.status).toBe(201);
-    expect(created.body.data).toEqual({ id: expect.any(Number), code: "PKT", name: "ภูเก็ต", sort_order: 0, is_active: true });
+    expect(created.body.data).toEqual({ id: expect.any(Number), code: "PKT", name: "ภูเก็ต", work_group: null, sort_order: 0, is_active: true });
     await makeUser({ branch_id: created.body.data.id });
     expect((await admin.delete(`/api/v1/branches/${created.body.data.id}`)).status).toBe(422);
     const empty = await makeBranch({ code: "EMP" });

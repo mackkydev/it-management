@@ -24,12 +24,13 @@ it-management/
 |---|---|---|
 | **Express API** | `it_express` | http://127.0.0.1:8020 (+ งานแจ้งเตือนใกล้หมดอายุทุกวัน 08:00 เวลาไทย) |
 | **MySQL 8.4** | `it_mysql` | 127.0.0.1:3308 (user `it_app`, db `it_system`, collation `utf8mb4_0900_as_ci`) |
+| **phpMyAdmin** | `it_phpmyadmin` | http://127.0.0.1:8082 (ผู้ใช้ `it_app` หรือ `root`) — คนละตัวกับ phpMyAdmin :8080 ของระบบ `system_*` |
 | Adminer | `it_adminer` | http://127.0.0.1:8081 (ระบบ MySQL, เซิร์ฟเวอร์ `mysql`, ผู้ใช้ `it_app`, ฐาน `it_system`) |
 | PostgreSQL (เดิม) | `it_postgres` | ไม่เปิดตามปกติ — ข้อมูลก่อนย้าย: `docker compose --profile legacy-postgres up -d postgres` (127.0.0.1:5433) |
 | MariaDB (เดิม) | `it_mariadb` | ไม่เปิดตามปกติ — `docker compose --profile legacy-mariadb up -d mariadb` (127.0.0.1:3307) |
 | Next.js | (บนเครื่อง) | http://localhost:3000 |
 
-> ใช้พอร์ต 8020/3308/8081 เพื่อไม่ชนกับ stack `system_*` ที่ใช้ 8000/3306/8080 อยู่แล้ว
+> ใช้พอร์ต 8020/3308/8081/8082 เพื่อไม่ชนกับ stack `system_*` ที่ใช้ 8000/3306/8080 อยู่แล้ว
 > ทุกพอร์ต bind เฉพาะ 127.0.0.1 — เข้าได้จากเครื่องนี้เท่านั้น
 
 ---

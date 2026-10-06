@@ -6,7 +6,7 @@ import { card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
 import { canDeleteAssets, canManageAssets, getCurrentUser } from "@/lib/auth";
-import type { Asset, AssetFormValues, AssetMovement, Location, Paginated } from "@/lib/types";
+import { COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, type Asset, type AssetFormValues, type AssetMovement, type Branch, type Location, type Paginated } from "@/lib/types";
 import { AssetForm } from "../../asset-form";
 import { MovementTimeline } from "../../movement-timeline";
 
@@ -32,6 +32,11 @@ function toFormValues(a: Asset): AssetFormValues {
     purchase_cost: a.purchase_cost ?? "",
     warranty_expires_at: a.warranty_expires_at ?? "",
     notes: a.notes ?? "",
+    branch_id: a.branch ? String(a.branch.id) : "",
+    ...(Object.fromEntries([...COMPUTER_TEXT_FIELDS, ...COMPUTER_DATE_FIELDS].map((k) => [k, a[k] ?? ""])) as Pick<
+      AssetFormValues,
+      (typeof COMPUTER_TEXT_FIELDS)[number] | (typeof COMPUTER_DATE_FIELDS)[number]
+    >),
     movement_reason: "",
     license: {
       billing: a.license?.billing ?? "yearly",
@@ -68,9 +73,10 @@ export default async function EditAssetPage({ params }: PageProps<"/assets/[id]/
   const user = await getCurrentUser();
   if (!canManageAssets(user)) redirect("/assets");
 
-  const [asset, { data: locations }, { t }] = await Promise.all([
+  const [asset, { data: locations }, { data: branches }, { t }] = await Promise.all([
     getAsset(id),
     apiFetch<{ data: Location[] }>("/locations"),
+    apiFetch<{ data: Branch[] }>("/branches"),
     getI18n(),
   ]);
 
@@ -82,6 +88,7 @@ export default async function EditAssetPage({ params }: PageProps<"/assets/[id]/
       </div>
       <AssetForm
         locations={locations}
+        branches={branches}
         assetId={asset.id}
         initial={toFormValues(asset)}
         initialCustodian={asset.custodian}

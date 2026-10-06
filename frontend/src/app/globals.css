@@ -187,16 +187,16 @@
   --st-idle-800: var(--color-slate-800);
 }
 
-/* lavender (indigo) ใกล้กับฟ้า → "เก็บในคลัง/โอนย้าย" เป็นเขียวน้ำทะเล (teal) */
+/* lavender (indigo) ใกล้กับฟ้า → info เป็นฟ้าอมเขียว (cyan) — ไม่ใช้ teal เพราะโหมดมืดแยกไม่ออกจาก success (emerald) */
 [data-theme="lavender"] {
-  --st-info-50: var(--color-teal-50);
-  --st-info-100: var(--color-teal-100);
-  --st-info-200: var(--color-teal-200);
-  --st-info-300: var(--color-teal-300);
-  --st-info-400: var(--color-teal-400);
-  --st-info-500: var(--color-teal-500);
-  --st-info-700: var(--color-teal-700);
-  --st-info-800: var(--color-teal-800);
+  --st-info-50: var(--color-cyan-50);
+  --st-info-100: var(--color-cyan-100);
+  --st-info-200: var(--color-cyan-200);
+  --st-info-300: var(--color-cyan-300);
+  --st-info-400: var(--color-cyan-400);
+  --st-info-500: var(--color-cyan-500);
+  --st-info-700: var(--color-cyan-700);
+  --st-info-800: var(--color-cyan-800);
 }
 
 /* sky ชนกับ "เก็บในคลัง/โอนย้าย" → ม่วง (violet) */

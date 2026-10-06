@@ -95,10 +95,18 @@ export class ApiLoginError extends Error {
 export interface MappedProfile {
   external_id: string;
   name: string;
+  /** ชื่อมาจากชื่อผู้ใช้ที่ login (ต้นทางไม่มีชื่อจริง) — ไม่เขียนทับชื่อที่ admin แก้ไว้ */
+  name_from_login: boolean;
   email: string | null;
   role_code: string | null;
   role: Role;
 }
+
+/**
+ * ค่าพิเศษใน field_map: ใช้ "ชื่อผู้ใช้ที่กรอกตอน login" แทน path ใน response
+ * สำหรับต้นทางที่ login แล้วได้แค่ token ไม่มีข้อมูลโปรไฟล์ (เช่น STEC SyteLine API)
+ */
+export const LOGIN_USERNAME = "$login";
 
 export interface UpstreamLogin {
   token: string;
@@ -110,22 +118,40 @@ export interface UpstreamLogin {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * role จากรหัสของต้นทาง — กฎแรก (ตามลำดับที่ตั้ง) ที่ตรงกับรหัสใดรหัสหนึ่ง
+ * รหัสเป็นรายการได้ (เช่น appIds = [1, 5] ของ STEC) → ส่งมาเป็น "1,5"
+ */
 export function mapRole(conn: ApiConnectionRow, code: string | null): Role {
   const rules = Array.isArray(conn.role_rules) ? conn.role_rules : [];
-  const hit = code === null ? undefined : rules.find((r) => String(r.value).trim().toLowerCase() === code.trim().toLowerCase());
+  const codes = code === null ? [] : code.split(",").map((c) => c.trim().toLowerCase()).filter(Boolean);
+  const hit = rules.find((r) => codes.includes(String(r.value).trim().toLowerCase()));
   const role = hit?.role ?? conn.default_role;
   return API_ROLES.includes(role) ? role : "viewer";
 }
 
-export function mapProfile(conn: ApiConnectionRow, data: unknown): MappedProfile | null {
+/** รหัส role จาก path — ค่าเดียว หรือรายการ (array ของข้อความ/ตัวเลข) → รวมเป็น "a,b" */
+function readRoleCode(data: unknown, path: string): string | null {
+  const v = readPath(data, path);
+  if (Array.isArray(v)) {
+    const list = v.filter((x) => typeof x === "string" || (typeof x === "number" && Number.isFinite(x))).map((x) => String(x).trim()).filter(Boolean);
+    return list.length ? list.join(",").slice(0, 255) : null;
+  }
+  return readString(data, path);
+}
+
+/** loginUsername = ชื่อผู้ใช้ที่กรอกตอน login (ใช้กับค่า "$login" ใน field_map) */
+export function mapProfile(conn: ApiConnectionRow, data: unknown, loginUsername: string | null = null): MappedProfile | null {
   const fm = conn.field_map ?? {};
-  const externalId = readString(data, fm.external_id || "id");
+  const pick = (path: string | undefined, fallback: string) => (path === LOGIN_USERNAME ? loginUsername?.trim() || null : readString(data, path || fallback));
+  const externalId = pick(fm.external_id, "id");
   if (!externalId || externalId.length > 191) return null;
-  const email = readString(data, fm.email || "email")?.toLowerCase() ?? null;
-  const roleCode = fm.role_code ? readString(data, fm.role_code) : null;
+  const email = pick(fm.email, "email")?.toLowerCase() ?? null;
+  const roleCode = fm.role_code ? readRoleCode(data, fm.role_code) : null;
   return {
     external_id: externalId,
-    name: (readString(data, fm.name || "name") ?? externalId).slice(0, 255),
+    name: (pick(fm.name, "name") ?? externalId).slice(0, 255),
+    name_from_login: fm.name === LOGIN_USERNAME || !readString(data, fm.name || "name"),
     email: email && email.length <= 255 && EMAIL.test(email) ? email : null,
     role_code: roleCode,
     role: mapRole(conn, roleCode),
@@ -184,7 +210,7 @@ export async function upstreamLogin(conn: ApiConnectionRow, username: string, pa
     if (!ok(p.status)) throw new ApiLoginError(p.status >= 500 ? "unavailable" : "misconfigured");
     profileSource = p.json;
   }
-  const profile = mapProfile(conn, readPath(profileSource, conn.profile_root_path));
+  const profile = mapProfile(conn, readPath(profileSource, conn.profile_root_path), username);
   if (!profile) throw new ApiLoginError("misconfigured");
   return { token, refreshToken, expiresAt, profile };
 }
@@ -213,7 +239,8 @@ async function emailOwner(email: string, exceptId: number | null): Promise<numbe
 
 /**
  * ครั้งแรก: สร้างผู้ใช้ type=API ด้วย role จาก role mapping (ไม่ตรงกฎ = default_role)
- * ครั้งถัดไป: อัปเดตเฉพาะชื่อ/อีเมล — ห้ามแตะ role / สิทธิ์ / สถานะ / ลายเซ็น ที่ admin ตั้งไว้
+ * ครั้งถัดไป: อัปเดตชื่อ/อีเมล และ role ตามรหัสจากต้นทาง (เช่น appIds) เมื่อตั้ง field_map.role_code ไว้
+ *   — ห้ามแตะสิทธิ์รายคน / จนท.IT / หัวหน้า IT / สถานะ / ลายเซ็น ที่ admin ตั้งไว้
  * อีเมลซ้ำกับผู้ใช้อื่น → ไม่ใช้อีเมลนั้น (เว้นว่าง/คงค่าเดิม) และบันทึก audit api_user.email_conflict ให้ admin ผูกบัญชีเอง
  * ต้นทางไม่ส่งอีเมล → คงค่าเดิมในระบบเรา
  */
@@ -245,16 +272,29 @@ export async function provisionUser(conn: ApiConnectionRow, profile: MappedProfi
       });
     } catch (e) {
       // login ครั้งแรกพร้อมกันสองที่ — อีกฝั่งสร้างไปแล้ว
-      if ((e as { code?: string }).code !== "23505") throw e;
+      if ((e as { code?: string }).code !== "ER_DUP_ENTRY") throw e;
     }
     user = (await find())!;
   } else {
     const changes: Record<string, unknown> = { external_synced_at: now };
-    if (user.name !== profile.name) changes.name = profile.name;
+    // ชื่อจากต้นทางจริงเท่านั้น — ชื่อที่ได้จากชื่อผู้ใช้ login ไม่เขียนทับชื่อที่ admin แก้ไว้
+    if (!profile.name_from_login && user.name !== profile.name) changes.name = profile.name;
     if (profile.email && !conflictWith && user.email !== profile.email) changes.email = profile.email;
+    // บทบาทตามต้นทางทุกครั้งที่ login/ตรวจซ้ำ — ไม่ได้ map รหัส role ไว้ = admin กำหนดเอง
+    const roleBefore = user.role;
+    if (conn.field_map?.role_code && user.role !== profile.role) changes.role = profile.role;
     if (Object.keys(changes).length > 1) changes.updated_at = now;
     await update("users", changes, "id = ?", [user.id]);
     user = (await find())!;
+    if (changes.role) {
+      await audit(actor, {
+        action: "api_user.role_synced",
+        subjectType: "user",
+        subjectId: user.id,
+        before: { role: roleBefore },
+        after: { role: user.role, role_code: profile.role_code },
+      });
+    }
   }
 
   if (conflictWith && profile.email && user.email !== profile.email) {
@@ -373,7 +413,8 @@ export async function checkApiSession(tokenId: number, user: UserRow, lastUsedAt
     }
     if (res.status === 401 || res.status === 403) return kill(tokenId);
     if (ok(res.status)) {
-      const profile = mapProfile(conn, readPath(res.json, conn.profile_root_path));
+      // external_id มาจากชื่อผู้ใช้ตอน login ("$login") = external_id ที่เก็บไว้
+      const profile = mapProfile(conn, readPath(res.json, conn.profile_root_path), user.external_id);
       const synced = profile && profile.external_id === user.external_id ? await provisionUser(conn, profile, { user: { id: user.id } }) : user;
       await exec("UPDATE external_sessions SET profile_checked_at = ?, updated_at = ? WHERE id = ?", [nowDb(), nowDb(), s.id]);
       return synced;

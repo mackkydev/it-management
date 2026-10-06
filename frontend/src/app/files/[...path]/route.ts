@@ -6,10 +6,11 @@ import { apiFile } from "@/lib/api";
  *   <img src="/files/auth/me/signature?v=...">   (ลายเซ็นในโปรไฟล์ของตัวเอง — ?v= ใช้แค่ให้ cache ใหม่)
  *   <img src="/files/branding/logo?v=...">   (โลโก้ระบบในเมนู — ?v= ใช้แค่ให้ cache ใหม่)
  *   <a href="/files/assets/{uuid}/files/3?download=1">   (ไฟล์ license ของสินทรัพย์ — ?download=1 บังคับดาวน์โหลด)
+ *   <a href="/files/assets/import-template">   (template Excel สำหรับนำเข้าทะเบียนคอมพิวเตอร์)
  * อนุญาตเฉพาะ path ของไฟล์ — กันไม่ให้ใช้เป็น proxy เรียก API อื่น
  */
 const ALLOWED =
-  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/[0-9a-f-]{36}\/files\/\d+)$/i;
+  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/[0-9a-f-]{36}\/files\/\d+)$/i;
 
 export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
   const { path } = await ctx.params;

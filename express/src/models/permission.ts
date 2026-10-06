@@ -38,6 +38,8 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "announcements.manage", group: "it_data", name_th: "จัดการประกาศหน้า login", name_en: "Manage login announcements", defaults: IT },
 
   // สินทรัพย์
+  // ไม่มีสิทธิ์นี้ (และไม่มี assets.manage) = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง (ผู้ถือครอง หรือชื่อผู้ใช้งานตรงกับชื่อตัวเอง)
+  { key: "assets.view_all", group: "assets", name_th: "ดูสินทรัพย์ทั้งหมด (ไม่มีสิทธิ์นี้ = เห็นเฉพาะที่ตัวเองถือครอง)", name_en: "View all assets (otherwise only the user's own)", defaults: MANAGERS_IT },
   { key: "assets.manage", group: "assets", name_th: "เพิ่ม/แก้ไขสินทรัพย์ สถานที่ ไฟล์ และการโอนย้าย", name_en: "Create / edit assets, locations, files and movements", defaults: MANAGERS },
   { key: "assets.delete", group: "assets", name_th: "ลบสินทรัพย์", name_en: "Delete assets", defaults: ["admin"] },
   { key: "locations.delete", group: "assets", name_th: "ลบสถานที่", name_en: "Delete locations", defaults: ["admin"] },

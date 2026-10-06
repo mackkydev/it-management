@@ -78,7 +78,7 @@ describe("software licenses", () => {
 
   it("license files: upload several, preview/download, validate type, delete", async () => {
     const manager = await as(await makeUser({ role: "manager" }));
-    const viewer = await as(await makeUser());
+    const viewer = await as(await makeUser({ is_it_staff: true })); // เห็นสินทรัพย์ทั้งหมด แต่ไม่มีสิทธิ์จัดการ
     const id = (await manager.post("/api/v1/assets").send(software(yearly))).body.data.id;
 
     expect((await viewer.post(`/api/v1/assets/${id}/files`).attach("files[]", fakePdf(5), "a.pdf")).status).toBe(403);
