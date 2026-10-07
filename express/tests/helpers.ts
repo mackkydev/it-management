@@ -14,6 +14,28 @@ export const app = createApp();
 let seq = 0;
 const next = () => ++seq;
 
+/** สิทธิ์ของกลุ่มฝ่าย IT เดิม (ก่อน migration 20261013090000) — ใช้เป็นกลุ่มที่สร้างเองในเทสต์ */
+const IT_STAFF_KEYS = [
+  "it_tickets.queue", "it_tickets.accept", "kpi.use", "vault.view", "vault.create", "vault.update", "vault.delete",
+  "contracts.view", "contracts.create", "contracts.update", "contracts.delete", "announcements.manage",
+  "assets.view_all", "assets.license_key", "licenses.install", "users.search", "signature.manage_own",
+];
+const IT_HEAD_KEYS = [...IT_STAFF_KEYS.filter((k) => k !== "it_tickets.accept"), "it_tickets.manage_all", "it_tickets.close", "kpi.view_all"];
+
+export async function ensureTestItGroups(): Promise<void> {
+  const now = nowDb();
+  for (const [key, name, keys, order] of [["it_staff", "เจ้าหน้าที่ IT", IT_STAFF_KEYS, 10], ["it_head", "หัวหน้า IT", IT_HEAD_KEYS, 11]] as const) {
+    await exec(
+      "INSERT IGNORE INTO permission_groups (\"key\", name_th, name_en, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, false, ?, ?, ?)",
+      [key, name, key, order, now, now],
+    );
+    await exec(
+      "INSERT IGNORE INTO role_permissions (role, permission_id, created_at) SELECT ?, id, ? FROM permissions WHERE \"key\" IN (?)",
+      [key, now, [...keys]],
+    );
+  }
+}
+
 export async function makeUser(attrs: Partial<UserRow> & { password?: string } = {}): Promise<UserRow> {
   const n = next();
   const now = nowDb();
@@ -30,7 +52,8 @@ export async function makeUser(attrs: Partial<UserRow> & { password?: string } =
     updated_at: now,
     ...rest,
   });
-  // เหมือน migration 20261012090000: สิทธิ์ฝ่าย IT มาจากกลุ่มฝ่าย IT เดิม (ช่อง จนท.IT / หัวหน้า IT = หน้าที่ในใบแจ้งงาน)
+  // ระบบจริงไม่มีกลุ่มฝ่าย IT แล้ว (ยุบเป็นตำแหน่ง admin / super_admin) — เทสต์จำลองเจ้าหน้าที่ IT สิทธิ์จำกัดด้วย "กลุ่มที่สร้างเอง" สิทธิ์ชุดเดิม
+  if (rest.is_it_staff || rest.is_it_head) await ensureTestItGroups();
   if (rest.is_it_staff) await exec("INSERT IGNORE INTO user_groups (user_id, group_key, created_at) VALUES (?, 'it_staff', ?)", [id, now]);
   if (rest.is_it_head) await exec("INSERT IGNORE INTO user_groups (user_id, group_key, created_at) VALUES (?, 'it_head', ?)", [id, now]);
   return (await first<UserRow>("SELECT * FROM users WHERE id = ?", [id]))!;

@@ -37,16 +37,16 @@ describe("departments / divisions", () => {
 });
 
 describe("new roles", () => {
-  it("division manager role; the IT staff role is gone — IT permissions come from a group", async () => {
+  it("division manager role; the IT staff role is gone — IT permissions come from the role (admin) or a group", async () => {
     const admin = await as(await makeUser({ role: "super_admin" }));
     expect((await admin.post("/api/v1/users").send({ name: "IT", email: "it.old@example.com", role: "it_staff", password: "Pass-1234" })).status).toBe(422);
     const res = await admin.post("/api/v1/users").send({ name: "IT ใหม่", email: "it.new@example.com", role: "viewer", is_it_staff: true, password: "Pass-1234" });
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ role: "viewer", is_it_staff: true });
     const me = await as((await first<UserRow>("SELECT * FROM users WHERE id = ?", [res.body.data.id]))!);
-    // ช่อง จนท.IT = หน้าที่ในใบแจ้งงาน ไม่ให้สิทธิ์ — มอบกลุ่มฝ่าย IT แล้วจึงเห็นคิวงาน
+    // ช่อง จนท.IT = หน้าที่ในใบแจ้งงาน ไม่ให้สิทธิ์ — ตั้งตำแหน่งผู้ดูแลระบบ (admin) แล้วจึงเห็นคิวงาน
     expect((await me.get("/api/v1/tickets?scope=it")).status).toBe(403);
-    await admin.put(`/api/v1/users/${res.body.data.id}/permissions`).send({ groups: [{ key: "it_staff" }] });
+    await admin.put(`/api/v1/users/${res.body.data.id}/permissions`).send({ role: "admin" });
     expect((await me.get("/api/v1/tickets?scope=it")).status).toBe(200);
 
     const dm = await admin.post("/api/v1/users").send({ name: "ผจก.ฝ่าย", email: "dm@example.com", role: "division_manager", password: "Pass-1234" });

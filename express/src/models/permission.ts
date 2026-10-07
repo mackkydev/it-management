@@ -6,11 +6,11 @@
  * module + action = ตำแหน่งในตารางสิทธิ์ (แถว = ระบบงาน, คอลัมน์ = ดู / เพิ่ม / แก้ไข / ลบ / อนุมัติ / อื่นๆ)
  * defaults = กลุ่มที่ได้สิทธิ์นี้ตอนสร้าง key ครั้งแรก
  * from = key เดิมที่แยกออกมา — ตอนสร้าง key ใหม่ คัดลอกการกำหนดสิทธิ์ของ key เดิม (กลุ่ม + รายคน) แทน defaults ไม่ให้ใครเสียสิทธิ์
- * locked = สงวนไว้ให้ผู้ดูแลระบบ: มอบ/ถอดได้เฉพาะ super_admin (ผู้ดูแลระบบรองไม่ได้ตั้งแต่ต้น แต่ super_admin ติ๊กให้กลุ่ม/รายคนได้)
+ * locked = สงวนไว้ให้ผู้ดูแลระบบ: มอบ/ถอดได้เฉพาะ super_admin (ผู้ดูแลระบบ (admin)ไม่ได้ตั้งแต่ต้น แต่ super_admin ติ๊กให้กลุ่ม/รายคนได้)
  */
 
-/** กลุ่มตามตำแหน่ง (system) + กลุ่มฝ่าย IT เดิม (สร้างจาก migration — แก้/ลบได้) — ใช้กับ defaults */
-export type Audience = "admin" | "division_manager" | "manager" | "viewer" | "it_staff" | "it_head";
+/** กลุ่มตามตำแหน่ง (system) — ใช้กับ defaults (super_admin ผ่านทุกสิทธิ์ ไม่ต้องระบุ) — กลุ่มฝ่าย IT เดิมถูกยุบเข้า admin / super_admin แล้ว */
+export type Audience = "admin" | "division_manager" | "manager" | "viewer";
 
 export const ACTIONS = ["view", "create", "update", "delete", "approve", "manage", "other"] as const;
 export type PermissionAction = (typeof ACTIONS)[number];
@@ -51,9 +51,9 @@ export interface PermissionDef {
   locked?: boolean;
 }
 
-const IT: Audience[] = ["admin", "it_staff", "it_head"];
+const IT: Audience[] = ["admin"];
 const MANAGERS: Audience[] = ["admin", "manager"];
-const MANAGERS_IT: Audience[] = ["admin", "manager", "it_staff", "it_head"];
+const MANAGERS_IT: Audience[] = ["admin", "manager"];
 
 type Def = Omit<PermissionDef, "group">;
 const DEFS: Def[] = [
@@ -61,12 +61,12 @@ const DEFS: Def[] = [
   { key: "tickets.view_all", module: "tickets", action: "view", name_th: "ดูใบแจ้งงานทั้งหมด (รวมที่ยังไม่อนุมัติ)", name_en: "View every ticket (including pending approval)", defaults: ["admin"] },
   { key: "tickets.approve_any", module: "tickets", action: "approve", name_th: "อนุมัติแทนผู้อนุมัติทุกสาย", name_en: "Approve on behalf of any approver", defaults: ["admin"] },
   { key: "it_tickets.queue", module: "it_jobs", action: "view", name_th: "เห็นคิวงาน IT และใบงานที่อนุมัติแล้ว", name_en: "See the IT queue and approved tickets", defaults: IT },
-  { key: "it_tickets.manage_all", module: "it_jobs", action: "update", name_th: "รับงาน/บันทึกความคืบหน้าและผลแทนผู้อื่น", name_en: "Accept / update tickets on behalf of others", defaults: ["admin", "it_head"] },
-  { key: "it_tickets.close", module: "it_jobs", action: "approve", name_th: "ตรวจรับและปิดงาน / ส่งกลับแก้ไข", name_en: "Review and close / return tickets", defaults: ["admin", "it_head"] },
-  { key: "it_tickets.accept", module: "it_jobs", action: "other", name_th: "รับงานที่ยังไม่มีผู้รับ", name_en: "Accept unassigned tickets", defaults: ["admin", "it_staff"] },
-  { key: "kpi.view_all", module: "kpi", action: "view", name_th: "ดู KPI ของทุกคน", name_en: "View everyone's KPI", defaults: ["admin", "it_head"] },
+  { key: "it_tickets.manage_all", module: "it_jobs", action: "update", name_th: "รับงาน/บันทึกความคืบหน้าและผลแทนผู้อื่น", name_en: "Accept / update tickets on behalf of others", defaults: ["admin"] },
+  { key: "it_tickets.close", module: "it_jobs", action: "approve", name_th: "ตรวจรับและปิดงาน / ส่งกลับแก้ไข", name_en: "Review and close / return tickets", defaults: ["admin"] },
+  { key: "it_tickets.accept", module: "it_jobs", action: "other", name_th: "รับงานที่ยังไม่มีผู้รับ", name_en: "Accept unassigned tickets", defaults: ["admin"] },
+  { key: "kpi.view_all", module: "kpi", action: "view", name_th: "ดู KPI ของทุกคน", name_en: "View everyone's KPI", defaults: [] }, // หัวหน้า IT = ผู้ดูแลระบบสูงสุด (ผ่านทุกสิทธิ์) — ผู้ดูแลระบบเห็นแค่ของตัวเอง
   { key: "kpi.use", module: "kpi", action: "create", name_th: "บันทึก/ดู KPI ของตัวเอง", name_en: "Record / view own KPI", defaults: IT },
-  { key: "kpi.edit_all", module: "kpi", action: "update", name_th: "แก้ไข/ลบ KPI ของผู้อื่น", name_en: "Edit / delete others' KPI", defaults: ["admin"] },
+  { key: "kpi.edit_all", module: "kpi", action: "update", name_th: "แก้ไข/ลบ KPI ของผู้อื่น", name_en: "Edit / delete others' KPI", defaults: [] },
 
   // ข้อมูลฝ่าย IT
   { key: "vault.view", module: "vault", action: "view", name_th: "ดูคลังบัญชี และเปิดดูรหัสผ่าน", name_en: "View the vault and reveal passwords", defaults: IT, from: "vault.use" },
@@ -98,7 +98,7 @@ const DEFS: Def[] = [
   { key: "branches.manage", module: "branches", action: "manage", name_th: "จัดการสาขา", name_en: "Manage branches", defaults: ["admin"] },
   { key: "org.manage", module: "org", action: "manage", name_th: "จัดการแผนกและฝ่าย", name_en: "Manage departments and divisions", defaults: ["admin"] },
   // ลายเซ็น: จัดการของตัวเอง (ตั้งต้นทุกกลุ่ม) / ใช้ลายเซ็นของผู้อื่นในเอกสาร
-  { key: "signature.manage_own", module: "signature", action: "manage", name_th: "อัปโหลด/วาด/ลบลายเซ็นของตัวเอง", name_en: "Upload / draw / delete own signature", defaults: ["admin", "division_manager", "manager", "viewer", "it_staff", "it_head"] },
+  { key: "signature.manage_own", module: "signature", action: "manage", name_th: "อัปโหลด/วาด/ลบลายเซ็นของตัวเอง", name_en: "Upload / draw / delete own signature", defaults: ["admin", "division_manager", "manager", "viewer"] },
   { key: "signature.use", module: "signature", action: "other", name_th: "ใช้ลายเซ็นของผู้อื่นในเอกสาร", name_en: "Use other users' signatures in documents", defaults: ["admin"] },
 
   // ตั้งค่าระบบ
@@ -107,7 +107,7 @@ const DEFS: Def[] = [
   { key: "audit_logs.view", module: "audit", action: "view", name_th: "ดูบันทึกการเปลี่ยนแปลง (audit log)", name_en: "View the audit log", defaults: ["admin"] },
   { key: "access.assign", module: "access", action: "other", name_th: "มอบตำแหน่ง/กลุ่ม/สิทธิ์ให้ผู้ใช้ (เฉพาะสิทธิ์ที่ตัวเองมี)", name_en: "Assign roles / groups / permissions to users (only ones held)", defaults: ["admin"] },
   { key: "access.manage", module: "access", action: "manage", name_th: "กำหนดสิทธิ์ของกลุ่ม / สร้างกลุ่ม / การมองเห็นเมนู / วันหมดอายุของสิทธิ์", name_en: "Edit group permissions / groups / menu visibility / permission expiry", defaults: [], locked: true },
-  // PIN กลาง: ผู้ดูแลระบบรองแก้ได้ — ทุกครั้งแจ้งเตือนผู้ดูแลระบบ + ผู้ดูแลระบบรองทุกคน (routes/it-data.ts)
+  // PIN กลาง: ผู้ดูแลระบบ (admin)แก้ได้ — ทุกครั้งแจ้งเตือนผู้ดูแลระบบสูงสุด + ผู้ดูแลระบบทุกคน (routes/it-data.ts)
   { key: "secrets.pin_manage", module: "security", action: "update", name_th: "ตั้ง/เปลี่ยน PIN กลางสำหรับเปิดดูรหัสผ่าน / License key (แจ้งเตือนผู้ดูแลระบบทุกคน)", name_en: "Set / change the shared PIN for viewing secrets (notifies all admins)", defaults: ["admin"] },
 ];
 

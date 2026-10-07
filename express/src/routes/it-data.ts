@@ -162,7 +162,7 @@ itDataRoutes.put("/secret-pin", limits.pinSet, async (req, res) => {
   await putSetting("secret_pin", { hash: makeHash(String(data.pin), config.bcryptRounds), set_at: pinSetAt(), set_by: { id: u.id, name: u.name } }, u.id);
   await exec("UPDATE users SET secret_pin_failures = 0, secret_pin_locked_until = NULL WHERE secret_pin_failures > 0 OR secret_pin_locked_until IS NOT NULL");
   await audit(req, { action: existed ? "settings.secret_pin_changed" : "settings.secret_pin_set", subjectType: "settings", subjectId: "secret_pin" });
-  // PIN กลางเปลี่ยน = แจ้งผู้ดูแลระบบ + ผู้ดูแลระบบรองทุกคน
+  // PIN กลางเปลี่ยน = แจ้งผู้ดูแลระบบสูงสุด + ผู้ดูแลระบบทุกคน
   await notifyAccessChange(req, "pin", { id: "secret_pin", name: "" }, { first_time: !existed });
   res.json({ data: { ...(await centralPinStatus()), can_manage: true } });
 });

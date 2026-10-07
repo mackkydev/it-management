@@ -41,9 +41,10 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
         <table className="w-full text-sm">
           <thead className="bg-subtle text-xs text-muted">
             <tr>
-              <th className="px-4 py-2.5 text-left font-medium">{t("rolePermissions.module")}</th>
+              {/* คอลัมน์ระบบงานกินพื้นที่ที่เหลือ → ช่องสิทธิ์ทั้งหมดชิดขวา */}
+              <th className="w-full px-4 py-2.5 text-left font-medium">{t("rolePermissions.module")}</th>
               {COLUMNS.map((c) => (
-                <th key={c} className={`px-3 py-2.5 font-medium ${c === "other" ? "text-left" : "w-20 text-center"}`}>
+                <th key={c} className={`px-3 py-2.5 font-medium whitespace-nowrap ${c === "other" ? "min-w-64 text-left" : "w-20 text-center"}`}>
                   {t(`rolePermissions.actions.${c}` as MessageKey)}
                 </th>
               ))}
@@ -55,7 +56,7 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
               const at = (c: (typeof COLUMNS)[number]) => items.filter((p) => p.action === c);
               return (
                 <tr key={m.key} className="hover:bg-subtle/40">
-                  <td className="px-4 py-2.5 font-medium text-ink">{name(m)}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5 font-medium text-ink">{name(m)}</td>
                   <td className="px-3 py-2.5 text-center">{at("view").map((p) => <span key={p.key}>{control(p)}</span>)}</td>
                   {manage.length > 0 && at("create").length + at("update").length === 0 ? (
                     <>
@@ -85,7 +86,7 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
                       {at("other").map((p) => (
                         <span key={p.key} className="flex items-center gap-2">
                           {cell(p)}
-                          <span className="text-xs text-muted">{name(p)}</span>
+                          <span className="whitespace-nowrap text-xs text-muted">{name(p)}</span>
                           {lockBadge(p)}
                         </span>
                       ))}

@@ -142,8 +142,16 @@ export function actionsFor(u: UserRow, t: TicketRow): string[] {
 
 type Person = Pick<UserRow, "id" | "name">;
 
-/** เจ้าหน้าที่ IT = ผู้ใช้ที่ใช้งานอยู่ซึ่งอยู่แผนก IT หรือถูกตั้งเป็นเจ้าหน้าที่/หัวหน้า IT */
-export const IT_STAFF_WHERE = "is_active = true AND (is_it_staff = true OR is_it_head = true OR LOWER(TRIM(department)) = 'it')";
+/** ชื่อฝ่าย/แผนกที่นับเป็นฝ่าย IT (เทียบแบบตัดช่องว่าง ไม่สนตัวพิมพ์) */
+const IT_UNIT_NAMES = ["it", "ฝ่าย it", "ไอที", "ฝ่ายไอที", "เทคโนโลยีสารสนเทศ", "ฝ่ายเทคโนโลยีสารสนเทศ"];
+const IT_UNITS_SQL = IT_UNIT_NAMES.map((n) => `'${n}'`).join(", ");
+
+/**
+ * เจ้าหน้าที่ IT (ผู้ดำเนินการในใบแจ้งงาน) = ผู้ใช้ที่ใช้งานอยู่ซึ่งอยู่ฝ่าย/แผนก IT (ฝ่าย IT / เทคโนโลยีสารสนเทศ)
+ * หรือถูกตั้งเป็นเจ้าหน้าที่/หัวหน้า IT
+ */
+export const IT_STAFF_WHERE = `is_active = true AND (is_it_staff = true OR is_it_head = true
+  OR LOWER(TRIM(department)) IN (${IT_UNITS_SQL}) OR LOWER(TRIM(division)) IN (${IT_UNITS_SQL}))`;
 
 export const itStaff = () =>
   select<Person & { is_it_head: number }>(`SELECT id, name, is_it_head FROM users WHERE ${IT_STAFF_WHERE} ORDER BY name, id`);

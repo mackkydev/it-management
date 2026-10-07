@@ -1,4 +1,4 @@
-import { exec, first, insert, scalar, select } from "../db.js";
+import { exec, first, insert, select } from "../db.js";
 import { localToday, nowDb } from "../lib/time.js";
 import { PERMISSION_KEYS, PERMISSIONS } from "../models/permission.js";
 import { isSuperAdmin, ROLES, type UserRow } from "../models/user.js";
@@ -6,7 +6,7 @@ import { getSetting, putSetting } from "./settings.js";
 
 /**
  * กลุ่มสิทธิ์ + สิทธิ์จริงของผู้ใช้
- * - กลุ่มตามตำแหน่ง (system, ลบไม่ได้) = ค่าเดียวกับ users.role; กลุ่มที่สร้างเอง (เช่น กลุ่มฝ่าย IT เดิม) มอบเพิ่มรายคนได้หลายกลุ่ม (user_groups)
+ * - กลุ่มตามตำแหน่ง (system, ลบไม่ได้) = ค่าเดียวกับ users.role; กลุ่มที่สร้างเอง มอบเพิ่มรายคนได้หลายกลุ่ม (user_groups)
  * - สิทธิ์จริง = สิทธิ์ของทุกกลุ่ม + allow รายคน − deny รายคน (รายการที่เลยวันหมดอายุไม่มีผล เมื่อเปิด permission_expiry)
  * - super_admin ผ่านทุกสิทธิ์ (ไม่ใช้ตาราง role_permissions)
  */
@@ -15,27 +15,16 @@ export const SUPER_ADMIN_GROUP = "super_admin";
 
 /** กลุ่มตามตำแหน่ง — สร้างให้เสมอถ้ายังไม่มี (ชื่อแก้ได้ ลบไม่ได้) */
 const SYSTEM_GROUPS: { key: string; name_th: string; name_en: string }[] = [
-  { key: "super_admin", name_th: "ผู้ดูแลระบบ", name_en: "Super admin" },
-  { key: "admin", name_th: "ผู้ดูแลระบบรอง", name_en: "Admin" },
+  { key: "super_admin", name_th: "ผู้ดูแลระบบสูงสุด", name_en: "Super admin" },
+  { key: "admin", name_th: "ผู้ดูแลระบบ", name_en: "Admin" },
   { key: "division_manager", name_th: "ผู้จัดการฝ่าย", name_en: "Division manager" },
   { key: "manager", name_th: "ผู้จัดการ", name_en: "Manager" },
   { key: "viewer", name_th: "พนักงาน", name_en: "Staff" },
 ];
-/** กลุ่มฝ่าย IT เดิม — สร้างครั้งเดียวตอนฐานยังไม่มีกลุ่มใดเลย (ติดตั้งใหม่ / เทสต์) เหมือน migration 20261012090000 — ลบแล้วไม่สร้างคืน */
-const LEGACY_GROUPS: { key: string; name_th: string; name_en: string }[] = [
-  { key: "it_staff", name_th: "เจ้าหน้าที่ IT (เดิม)", name_en: "IT staff (legacy)" },
-  { key: "it_head", name_th: "หัวหน้า IT (เดิม)", name_en: "IT head (legacy)" },
-];
-
 async function ensureGroups(): Promise<void> {
   const now = nowDb();
-  const empty = Number(await scalar("SELECT COUNT(*) FROM permission_groups")) === 0;
   for (const [i, g] of SYSTEM_GROUPS.entries()) {
     await exec("INSERT IGNORE INTO permission_groups (\"key\", name_th, name_en, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, true, ?, ?, ?)", [g.key, g.name_th, g.name_en, i, now, now]);
-  }
-  if (!empty) return;
-  for (const [i, g] of LEGACY_GROUPS.entries()) {
-    await exec("INSERT IGNORE INTO permission_groups (\"key\", name_th, name_en, is_system, sort_order, created_at, updated_at) VALUES (?, ?, ?, false, ?, ?, ?)", [g.key, g.name_th, g.name_en, 10 + i, now, now]);
   }
 }
 
@@ -160,7 +149,7 @@ export async function audiencePermissions(): Promise<Record<string, string[]>> {
   return out;
 }
 
-/** ผู้รับแจ้งเตือนการเปลี่ยนสิทธิ์: ผู้ดูแลระบบ + ผู้ดูแลระบบรอง ทุกคนที่ใช้งานอยู่ */
+/** ผู้รับแจ้งเตือนการเปลี่ยนสิทธิ์: ผู้ดูแลระบบสูงสุด + ผู้ดูแลระบบ ทุกคนที่ใช้งานอยู่ */
 export async function adminRecipients(exceptId?: number): Promise<number[]> {
   const rows = await select<{ id: number }>("SELECT id FROM users WHERE is_active = true AND role IN ('super_admin', 'admin') AND id <> ?", [exceptId ?? 0]);
   return rows.map((r) => Number(r.id));

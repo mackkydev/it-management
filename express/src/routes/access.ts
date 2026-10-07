@@ -27,7 +27,7 @@ import { putSetting } from "../services/settings.js";
  *   GET    /api-users                      รายการ API User (access.assign)
  *   POST   /api-users/{id}/link            { local_user_id } ผูก API User กับบัญชี LOCAL เดิม (access.assign)
  *   GET    /audit-logs                     บันทึกการเปลี่ยนแปลง (audit_logs.view)
- * ทุกการเปลี่ยนสิทธิ์บันทึก audit_logs (ก่อน-หลัง) + แจ้งเตือนผู้ดูแลระบบ + ผู้ดูแลระบบรองทุกคน
+ * ทุกการเปลี่ยนสิทธิ์บันทึก audit_logs (ก่อน-หลัง) + แจ้งเตือนผู้ดูแลระบบสูงสุด + ผู้ดูแลระบบทุกคน
  * กติกาการมอบ (กันยกระดับสิทธิ์ตัวเอง) อยู่ที่ services/access-control.ts
  */
 export const accessRoutes = Router();

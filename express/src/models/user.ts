@@ -9,7 +9,7 @@ export interface UserRow {
   email: string | null;
   /** ชื่อผู้ใช้สำหรับ login (ไม่บังคับ, ไม่มี @) */
   username: string | null;
-  /** ตำแหน่ง: super_admin (ผู้ดูแลระบบ) | admin (ผู้ดูแลระบบรอง) | division_manager (ผู้จัดการฝ่าย) | manager (ผู้จัดการ) | viewer (พนักงาน) */
+  /** ตำแหน่ง: super_admin (ผู้ดูแลระบบสูงสุด) | admin (ผู้ดูแลระบบ) | division_manager (ผู้จัดการฝ่าย) | manager (ผู้จัดการ) | viewer (พนักงาน) */
   role: Role;
   /** LOCAL = ผู้ใช้ของระบบเรา (ผู้ใช้เดิมทั้งหมด) / API = ผู้ใช้จาก REST API ต้นทาง */
   type: UserType;
@@ -44,7 +44,7 @@ export interface UserRow {
 export const ROLES = ["super_admin", "admin", "division_manager", "manager", "viewer"] as const;
 export type Role = (typeof ROLES)[number];
 
-/** ลำดับตำแหน่ง (มาก = สูงกว่า): ผู้ดูแลระบบ > ผู้ดูแลระบบรอง > ผู้จัดการ > ผู้จัดการฝ่าย > พนักงาน — ใช้กรองผู้อนุมัติที่ผู้แจ้งเลือกได้ */
+/** ลำดับตำแหน่ง (มาก = สูงกว่า): ผู้ดูแลระบบสูงสุด > ผู้ดูแลระบบ > ผู้จัดการ > ผู้จัดการฝ่าย > พนักงาน — ใช้กรองผู้อนุมัติที่ผู้แจ้งเลือกได้ */
 export const ROLE_RANK: Record<Role, number> = { super_admin: 5, admin: 4, manager: 3, division_manager: 2, viewer: 1 };
 export const roleRank = (role: string): number => ROLE_RANK[role as Role] ?? 1;
 /** บทบาทที่สูงกว่าบทบาทนี้ */

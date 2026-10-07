@@ -8,7 +8,7 @@
 - **ตั้งแต่ 2026-10-04 ใช้ Express อย่างเดียว** — ถอด Laravel (`backend/`, `it_api`) ออกแล้ว (ดูโค้ดเดิมจาก git history) ห้ามสร้างกลับมา
 - ไฟล์แนบ/ลายเซ็น/ไฟล์ license อยู่ที่ `storage/private` (mount เป็น `/data/private` ใน container, ไม่ขึ้น git — ต้องสำรองแยก)
 - ผู้ใช้ 2 แบบ (`users.type`): `LOCAL` (ผู้ใช้เดิมทั้งหมด, login อีเมล+รหัสผ่าน) / `API` (ผู้ใช้จาก REST API ต้นทาง — ไม่เก็บรหัสผ่าน, `connection_id`+`external_id`) — CHECK ใน DB บังคับ; rollback ด้วยมือ: `prisma/migrations/20261004120000_add_api_users_and_permissions/down.sql`
-- ตำแหน่ง (`users.role`): `super_admin` (ผู้ดูแลระบบ) > `admin` (ผู้ดูแลระบบรอง) > `division_manager` > `manager` > `viewer` — ผู้ใช้ LOCAL และ API เป็นได้ทุกตำแหน่ง (ตำแหน่ง `it_staff` เลิกใช้ ตั้งแต่ migration `20261012090000_permission_groups`)
+- ตำแหน่ง (`users.role`): `super_admin` (ผู้ดูแลระบบสูงสุด) > `admin` (ผู้ดูแลระบบ) > `division_manager` > `manager` > `viewer` — ผู้ใช้ LOCAL และ API เป็นได้ทุกตำแหน่ง (ตำแหน่ง `it_staff` เลิกใช้ ตั้งแต่ migration `20261012090000_permission_groups`)
 
 ## ทั่วไป
 - ตอบผู้ใช้เป็นภาษาไทย; โค้ด/ชื่อตัวแปรเป็นภาษาอังกฤษ
@@ -29,10 +29,10 @@
 
 ## สิทธิ์ (permission) — ตรวจที่ API
 - รายการสิทธิ์อยู่ที่ `express/src/models/permission.ts` (`PERMISSIONS`: key, `module` + `action` = ตำแหน่งในตาราง ระบบงาน × การกระทำ (ดู/เพิ่ม/แก้ไข/ลบ/อนุมัติ/จัดการ/อื่นๆ), ชื่อ th/en, `defaults` = กลุ่มที่ได้ตอนสร้าง key, `from` = key เดิมที่แยกออกมา, `locked` = สงวนไว้ให้ super_admin มอบ/ถอด)
-- กลุ่มสิทธิ์ (`permission_groups`): กลุ่มตามตำแหน่ง (`is_system`, ลบไม่ได้) + กลุ่มที่สร้างเอง (เช่น `it_staff` / `it_head` = กลุ่มฝ่าย IT เดิม) — สิทธิ์ของกลุ่มอยู่ที่ `role_permissions` (role = key กลุ่ม)
+- กลุ่มสิทธิ์ (`permission_groups`): กลุ่มตามตำแหน่ง (`is_system`, ลบไม่ได้) + กลุ่มที่สร้างเอง (กลุ่มฝ่าย IT เดิม `it_staff` / `it_head` ถูกยุบใน migration `20261013090000` — หัวหน้า IT → `super_admin`, เจ้าหน้าที่ IT → `admin`) — สิทธิ์ของกลุ่มอยู่ที่ `role_permissions` (role = key กลุ่ม)
   สิทธิ์จริง = สิทธิ์ของกลุ่มตามตำแหน่ง + กลุ่มที่มอบเพิ่มรายคน (`user_groups`, หลายกลุ่ม) + allow − deny รายคน (`user_permissions`) — โค้ดกลาง `express/src/services/permissions.ts`
 - วันหมดอายุ: `user_groups.expires_on` / `user_permissions.expires_on` (ใช้ได้ถึงวันนั้น เวลาไทย) มีผลเมื่อเปิดสวิตช์ `app_settings.permission_expiry` เท่านั้น
-- ช่อง `is_it_staff` / `is_it_head` = **หน้าที่ในใบแจ้งงาน** (เลือกผู้รับงาน/ผู้ปิดงาน/ผู้รับแจ้งเตือน) ไม่ให้สิทธิ์ — สิทธิ์ฝ่าย IT มาจากกลุ่ม
+- ช่อง `is_it_staff` / `is_it_head` = **หน้าที่ในใบแจ้งงาน** (เลือกผู้รับงาน/ผู้ปิดงาน/ผู้รับแจ้งเตือน) ไม่ให้สิทธิ์ — สิทธิ์ฝ่าย IT มาจากตำแหน่ง/กลุ่ม; รายชื่อผู้ดำเนินการ (`IT_STAFF_WHERE`) = ฝ่าย/แผนก IT หรือ เทคโนโลยีสารสนเทศ + ผู้ที่ติ๊กช่อง
 - ตรวจสิทธิ์ด้วย `can(user, "key")` (Express — middleware auth โหลด `user.perms` ทุก request) / `has(user, "key")` (frontend จาก `/auth/me.permissions`, กลุ่มจาก `/auth/me.groups`) **ห้ามเช็ค role/flag ตรงๆ เพื่อให้สิทธิ์**
 - super_admin ผ่านทุกสิทธิ์ (`isSuperAdmin`); หน้าการเชื่อมต่อ API = super_admin **บัญชี LOCAL** เท่านั้น (`isLocalSuperAdmin`) และต้องมี super_admin บัญชี LOCAL ที่ใช้งานอยู่อย่างน้อย 1 คนเสมอ (ทางสำรองเมื่อต้นทางล่ม)
 - กติกาการมอบ (`express/src/services/access-control.ts`): มอบ/ถอดได้เฉพาะสิทธิ์ที่ตัวเองมี (`access.assign`), สิทธิ์ `locked` เฉพาะ super_admin, แก้ของตัวเองไม่ได้, แตะบัญชี super_admin / ตั้ง super_admin ได้เฉพาะ super_admin; เปลี่ยนตำแหน่ง = มอบสิทธิ์ (หน้าผู้ใช้ก็ใช้กติกานี้)

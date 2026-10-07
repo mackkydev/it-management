@@ -31,22 +31,21 @@ async function apiUser(attrs: Record<string, unknown> = {}) {
 }
 
 describe("permissions", () => {
-  it("seeds the catalog with defaults per group; IT permissions come from the legacy IT groups", async () => {
+  it("seeds the catalog with defaults per group; IT staff / IT head are no longer groups (merged into admin / super_admin)", async () => {
     expect(await scalar("SELECT COUNT(*) FROM permissions")).toBe(PERMISSIONS.length);
     const cases: [Pick<Partial<UserRow>, "role" | "is_it_staff" | "is_it_head">, string[]][] = [
       [{ role: "admin" }, ["admin"]],
       [{ role: "manager" }, ["manager"]],
       [{ role: "viewer" }, ["viewer"]],
-      [{ role: "viewer", is_it_staff: true }, ["viewer", "it_staff"]],
-      [{ role: "viewer", is_it_head: true }, ["viewer", "it_head"]],
     ];
     for (const [attrs, groups] of cases) {
       const sample = await makeUser(attrs);
       const expected = PERMISSIONS.filter((p) => p.defaults.some((d) => groups.includes(d))).map((p) => p.key);
       expect([...(await permissionsOf(sample))].sort()).toEqual(expected.sort());
     }
-    // ผู้ดูแลระบบรอง = ทุกอย่าง ยกเว้นสิทธิ์ที่สงวนไว้ (จัดการสิทธิ์)
-    expect([...(await permissionsOf(await makeUser({ role: "admin" })))].sort()).toEqual(PERMISSIONS.filter((p) => !p.locked).map((p) => p.key).sort());
+    // ผู้ดูแลระบบ (admin) = ทุกอย่าง ยกเว้นสิทธิ์ที่สงวนไว้ (จัดการสิทธิ์) และ KPI ของคนอื่น (เฉพาะผู้ดูแลระบบสูงสุด = หัวหน้า IT)
+    const superOnly = ["kpi.view_all", "kpi.edit_all"];
+    expect([...(await permissionsOf(await makeUser({ role: "admin" })))].sort()).toEqual(PERMISSIONS.filter((p) => !p.locked && !superOnly.includes(p.key)).map((p) => p.key).sort());
   });
 
   it("re-running the seeder never overwrites what an admin changed", async () => {
@@ -112,9 +111,10 @@ describe("permissions", () => {
 
   it("/ui-config exposes each group's permissions for the menu simulator", async () => {
     const res = await (await as(await makeUser())).get("/api/v1/ui-config");
-    expect(res.body.data.role_permissions.it_head).toEqual(expect.arrayContaining(["it_tickets.close", "kpi.view_all"]));
+    expect(res.body.data.role_permissions.admin).toEqual(expect.arrayContaining(["it_tickets.close", "kpi.use"]));
+    expect(res.body.data.role_permissions.admin).not.toContain("kpi.view_all");
     expect(res.body.data.role_permissions.viewer).toEqual(["signature.manage_own"]); // ลายเซ็นของตัวเอง = ทุกกลุ่ม
-    expect(Object.keys(res.body.data.role_permissions).sort()).toEqual(["admin", "division_manager", "it_head", "it_staff", "manager", "super_admin", "viewer"]);
+    expect(Object.keys(res.body.data.role_permissions).sort()).toEqual(["admin", "division_manager", "manager", "super_admin", "viewer"]);
     expect(res.body.data.role_permissions.super_admin).toHaveLength(PERMISSIONS.length);
   });
 

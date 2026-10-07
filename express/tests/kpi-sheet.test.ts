@@ -75,11 +75,15 @@ describe("KPI monthly sheet", () => {
     const otherApi = await as(other);
     expect((await otherApi.get(`/api/v1/kpi/month?month=2025-10&user_id=${staff.id}`)).status).toBe(403);
     expect((await otherApi.put(`/api/v1/kpi/tickets/${t.uuid}`).send({ complexity: 2 })).status).toBe(403);
-    // หัวหน้า IT ดูของทุกคนได้ แต่แก้ไม่ได้ (kpi.edit_all = admin)
+    // กลุ่มที่มีแค่ kpi.view_all ดูของทุกคนได้ แต่แก้ไม่ได้ (kpi.edit_all ไม่ได้ให้ใครตั้งต้น — ผู้ดูแลระบบสูงสุดผ่านทุกสิทธิ์)
     const headView = (await (await as(head)).get(`/api/v1/kpi/month?month=2025-10&user_id=${staff.id}`)).body;
     expect(headView.data[0].can_edit).toBe(false);
     expect((await (await as(head)).put(`/api/v1/kpi/tickets/${t.uuid}`).send({ complexity: 2 })).status).toBe(403);
-    expect((await (await as(await makeUser({ role: "admin" }))).put(`/api/v1/kpi/tickets/${t.uuid}`).send({ complexity: 2 })).status).toBe(200);
+    // ผู้ดูแลระบบ (admin) ดู/แก้ KPI ของคนอื่นไม่ได้ — เฉพาะผู้ดูแลระบบสูงสุด (หัวหน้า IT)
+    const admin = await as(await makeUser({ role: "admin" }));
+    expect((await admin.get(`/api/v1/kpi/month?month=2025-10&user_id=${staff.id}`)).status).toBe(403);
+    expect((await admin.put(`/api/v1/kpi/tickets/${t.uuid}`).send({ complexity: 2 })).status).toBe(403);
+    expect((await (await as(await makeUser({ role: "super_admin" }))).put(`/api/v1/kpi/tickets/${t.uuid}`).send({ complexity: 2 })).status).toBe(200);
 
     const api = await as(staff);
     const errs = async (body: Record<string, unknown>) => Object.keys((await api.post("/api/v1/kpi").send(body)).body.errors ?? {}).sort();

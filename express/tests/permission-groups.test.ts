@@ -6,7 +6,7 @@ import { ensurePermissions, permissionsOf } from "../src/services/permissions.js
 import { encryptString } from "../src/lib/laravel-crypt.js";
 import { createToken } from "../src/lib/tokens.js";
 import { toDbDateTime } from "../src/lib/time.js";
-import { as, guest, localDay, makeUser } from "./helpers.js";
+import { as, ensureTestItGroups, guest, localDay, makeUser } from "./helpers.js";
 
 /** ระบบสิทธิ์ใหม่: super_admin / admin + กลุ่มหลายกลุ่มต่อคน + วันหมดอายุ + กติกาการมอบ + แจ้งเตือนผู้ดูแลระบบ */
 
@@ -43,12 +43,13 @@ describe("permission groups", () => {
     expect((await api.post("/api/v1/permission-groups").send({ name_th: "ทีมสินทรัพย์", name_en: "Other" })).status).toBe(422); // ชื่อซ้ำ
     await api.put(`/api/v1/permissions/roles/${g.body.data.key}`).send({ keys: ["assets.view_all", "assets.update"] });
 
+    await ensureTestItGroups();
     const res = await api.put(`/api/v1/users/${person.id}/permissions`).send({ groups: [{ key: g.body.data.key }, { key: "it_staff" }] });
     expect(res.status).toBe(200);
     expect([...res.body.data.groups].sort()).toEqual(["viewer", g.body.data.key, "it_staff"].sort());
     expect(res.body.data.effective).toEqual(expect.arrayContaining(["assets.update", "it_tickets.queue", "vault.view"]));
 
-    // แจ้งเตือนผู้ดูแลระบบรอง (ไม่แจ้งผู้ทำเอง)
+    // แจ้งเตือนผู้ดูแลระบบ (admin) (ไม่แจ้งผู้ทำเอง)
     expect((await notices(deputy.id)).map((n) => JSON.parse(n.data).change).sort()).toEqual(["group_created", "group_permissions", "user"]);
     expect(await notices(root.id)).toHaveLength(0);
     expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action IN ('permission_group.created', 'role.permissions_updated', 'user.permissions_updated')")).toBe(3);
@@ -63,6 +64,7 @@ describe("permission groups", () => {
     const api = await as(await makeUser({ role: "super_admin" }));
     const person = await makeUser();
     const yesterday = localDay(-1);
+    await ensureTestItGroups();
     // ตั้งวันที่ผ่านไปแล้วผ่าน API ไม่ได้ — จำลองรายการที่หมดอายุแล้ว
     expect((await api.put(`/api/v1/users/${person.id}/permissions`).send({ groups: [{ key: "it_staff", expires_on: yesterday }] })).status).toBe(422);
     await exec("INSERT INTO user_groups (user_id, group_key, expires_on, created_at) VALUES (?, 'it_staff', ?, ?)", [person.id, yesterday, nowDb()]);
@@ -149,7 +151,7 @@ describe("grant rules (no privilege escalation)", () => {
     expect((await deputy.put("/api/v1/settings").send({ contract_notify_days: 20 })).status).toBe(200);
     expect((await deputy.put("/api/v1/settings").send({ ui_permissions: { "/vault": ["viewer"] } })).status).toBe(403);
     const root = await as(await makeUser({ role: "super_admin" }), "th");
-    expect((await root.put("/api/v1/settings").send({ ui_permissions: { "/vault": ["viewer", "it_staff"] } })).status).toBe(200);
+    expect((await root.put("/api/v1/settings").send({ ui_permissions: { "/vault": ["viewer", "manager"] } })).status).toBe(200);
     expect((await root.put("/api/v1/settings").send({ ui_permissions: { "/vault": ["nope"] } })).status).toBe(422);
   });
 });

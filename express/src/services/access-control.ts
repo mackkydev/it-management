@@ -10,7 +10,7 @@ import { adminRecipients, SUPER_ADMIN_GROUP } from "./permissions.js";
 /**
  * กติกาการมอบสิทธิ์ (กันการยกระดับสิทธิ์ตัวเอง)
  * - super_admin: มอบ/ถอดได้ทุกอย่าง รวมตั้ง super_admin (ผู้ใช้ LOCAL และ API)
- * - ผู้มีสิทธิ์ access.assign (เช่น ผู้ดูแลระบบรอง): มอบ/ถอดได้เฉพาะสิทธิ์ที่ตัวเองมี และไม่ใช่สิทธิ์ที่สงวนไว้ (locked)
+ * - ผู้มีสิทธิ์ access.assign (เช่น ผู้ดูแลระบบ (admin)): มอบ/ถอดได้เฉพาะสิทธิ์ที่ตัวเองมี และไม่ใช่สิทธิ์ที่สงวนไว้ (locked)
  *   แก้ของตัวเองไม่ได้ · แตะบัญชี super_admin ไม่ได้ · ตั้ง super_admin ไม่ได้
  * - ต้องมี super_admin บัญชี LOCAL ที่ใช้งานอยู่อย่างน้อย 1 คนเสมอ (ทางสำรองเมื่อระบบต้นทางล่ม)
  */
@@ -76,7 +76,7 @@ export async function lastLocalSuperAdmin(u: Pick<UserRow, "id" | "role" | "type
 
 export type AccessChange = "user" | "group_permissions" | "group_created" | "group_updated" | "group_deleted" | "pin" | "expiry";
 
-/** แจ้งเตือนผู้ดูแลระบบ + ผู้ดูแลระบบรองทุกคน (ยกเว้นผู้ทำ) เมื่อมีการเปลี่ยนสิทธิ์ / PIN กลาง */
+/** แจ้งเตือนผู้ดูแลระบบสูงสุด + ผู้ดูแลระบบทุกคน (ยกเว้นผู้ทำ) เมื่อมีการเปลี่ยนสิทธิ์ / PIN กลาง */
 export async function notifyAccessChange(req: Request, change: AccessChange, subject: { id: string | number | null; name: string }, detail: Record<string, unknown> = {}): Promise<void> {
   const u = me(req);
   const ids = await adminRecipients(u.id);
