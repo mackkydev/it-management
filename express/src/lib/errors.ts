@@ -11,6 +11,8 @@ export class HttpError extends Error {
     public status: number,
     message: string,
     public headers: Record<string, string> = {},
+    /** field เพิ่มใน body (เช่น { reauth: "pin" }) */
+    public extra: Record<string, unknown> = {},
   ) {
     super(message);
   }

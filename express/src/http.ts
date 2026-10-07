@@ -184,7 +184,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   }
   if (err instanceof HttpError) {
     for (const [k, v] of Object.entries(err.headers)) res.setHeader(k, v);
-    return res.status(err.status).json({ message: err.message });
+    return res.status(err.status).json({ ...err.extra, message: err.message });
   }
   // JSON ที่ส่งมาผิดรูปแบบ
   if ((err as { type?: string }).type === "entity.parse.failed") {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { exec, first, insert } from "../src/db.js";
 import { nowDb, toDbDateTime } from "../src/lib/time.js";
 import type { UserRow } from "../src/models/user.js";
+import { clearConnectionStatusCache } from "../src/routes/auth.js";
 import { setUpstreamTestHooks, type UpstreamHttpRequest } from "../src/services/upstream-http.js";
 import { as, guest, makeUser } from "./helpers.js";
 
@@ -21,6 +22,7 @@ let expiresAt = "";
 let healthStatus = 200;
 
 beforeEach(() => {
+  clearConnectionStatusCache();
   calls = [];
   accounts = { somchai: [3, 7], suda: [3] };
   expiresAt = new Date(Date.now() + 8 * 3600_000).toISOString();
@@ -165,5 +167,23 @@ describe("STEC SyteLine API connection", () => {
     const bad = await admin.put(`/api/v1/api-connections/${conn}`).send({ field_map: { external_id: "$login", role_code: "$login" } });
     expect(bad.status).toBe(422);
     expect(bad.body.errors).toHaveProperty(["field_map.role_code"]);
+  });
+
+  it("login page status: online/offline from /health, cached for a minute, unknown without health_path", async () => {
+    const conn = await stecConnection();
+    const status = () => guest().get(`/api/v1/auth/connections/${conn}/status`).set("Accept", "application/json");
+
+    expect((await status()).body.data.status).toBe("online");
+    healthStatus = 503;
+    expect((await status()).body.data.status).toBe("online"); // cache — ต้นทางถูกเรียกครั้งเดียว
+    expect(calls.filter((c) => c.path === "/health")).toHaveLength(1);
+
+    clearConnectionStatusCache();
+    expect((await status()).body.data.status).toBe("offline");
+
+    await exec("UPDATE api_connections SET health_path = NULL WHERE id = ?", [conn]);
+    expect((await status()).body.data.status).toBe("unknown");
+    await exec("UPDATE api_connections SET is_enabled = false WHERE id = ?", [conn]);
+    expect((await status()).status).toBe(404);
   });
 });

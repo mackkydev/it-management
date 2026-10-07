@@ -8,6 +8,7 @@ import { Tooltip } from "@/components/tooltip";
 import { alert, btn, card, input, inputError, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { OrgUnit } from "@/lib/types";
+import { useConfirm } from "@/components/dialog-provider";
 
 type Draft = { name: string; is_active: boolean; sort_order: string };
 const EMPTY: Draft = { name: "", is_active: true, sort_order: "0" };
@@ -16,6 +17,7 @@ const ICON_BTN = "flex h-8 w-8 cursor-pointer items-center justify-center rounde
 /** จัดการแผนก / ฝ่าย แบบแก้ในแถว — เพิ่มด้านบน, แก้ไข/ลบในตาราง */
 export function OrgUnitManager({ table, items }: { table: OrgTable; items: OrgUnit[] }) {
   const { t, fmt } = useI18n();
+  const confirm = useConfirm();
   const router = useRouter();
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
@@ -37,8 +39,8 @@ export function OrgUnitManager({ table, items }: { table: OrgTable; items: OrgUn
       } else setError(res.errors?.name ?? res.errors?.sort_order ?? "");
       setFeedback({ ok: Boolean(res.ok), text: res.message ?? "" });
     });
-  const remove = (u: OrgUnit) => {
-    if (!confirm(t("orgUnits.confirmDelete", { name: u.name }))) return;
+  const remove = async (u: OrgUnit) => {
+    if (!(await confirm(t("orgUnits.confirmDelete", { name: u.name })))) return;
     start(async () => {
       const res = await deleteOrgUnit(table, u.id);
       setFeedback({ ok: Boolean(res.ok), text: res.message ?? "" });

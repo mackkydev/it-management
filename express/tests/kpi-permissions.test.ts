@@ -28,7 +28,7 @@ describe("KPI log", () => {
     // "อนาคต" ตัดสินจากวันที่ตามเวลาไทย ไม่ใช่ UTC
     const bad = await api.post("/api/v1/kpi").send({ work_date: localDay(1), details: "" });
     expect(bad.status).toBe(422);
-    expect(bad.body.errors.work_date[0]).toBe("วันที่ปฏิบัติงานต้องไม่เป็นวันในอนาคต");
+    expect(bad.body.errors.work_date[0]).toBe("วันที่แจ้งต้องไม่เป็นวันในอนาคต");
     expect(bad.body.errors.details[0]).toBe("กรุณากรอกรายละเอียด");
     const thaiToday = await api.post("/api/v1/kpi").send({ work_date: localDay(0), details: "ช่วงเช้ามืด" });
     expect(thaiToday.status).toBe(201);

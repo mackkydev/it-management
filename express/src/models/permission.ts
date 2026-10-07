@@ -34,6 +34,7 @@ export const PERMISSIONS: PermissionDef[] = [
 
   // ข้อมูลฝ่าย IT
   { key: "vault.use", group: "it_data", name_th: "คลังบัญชี/รหัสผ่าน", name_en: "Credential vault", defaults: IT },
+  { key: "secrets.pin_manage", group: "it_data", name_th: "ตั้ง PIN กลางสำหรับเปิดดูรหัสผ่าน / License key", name_en: "Set the shared PIN for viewing secrets", defaults: ["admin"] },
   { key: "contracts.manage", group: "it_data", name_th: "สัญญา vendor", name_en: "Vendor contracts", defaults: IT },
   { key: "announcements.manage", group: "it_data", name_th: "จัดการประกาศหน้า login", name_en: "Manage login announcements", defaults: IT },
 

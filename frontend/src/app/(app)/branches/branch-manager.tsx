@@ -8,6 +8,7 @@ import { Tooltip } from "@/components/tooltip";
 import { alert, btn, input, inputError, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { Branch } from "@/lib/types";
+import { useConfirm } from "@/components/dialog-provider";
 
 type Draft = { code: string; name: string; work_group: string; sort_order: string; is_active: boolean };
 const EMPTY: Draft = { code: "", name: "", work_group: "", sort_order: "0", is_active: true };
@@ -15,6 +16,7 @@ const EMPTY: Draft = { code: "", name: "", work_group: "", sort_order: "0", is_a
 /** ตารางสาขาแบบแก้ไขในแถว: เพิ่มแถวใหม่ด้านบน, กดแก้ไขแล้วแถวกลายเป็นช่องกรอก */
 export function BranchManager({ branches }: { branches: Branch[] }) {
   const { t, fmt } = useI18n();
+  const confirm = useConfirm();
   const router = useRouter();
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
@@ -54,8 +56,8 @@ export function BranchManager({ branches }: { branches: Branch[] }) {
     });
   };
 
-  const remove = (b: Branch) => {
-    if (!confirm(t("branches.confirmDelete", { name: b.name }))) return;
+  const remove = async (b: Branch) => {
+    if (!(await confirm(t("branches.confirmDelete", { name: b.name })))) return;
     start(async () => {
       const res = await deleteBranch(b.id);
       setFeedback({ ok: Boolean(res.ok), text: res.message ?? "" });

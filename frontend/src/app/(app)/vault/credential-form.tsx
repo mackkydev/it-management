@@ -4,21 +4,19 @@ import Link from "next/link";
 import { useState, useTransition, type ReactNode } from "react";
 import { deleteCredential, saveCredential, type CredentialPayload } from "@/app/actions/it-data";
 import { DateInput } from "@/components/date-input";
-import { AlertIcon, EyeIcon, EyeOffIcon, KeyIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { AlertIcon, KeyIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { PasswordInput } from "@/components/password-input";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import { CREDENTIAL_CATEGORIES, type Branch, type Credential } from "@/lib/types";
+import { CREDENTIAL_CATEGORIES, isBuiltinCategory, type Branch, type Credential } from "@/lib/types";
+
+const NEW_CATEGORY = "__new__";
 import { AppSelect } from "@/components/app-select";
+import { useConfirm } from "@/components/dialog-provider";
 
-/** สร้างรหัสผ่านแบบสุ่ม (crypto) 20 ตัว */
-function generatePassword(length = 20): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*-_=+";
-  const bytes = crypto.getRandomValues(new Uint32Array(length));
-  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
-}
-
-export function CredentialForm({ credential, branches }: { credential?: Credential; branches: Branch[] }) {
+export function CredentialForm({ credential, branches, customCategories = [] }: { credential?: Credential; branches: Branch[]; customCategories?: string[] }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const isEdit = Boolean(credential);
   const [v, setV] = useState({
     title: credential?.title ?? "",
@@ -32,7 +30,10 @@ export function CredentialForm({ credential, branches }: { credential?: Credenti
   const [password, setPassword] = useState("");
   const [clearPassword, setClearPassword] = useState(false);
   const [secret, setSecret] = useState("");
-  const [showPw, setShowPw] = useState(false);
+  // ต้องยืนยันตัวตน (รหัสผ่าน login / PIN กลาง) ก่อนเปิดดูรหัสของบัญชีนี้ — บัญชีใหม่ = เปิดไว้
+  const [requireReauth, setRequireReauth] = useState(credential?.require_reauth ?? true);
+  // หมวดหมู่ใหม่ที่ยังไม่มีในรายการ — เลือก "+ เพิ่มหมวดหมู่ใหม่" แล้วพิมพ์ชื่อ (สร้างพร้อมบันทึกบัญชีนี้)
+  const [newCategory, setNewCategory] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [pending, start] = useTransition();
@@ -45,7 +46,9 @@ export function CredentialForm({ credential, branches }: { credential?: Credenti
 
   const submit = () => {
     if (!v.title.trim()) return setErrors({ title: t("vault.validate.title") });
-    const payload: CredentialPayload = { ...v };
+    const adding = v.category === NEW_CATEGORY;
+    if (adding && !newCategory.trim()) return setErrors({ category: t("vault.form.categoryRequired") });
+    const payload: CredentialPayload = { ...v, category: adding ? newCategory.trim() : v.category, require_reauth: requireReauth };
     // แก้ไข: ไม่ส่ง = คงเดิม; ติ๊กลบ = ส่ง ""
     if (!isEdit || password) payload.password = password;
     if (isEdit && clearPassword && !password) payload.password = "";
@@ -60,8 +63,8 @@ export function CredentialForm({ credential, branches }: { credential?: Credenti
     });
   };
 
-  const remove = () => {
-    if (!credential || !confirm(t("vault.form.confirmDelete", { title: credential.title }))) return;
+  const remove = async () => {
+    if (!credential || !(await confirm(t("vault.form.confirmDelete", { title: credential.title })))) return;
     setAction("delete");
     start(async () => {
       const res = await deleteCredential(credential.id);
@@ -80,6 +83,15 @@ export function CredentialForm({ credential, branches }: { credential?: Credenti
     </div>
   );
   const cls = (k: string) => `${input} ${errors[k] ? inputError : ""}`;
+  // หมวดที่เพิ่มเอง (รวมหมวดของบัญชีนี้ แม้ไม่มีในรายการ)
+  const categoryOptions = [...new Set([...customCategories, ...(credential ? [credential.category] : [])])]
+    .filter((c) => !isBuiltinCategory(c))
+    .sort((a, b) => a.localeCompare(b, "th"));
+  const selectCategory = (value: string) => {
+    set("category", value);
+    // เลือก "+ เพิ่มหมวดหมู่ใหม่" → เด้งไปช่องพิมพ์ชื่อ
+    if (value === NEW_CATEGORY) setTimeout(() => document.getElementById("new-category")?.focus());
+  };
 
   return (
     <div className="space-y-5">
@@ -94,47 +106,67 @@ export function CredentialForm({ credential, branches }: { credential?: Credenti
         {field(
           "category",
           t("vault.form.category"),
-          <AppSelect id="category" value={v.category} onChange={(e) => set("category", e.target.value)} className={cls("category")}>
-            {CREDENTIAL_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {t(`vault.categories.${c}`)}
-              </option>
-            ))}
-          </AppSelect>,
+          <div className="space-y-2">
+            <AppSelect id="category" value={v.category} onChange={(e) => selectCategory(e.target.value)} className={cls("category")}>
+              {CREDENTIAL_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {t(`vault.categories.${c}`)}
+                </option>
+              ))}
+              {categoryOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+              <option value={NEW_CATEGORY}>{t("vault.form.addCategory")}</option>
+            </AppSelect>
+            {v.category === NEW_CATEGORY && (
+              <input
+                id="new-category"
+                value={newCategory}
+                maxLength={30}
+                placeholder={t("vault.form.newCategory")}
+                aria-label={t("vault.form.newCategory")}
+                onChange={(e) => (setNewCategory(e.target.value), setErrors((x) => ({ ...x, category: "" })))}
+                className={`${cls("category")} ${newCategory.trim() ? "" : "ring-2 ring-accent-400"}`}
+              />
+            )}
+          </div>,
           true,
+          v.category === NEW_CATEGORY ? t("vault.form.newCategoryHint") : undefined,
         )}
-        {field("url", t("vault.form.url"), <input id="url" value={v.url} maxLength={500} onChange={(e) => set("url", e.target.value)} className={`${cls("url")} font-mono`} />, false, undefined, true)}
+        {field("url", t("vault.form.url"), <input id="url" value={v.url} maxLength={500} onChange={(e) => set("url", e.target.value)} className={`${cls("url")} font-mono`} />, false, t("vault.form.urlHint"), true)}
         {field("username", t("vault.form.username"), <input id="username" value={v.username} maxLength={255} autoComplete="off" onChange={(e) => set("username", e.target.value)} className={`${cls("username")} font-mono`} />)}
         {field(
           "password",
           t("vault.form.password"),
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <input
-                id="password"
-                type={showPw ? "text" : "password"}
-                value={password}
-                maxLength={1000}
-                autoComplete="new-password"
-                onChange={(e) => (setPassword(e.target.value), setClearPassword(false))}
-                className={`${cls("password")} pr-9 font-mono`}
-              />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <PasswordInput
+              id="password"
+              wrapperClassName="min-w-48 flex-1"
+              value={password}
+              maxLength={1000}
+              autoComplete="new-password"
+              onChange={(e) => (setPassword(e.target.value), setClearPassword(false))}
+              className={`${cls("password")} font-mono`}
+            />
+            {/* สวิตช์รายบัญชี: เปิด = ต้องกรอกรหัสผ่าน login / PIN กลางก่อนกดดู, ปิด = กดดูได้เลย */}
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm" title={t("vault.form.requireReauthHint")}>
               <button
                 type="button"
-                onClick={() => setShowPw((s) => !s)}
-                aria-label={showPw ? t("vault.hide") : t("vault.reveal")}
-                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted hover:text-ink"
+                role="switch"
+                aria-checked={requireReauth}
+                onClick={() => setRequireReauth((x) => !x)}
+                className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${requireReauth ? "bg-accent-500" : "bg-line"}`}
               >
-                {showPw ? <EyeOffIcon width={14} height={14} /> : <EyeIcon width={14} height={14} />}
+                <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${requireReauth ? "translate-x-5" : "translate-x-0"}`} />
               </button>
-            </div>
-            <button type="button" onClick={() => (setPassword(generatePassword()), setShowPw(true))} className={`${btn.secondary} shrink-0 px-3`}>
-              <KeyIcon width={14} height={14} className="text-accent-500" />
-              <span className="hidden sm:inline">{t("vault.form.generate")}</span>
-            </button>
+              <KeyIcon width={14} height={14} className={requireReauth ? "text-accent-500" : "text-faint"} />
+              {t("vault.form.requireReauth")}
+            </label>
           </div>,
           false,
-          isEdit && credential?.has_password ? t("vault.form.passwordKeep") : undefined,
+          [isEdit && credential?.has_password ? t("vault.form.passwordKeep") : null, t(requireReauth ? "vault.form.requireReauthOn" : "vault.form.requireReauthOff")].filter(Boolean).join(" · "),
         )}
         {isEdit && credential?.has_password && (
           <label className="flex cursor-pointer items-center gap-2 text-sm text-muted sm:col-span-2">

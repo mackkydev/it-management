@@ -14,6 +14,7 @@ import { canManageAssets, has, getAccess, getCurrentUser } from "@/lib/auth";
 import { CATEGORY_FORM, type Asset, type AssetMovement, type LicenseUsage, type Paginated } from "@/lib/types";
 import { UsageBar } from "../../license-installations/usage-bar";
 import { MovementTimeline } from "../movement-timeline";
+import { RepairHistory, UserHistory } from "./history-sections";
 import { LicenseFiles, LicenseKey } from "./license-parts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -145,10 +146,12 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
           <Item label={t("assets.computer.workGroup")}>{asset.work_group}</Item>
           <Item label={t("assets.computer.ip")}>{asset.ip_address && <span className="font-mono text-sm">{asset.ip_address}</span>}</Item>
           <Item label={t("assets.computer.mac")}>{asset.mac_address && <span className="font-mono text-sm">{asset.mac_address}</span>}</Item>
-          <Item label={t("assets.computer.email365")}>{asset.email_365}</Item>
           <Item label={t("assets.computer.os")}>{asset.os}</Item>
           <Item label={t("assets.computer.office")}>{asset.office}</Item>
           <Item label={t("assets.computer.antivirus")}>{asset.antivirus}</Item>
+          <Item label={t("assets.computer.otherSoftware")}>{asset.software?.others.map((o) => o.name).join(", ")}</Item>
+          {/* Email 365 ไม่อยู่ในฟอร์มแล้ว — แสดงเฉพาะค่าเดิมที่มี */}
+          {asset.email_365 && <Item label={t("assets.computer.email365")}>{asset.email_365}</Item>}
           <Item label={t("assets.computer.notebookTag")}>{asset.notebook_tag && <span className="font-mono text-sm">{asset.notebook_tag}</span>}</Item>
           <Item label={t("assets.computer.cpuTag")}>{asset.cpu_tag && <span className="font-mono text-sm">{asset.cpu_tag}</span>}</Item>
           <Item label={t("assets.computer.monitorTag")}>{asset.monitor_tag && <span className="font-mono text-sm">{asset.monitor_tag}</span>}</Item>
@@ -262,6 +265,17 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
         }
       >
         <Movements id={asset.id} />
+      </Suspense>
+
+      {/* ประวัติผู้ใช้งาน — ช่องชื่อผู้ใช้งาน / Department ของทะเบียนคอมพิวเตอร์ */}
+      {form?.computer && (
+        <Suspense fallback={<section className={`p-4 sm:p-6 ${card}`}><LoadingLabel text={t("assets.userLogs.loading")} /></section>}>
+          <UserHistory id={asset.id} />
+        </Suspense>
+      )}
+
+      <Suspense fallback={<section className={`p-4 sm:p-6 ${card}`}><LoadingLabel text={t("assets.repairs.loading")} /></section>}>
+        <RepairHistory id={asset.id} />
       </Suspense>
     </div>
   );

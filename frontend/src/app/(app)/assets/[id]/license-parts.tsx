@@ -1,12 +1,15 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { deleteAssetFile, revealLicenseKey, uploadAssetFiles } from "@/app/actions/assets";
 import { AlertIcon, CheckIcon, CopyIcon, DownloadIcon, EyeIcon, EyeOffIcon, FileTextIcon, SpinnerIcon, TrashIcon, UploadIcon } from "@/components/icons";
+import { ReauthPrompt } from "@/components/reauth-prompt";
+import type { ReauthChallenge } from "@/lib/types";
 import { Tooltip } from "@/components/tooltip";
 import { alert, btn } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { AssetFile } from "@/lib/types";
+import { useConfirm } from "@/components/dialog-provider";
 
 const ICON_BTN =
   "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
@@ -19,14 +22,25 @@ export function LicenseKey({ assetId }: { assetId: string }) {
   const [copied, setCopied] = useState(false);
   const [pending, start] = useTransition();
 
-  const toggle = () => {
-    if (key !== null) return setKey(null);
+  // ต้องยืนยันรหัสผ่านซ้ำก่อน (ตั้งค่าความปลอดภัย) → แสดงช่องยืนยัน แล้วเปิดดูอีกครั้งอัตโนมัติ
+  const [reauth, setReauth] = useState<ReauthChallenge | null>(null);
+  const reveal = () =>
     start(async () => {
       const res = await revealLicenseKey(assetId);
-      if (res.message) setError(res.message);
+      if (res.reauth) setReauth(res.reauth);
+      else if (res.message) setError(res.message);
       else setKey(res.key ?? "");
     });
-  };
+  const toggle = () => (key !== null ? setKey(null) : reveal());
+
+  // ซ่อน key เองใน 30 วินาที (เหมือนรหัสผ่านในคลังบัญชี)
+  useEffect(() => {
+    if (key === null) return;
+    const timer = window.setTimeout(() => setKey(null), 30_000);
+    return () => window.clearTimeout(timer);
+  }, [key]);
+
+  if (reauth) return <ReauthPrompt challenge={reauth} onConfirmed={() => (setReauth(null), reveal())} onCancel={() => setReauth(null)} />;
 
   const copy = async () => {
     if (!key) return;
@@ -64,6 +78,7 @@ const sizeText = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1
 /** ไฟล์ license: รายการ + พรีวิว/ดาวน์โหลด, อัปโหลดหลายไฟล์ และลบ (ผู้จัดการสินทรัพย์) */
 export function LicenseFiles({ assetId, files, canManage }: { assetId: string; files: AssetFile[]; canManage: boolean }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const picker = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
@@ -96,8 +111,8 @@ export function LicenseFiles({ assetId, files, canManage }: { assetId: string; f
     });
   };
 
-  const remove = (f: AssetFile) => {
-    if (!confirm(t("assets.files.confirmDelete", { name: f.name }))) return;
+  const remove = async (f: AssetFile) => {
+    if (!(await confirm(t("assets.files.confirmDelete", { name: f.name })))) return;
     setDeleting(f.id);
     start(async () => {
       const res = await deleteAssetFile(assetId, f.id);

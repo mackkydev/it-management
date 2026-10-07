@@ -10,6 +10,7 @@ import { useI18n } from "@/i18n/client";
 import type { ApprovalRoute, Branch } from "@/lib/types";
 import { CustodianPicker } from "../assets/custodian-picker";
 import { AppSelect } from "@/components/app-select";
+import { useConfirm } from "@/components/dialog-provider";
 
 const MAX_STEPS = 5;
 const MAX_APPROVERS = 20;
@@ -31,6 +32,7 @@ function move<T>(list: T[], index: number, dir: -1 | 1): T[] {
 /** ฟอร์มสายอนุมัติ: ขอบเขต (สาขา/แผนก) + ขั้นอนุมัติเรียงลำดับ แต่ละขั้นมีผู้อนุมัติหลายคน (คนใดคนหนึ่งอนุมัติได้) */
 export function RouteForm({ route, branches, departments }: { route?: ApprovalRoute; branches: Branch[]; departments: string[] }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const isEdit = Boolean(route);
   const [v, setV] = useState<RoutePayload>({
     name: route?.name ?? "",
@@ -79,8 +81,8 @@ export function RouteForm({ route, branches, departments }: { route?: ApprovalRo
     });
   };
 
-  const remove = () => {
-    if (!route || !confirm(t("approvalRoutes.confirmDelete", { name: route.name }))) return;
+  const remove = async () => {
+    if (!route || !(await confirm(t("approvalRoutes.confirmDelete", { name: route.name })))) return;
     setAction("delete");
     start(async () => {
       const res = await deleteApprovalRoute(route.id);

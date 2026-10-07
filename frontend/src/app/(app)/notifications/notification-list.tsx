@@ -10,6 +10,7 @@ import { Tooltip } from "@/components/tooltip";
 import { btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { AppNotification } from "@/lib/types";
+import { useConfirm } from "@/components/dialog-provider";
 
 /** แจ้งให้กระดิ่งโหลดจำนวนใหม่ทันที */
 const refreshBell = () => window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
@@ -17,11 +18,12 @@ const refreshBell = () => window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
 /** ปุ่มจัดการทั้งหมด: อ่านทั้งหมด / ลบที่อ่านแล้ว / ลบทั้งหมด */
 export function NotificationActions({ unread, total }: { unread: number; total: number }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const router = useRouter();
   const [pending, start] = useTransition();
 
-  const run = (action: () => Promise<void>, confirmText?: string) => {
-    if (confirmText && !confirm(confirmText)) return;
+  const run = async (action: () => Promise<void>, confirmText?: string) => {
+    if (confirmText && !(await confirm(confirmText))) return;
     start(async () => {
       await action();
       refreshBell();

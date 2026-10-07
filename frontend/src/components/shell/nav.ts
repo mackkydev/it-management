@@ -49,7 +49,7 @@ const perm = (key: string): Visible => (u) => has(u, key);
 /** โครงสร้างเมนูหลัก — ใช้ร่วมกันทั้ง Sidebar และ Topbar */
 export const NAV: NavGroup[] = [
   {
-    // ผู้ใช้ทุกแผนก
+    // มุมผู้แจ้ง — ทุกคนรวมฝ่าย IT (ฝ่าย IT แจ้งงานเองได้): แจ้งใหม่ / ใบที่ฉันแจ้ง / รอฉันอนุมัติ
     id: "requests",
     label: "nav.requests",
     icon: ClipboardIcon,
@@ -60,7 +60,7 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
-    // หลังบ้านฝ่าย IT
+    // มุมผู้ทำงาน — เฉพาะฝ่าย IT: คิวงาน (ทุกใบที่อนุมัติแล้ว) / KPI — ใบที่เจ้าหน้าที่ IT แจ้งเองจึงอยู่ทั้งสองที่ในบทบาทต่างกัน
     id: "it-work",
     label: "nav.itWork",
     icon: WrenchIcon,
@@ -86,6 +86,7 @@ export const NAV: NavGroup[] = [
       // ทุกคนเห็น — ไม่มีสิทธิ์ assets.view_all = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง
       { label: "nav.assetList", href: "/assets", icon: ListIcon },
       { label: "nav.movements", href: "/movements", icon: HistoryIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.manage") },
+      { label: "nav.repairs", href: "/repairs", icon: WrenchIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.manage") },
       { label: "nav.licenseInstallations", href: "/license-installations", icon: MonitorIcon, visible: perm("licenses.install") },
     ],
   },

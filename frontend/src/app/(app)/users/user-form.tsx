@@ -10,6 +10,8 @@ import type { TFunction } from "@/i18n/types";
 import { ROLES, type ManagedUser, type UserFormValues } from "@/lib/types";
 import { CustodianPicker } from "../assets/custodian-picker";
 import { AppSelect } from "@/components/app-select";
+import { useConfirm } from "@/components/dialog-provider";
+import { PasswordInput } from "@/components/password-input";
 
 type Field = keyof UserFormValues;
 type Errors = Partial<Record<Field, string>>;
@@ -41,6 +43,7 @@ interface Props {
 
 export function UserForm({ user, isSelf = false, canDelete = false, branches, routes, departments, divisions }: Props) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const isCreate = !user;
   const [values, setValues] = useState<UserFormValues>({
     name: user?.name ?? "",
@@ -91,8 +94,8 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
     startTransition(async () => handle(user ? await updateUser(user.id, values) : await createUser(values)));
   };
 
-  const onDelete = () => {
-    if (!user || !confirm(t("users.form.confirmDelete", { name: user.name }))) return;
+  const onDelete = async () => {
+    if (!user || !(await confirm(t("users.form.confirmDelete", { name: user.name })))) return;
     setPendingAction("delete");
     startTransition(async () => handle(await deleteUser(user.id)));
   };
@@ -247,11 +250,11 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
           <h2 className="mb-1 font-semibold">{t("users.form.passwordSection")}</h2>
           <p className="mb-4 text-sm text-muted">{isCreate ? t("users.form.passwordNewHint") : t("users.form.passwordResetHint")}</p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {field("password", t("users.form.password"), <input id="password" name="password" type="password" value={values.password} onChange={onChange} autoComplete="new-password" className={cls("password")} />, isCreate)}
+            {field("password", t("users.form.password"), <PasswordInput id="password" name="password" value={values.password} onChange={onChange} autoComplete="new-password" className={cls("password")} />, isCreate)}
             {field(
               "password_confirmation",
               t("users.form.passwordConfirm"),
-              <input id="password_confirmation" name="password_confirmation" type="password" value={values.password_confirmation} onChange={onChange} autoComplete="new-password" className={cls("password_confirmation")} />,
+              <PasswordInput id="password_confirmation" name="password_confirmation" value={values.password_confirmation} onChange={onChange} autoComplete="new-password" className={cls("password_confirmation")} />,
               isCreate,
             )}
           </div>

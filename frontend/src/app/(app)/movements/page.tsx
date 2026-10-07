@@ -13,9 +13,11 @@ import { getI18n } from "@/i18n/server";
 import { redirect } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { canViewAllAssets, getCurrentUser } from "@/lib/auth";
-import type { AssetMovement, Location, Paginated } from "@/lib/types";
+import type { MessageKey } from "@/i18n/types";
+import { CATEGORIES, type AssetMovement, type Branch, type Location, type Paginated } from "@/lib/types";
 import { MOVEMENT_STYLE, MovementChanges } from "../assets/movement-timeline";
 import { AppSelect } from "@/components/app-select";
+import { Tooltip } from "@/components/tooltip";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -26,7 +28,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function buildQuery(params: Record<string, string | string[] | undefined>) {
   const q = new URLSearchParams();
-  for (const key of ["search", "type", "location_id", "from", "to", "page"]) {
+  for (const key of ["search", "type", "category", "branch_id", "location_id", "from", "to", "page"]) {
     const value = params[key];
     if (typeof value !== "string" || value === "") continue;
     if ((key === "from" || key === "to") && !DATE_RE.test(value)) continue;
@@ -41,15 +43,19 @@ export default async function MovementsPage({ searchParams }: PageProps<"/moveme
   if (!canViewAllAssets(await getCurrentUser())) redirect("/assets");
   const params = await searchParams;
   const query = buildQuery(params);
-  const [{ t }, locations] = await Promise.all([getI18n(), apiFetch<{ data: Location[] }>("/locations")]);
+  const [{ t }, locations, branches] = await Promise.all([getI18n(), apiFetch<{ data: Location[] }>("/locations"), apiFetch<{ data: Branch[] }>("/branches")]);
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string) : "");
 
   return (
     <div className="space-y-5">
       <PageHeader icon={HistoryIcon} title={t("movements.title")} subtitle={t("movements.subtitle")} />
 
-      <Form action="/movements" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-6 ${card}`}>
-        <div className="relative lg:col-span-2">
+      {/* จอใหญ่: ตัวกรองทั้งหมด + ปุ่มอยู่บรรทัดเดียวกัน */}
+      <Form
+        action="/movements"
+        className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[minmax(0,1.5fr)_repeat(6,minmax(0,1fr))_auto] ${card}`}
+      >
+        <div className="relative sm:col-span-2 lg:col-span-2 2xl:col-span-1">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
           <input name="search" defaultValue={str("search")} placeholder={t("movements.searchPlaceholder")} maxLength={100} className={`${input} pl-9`} />
         </div>
@@ -57,6 +63,24 @@ export default async function MovementsPage({ searchParams }: PageProps<"/moveme
           <option value="">{t("movements.allTypes")}</option>
           <option value="registered">{t("movements.types.registered")}</option>
           <option value="transfer">{t("movements.types.transfer")}</option>
+          <option value="location">{t("movements.types.location")}</option>
+          <option value="custodian">{t("movements.types.custodian")}</option>
+        </AppSelect>
+        <AppSelect name="category" defaultValue={str("category")} className={input} aria-label={t("assets.col.category")}>
+          <option value="">{t("assets.allCategories")}</option>
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {t(`assets.categories.${c}` as MessageKey)}
+            </option>
+          ))}
+        </AppSelect>
+        <AppSelect name="branch_id" defaultValue={str("branch_id")} className={input} aria-label={t("assets.col.branch")}>
+          <option value="">{t("assets.allBranches")}</option>
+          {branches.data.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
         </AppSelect>
         <AppSelect name="location_id" defaultValue={str("location_id")} className={input} aria-label={t("movements.location")}>
           <option value="">{t("assets.allLocations")}</option>
@@ -66,20 +90,15 @@ export default async function MovementsPage({ searchParams }: PageProps<"/moveme
             </option>
           ))}
         </AppSelect>
-        <div className="text-xs text-muted">
-          <span className="mb-1 block">{t("movements.from")}</span>
-          <DateInput name="from" defaultValue={str("from")} aria-label={t("movements.from")} className={input} />
-        </div>
-        <div className="text-xs text-muted">
-          <span className="mb-1 block">{t("movements.to")}</span>
-          <DateInput name="to" defaultValue={str("to")} aria-label={t("movements.to")} className={input} />
-        </div>
-        <div className="flex gap-2 sm:col-span-2 lg:col-span-6 lg:justify-end">
-          <Link href="/movements" className={`${btn.secondary} flex-1 lg:flex-none`}>
-            <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
-            {t("common.clearFilters")}
-          </Link>
-          <SubmitButton icon={<SearchIcon />} pendingText={t("common.searching")} className={`${btn.primary} flex-1 lg:flex-none`}>
+        <DateInput name="from" defaultValue={str("from")} placeholder={t("movements.from")} aria-label={t("movements.from")} className={input} />
+        <DateInput name="to" defaultValue={str("to")} placeholder={t("movements.to")} aria-label={t("movements.to")} className={input} />
+        <div className="flex gap-2 sm:col-span-2 lg:col-span-1">
+          <Tooltip label={t("common.clearFilters")} side="top">
+            <Link href="/movements" className={`${btn.secondary} h-full`} aria-label={t("common.clearFilters")}>
+              <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
+            </Link>
+          </Tooltip>
+          <SubmitButton icon={<SearchIcon />} pendingText={t("common.searching")} className={`${btn.primary} flex-1 whitespace-nowrap`}>
             {t("common.search")}
           </SubmitButton>
         </div>

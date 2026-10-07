@@ -11,6 +11,8 @@ import { useI18n } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/types";
 import { API_AUTH_TYPES, API_ERROR_KINDS, type ApiConnection, type ApiConnectionTest, type ApiErrorKind, type SyncResult } from "@/lib/types";
 import { AppSelect } from "@/components/app-select";
+import { useConfirm } from "@/components/dialog-provider";
+import { PasswordInput } from "@/components/password-input";
 
 type Rule = { value: string; role: "manager" | "viewer" };
 type ErrorRow = { code: string; kind: ApiErrorKind; message_th: string; message_en: string };
@@ -66,6 +68,7 @@ type Values = ReturnType<typeof initialValues>;
 
 export function ConnectionForm({ connection }: { connection: ApiConnection | null }) {
   const { t, fmt } = useI18n();
+  const confirm = useConfirm();
   const router = useRouter();
   const [v, setV] = useState<Values>(() => initialValues(connection));
   const [rules, setRules] = useState<Rule[]>(connection?.role_rules ?? []);
@@ -231,8 +234,8 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
     setPresetApplied(true);
   };
 
-  const remove = () => {
-    if (!connection || !confirm(t("apiConnections.deleteConfirm", { name: connection.name }))) return;
+  const remove = async () => {
+    if (!connection || !(await confirm(t("apiConnections.deleteConfirm", { name: connection.name })))) return;
     start(async () => {
       const res = await deleteConnection(connection.id);
       if (res.ok) router.replace("/api-connections");
@@ -547,7 +550,7 @@ function TestPanel({ id, fmtSeconds }: { id: number; fmtSeconds: (s: number) => 
       <p className="mt-1 text-sm text-muted">{t("apiConnections.test.hint")}</p>
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto]">
         <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t("auth.username")} autoComplete="off" className={input} />
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("auth.password")} autoComplete="new-password" className={input} />
+        <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("auth.password")} autoComplete="new-password" className={input} />
         <button type="button" onClick={run} disabled={pending || !username || !password} className={`${btn.primary} disabled:cursor-not-allowed disabled:opacity-60`}>
           {pending ? <SpinnerIcon /> : <CheckCircleIcon />}
           {pending ? t("apiConnections.test.running") : t("apiConnections.test.run")}

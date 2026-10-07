@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useId, useRef, useState, type ReactNode, type RefObject, createContext, useContext } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, MonitorIcon, MenuIcon, SettingsIcon, UserIcon, XIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
@@ -13,8 +13,10 @@ import { useI18n } from "@/i18n/client";
 import type { UiConfig } from "@/lib/permissions";
 import type { Layout } from "@/lib/prefs";
 import type { User } from "@/lib/types";
+import { APP_VERSION, compareVersions, initSeenVersion, readSeenVersion, subscribeSeenVersion } from "@/lib/changelog";
 import { activeHref, navFor, type NavGroup } from "./nav";
 import { NotificationBell } from "./notification-bell";
+import { GroupBadge, ItemBadge, MenuBadgesProvider } from "./menu-badges";
 import { PrefsControls } from "./prefs-controls";
 import { SidebarNav } from "./sidebar-nav";
 import { Avatar, LogoutButton, UserLabel } from "./user-bits";
@@ -48,8 +50,13 @@ const LogoVersionContext = createContext<string | null>(null);
 function LogoMark() {
   const version = useContext(LogoVersionContext);
   if (version) {
-    // eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน /files (ไม่ผ่าน next/image)
-    return <img src={`/files/branding/logo?v=${encodeURIComponent(version)}`} alt="" className="h-9 w-9 shrink-0 rounded-xl object-contain" />;
+    // พื้นขาว + เงา → โลโก้สีใดก็เห็นชัดทั้งโหมดสว่างและโหมดมืด
+    return (
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white p-0.5 shadow-md ring-1 ring-black/5 dark:shadow-black/40 dark:ring-white/15">
+        {/* eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน /files (ไม่ผ่าน next/image) */}
+        <img src={`/files/branding/logo?v=${encodeURIComponent(version)}`} alt="" className="h-full w-full rounded-lg object-contain" />
+      </span>
+    );
   }
   return (
     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-200 text-accent-700 dark:bg-accent-400/20 dark:text-accent-300">
@@ -58,16 +65,62 @@ function LogoMark() {
   );
 }
 
+/** มีเวอร์ชันใหม่ที่ผู้ใช้ยังไม่ได้เปิดดูหน้า /about (อ่านหลัง mount — localStorage) */
+function useNewVersion() {
+  // ฝั่ง server ถือว่าเห็นแล้ว (ไม่มีป้าย) — ฝั่ง client อ่านค่าจริงหลัง hydrate
+  useEffect(initSeenVersion, []);
+  const seen = useSyncExternalStore(subscribeSeenVersion, readSeenVersion, () => APP_VERSION);
+  return seen !== null && compareVersions(seen, APP_VERSION) < 0;
+}
+
+/** จุดแดงกะพริบ = มีเวอร์ชันใหม่ */
+function NewDot({ className = "" }: { className?: string }) {
+  return (
+    <span className={`absolute flex h-2.5 w-2.5 ${className}`} aria-hidden="true">
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger-400 opacity-75" />
+      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-danger-500 ring-2 ring-surface" />
+    </span>
+  );
+}
+
+/** โลโก้ + ชื่อระบบ + ป้ายเวอร์ชัน — คลิกเปิดหน้าเกี่ยวกับระบบ (เวอร์ชัน/สิ่งที่อัปเดต) */
 function Logo() {
   const { t } = useI18n();
+  const isNew = useNewVersion();
   return (
-    <Link href="/tickets" className="flex cursor-pointer items-center gap-2 font-semibold text-ink">
+    <Link href="/about" title={t("about.openHint")} className="group flex cursor-pointer items-center gap-2 font-semibold text-ink">
       <LogoMark />
       <span className="leading-tight">
-        {t("app.name")}
-        <span className="block text-xs font-normal text-muted">{t("app.tagline")}</span>
+        <span className="flex items-center gap-1.5">
+          {t("app.name")}
+          <span
+            className={`relative rounded-full px-1.5 py-px text-[10px] font-semibold leading-4 ring-1 ring-inset transition-colors ${
+              isNew
+                ? "bg-danger-50 text-danger-700 ring-danger-200 dark:bg-danger-400/15 dark:text-danger-300 dark:ring-danger-400/30"
+                : "bg-subtle text-muted ring-line group-hover:bg-accent-100 group-hover:text-accent-700 dark:group-hover:bg-accent-400/15 dark:group-hover:text-accent-300"
+            }`}
+          >
+            v{APP_VERSION}
+            {isNew && <NewDot className="-right-1 -top-1" />}
+          </span>
+        </span>
+        <span className="block text-xs font-normal text-muted">{isNew ? t("about.newBadge") : t("app.tagline")}</span>
       </span>
     </Link>
+  );
+}
+
+/** โลโก้ตอนย่อเมนู — มีจุดแดงเมื่อมีเวอร์ชันใหม่ */
+function CollapsedLogo() {
+  const { t } = useI18n();
+  const isNew = useNewVersion();
+  return (
+    <Tooltip label={`${t("app.fullName")} v${APP_VERSION}`}>
+      <Link href="/about" aria-label={`${t("app.fullName")} v${APP_VERSION}`} className="relative block cursor-pointer">
+        <LogoMark />
+        {isNew && <NewDot className="-right-0.5 -top-0.5" />}
+      </Link>
+    </Tooltip>
   );
 }
 
@@ -270,13 +323,14 @@ function CollapsedNav({ groups }: { groups: NavGroup[] }) {
                   href={item.href}
                   aria-label={t(item.label)}
                   aria-current={current ? "page" : undefined}
-                  className={`${ICON_BTN} ${
+                  className={`${ICON_BTN} relative ${
                     current
                       ? "bg-accent-200 text-accent-800 dark:bg-accent-400/25 dark:text-accent-200"
                       : "text-accent-600 hover:bg-accent-100 dark:text-accent-300 dark:hover:bg-accent-400/10"
                   }`}
                 >
                   <LinkPendingIcon icon={<item.icon width={18} height={18} />} size={18} />
+                  <ItemBadge href={item.href} dot />
                 </Link>
               </Tooltip>
             );
@@ -348,11 +402,7 @@ function DesktopSidebar({ groups, user }: { groups: NavGroup[]; user: User }) {
       >
         {collapsed ? (
           <div className="flex flex-col items-center gap-2">
-            <Tooltip label={t("app.fullName")}>
-              <Link href="/tickets" aria-label={t("app.fullName")} className="cursor-pointer">
-                <LogoMark />
-              </Link>
-            </Tooltip>
+            <CollapsedLogo />
             <NotificationBell size="lg" />
           </div>
         ) : (
@@ -463,6 +513,7 @@ function TopNav({ groups }: { groups: NavGroup[] }) {
             >
               <group.icon width={16} height={16} className={hasActive || isOpen ? "" : "text-accent-500 dark:text-accent-300"} />
               {t(group.label)}
+              <GroupBadge hrefs={group.items.map((i) => i.href)} />
               <ChevronDownIcon width={14} height={14} className={`text-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />
             </button>
             {isOpen && (
@@ -483,7 +534,8 @@ function TopNav({ groups }: { groups: NavGroup[] }) {
                       <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-50 text-accent-600 dark:bg-accent-400/10 dark:text-accent-300">
                         <LinkPendingIcon icon={<item.icon width={15} height={15} />} size={15} />
                       </span>
-                      {t(item.label)}
+                      <span className="flex-1">{t(item.label)}</span>
+                      <ItemBadge href={item.href} />
                     </Link>
                   );
                 })}
@@ -544,6 +596,7 @@ export function AppShell({ layout, user, uiConfig, children }: { layout: Layout;
 
   if (layout === "topbar") {
     return (
+      <MenuBadgesProvider>
       <LogoVersionContext.Provider value={uiConfig.logo_version}>
         <div className="flex min-h-screen flex-col">
           <MobileBar onOpen={() => setDrawer(true)} user={user} />
@@ -561,10 +614,12 @@ export function AppShell({ layout, user, uiConfig, children }: { layout: Layout;
           {main}
         </div>
       </LogoVersionContext.Provider>
+      </MenuBadgesProvider>
     );
   }
 
   return (
+    <MenuBadgesProvider>
     <LogoVersionContext.Provider value={uiConfig.logo_version}>
       <div className="flex min-h-screen">
         <DesktopSidebar groups={groups} user={user} />
@@ -575,5 +630,6 @@ export function AppShell({ layout, user, uiConfig, children }: { layout: Layout;
         </div>
       </div>
     </LogoVersionContext.Provider>
+    </MenuBadgesProvider>
   );
 }

@@ -11,7 +11,9 @@ import { currentPassword, makeHash, password, unique, validate, verifyHash } fro
 import { me } from "../http.js";
 import { can, findUser, isLocal, type UserRow } from "../models/user.js";
 import { userResource } from "../resources.js";
-import { ApiLoginError, loadConnection, loginWithApi, revokeApiSession } from "../services/api-auth.js";
+import { ApiLoginError, callUpstream, loadConnection, loginWithApi, revokeApiSession } from "../services/api-auth.js";
+import { audit } from "../services/audit.js";
+import { checkCentralPin, secretGuard, verifyLoginPassword } from "../services/secret-guard.js";
 import { activeSignature, deactivateSignature, mimeOf, readSignature, saveSignature, SignatureError } from "../services/signatures.js";
 import type { Locale } from "../lib/i18n.js";
 
@@ -65,6 +67,46 @@ loginRoutes.get("/auth/connections", async (_req, res) => {
     "SELECT id, name, register_url, forgot_password_url FROM api_connections WHERE is_enabled = true ORDER BY name, id",
   );
   res.json({ data: rows });
+});
+
+/**
+ * GET /auth/connections/:id/status — สถานะการเชื่อมต่อต้นทางสำหรับหน้า login (ไม่ต้อง login)
+ * เรียก health_path (เช่น /health ของ STEC) แล้ว cache ผลต่อการเชื่อมต่อ STATUS_CACHE_MS
+ * → ต้นทางถูกเรียกไม่เกิน 1 ครั้ง/นาที ไม่ว่าจะมีคนเปิดหน้า login กี่คน — คืนแค่ online/offline/unknown (ไม่มีรายละเอียด error/เนื้อหาต้นทาง)
+ */
+const STATUS_CACHE_MS = 60_000;
+type ConnectionStatus = "online" | "offline" | "unknown";
+const statusCache = new Map<number, { status: ConnectionStatus; checkedAt: number; pending?: Promise<ConnectionStatus> }>();
+
+export function clearConnectionStatusCache(): void {
+  statusCache.clear();
+}
+
+async function connectionStatus(id: number): Promise<{ status: ConnectionStatus; checkedAt: number } | null> {
+  const conn = await loadConnection(id);
+  if (!conn || !conn.is_enabled) return null;
+  if (!conn.health_path) return { status: "unknown", checkedAt: Date.now() };
+  const hit = statusCache.get(id);
+  if (hit && Date.now() - hit.checkedAt < STATUS_CACHE_MS) return hit;
+  if (hit?.pending) return { status: await hit.pending, checkedAt: Date.now() };
+
+  const healthPath = conn.health_path;
+  const pending = callUpstream(conn, { method: "GET", path: healthPath })
+    .then((r): ConnectionStatus => (r.status >= 200 && r.status < 300 ? "online" : "offline"))
+    .catch((): ConnectionStatus => "offline");
+  statusCache.set(id, { status: hit?.status ?? "unknown", checkedAt: hit?.checkedAt ?? 0, pending });
+  const status = await pending;
+  const entry = { status, checkedAt: Date.now() };
+  statusCache.set(id, entry);
+  return entry;
+}
+
+loginRoutes.get("/auth/connections/:id/status", async (req, res) => {
+  const id = String(req.params.id);
+  if (!/^\d+$/.test(id)) throw notFound();
+  const r = await connectionStatus(Number(id));
+  if (!r) throw notFound();
+  res.json({ data: { status: r.status, checked_at: new Date(r.checkedAt).toISOString() } });
 });
 
 /** ข้อความ login ไม่สำเร็จ — invalid ใช้ข้อความกลางเสมอ; ประเภทอื่นใช้ข้อความที่ admin ตั้งไว้ (ถ้ามี) */
@@ -125,6 +167,33 @@ authRoutes.post("/auth/logout", async (req, res) => {
   const u = me(req);
   if (u.type === "API") await revokeApiSession(req.tokenId!, u);
   await deleteToken(req.tokenId!);
+  res.status(204).end();
+});
+
+/**
+ * POST /auth/reauth { password } | { pin } — ยืนยันตัวตนซ้ำก่อนเปิดดูข้อมูลลับ (services/secret-guard.ts)
+ * วิธีตามหน้าตั้งค่า: รหัสผ่าน login ของตัวเอง หรือ PIN กลาง (ผิดติดกัน 5 ครั้ง = ล็อกคนนั้น 15 นาที)
+ * ผ่านแล้วบันทึกเวลาไว้ที่ token (session) นี้ — ไม่ผ่าน = บันทึก audit auth.reauth_failed
+ */
+authRoutes.post("/auth/reauth", limits.reauth, async (req, res) => {
+  const u = me(req);
+  const g = await secretGuard();
+  if (g.reauth_method === "pin") {
+    const data = await validate(req.input, { pin: ["required", "string", "max:64"] }, { locale: req.locale });
+    try {
+      await checkCentralPin(req, u, String(data.pin));
+    } catch (e) {
+      await audit(req, { action: "auth.reauth_failed", subjectType: "user", subjectId: u.id, after: { method: "pin" } });
+      throw e;
+    }
+  } else {
+    const data = await validate(req.input, { password: ["required", "string", "max:255"] }, { locale: req.locale });
+    if (!(await verifyLoginPassword(req, u, String(data.password)))) {
+      await audit(req, { action: "auth.reauth_failed", subjectType: "user", subjectId: u.id, after: { method: "password" } });
+      throw ValidationError.withMessages({ password: trans(req.locale, "eam.secret_guard.wrong_password") });
+    }
+  }
+  await update("personal_access_tokens", { reauth_at: nowDb() }, "id = ?", [req.tokenId!]);
   res.status(204).end();
 });
 

@@ -111,6 +111,16 @@ describe("locations", () => {
     expect(all.body.data).toContainEqual(expect.objectContaining({ id, children_count: 0, assets_count: 0 }));
   });
 
+  it("quick add with a name only gets the next LOC-#### code and type room", async () => {
+    const api = await as(await makeUser({ role: "manager" }));
+    await makeLocation({ code: "LOC-0007" });
+    const created = await api.post("/api/v1/locations").send({ name: "ห้องประชุมใหญ่" });
+    expect(created.status).toBe(201);
+    expect(created.body.data).toMatchObject({ code: "LOC-0008", name: "ห้องประชุมใหญ่", type: "room" });
+    expect((await api.post("/api/v1/locations").send({ name: "ห้อง Server" })).body.data.code).toBe("LOC-0009");
+    expect((await api.post("/api/v1/locations").send({ name: "" })).status).toBe(422);
+  });
+
   it("code must be unique and parent cannot create a cycle", async () => {
     const api = await as(await makeUser({ role: "manager" }));
     const a = await makeLocation({ code: "A" });

@@ -6,10 +6,12 @@ import { removeLogo, uploadLogo } from "@/app/actions/branding";
 import { AlertIcon, CheckCircleIcon, MonitorIcon, SpinnerIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import { alert, btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
+import { useConfirm } from "@/components/dialog-provider";
 
 /** โลโก้ระบบ: แสดงหน้าชื่อ IT-SYSTEM ในเมนู — ไม่มีรูป = icon เดิม */
 export function LogoCard({ version }: { version: string | null }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -28,8 +30,8 @@ export function LogoCard({ version }: { version: string | null }) {
     });
   };
 
-  const onRemove = () => {
-    if (!confirm(t("logo.confirmRemove"))) return;
+  const onRemove = async () => {
+    if (!(await confirm(t("logo.confirmRemove")))) return;
     start(async () => {
       const res = await removeLogo();
       setResult({ ok: Boolean(res.ok), text: res.message ?? "" });

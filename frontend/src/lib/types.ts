@@ -60,8 +60,12 @@ export interface Asset {
   monitor_tag: string | null;
   /** เฉพาะหมวด SOFTWARE (null = ไม่มี) */
   license?: AssetLicense | null;
+  /** หน้ารายการ: จำนวนสิทธิ์ทั้งหมด / ติดตั้งแล้ว / คงเหลือ (เฉพาะ license) */
+  license_usage?: LicenseUsage;
   /** เฉพาะหน้ารายละเอียด */
   files?: AssetFile[];
+  /** เฉพาะหน้ารายละเอียด: ซอฟต์แวร์ (license) ที่ติดตั้งบนเครื่องนี้ */
+  software?: SoftwareSet;
   created_at: string;
   updated_at: string;
 }
@@ -129,19 +133,56 @@ export interface AppSettings {
   license_notify_days: number;
   notify_emails: string[];
   ticket_other_types: string[];
+  /** ความปลอดภัยตอนเปิดดูรหัสผ่าน / License key */
+  secret_guard: SecretGuard;
+  secret_pin_status: SecretPinStatus;
+}
+
+/** สถานะ PIN กลาง (GET /secret-pin) — ไม่มีค่า PIN */
+export interface SecretPinStatus {
+  set: boolean;
+  set_at: string | null;
+  set_by: string | null;
+  can_manage?: boolean;
+}
+
+/** API ตอบ 428 = ต้องยืนยันตัวตนก่อนเปิดดูข้อมูลลับ */
+export interface ReauthChallenge {
+  method: "password" | "pin";
+  pin_set: boolean;
+  pin_locked: boolean;
+  message: string;
+}
+
+export interface SecretGuard {
+  reauth: boolean;
+  /** password = รหัสผ่าน login ของแต่ละคน / pin = PIN กลางอันเดียว */
+  reauth_method: "password" | "pin";
+  reauth_minutes: number;
+  ip_restrict: boolean;
+  allowed_ips: string[];
+  notify_heads: boolean;
 }
 
 export const CREDENTIAL_CATEGORIES = ["system", "server", "network", "email", "software", "cloud", "other"] as const;
 export type CredentialCategory = (typeof CREDENTIAL_CATEGORIES)[number];
+/** หมวดตั้งต้น (แปลชื่อได้) หรือหมวดที่ผู้ใช้เพิ่มเอง (แสดงตามที่พิมพ์) */
+export const isBuiltinCategory = (c: string): c is CredentialCategory => (CREDENTIAL_CATEGORIES as readonly string[]).includes(c);
+export interface CredentialCategories {
+  builtin: CredentialCategory[];
+  custom: string[];
+}
 
 export interface Credential {
   id: number;
   title: string;
-  category: CredentialCategory;
+  category: string;
   url: string | null;
   username: string | null;
   has_password: boolean;
   has_secret_notes: boolean;
+  /** ต้องยืนยันตัวตน (รหัสผ่าน login / PIN กลาง) ก่อนเปิดดู */
+  require_reauth: boolean;
   notes: string | null;
   branch: { id: number; name: string } | null;
   branch_id: number | null;
@@ -285,12 +326,48 @@ export interface AppNotification {
   id: string;
   data:
     | { kind: "ticket"; event: string; ticket_id: string; ticket_no: string; ticket_type: TicketType; actor: string | null }
-    | { kind: "expiring"; count: number; items: { type: string; title: string; date: string; days_left: number }[] };
+    | { kind: "expiring"; count: number; items: { type: string; title: string; date: string; days_left: number }[] }
+    | { kind: "secret_revealed"; secret: "vault" | "license"; subject_id: string | number; title: string; actor: string; ip: string | null };
   read_at: string | null;
   created_at: string;
 }
 
 /** ประวัติการโอนย้าย (GET /assets/{id}/movements) */
+/** GET /assets/{uuid}/user-logs — ประวัติผู้ใช้งาน (ทะเบียนคอมพิวเตอร์) */
+export interface AssetUserLog {
+  id: number;
+  from_user_name: string | null;
+  to_user_name: string | null;
+  from_department: string | null;
+  to_department: string | null;
+  source: "create" | "edit" | "import";
+  changed_at: string;
+  performed_by: { id: number; name: string } | null;
+}
+
+/** GET /assets/{uuid}/repairs — ใบแจ้งซ่อมที่ผูกกับสินทรัพย์ */
+export interface AssetRepair {
+  id: string;
+  ticket_no: string;
+  status: TicketStatus;
+  requested_at: string;
+  symptom: string | null;
+  result: "completed" | "cannot_complete" | null;
+  completed_on: string | null;
+  cannot_reason: string | null;
+  repair_method: "in_house" | "external" | null;
+  external_vendor: string | null;
+  warranty: "in_warranty" | "out_of_warranty" | null;
+  repair_details: string | null;
+  requester: string | null;
+  assignee: string | null;
+  parts: { name: string; quantity: number }[];
+  device_name: string | null;
+  asset_tag: string | null;
+  asset: { id: string; asset_tag: string; name: string; category: string } | null;
+  branch: string | null;
+}
+
 export interface AssetMovement {
   id: number;
   /** มีเฉพาะในรายงานรวม GET /movements */
@@ -469,6 +546,8 @@ export interface LicenseFormValues {
   license_key: string;
   clear_license_key: boolean;
   notify_days_before: string;
+  /** กำหนดระยะเวลาเอง: จำนวนปี → คำนวณวันหมดอายุ (ใช้ในฟอร์มเท่านั้น ไม่ส่งไป API) */
+  duration_years: string;
 }
 
 /** ค่าจากฟอร์ม (string ทั้งหมด) — แปลงเป็น payload ของ API ใน server action */
@@ -507,9 +586,30 @@ export interface AssetFormValues {
   movement_reason: string;
   /** ใช้เมื่อหมวดมี license (CATEGORY_FORM) */
   license: LicenseFormValues;
+  /** หมวดคอมพิวเตอร์: OS / Office / Anti Virus / Software อื่นๆ ที่เลือกจาก license */
+  software: SoftwareSet;
 }
 
-export type FieldErrors = Partial<Record<Exclude<keyof AssetFormValues, "license"> | "license" | `license.${keyof LicenseFormValues}`, string>>;
+export type FieldErrors = Partial<
+  Record<Exclude<keyof AssetFormValues, "license" | "software"> | "license" | `license.${keyof LicenseFormValues}` | `software.${SoftwareSlot | "others"}`, string>
+>;
+
+/** ซอฟต์แวร์บนเครื่อง = license (สินทรัพย์หมวด Software) — ช่อง os / office / antivirus + อื่นๆ */
+export const SOFTWARE_SLOTS = ["os", "office", "antivirus"] as const;
+export type SoftwareSlot = (typeof SOFTWARE_SLOTS)[number];
+export interface SoftwareRef {
+  id: string; // uuid ของสินทรัพย์ license
+  asset_tag: string;
+  name: string;
+}
+export type SoftwareSet = Record<SoftwareSlot, SoftwareRef | null> & { others: SoftwareRef[] };
+export interface SoftwareOption extends SoftwareRef {
+  model: string | null;
+  seats: number | null;
+  used: number;
+  available: number | null;
+}
+export const EMPTY_SOFTWARE: SoftwareSet = { os: null, office: null, antivirus: null, others: [] };
 
 /** ค่าสถานะทั้งหมด — ข้อความแสดงผลอยู่ใน dictionary: t(`status.${value}`) */
 export const STATUSES: AssetStatus[] = ["active", "in_storage", "in_repair", "lost", "disposed"];
@@ -650,4 +750,33 @@ export interface AuditLog {
   after: Record<string, unknown> | null;
   ip: string | null;
   created_at: string;
+}
+
+/** GET /kpi/month — แถวในชีต KPI รายเดือน (ticket = ใบแจ้งงานที่รับแล้ว, work = กรอกเอง, holiday = วันหยุด) */
+export interface KpiSheetRow {
+  key: string;
+  kind: "ticket" | "work" | "holiday";
+  entry_id: number | null;
+  ticket: { id: string; ticket_no: string; status: TicketStatus } | null;
+  work_date: string;
+  requester: string | null;
+  branch: string | null;
+  service_type: string | null;
+  details: string;
+  assignee: string | null;
+  solution: string | null;
+  complexity: number;
+  mark: number;
+  completed_date: string | null;
+  can_edit: boolean;
+}
+
+export interface KpiMonth {
+  data: KpiSheetRow[];
+  totals: { complexity: number; mark: number; rows: number };
+  user: { id: number; name: string };
+  month: string;
+  service_types: { name: string; description: string }[];
+  service_type_note: string;
+  complexity_values: { value: number; mark: number }[];
 }

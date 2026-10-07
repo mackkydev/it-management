@@ -50,6 +50,21 @@ export function parseDisplayDate(text: string, locale: Locale): string | null {
   return `${year}-${pad(month)}-${pad(day)}`;
 }
 
+/** license: วันหมดอายุ = วันเริ่ม + n ปี − 1 วัน (n ไม่ถูกต้อง = "") */
+export const LICENSE_MAX_YEARS = 50;
+export function licenseExpiryAfter(start: string, years: string | number): string {
+  const n = Number(years);
+  if (!start || !Number.isInteger(n) || n < 1 || n > LICENSE_MAX_YEARS) return "";
+  return addToIsoDate(start, { years: n, days: -1 });
+}
+
+/** จำนวนปีเต็มระหว่างวันเริ่ม–วันหมดอายุของ license (ไม่ลงตัวเป็นปี = "") — ใช้เติมช่องจำนวนปีตอนแก้ไข */
+export function licenseYears(start: string, expires: string): string {
+  if (!start || !expires) return "";
+  for (let n = 1; n <= LICENSE_MAX_YEARS; n++) if (licenseExpiryAfter(start, n) === expires) return String(n);
+  return "";
+}
+
 /** "YYYY-MM-DD" + n วัน/ปี (สำหรับคำนวณวันหมดอายุ) */
 export function addToIsoDate(iso: string, { years = 0, days = 0 }: { years?: number; days?: number }): string {
   const m = DATE_ONLY.exec(iso);

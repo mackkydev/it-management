@@ -7,6 +7,7 @@ import { apiFetch } from "@/lib/api";
 import { has, getCurrentUser, getUiConfig } from "@/lib/auth";
 import type { AppSettings } from "@/lib/types";
 import { LogoCard } from "./logo-card";
+import { SecurityForm } from "./security-form";
 import { SettingsForm } from "./settings-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -25,6 +26,7 @@ export default async function SettingsPage() {
       <PageHeader icon={BellIcon} title={t("settingsPage.title")} subtitle={t("settingsPage.subtitle")} />
       <LogoCard version={ui.logo_version} />
       <SettingsForm initial={data} />
+      <SecurityForm initial={data.secret_guard} pinStatus={data.secret_pin_status} canManagePin={has(user, "secrets.pin_manage")} />
     </div>
   );
 }

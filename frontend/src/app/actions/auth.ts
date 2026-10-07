@@ -55,6 +55,18 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   redirect("/"); // หน้าแรกเลือกปลายทางตามผู้ใช้ (IT → คิวงาน IT, คนอื่น → ใบแจ้งงานของฉัน)
 }
 
+export type ConnectionStatus = "online" | "offline" | "unknown";
+
+/** สถานะการเชื่อมต่อต้นทาง (หน้า login, ไม่ต้อง login) — API cache ผลไว้ 1 นาที; API ล่ม = offline, ไม่มี health check = unknown */
+export async function getConnectionStatus(id: number): Promise<ConnectionStatus> {
+  if (!Number.isInteger(id) || id <= 0) return "unknown";
+  try {
+    return (await apiFetch<{ data: { status: ConnectionStatus } }>(`/auth/connections/${id}/status`)).data.status;
+  } catch (e) {
+    return e instanceof ApiError && e.status === 404 ? "unknown" : "offline";
+  }
+}
+
 /** login ผ่านระบบต้นทาง — รหัสผ่านส่งต่อให้ API (ที่ส่งต่อไปต้นทาง) เท่านั้น ไม่เก็บที่ใด */
 export async function loginWithConnection(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const { t } = await getI18n();
@@ -94,4 +106,15 @@ export async function logout() {
   jar.delete(TOKEN_COOKIE);
   jar.delete(WELCOME_COOKIE);
   redirect("/login");
+}
+
+/** ยืนยันรหัสผ่านซ้ำก่อนเปิดดูรหัสผ่าน / License key — ผ่านแล้วเปิดดูต่อได้ตามเวลาที่ตั้งไว้ */
+export async function confirmIdentity(value: string, method: "password" | "pin"): Promise<{ ok?: boolean; message?: string }> {
+  try {
+    await apiFetch("/auth/reauth", { method: "POST", body: JSON.stringify({ [method]: value.slice(0, 255) }) });
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof ApiError) return { message: e.body.errors?.[method]?.[0] ?? e.message };
+    throw e;
+  }
 }

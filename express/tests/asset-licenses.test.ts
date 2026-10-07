@@ -72,8 +72,12 @@ describe("software licenses", () => {
     const id = (await manager.post("/api/v1/assets").send(software(yearly))).body.data.id;
 
     expect((await (await as(await makeUser())).post(`/api/v1/assets/${id}/license-key`)).status).toBe(403);
+    // ค่าเริ่มต้น: ยืนยันรหัสผ่านซ้ำก่อนเปิดดู (tests/secret-guard.test.ts)
+    await manager.post("/api/v1/auth/reauth").send({ password: "password" });
     expect((await manager.post(`/api/v1/assets/${id}/license-key`)).body.data.license_key).toBe("AAAA-BBBB-CCCC");
-    expect((await (await as(await makeUser({ is_it_staff: true }))).post(`/api/v1/assets/${id}/license-key`)).body.data.license_key).toBe("AAAA-BBBB-CCCC");
+    const staff = await as(await makeUser({ is_it_staff: true }));
+    await staff.post("/api/v1/auth/reauth").send({ password: "password" });
+    expect((await staff.post(`/api/v1/assets/${id}/license-key`)).body.data.license_key).toBe("AAAA-BBBB-CCCC");
   });
 
   it("license files: upload several, preview/download, validate type, delete", async () => {

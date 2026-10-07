@@ -1,32 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
-import { createAsset, deleteAsset, suggestAssetValues, updateAsset, type SaveResult } from "@/app/actions/assets";
+import { useEffect, useRef, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { createAsset, deleteAsset, loadSoftwareOptions, suggestAssetValues, updateAsset, type SaveResult } from "@/app/actions/assets";
 import { DateInput } from "@/components/date-input";
 import { SuggestInput } from "@/components/suggest-input";
 import { AlertIcon, SaveIcon, SpinnerIcon, TrashIcon, TruckIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input as inputBase, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { MessageKey, TFunction } from "@/i18n/types";
-import { addToIsoDate, localToday } from "@/lib/date";
+import { addToIsoDate, LICENSE_MAX_YEARS, licenseExpiryAfter, licenseYears, localToday } from "@/lib/date";
 import {
   CATEGORIES,
   COMPUTER_DATE_FIELDS,
   COMPUTER_TEXT_FIELDS,
   COMPUTER_TYPES,
   CATEGORY_FORM,
+  EMPTY_SOFTWARE,
   LICENSE_BILLINGS,
+  SOFTWARE_SLOTS,
   STATUSES,
   type AssetFormValues,
   type Branch,
   type FieldErrors,
   type LicenseFormValues,
   type Location,
+  type SoftwareOption,
+  type SoftwareRef,
+  type SoftwareSlot,
   type UserOption,
 } from "@/lib/types";
+import { SoftwareListPicker, SoftwareSlotPicker } from "./software-picker";
 import { CustodianPicker } from "./custodian-picker";
+import { LocationPicker } from "./location-picker";
 import { AppSelect } from "@/components/app-select";
+import { useConfirm } from "@/components/dialog-provider";
+import { PasswordInput } from "@/components/password-input";
 
 type ComputerField = (typeof COMPUTER_TEXT_FIELDS)[number] | (typeof COMPUTER_DATE_FIELDS)[number];
 
@@ -57,7 +66,9 @@ const EMPTY: AssetFormValues = {
     license_key: "",
     clear_license_key: false,
     notify_days_before: "",
+    duration_years: "",
   },
+  software: EMPTY_SOFTWARE,
 };
 
 /** วันหมดอายุของ license รายปี: วันเริ่ม + 1 ปี − 1 วัน */
@@ -74,6 +85,9 @@ function validate(v: AssetFormValues, t: TFunction): FieldErrors {
       else if (l.start_date && l.expires_at < l.start_date) e["license.expires_at"] = t("assets.license.validate.expiresBeforeStart");
     }
     if (l.seats && (!/^\d+$/.test(l.seats) || Number(l.seats) < 1)) e["license.seats"] = t("assets.license.validate.seats");
+    if (l.billing === "custom" && l.duration_years && !licenseExpiryAfter(l.start_date || "2000-01-01", l.duration_years)) {
+      e["license.duration_years"] = t("assets.license.validate.durationYears", { max: LICENSE_MAX_YEARS });
+    }
   }
   if (!v.asset_tag.trim()) e.asset_tag = t("assets.validate.tagRequired");
   else if (!/^[A-Za-z0-9\-_/]+$/.test(v.asset_tag.trim())) e.asset_tag = t("assets.validate.tagFormat");
@@ -101,11 +115,14 @@ interface Props {
   canDelete?: boolean;
   /** มี license key เดิมอยู่แล้ว (โหมดแก้ไข) */
   hasLicenseKey?: boolean;
+  /** โหมดเพิ่มใหม่: หมวดเริ่มต้น (เช่น ?category=SOFTWARE จากปุ่มเพิ่ม License ในช่อง Software) */
+  defaultCategory?: string;
 }
 
-export function AssetForm({ locations, branches, assetId, initial, initialCustodian = null, canDelete = false, hasLicenseKey = false }: Props) {
+export function AssetForm({ locations, branches, assetId, initial, initialCustodian = null, canDelete = false, hasLicenseKey = false, defaultCategory }: Props) {
   const { t } = useI18n();
-  const [values, setValues] = useState<AssetFormValues>(initial ?? EMPTY);
+  const confirm = useConfirm();
+  const [values, setValues] = useState<AssetFormValues>(initial ?? (defaultCategory ? { ...EMPTY, category: defaultCategory } : EMPTY));
   const [custodian, setCustodian] = useState(initialCustodian);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [message, setMessage] = useState("");
@@ -117,9 +134,64 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
     isEdit && (values.location_id !== initial?.location_id || values.custodian_id !== initial?.custodian_id);
 
   const onChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const field = e.target.name as Exclude<keyof AssetFormValues, "license">;
+    const field = e.target.name as Exclude<keyof AssetFormValues, "license" | "software">;
     setValues((v) => ({ ...v, [field]: e.target.value }));
     setErrors((prev) => ({ ...prev, [field]: "" })); // ล้าง error ของช่องที่แก้ทันที
+  };
+
+  const onLocationChange = (id: string) => {
+    setValues((v) => ({ ...v, location_id: id }));
+    setErrors((prev) => ({ ...prev, location_id: "" }));
+  };
+
+  // ---- ซอฟต์แวร์บนเครื่อง (หมวดคอมพิวเตอร์): เลือกจาก license — โหลดตัวเลือกใหม่เมื่อกลับมาที่แท็บ (เผื่อเพิ่ม License ในแท็บใหม่)
+  const [swOptions, setSwOptions] = useState<SoftwareOption[] | null>(null);
+  const isComputer = Boolean(CATEGORY_FORM[values.category]?.computer);
+  useEffect(() => {
+    if (!isComputer) return;
+    let alive = true;
+    const load = () => loadSoftwareOptions().then((o) => alive && setSwOptions(o));
+    load();
+    window.addEventListener("focus", load);
+    return () => {
+      alive = false;
+      window.removeEventListener("focus", load);
+    };
+  }, [isComputer]);
+  // license ที่ติดตั้งบนเครื่องนี้อยู่แล้ว — เลือกซ้ำได้แม้ seat เต็ม
+  const installedIds = initial ? [...SOFTWARE_SLOTS.map((k) => initial.software[k]?.id), ...initial.software.others.map((o) => o.id)].filter((x): x is string => Boolean(x)) : [];
+  const chosenIds = (except?: SoftwareSlot) =>
+    [...SOFTWARE_SLOTS.filter((k) => k !== except).map((k) => values.software[k]?.id), ...(except ? values.software.others.map((o) => o.id) : [])].filter((x): x is string => Boolean(x));
+  const setSlot = (slot: SoftwareSlot, ref: SoftwareRef | null) => {
+    // เลือก/ล้าง = ไม่ใช้ข้อความเดิม (ค่าที่ยังไม่ผูก) อีก
+    setValues((v) => ({ ...v, [slot]: "", software: { ...v.software, [slot]: ref } }));
+    setErrors((prev) => ({ ...prev, [`software.${slot}`]: "", [slot]: "" }));
+  };
+  const setOthers = (others: SoftwareRef[]) => {
+    setValues((v) => ({ ...v, software: { ...v.software, others } }));
+    setErrors((prev) => ({ ...prev, "software.others": "" }));
+  };
+  const slotField = (slot: SoftwareSlot, label: string) => {
+    const err = errors[`software.${slot}`] || errors[slot];
+    return (
+      <div>
+        <label htmlFor={`software-${slot}`} className="mb-1 block text-sm font-medium">
+          {label}
+        </label>
+        <SoftwareSlotPicker
+          id={`software-${slot}`}
+          options={swOptions}
+          value={values.software[slot]}
+          legacy={values[slot]}
+          exclude={chosenIds(slot)}
+          installed={installedIds}
+          onChange={(ref) => setSlot(slot, ref)}
+          onClearLegacy={() => setSlot(slot, null)}
+          className={`${inputBase} ${err ? inputError : ""}`}
+        />
+        {err && <p className="mt-1 text-xs font-medium text-red-500">{err}</p>}
+      </div>
+    );
   };
 
   const onCustodianChange = (user: UserOption | null) => {
@@ -150,13 +222,13 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
     });
   };
 
-  const onDelete = () => {
-    if (!assetId || !confirm(t("assets.form.confirmDelete", { tag: values.asset_tag }))) return;
+  const onDelete = async () => {
+    if (!assetId || !(await confirm(t("assets.form.confirmDelete", { tag: values.asset_tag })))) return;
     setPendingAction("delete");
     startTransition(async () => handleResult(await deleteAsset(assetId)));
   };
 
-  type Plain = Exclude<keyof AssetFormValues, "license">;
+  type Plain = Exclude<keyof AssetFormValues, "license" | "software">;
   const field = (name: Plain, label: string, control: ReactNode, required = false, wide = false) => (
     <div className={wide ? "sm:col-span-2" : undefined}>
       <label htmlFor={name} className="mb-1 block text-sm font-medium">
@@ -172,7 +244,7 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
   const input = (name: Plain, props: Record<string, unknown> = {}) => (
     <input id={name} name={name} value={values[name]} onChange={onChange} className={cls(name)} {...props} />
   );
-  const setField = (name: Exclude<keyof AssetFormValues, "license">, value: string) => {
+  const setField = (name: Plain, value: string) => {
     setValues((v) => ({ ...v, [name]: value }));
     setErrors((prev) => ({ ...prev, [name]: "" }));
   };
@@ -184,11 +256,26 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
   const form = CATEGORY_FORM[values.category];
   const hidden = (name: keyof AssetFormValues) => form?.hide?.includes(name) ?? false;
   const lic = values.license;
+  // กำหนดระยะเวลาเอง: เลือกแล้วพาไปที่ช่องจำนวนปีทันที (ช่องเพิ่งแสดงหลัง render รอบถัดไป)
+  const yearsRef = useRef<HTMLInputElement>(null);
+  const chooseBilling = (b: LicenseFormValues["billing"]) => {
+    setLicense({ billing: b });
+    if (b === "custom") window.setTimeout(() => yearsRef.current?.focus(), 0);
+  };
+  // ยังไม่กรอกจำนวนปี → ขอบสีเน้นให้รู้ว่าต้องกรอก
+  const yearsPending = lic.billing === "custom" && !lic.duration_years && !errors["license.duration_years"];
   const setLicense = (patch: Partial<LicenseFormValues>) => {
     setValues((v) => {
       const next = { ...v.license, ...patch };
       // รายปี: คำนวณวันหมดอายุจากวันเริ่มให้อัตโนมัติ (แก้เองได้)
       if (next.billing === "yearly" && ("start_date" in patch || patch.billing === "yearly")) next.expires_at = yearlyExpiry(next.start_date);
+      // กำหนดระยะเวลาเอง: กรอกจำนวนปี → คำนวณวันหมดอายุ (แก้วันหมดอายุเองได้ — จำนวนปีปรับตามถ้าลงตัว ไม่ลงตัว = ว่าง)
+      if (next.billing === "custom") {
+        if ("duration_years" in patch || "start_date" in patch || patch.billing === "custom") {
+          const calc = licenseExpiryAfter(next.start_date, next.duration_years);
+          if (calc) next.expires_at = calc;
+        } else if ("expires_at" in patch) next.duration_years = licenseYears(next.start_date, next.expires_at);
+      }
       return { ...v, license: next };
     });
     setErrors((prev) => ({ ...prev, ...Object.fromEntries(Object.keys(patch).map((k) => [`license.${k}`, ""])), "license.expires_at": "" }));
@@ -286,21 +373,12 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
             {field(
               "location_id",
               t("assets.form.location"),
-              <AppSelect id="location_id" name="location_id" value={values.location_id} onChange={onChange} className={cls("location_id")}>
-                <option value="">{t("common.none")}</option>
-                {locations.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.code} — {l.name}
-                  </option>
-                ))}
-              </AppSelect>,
+              <LocationPicker id="location_id" locations={locations} value={values.location_id} onChange={onLocationChange} className={cls("location_id")} />,
             )}
             {field(
               "custodian_id",
               t("assets.form.custodian"),
               <CustodianPicker id="custodian_id" value={custodian} onChange={onCustodianChange} className={cls("custodian_id")} />,
-              false,
-              true,
             )}
             {isMoving && (
               <div className={`sm:col-span-2 ${alert.info}`}>
@@ -344,13 +422,33 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
               {field("work_group", t("assets.computer.workGroup"), input("work_group", { maxLength: 50, placeholder: "LAMPHUN" }))}
               {field("ip_address", t("assets.computer.ip"), input("ip_address", { maxLength: 45, placeholder: "192.168.4.36", className: `${cls("ip_address")} font-mono` }))}
               {field("mac_address", t("assets.computer.mac"), input("mac_address", { maxLength: 50, placeholder: "A0:36:BC:25:1C:5C", className: `${cls("mac_address")} font-mono` }))}
-              {field("email_365", t("assets.computer.email365"), input("email_365", { maxLength: 255, type: "email" }))}
-              {field("os", t("assets.computer.os"), input("os", { maxLength: 100, placeholder: "Windows 11 Pro" }))}
-              {field("office", t("assets.computer.office"), input("office", { maxLength: 100, placeholder: "Office 2016" }))}
-              {field("antivirus", t("assets.computer.antivirus"), input("antivirus", { maxLength: 100, placeholder: "BitDefender" }))}
+              {field("monitor_tag", t("assets.computer.monitorTag"), input("monitor_tag", { maxLength: 255, className: `${cls("monitor_tag")} font-mono` }))}
+              {/* แถวเครื่อง: IP / MAC / Monitor — แถวซอฟต์แวร์: OS / Office / Anti Virus = license ที่ติดตั้งบนเครื่องนี้ (Email 365 ไม่แสดงในฟอร์ม — ค่าเดิมยังเก็บไว้) */}
+              {slotField("os", t("assets.computer.os"))}
+              {slotField("office", t("assets.computer.office"))}
+              {slotField("antivirus", t("assets.computer.antivirus"))}
               {field("notebook_tag", t("assets.computer.notebookTag"), input("notebook_tag", { maxLength: 100, className: `${cls("notebook_tag")} font-mono` }))}
               {field("cpu_tag", t("assets.computer.cpuTag"), input("cpu_tag", { maxLength: 100, className: `${cls("cpu_tag")} font-mono` }))}
-              {field("monitor_tag", t("assets.computer.monitorTag"), input("monitor_tag", { maxLength: 255, className: `${cls("monitor_tag")} font-mono` }))}
+              {/* Software อื่นๆ (หลายรายการ) — เลือกจาก license เหมือน OS / Office */}
+              <div className="sm:col-span-2 lg:col-span-3">
+                <label htmlFor="software-others" className="mb-1 block text-sm font-medium">
+                  {t("assets.computer.otherSoftware")}
+                </label>
+                <SoftwareListPicker
+                  id="software-others"
+                  options={swOptions}
+                  value={values.software.others}
+                  exclude={chosenIds()}
+                  installed={installedIds}
+                  onChange={setOthers}
+                  className={`${inputBase} ${errors["software.others"] ? inputError : ""}`}
+                />
+                {errors["software.others"] ? (
+                  <p className="mt-1 text-xs font-medium text-red-500">{errors["software.others"]}</p>
+                ) : (
+                  <p className="mt-1 text-xs text-muted">{t("assets.software.otherHint")}</p>
+                )}
+              </div>
             </div>
           </section>
         )}
@@ -373,7 +471,7 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
                       lic.billing === b ? "bg-accent-50 ring-accent-300 dark:bg-accent-400/10 dark:ring-accent-400/40" : "ring-line hover:bg-subtle"
                     }`}
                   >
-                    <input type="radio" name="license-billing" value={b} checked={lic.billing === b} onChange={() => setLicense({ billing: b })} className="mt-1 accent-[var(--accent-500)]" />
+                    <input type="radio" name="license-billing" value={b} checked={lic.billing === b} onChange={() => chooseBilling(b)} className="mt-1 accent-[var(--accent-500)]" />
                     <span>
                       <span className="block text-sm font-medium">{t(`assets.license.billings.${b}`)}</span>
                       <span className="block text-xs text-muted">{t(`assets.license.billingHints.${b}`)}</span>
@@ -389,6 +487,25 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
                 <DateInput id="license-start_date" value={lic.start_date} onChange={(d) => setLicense({ start_date: d })} className={licCls("start_date")} />,
                 { required: true },
               )}
+              {lic.billing === "custom" &&
+                licField(
+                  "duration_years",
+                  t("assets.license.durationYears"),
+                  <input
+                    ref={yearsRef}
+                    id="license-duration_years"
+                    type="number"
+                    min={1}
+                    max={LICENSE_MAX_YEARS}
+                    step={1}
+                    inputMode="numeric"
+                    value={lic.duration_years}
+                    onChange={(e) => setLicense({ duration_years: e.target.value })}
+                    placeholder={t("assets.license.durationYearsPlaceholder")}
+                    className={`${licCls("duration_years")} ${yearsPending ? "border-accent-400 ring-2 ring-accent-200 dark:ring-accent-400/30" : ""}`}
+                  />,
+                  { hint: t("assets.license.durationYearsHint") },
+                )}
               {lic.billing !== "perpetual" &&
                 licField(
                   "expires_at",
@@ -400,6 +517,7 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
                 "seats",
                 t("assets.license.seats"),
                 <input id="license-seats" type="number" min={1} inputMode="numeric" value={lic.seats} onChange={(e) => setLicense({ seats: e.target.value })} className={licCls("seats")} />,
+                { hint: t("assets.license.seatsHint") },
               )}
               {licField(
                 "vendor",
@@ -426,9 +544,8 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
                 {licField(
                   "license_key",
                   t("assets.license.key"),
-                  <input
+                  <PasswordInput
                     id="license-license_key"
-                    type="password"
                     autoComplete="new-password"
                     maxLength={5000}
                     value={lic.license_key}

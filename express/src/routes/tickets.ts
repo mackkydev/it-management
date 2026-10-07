@@ -15,6 +15,8 @@ import {
 } from "../services/ticket-workflow.js";
 import { activeSignature, copySignatureTo, mimeOf, readSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
+import { ACCEPTED_TICKET_STATUSES } from "../services/kpi.js";
+import { OWN_SQL } from "./assets.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
 import { trans } from "../lib/i18n.js";
 
@@ -226,6 +228,41 @@ async function counts(u: UserRow) {
   return out;
 }
 
+/**
+ * GET /menu-badges — ตัวเลขบนเมนู = งานที่ "รอฉันทำ" (เงื่อนไขเดียวกับปุ่มใน ticket-workflow.ts)
+ *   /tickets           ใบของฉันที่รอฉันกดรับงาน (รอปิดงาน)
+ *   /tickets/approvals ใบที่รอฉันอนุมัติ
+ *   /it/tickets        รอรับงาน (ที่ฉันรับได้) + งานของฉันที่กำลังทำ + รอหัวหน้า IT อนุมัติผล (ถ้ามีสิทธิ์) + รอยืนยันยกเลิก
+ *   /kpi               ใบงานที่ฉันรับแล้วแต่ยังไม่กรอก Complexity ใน KPI
+ */
+ticketRoutes.get("/menu-badges", async (req, res) => {
+  const u = me(req);
+  const count = async (sql: string, params: unknown[] = []) => Number(await scalar(`SELECT COUNT(*) FROM it_tickets t WHERE ${sql}`, params));
+  const ap = approvalsWhere(u);
+  const data: Record<string, number> = {
+    "/tickets": await count("t.status = 'pending_requester' AND t.requester_id = ?", [u.id]),
+    "/tickets/approvals": await count(ap.sql, ap.params),
+  };
+  if (can(u, "it_tickets.queue")) {
+    const all = can(u, "it_tickets.manage_all");
+    const unassigned = can(u, "it_tickets.accept") ? "OR t.assignee_id IS NULL" : "";
+    const mineOrOpen = all ? "1 = 1" : `(t.assignee_id = ? ${unassigned})`;
+    const p = all ? [] : [u.id];
+    data["/it/tickets"] =
+      (await count(`t.status = 'approved' AND ${mineOrOpen}`, p)) +
+      (await count("t.status = 'in_progress' AND t.assignee_id = ?", [u.id])) +
+      (can(u, "it_tickets.close") ? await count("t.status = 'pending_it_head'") : 0) +
+      (await count(`t.status = 'pending_cancel' AND ${mineOrOpen}`, p));
+  }
+  if (can(u, "kpi.use")) {
+    data["/kpi"] = await count(
+      `t.assignee_id = ? AND t.status IN (?) AND NOT EXISTS (SELECT 1 FROM kpi_entries k WHERE k.ticket_id = t.id AND k.complexity > 0)`,
+      [u.id, ACCEPTED_TICKET_STATUSES],
+    );
+  }
+  res.json({ data });
+});
+
 /** GET /tickets?scope=mine|approvals|it&status=&type=&assigned=me&search= */
 ticketRoutes.get("/tickets", async (req, res) => {
   const u = me(req);
@@ -280,8 +317,15 @@ ticketRoutes.get("/tickets/form-options", async (req, res) => {
   );
   const units = (table: "departments" | "divisions") =>
     select<{ name: string }>(`SELECT name FROM ${table} WHERE is_active = true ORDER BY sort_order, name`).then((rows) => rows.map((r) => r.name));
-  const [staff, otherTypes, departments, divisions, approvers] = await Promise.all([
-    itStaff(), getSetting("ticket_other_types"), units("departments"), units("divisions"), approverCandidates(me(req)),
+  const u = me(req);
+  // สินทรัพย์ของฉัน (ผู้ถือครอง หรือชื่อผู้ใช้งานในทะเบียนคอมพิวเตอร์ตรงกับชื่อ) — เลือกเครื่องที่ส่งซ่อม / ติดตั้ง
+  const myAssets = select<{ uuid: string; asset_tag: string; name: string; brand: string | null; model: string | null; category: string }>(
+    `SELECT a.uuid, a.asset_tag, a.name, a.brand, a.model, a.category FROM assets a
+      WHERE a.deleted_at IS NULL AND a.status NOT IN ('disposed', 'lost') AND ${OWN_SQL} ORDER BY a.asset_tag LIMIT 200`,
+    [u.id, u.name],
+  );
+  const [staff, otherTypes, departments, divisions, approvers, assets] = await Promise.all([
+    itStaff(), getSetting("ticket_other_types"), units("departments"), units("divisions"), approverCandidates(u), myAssets,
   ]);
   res.json({
     data: {
@@ -291,6 +335,7 @@ ticketRoutes.get("/tickets/form-options", async (req, res) => {
       approvers: approvers.map((a) => ({ id: a.id, name: a.name, branch_id: Number(a.branch_id), role: a.role })),
       it_staff: staff.map((s) => ({ id: s.id, name: s.name })),
       other_types: Array.isArray(otherTypes) ? otherTypes : Object.values(otherTypes ?? {}),
+      my_assets: assets.map((a) => ({ id: a.uuid, asset_tag: a.asset_tag, name: a.name, brand: a.brand, model: a.model, category: a.category })),
     },
   });
 });
@@ -351,7 +396,8 @@ ticketRoutes.post("/tickets", async (req, res) => {
     for (const key of FILLABLE) if (key in data) values[key] = data[key];
     // เก็บเฉพาะฟิลด์ที่ตรงกับเรื่อง (กันข้อมูลค้างจากการเปลี่ยนเรื่องในฟอร์ม)
     if (type !== "grant_access" && type !== "revoke_access") values.person_name_th = values.person_name_en = null;
-    if (type !== "repair") values.device_name = values.asset_tag = values.symptom = null;
+    if (type !== "repair" && type !== "install") values.device_name = values.asset_tag = null;
+    if (type !== "repair") values.symptom = null;
     if (type !== "other") values.type_other = null;
     if (values.due_date) values.due_date = String(values.due_date).slice(0, 10);
     for (const key of ["branch_id", "assignee_id"]) if (key in values) values[key] = int(values[key]);
@@ -644,7 +690,8 @@ async function updateTicket(req: Request, res: Response) {
   const values: Record<string, unknown> = {};
   for (const key of FILLABLE) values[key] = key in data ? data[key] : null;
   if (type !== "grant_access" && type !== "revoke_access") values.person_name_th = values.person_name_en = null;
-  if (type !== "repair") values.device_name = values.asset_tag = values.symptom = null;
+  if (type !== "repair" && type !== "install") values.device_name = values.asset_tag = null;
+  if (type !== "repair") values.symptom = null;
   if (type !== "other") values.type_other = null;
   if (values.due_date) values.due_date = String(values.due_date).slice(0, 10);
   for (const key of ["branch_id", "assignee_id"]) values[key] = int(values[key]);

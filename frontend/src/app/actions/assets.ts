@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { toActionResult } from "@/lib/action-result";
-import { ApiError, apiFetch } from "@/lib/api";
-import { CATEGORY_FORM, COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, type AssetFormValues, type FieldErrors, type UserOption } from "@/lib/types";
+import { ApiError, apiFetch, reauthChallenge } from "@/lib/api";
+import { CATEGORY_FORM, COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, type AssetFormValues, type FieldErrors, type SoftwareOption, type UserOption } from "@/lib/types";
 
 export interface SaveResult {
   errors?: FieldErrors;
@@ -51,7 +51,28 @@ function toPayload(v: AssetFormValues) {
     branch_id: v.branch_id ? Number(v.branch_id) : null,
     // ข้อมูลเครื่องคอมพิวเตอร์: หมวดอื่นส่งเป็น null (ไม่เก็บค่าค้างจากหมวดเดิม)
     ...Object.fromEntries([...COMPUTER_TEXT_FIELDS, ...COMPUTER_DATE_FIELDS].map((k) => [k, form?.computer ? text(v[k]) : null])),
+    // ซอฟต์แวร์บนเครื่อง → API บันทึกเป็นการติดตั้ง license (ช่องที่ผูกแล้ว API เขียนชื่อ license ลง os / office / antivirus เอง)
+    ...(form?.computer
+      ? {
+          software: {
+            os: v.software.os?.id ?? null,
+            office: v.software.office?.id ?? null,
+            antivirus: v.software.antivirus?.id ?? null,
+            others: v.software.others.map((o) => o.id),
+          },
+        }
+      : {}),
   };
+}
+
+/** ตัวเลือก OS / Office / Anti Virus / Software อื่นๆ = license ทั้งหมด + seat คงเหลือ */
+export async function loadSoftwareOptions(): Promise<SoftwareOption[]> {
+  try {
+    return (await apiFetch<{ data: SoftwareOption[] }>("/assets/software-options")).data;
+  } catch (e) {
+    if (e instanceof ApiError) return [];
+    throw e;
+  }
 }
 
 const toResult = (e: unknown) => toActionResult<keyof FieldErrors>(e, "assets.form.notFound");
@@ -98,11 +119,13 @@ export async function suggestAssetValues(field: "brand" | "model", q: string, br
 }
 
 /** ดู license key (ถอดรหัส) — API ตรวจสิทธิ์ (ผู้จัดการ/IT) และจำกัดจำนวนครั้ง */
-export async function revealLicenseKey(id: string): Promise<{ key?: string | null; message?: string }> {
+/** reauth = ต้องยืนยันรหัสผ่านซ้ำก่อน (API ตอบ 428) */
+export async function revealLicenseKey(id: string): Promise<{ key?: string | null; message?: string; reauth?: import("@/lib/types").ReauthChallenge }> {
   if (!UUID_RE.test(id)) return invalidId();
   try {
     return { key: (await apiFetch<{ data: { license_key: string | null } }>(`/assets/${id}/license-key`, { method: "POST" })).data.license_key };
   } catch (e) {
+    if (e instanceof ApiError && e.status === 428) return { message: e.message, reauth: reauthChallenge(e) };
     return toResult(e);
   }
 }

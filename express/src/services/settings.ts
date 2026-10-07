@@ -18,6 +18,10 @@ export const DEFAULTS = {
   // โลโก้ระบบ (routes/branding.ts) — null = ใช้ icon เดิม
   logo_path: null as string | null,
   logo_version: null as string | null,
+  // การป้องกันตอนเปิดดูรหัสผ่าน / License key (services/secret-guard.ts) — null = ค่าเริ่มต้น
+  secret_guard: null as unknown,
+  // PIN กลางสำหรับเปิดดูข้อมูลลับ { hash, set_at, set_by } — ห้ามส่ง hash ออกนอก API (routes/it-data.ts ตัดออก)
+  secret_pin: null as unknown,
 };
 
 export type Settings = typeof DEFAULTS & Record<string, unknown>;

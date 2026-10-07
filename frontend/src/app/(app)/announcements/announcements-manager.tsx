@@ -9,6 +9,7 @@ import { alert, btn, card, input, inputError, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import { ANNOUNCEMENT_LEVELS, type Announcement } from "@/lib/types";
+import { useConfirm } from "@/components/dialog-provider";
 
 const EMPTY: AnnouncementPayload = { title: "", body: "", level: "info", is_active: true, starts_on: "", ends_on: "", sort_order: "" };
 const LEVEL_TONE = { info: tone.info, warning: tone.warning, danger: tone.danger } as const;
@@ -26,6 +27,7 @@ const STATE_TONE = { live: tone.success, scheduled: tone.info, ended: tone.idle,
 /** จัดการประกาศหน้า login — ฟอร์มเพิ่ม/แก้ไขด้านบน รายการด้านล่าง */
 export function AnnouncementsManager({ items }: { items: Announcement[] }) {
   const { t, fmt } = useI18n();
+  const confirm = useConfirm();
   const [editing, setEditing] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const [v, setV] = useState<AnnouncementPayload>(EMPTY);
@@ -70,8 +72,8 @@ export function AnnouncementsManager({ items }: { items: Announcement[] }) {
     });
   };
 
-  const remove = (a: Announcement) => {
-    if (!confirm(t("announcements.confirmDelete", { title: a.title }))) return;
+  const remove = async (a: Announcement) => {
+    if (!(await confirm(t("announcements.confirmDelete", { title: a.title })))) return;
     setDeleting(a.id);
     start(async () => {
       const res = await deleteAnnouncement(a.id);

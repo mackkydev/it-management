@@ -210,10 +210,11 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
         </Section>
       )}
 
-      {isRepair && (
-        <Section title={t("tickets.form.section12")} icon={<WrenchIcon width={15} height={15} />}>
+      {/* 1.2 เครื่องที่ส่งซ่อม / เครื่องที่ติดตั้ง (งานติดตั้งแสดงเมื่อระบุเครื่อง) */}
+      {(isRepair || (tk.type === "install" && (tk.device_name || tk.asset_tag))) && (
+        <Section title={t(isRepair ? "tickets.form.section12" : "tickets.form.section12Install")} icon={<WrenchIcon width={15} height={15} />}>
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Item label={t("tickets.form.device")}>{tk.device_name}</Item>
+            <Item label={t(isRepair ? "tickets.form.device" : "tickets.form.deviceInstall")}>{tk.device_name}</Item>
             <Item label={t("tickets.form.assetTag")}>
               {tk.asset ? (
                 <Link href={`/assets/${tk.asset.id}`} className="cursor-pointer font-mono text-accent-700 hover:underline dark:text-accent-300">
@@ -223,9 +224,11 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
                 tk.asset_tag && <span className="font-mono">{tk.asset_tag}</span>
               )}
             </Item>
-            <Item label={t("tickets.form.symptom")} wide>
-              {tk.symptom}
-            </Item>
+            {isRepair && (
+              <Item label={t("tickets.form.symptom")} wide>
+                {tk.symptom}
+              </Item>
+            )}
           </dl>
         </Section>
       )}

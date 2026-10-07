@@ -237,6 +237,12 @@ export const WrenchIcon = (p: P) => (
   </Icon>
 );
 
+export const ExternalLinkIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+  </Icon>
+);
+
 export const KeyIcon = (p: P) => (
   <Icon {...p}>
     <circle cx="7.5" cy="15.5" r="5.5" />
@@ -411,5 +417,18 @@ export const GitBranchIcon = (p: P) => (
     <circle cx="6" cy="19" r="2" />
     <circle cx="18" cy="8" r="2" />
     <path d="M6 7v10M18 10a6 6 0 0 1-6 6H6" />
+  </Icon>
+);
+export const InfoIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 16v-5M12 8h.01" />
+  </Icon>
+);
+
+export const SparklesIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" />
+    <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" />
   </Icon>
 );

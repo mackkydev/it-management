@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch, reauthChallenge } from "@/lib/api";
 import type { UiConfig } from "@/lib/permissions";
-import type { AppSettings } from "@/lib/types";
+import type { AppSettings, ReauthChallenge, SecretPinStatus } from "@/lib/types";
 
 export type ItResult = ActionResult<string>;
 
@@ -106,6 +106,8 @@ export interface CredentialPayload {
   notes: string;
   branch_id: string;
   expires_at: string;
+  /** ต้องยืนยันตัวตนก่อนเปิดดูรหัสของบัญชีนี้ */
+  require_reauth?: boolean;
 }
 
 export async function saveCredential(id: number | null, v: CredentialPayload): Promise<ItResult> {
@@ -142,12 +144,16 @@ export async function deleteCredential(id: number): Promise<ItResult> {
 }
 
 /** เปิดดูรหัสผ่าน — API บันทึก log ผู้เปิดดูทุกครั้ง */
-export async function revealCredential(id: number): Promise<{ password: string | null; secret_notes: string | null } | { error: string }> {
+/** reauth = ต้องยืนยันรหัสผ่านซ้ำก่อน (API ตอบ 428 — เปิดใช้ในหน้าตั้งค่าความปลอดภัย) */
+export async function revealCredential(
+  id: number,
+): Promise<{ password: string | null; secret_notes: string | null } | { error: string; reauth?: ReauthChallenge }> {
   if (!validId(id)) return { error: "invalid" };
   try {
     const res = await apiFetch<{ data: { password: string | null; secret_notes: string | null } }>(`/credentials/${id}/reveal`, { method: "POST" });
     return res.data;
   } catch (e) {
+    if (e instanceof ApiError && e.status === 428) return { error: e.message, reauth: reauthChallenge(e) };
     const r = await toActionResult(e);
     return { error: r.message ?? "error" };
   }
@@ -215,4 +221,17 @@ export async function deleteContract(id: number): Promise<ItResult> {
   }
   revalidatePath("/contracts");
   redirect("/contracts?saved=deleted");
+}
+
+/** ตั้ง / เปลี่ยน PIN กลาง (สิทธิ์ secrets.pin_manage) — ยืนยันด้วยรหัสผ่าน login ของผู้ตั้ง */
+export async function setCentralPin(values: { password: string; pin: string; pin_confirmation: string }): Promise<ItResult & { status?: SecretPinStatus }> {
+  const { t } = await getI18n();
+  try {
+    const res = await apiFetch<{ data: SecretPinStatus }>("/secret-pin", { method: "PUT", body: JSON.stringify(values) });
+    revalidatePath("/settings");
+    revalidatePath("/vault");
+    return { ok: true, message: t("secretGuard.pinSaved"), status: res.data };
+  } catch (e) {
+    return toActionResult(e);
+  }
 }

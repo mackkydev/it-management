@@ -2,6 +2,7 @@ import { trans, type Locale } from "./lib/i18n.js";
 import { dateOnly, iso } from "./lib/time.js";
 import type { UserRow } from "./models/user.js";
 import { fileJson, licenseJson, type AssetFileRow, type LicenseRow } from "./services/asset-licenses.js";
+import type { SoftwareSet } from "./services/asset-software.js";
 
 /** JSON ของแต่ละ model — รูปแบบเดียวกับ App\Http\Resources ของ Laravel */
 
@@ -128,6 +129,7 @@ export function assetResource(
     branch?: { id: number; name: string } | null;
     license?: LicenseRow | null;
     files?: AssetFileRow[];
+    software?: SoftwareSet;
   } = {},
 ) {
   return {
@@ -163,6 +165,7 @@ export function assetResource(
     cpu_tag: a.cpu_tag,
     monitor_tag: a.monitor_tag,
     ...("license" in rel ? { license: rel.license ? licenseJson(rel.license) : null } : {}),
+    ...(rel.software ? { software: rel.software } : {}),
     ...("files" in rel ? { files: (rel.files ?? []).map((f) => fileJson(a.uuid, f)) } : {}),
     created_at: iso(a.created_at),
     updated_at: iso(a.updated_at),

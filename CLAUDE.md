@@ -65,12 +65,33 @@
 ## วันที่ / หมวดสินทรัพย์
 - วันที่แสดงและกรอกเป็น **dd/MM/yyyy** (ไทย = พ.ศ., อังกฤษ = ค.ศ.) — แสดงผลใช้ `fmt.date/dateTime`, ช่องกรอกใช้ `<DateInput>` (`components/date-input.tsx` — พิมพ์ได้ + ปฏิทินป๊อปอัปในตัว) **ห้ามใช้ `<input type="date">` หรือสร้าง date picker เอง**; API ยังรับส่ง `YYYY-MM-DD`
 - Dropdown ทุกที่ใช้ `<AppSelect>` (`components/app-select.tsx` — รายการลอย ตัวที่เลือกพื้นจาง + เครื่องหมายถูก, คีย์บอร์ด, ค้นหาเมื่อรายการ > 8) **ห้ามใช้ `<select>` ตรงๆ หรือสร้าง dropdown เอง**; ใส่ `<option>` เป็น children หรือส่ง `options` ได้, `onChange` รับ handler เดิมของ `<select>` ได้, ฟอร์ม GET ใช้ `name` + `defaultValue` (ส่งค่าผ่าน hidden input); กล่องลอยใหม่ใช้ `useFloating`/`useDismiss` จาก `components/floating.ts`
+- กล่องยืนยัน/แจ้งเตือนใช้ `useConfirm()` / `useAlert()` (`components/dialog-provider.tsx` — `if (!(await confirm(msg))) return;`) **ห้ามใช้ `window.confirm` / `alert` / `prompt`**; ช่องรหัสผ่านใช้ `<PasswordInput>` (`components/password-input.tsx` — มีปุ่มกดดูรหัส) **ห้ามใช้ `<input type="password">` ตรงๆ**
 - ใบแจ้งงาน: ฝ่าย IT (และเจ้าหน้าที่ที่ผู้แจ้งเลือก) เห็น/ได้แจ้งเตือนหลังหัวหน้าอนุมัติแล้วเท่านั้น (`PRE_APPROVAL` ใน `express/src/services/ticket-workflow.ts`)
 - การติดตั้ง license (`license_installations`): นับ seat จากรายการที่ `uninstalled_at` เป็น null — บันทึกเกิน `asset_licenses.seats` ไม่ได้ และลด seats ต่ำกว่าที่ใช้อยู่ไม่ได้
 - หมวด `COMPUTER` = ทะเบียนคอมพิวเตอร์ตาม Excel ของฝ่าย IT: `asset_tag` = Host Name, ข้อมูลเครื่องอยู่ในคอลัมน์ของ `assets` (department, user_name, ip_address, os, office ฯลฯ)
   นำเข้า/template ที่ `express/src/services/asset-import.ts` (Host Name เดิม = อัปเดต, สาขาจับคู่จาก `branches.work_group`, ผิดแม้แถวเดียว = ไม่บันทึกเลย)
   department / user_name / os / office เป็นข้อความชั่วคราว — ภายหลังผูกกับผู้ใช้จาก API และการติดตั้ง license
 - หมวดสินทรัพย์กำหนดฟอร์มเพิ่มเติมที่ `CATEGORY_FORM` (`frontend/src/lib/types.ts`) — `SOFTWARE` = ข้อมูล license (`asset_licenses`, key เข้ารหัส APP_KEY) + ไฟล์ (`asset_files`) และรวมในการแจ้งเตือนหมดอายุ
+- ประวัติผู้ใช้งาน (ชื่อ-สกุล/Department ของทะเบียนคอมพิวเตอร์) = `asset_user_logs` ผ่าน `recordUserChange()`; ประวัติการซ่อม = ใบงาน type repair ผูกด้วย asset_id หรือเลขครุภัณฑ์ (`services/asset-repairs.ts`)
+
+## เปิดดูข้อมูลลับ (รหัสผ่านคลังบัญชี / License key)
+- ทุก endpoint ที่ถอดรหัสส่งให้ผู้ใช้ต้องเรียก `assertCanReveal(req)` + `notifyReveal()` (`express/src/services/secret-guard.ts`) และบันทึกประวัติทุกครั้ง
+- สวิตช์ใน `app_settings.secret_guard` (หน้าตั้งค่าระบบ): ยืนยันตัวตนซ้ำ (428 → `POST /auth/reauth`, เก็บ `personal_access_tokens.reauth_at`) ด้วยรหัสผ่าน login หรือ PIN กลาง (`reauth_method`), จำกัด IP, แจ้งหัวหน้า IT
+- PIN กลางอันเดียว: `app_settings.secret_pin` (bcrypt — ห้ามส่ง hash ออก API, `settingsJson` ตัดออก) ตั้งที่ `PUT /secret-pin` (สิทธิ์ `secrets.pin_manage` + รหัสผ่าน login ผู้ตั้ง); ผิด 5 ครั้ง = ล็อกคนนั้น 15 นาที (`users.secret_pin_failures` / `secret_pin_locked_until`)
+- IP ผู้ใช้: frontend ส่ง `X-Forwarded-For` ใน `apiFetch` — เชื่อถือได้เมื่อมี reverse proxy เขียนทับ header หน้า Next.js
+
+## KPI ฝ่าย IT (หน้า /kpi — ตามไฟล์ Template-KPI-IT-2569-Part2-Details)
+- ชีตรายเดือนต่อเจ้าหน้าที่ 1 คน = ใบงานที่รับแล้ว (`ACCEPTED_TICKET_STATUSES`, เดือนตาม**วันที่แจ้ง**เวลาไทย) + แถวกรอกเอง + วันหยุด — `express/src/services/kpi.ts`
+- แถวใบงาน: ข้อมูลอ่านจากใบงานจริงเสมอ, `kpi_entries` (ticket_id) เก็บแค่ service_type + complexity; Mark = ตาราง `MARKS` (สูตร IF ของคอลัมน์ I ในไฟล์)
+- Export `/kpi/export` (`services/kpi-export.ts`): ชีต ServiceType + ชีตละเดือน (`Oct68`), Cordia New 14, สูตร Mark/Total จริง, วันหยุดรวมเซลล์ B:G — เปลี่ยนรูปแบบต้องเทียบกับไฟล์ต้นฉบับ
+
+## ซอฟต์แวร์บนเครื่องคอมพิวเตอร์ (ฟอร์มสินทรัพย์)
+- OS / Office / Anti Virus / Software อื่นๆ เลือกจากสินทรัพย์ Software ที่มี license → `license_installations` ของเครื่อง (`slot` = os/office/antivirus, NULL = อื่นๆ) — `express/src/services/asset-software.ts`
+- ส่ง `software` มา = sync (ใหม่ติดตั้งวันนี้ + ตรวจ seat, เอาออก = uninstalled_at วันนี้); ไม่ส่ง = ไม่แตะ; ช่องที่ผูกแล้ว API เขียนชื่อ license ลง `assets.os/office/antivirus` (ค่าจาก Excel ที่ยังไม่ผูกคงไว้)
+
+## เวอร์ชันโปรแกรม (หน้า /about)
+- แหล่งเดียว: `frontend/src/lib/changelog.ts` — ระหว่างพัฒนาคงไว้ที่ **1.0.0** ห้ามเพิ่ม release/รายการทุกครั้งที่แก้; ออกเวอร์ชันจริงครั้งถัดไป (เมื่อผู้ใช้สั่ง) = เพิ่ม release ไว้บนสุดของ `CHANGELOG` (th/en ทุกบรรทัด) แล้ว `APP_VERSION` เปลี่ยนตาม
+- ป้าย `vX.Y.Z` ข้างชื่อระบบ (คลิกไป /about) + จุดแดง "ใหม่" เฉพาะผู้ใช้ที่เคยใช้เวอร์ชันก่อนหน้า จนกว่าจะเปิด /about (จำใน localStorage; เปิดครั้งแรกจำเวอร์ชันปัจจุบันเงียบๆ ไม่แจ้ง)
 
 ## API (Express)
 - endpoint อยู่ใต้ `/api/v1` (`express/src/routes`), ข้อความ th/en ที่ `express/src/lib/i18n.ts` ตาม `Accept-Language`

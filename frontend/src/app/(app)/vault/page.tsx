@@ -3,7 +3,7 @@ import Form from "next/form";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { CheckCircleIcon, KeyIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
+import { CheckCircleIcon, KeyIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon, ExternalLinkIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
@@ -11,8 +11,10 @@ import { TableSkeleton } from "@/components/skeletons";
 import { alert, btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
+import { CentralPinForm } from "@/components/central-pin-form";
+import { panelHref } from "@/lib/url";
 import { has, getAccess, getCurrentUser } from "@/lib/auth";
-import { CREDENTIAL_CATEGORIES, type Credential, type Paginated } from "@/lib/types";
+import { CREDENTIAL_CATEGORIES, isBuiltinCategory, type Credential, type CredentialCategories, type Paginated, type SecretPinStatus } from "@/lib/types";
 import { RevealPassword } from "./reveal-password";
 import { AppSelect } from "@/components/app-select";
 
@@ -27,14 +29,21 @@ const SAVED = ["created", "updated", "deleted"] as const;
 export default async function VaultPage({ searchParams }: PageProps<"/vault">) {
   const user = await getCurrentUser();
   if (!has(user, "vault.use")) redirect("/tickets");
+  // PIN กลางสำหรับเปิดดูรหัสผ่าน — แสดงเฉพาะผู้มีสิทธิ์ตั้ง (admin / เจ้าหน้าที่ที่ได้รับสิทธิ์)
+  const canManagePin = has(user, "secrets.pin_manage");
+  const pinStatus = canManagePin ? await apiFetch<{ data: SecretPinStatus }>("/secret-pin").then((r) => r.data, () => null) : null;
   const params = await searchParams;
-  const [{ t }, can] = await Promise.all([getI18n(), getAccess()]);
+  const [{ t }, can, customCategories] = await Promise.all([
+    getI18n(),
+    getAccess(),
+    apiFetch<{ data: CredentialCategories }>("/credentials/categories").then((r) => r.data.custom, () => [] as string[]),
+  ]);
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string).slice(0, 100) : "");
   const saved = SAVED.find((s) => s === params.saved);
 
   const q = new URLSearchParams();
   if (str("search")) q.set("search", str("search"));
-  if ((CREDENTIAL_CATEGORIES as readonly string[]).includes(str("category"))) q.set("category", str("category"));
+  if (str("category") && str("category").length <= 30) q.set("category", str("category"));
   if (/^\d+$/.test(str("page"))) q.set("page", str("page"));
 
   return (
@@ -52,6 +61,12 @@ export default async function VaultPage({ searchParams }: PageProps<"/vault">) {
           )
         }
       />
+      {pinStatus && (
+        <section className={`p-4 ${card}`}>
+          <h2 className="mb-2 text-sm font-semibold">{t("secretGuard.pinTitle")}</h2>
+          <CentralPinForm initial={pinStatus} canManage={canManagePin} />
+        </section>
+      )}
       {saved && (
         <div role="status" className={alert.success}>
           <CheckCircleIcon className="shrink-0 text-success-500" />
@@ -68,6 +83,11 @@ export default async function VaultPage({ searchParams }: PageProps<"/vault">) {
           {CREDENTIAL_CATEGORIES.map((c) => (
             <option key={c} value={c}>
               {t(`vault.categories.${c}`)}
+            </option>
+          ))}
+          {customCategories.map((c) => (
+            <option key={c} value={c}>
+              {c}
             </option>
           ))}
         </AppSelect>
@@ -129,8 +149,23 @@ async function VaultResults({ query }: { query: URLSearchParams }) {
                 <td className={table.td}>
                   <div className="font-medium">{c.title}</div>
                   <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                    <span className="rounded-full bg-subtle px-2 py-0.5 ring-1 ring-inset ring-line">{t(`vault.categories.${c.category}`)}</span>
-                    {c.url && <span className="max-w-56 truncate font-mono">{c.url}</span>}
+                    <span className="rounded-full bg-subtle px-2 py-0.5 ring-1 ring-inset ring-line">{isBuiltinCategory(c.category) ? t(`vault.categories.${c.category}`) : c.category}</span>
+                    {/* URL / IP ที่เปิดในเบราว์เซอร์ได้ (http/https) → ลิงก์เข้าหน้าจัดการอุปกรณ์ เช่น เครื่องพิมพ์ / router */}
+                    {c.url &&
+                      (panelHref(c.url) ? (
+                        <a
+                          href={panelHref(c.url)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={t("vault.openPanel")}
+                          className="inline-flex max-w-56 cursor-pointer items-center gap-1 font-mono text-accent-700 hover:underline dark:text-accent-300"
+                        >
+                          <span className="truncate">{c.url}</span>
+                          <ExternalLinkIcon width={12} height={12} className="shrink-0" />
+                        </a>
+                      ) : (
+                        <span className="max-w-56 truncate font-mono">{c.url}</span>
+                      ))}
                     {c.branch && <span>· {c.branch.name}</span>}
                   </div>
                 </td>
@@ -141,7 +176,13 @@ async function VaultResults({ query }: { query: URLSearchParams }) {
                   {c.updated_at ? fmt.dateTime(c.updated_at) : "-"}
                   {c.updated_by && <div>{c.updated_by}</div>}
                 </td>
-                <td className={`${table.td} text-right`}>
+                <td className={`${table.td} whitespace-nowrap text-right`}>
+                  {panelHref(c.url) && (
+                    <a href={panelHref(c.url)!} target="_blank" rel="noopener noreferrer" className={`${btn.secondary} ${btn.sm} mr-1.5`}>
+                      <ExternalLinkIcon width={13} height={13} />
+                      {t("vault.openPanel")}
+                    </a>
+                  )}
                   <Link href={`/vault/${c.id}/edit`} className={`${btn.soft} ${btn.sm}`}>
                     <LinkPendingIcon icon={<PencilIcon width={13} height={13} />} size={13} />
                     {t("common.edit")}

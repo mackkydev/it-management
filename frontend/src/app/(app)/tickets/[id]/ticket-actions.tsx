@@ -25,6 +25,7 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { TicketAction, TicketDetail } from "@/lib/types";
+import { useConfirm } from "@/components/dialog-provider";
 
 const ICONS: Record<TicketAction, ReactNode> = {
   approve: <CheckCircleIcon />,
@@ -50,6 +51,7 @@ const DANGER: TicketAction[] = ["reject", "return", "delete", "cancel_request", 
 /** ปุ่มการทำงานตามสิทธิ์และสถานะ (มาจาก API: ticket.actions) */
 export function TicketActions({ ticket }: { ticket: TicketDetail }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const [active, setActive] = useState<TicketAction | null>(ticket.actions.includes("result") ? null : null);
 
   const [pending, start] = useTransition();
@@ -57,8 +59,8 @@ export function TicketActions({ ticket }: { ticket: TicketDetail }) {
   const style = (a: TicketAction) => (DANGER.includes(a) ? btn.danger : a === "result" || a === "progress" || a === "edit" ? btn.soft : btn.primary);
 
   /** แก้ไข = ไปหน้าแก้ไข, ลบ / ถอนคำขอยกเลิก = ยืนยันแล้วทำทันที */
-  const instant = (a: TicketAction) => {
-    if (a === "delete" && !confirm(t("tickets.actions.confirmDelete", { no: ticket.ticket_no }))) return;
+  const instant = async (a: TicketAction) => {
+    if (a === "delete" && !(await confirm(t("tickets.actions.confirmDelete", { no: ticket.ticket_no })))) return;
     start(async () => {
       const res = a === "delete" ? await deleteTicket(ticket.id) : await ticketAction(ticket.id, "cancel_withdraw");
       if (res) setError(res.message ?? "");

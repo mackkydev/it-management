@@ -3,7 +3,7 @@ import { Router, type Request } from "express";
 import { exec, first, insert, isUuid, likeEscape, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
-import { localToday, nowDb, parseDate } from "../lib/time.js";
+import { iso, localToday, nowDb, parseDate } from "../lib/time.js";
 import { exists, int, regex, unique, validate, type ErrorBag, type Rules } from "../lib/validator.js";
 import { limits } from "../lib/rate-limit.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
@@ -17,9 +17,12 @@ import {
   assetResource, MOVEMENT_JOINS, MOVEMENT_SELECT, movementResource,
   type AssetRow, type LocationRow, type MovementJoinedRow,
 } from "../resources.js";
-import { recordIfMoved, recordRegistration } from "../services/asset-movements.js";
+import { recordIfMoved, recordRegistration, recordUserChange } from "../services/asset-movements.js";
+import { REPAIR_BASE_WHERE, REPAIR_FROM, repairList } from "../services/asset-repairs.js";
 import { COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, buildTemplate, importRows, parseWorkbook } from "../services/asset-import.js";
 import { audit } from "../services/audit.js";
+import { assertCanReveal, notifyReveal } from "../services/secret-guard.js";
+import { loadSoftware, softwareErrors, softwareOptions, syncSoftware, SOFTWARE_SLOTS } from "../services/asset-software.js";
 
 /** AssetController + AssetMovementController + MovementController */
 export const assetRoutes = Router();
@@ -45,7 +48,7 @@ async function findAsset(uuid: string): Promise<AssetRow> {
 const seesAllAssets = (u: UserRow) => can(u, "assets.view_all") || can(u, "assets.manage");
 
 /** สินทรัพย์ "ของฉัน": เป็นผู้ถือครอง หรือชื่อผู้ใช้งาน (ทะเบียนคอมพิวเตอร์ — ข้อความจาก Excel) ตรงกับชื่อตัวเอง */
-const OWN_SQL = "(a.custodian_id = ? OR (a.user_name IS NOT NULL AND LOWER(TRIM(a.user_name)) = LOWER(TRIM(?))))";
+export const OWN_SQL = "(a.custodian_id = ? OR (a.user_name IS NOT NULL AND LOWER(TRIM(a.user_name)) = LOWER(TRIM(?))))";
 const isOwn = (u: UserRow, a: AssetRow) =>
   Number(a.custodian_id) === u.id || (a.user_name !== null && a.user_name.trim().toLowerCase() === u.name.trim().toLowerCase());
 
@@ -64,7 +67,7 @@ async function withRelations(a: AssetRow) {
     : null;
   const custodian = a.custodian_id ? await first<{ id: number; name: string }>("SELECT id, name FROM users WHERE id = ?", [a.custodian_id]) : null;
   const branch = a.branch_id ? await first<{ id: number; name: string }>("SELECT id, name FROM branches WHERE id = ?", [a.branch_id]) : null;
-  return { location, custodian, branch, license: await loadLicense(a.id), files: await loadFiles(a.id) };
+  return { location, custodian, branch, license: await loadLicense(a.id), files: await loadFiles(a.id), software: await loadSoftware(a.id) };
 }
 
 /**
@@ -90,6 +93,24 @@ function licenseRules(input: Record<string, unknown>, current?: AssetRow): Rules
 }
 
 /** วันหมดอายุต้องไม่ก่อนวันเริ่ม (Laravel ทำใน after() เหมือนกัน — after_or_equal อ้างฟิลด์ซ้อนไม่ได้ตรงกันทั้งสองฝั่ง) */
+/** license + ซอฟต์แวร์ที่ติดตั้ง (input.software — ต้องเป็น license จริง) */
+const assetAfter = (req: Request, currentId?: number) => async (ctx: { data: Record<string, unknown>; errors: ErrorBag }) => {
+  await licenseAfter(req, currentId)(ctx);
+  if ("software" in req.input) for (const [k, m] of Object.entries(await softwareErrors(req.input.software, req.locale))) ctx.errors.add(k, m);
+};
+
+/**
+ * ซอฟต์แวร์ที่เลือกในฟอร์ม → การติดตั้ง license ของเครื่องนี้ + ชื่อในคอลัมน์ os / office / antivirus
+ * ช่องที่ไม่ได้ผูก license คงข้อความที่ส่งมา (เช่น ค่าเดิมจาก Excel)
+ */
+async function applySoftware(req: Request, assetId: number, userId: number) {
+  if (!("software" in req.input)) return;
+  const a = (await first<AssetRow>("SELECT * FROM assets WHERE id = ?", [assetId]))!;
+  const names = await syncSoftware({ id: a.id, custodian_id: a.custodian_id, branch_id: a.branch_id }, req.input.software, userId, req.locale);
+  const linked = Object.fromEntries(SOFTWARE_SLOTS.filter((s) => names[s]).map((s) => [s, names[s]!.slice(0, 100)]));
+  if (Object.keys(linked).length) await update("assets", linked, "id = ?", [assetId]);
+}
+
 const licenseAfter = (req: Request, currentId?: number) => async ({ data, errors }: { data: Record<string, unknown>; errors: ErrorBag }) => {
   const l = data.license as Record<string, unknown> | undefined;
   if (!l || typeof l !== "object") return;
@@ -192,12 +213,13 @@ assetRoutes.get("/assets", async (req, res) => {
     AssetRow & {
       l_id: number | null; l_code: string; l_name: string; l_type: string; l_parent_id: number | null; c_id: number | null; c_name: string;
       li_id: number | null; li_billing: string; li_start_date: string; li_expires_at: string | null; li_seats: number | null;
-      li_vendor: string | null; li_notify: number | null; li_has_key: boolean; b_name: string | null;
+      li_vendor: string | null; li_notify: number | null; li_has_key: boolean; li_used: number | null; b_name: string | null;
     }
   >(
     `SELECT a.*, l.id AS l_id, l.code AS l_code, l.name AS l_name, l.type AS l_type, l.parent_id AS l_parent_id, c.id AS c_id, c.name AS c_name,
             li.id AS li_id, li.billing AS li_billing, li.start_date AS li_start_date, li.expires_at AS li_expires_at, li.seats AS li_seats,
-            li.vendor AS li_vendor, li.notify_days_before AS li_notify, (li.license_key IS NOT NULL) AS li_has_key, br.name AS b_name
+            li.vendor AS li_vendor, li.notify_days_before AS li_notify, (li.license_key IS NOT NULL) AS li_has_key, br.name AS b_name,
+            (SELECT COUNT(*) FROM license_installations i WHERE li.id IS NOT NULL AND i.license_asset_id = a.id AND i.uninstalled_at IS NULL) AS li_used
        FROM assets a
        LEFT JOIN locations l ON l.id = a.location_id AND l.deleted_at IS NULL
        LEFT JOIN users c ON c.id = a.custodian_id
@@ -209,8 +231,8 @@ assetRoutes.get("/assets", async (req, res) => {
     [...params, perPage, (page - 1) * perPage],
   );
 
-  const data = rows.map((r) =>
-    assetResource(r, req.locale, {
+  const data = rows.map((r) => ({
+    ...assetResource(r, req.locale, {
       // index โหลด location เฉพาะ id,code,name,type,parent_id
       location: r.l_id ? { id: r.l_id, code: r.l_code, name: r.l_name, type: r.l_type, parent_id: r.l_parent_id } : null,
       custodian: r.c_id ? { id: r.c_id, name: r.c_name } : null,
@@ -222,7 +244,9 @@ assetRoutes.get("/assets", async (req, res) => {
           } satisfies LicenseRow)
         : null,
     }),
-  );
+    // license: จำนวนที่ติดตั้งใช้อยู่ / คงเหลือ (seats null = ไม่จำกัด)
+    ...(r.li_id ? { license_usage: { seats: r.li_seats, used: Number(r.li_used ?? 0), available: r.li_seats === null ? null : Math.max(0, r.li_seats - Number(r.li_used ?? 0)) } } : {}),
+  }));
   res.json(paginated(req, data, total, page, perPage));
 });
 
@@ -253,6 +277,12 @@ assetRoutes.get("/assets/suggestions", async (req, res) => {
   for (const r of rows) if (!unique.has(r.value.toLowerCase())) unique.set(r.value.toLowerCase(), r.value);
   const values = [...unique.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, v]) => v);
   res.json({ data: values.slice(0, 10) });
+});
+
+/** GET /assets/software-options — license ทั้งหมด + seat ใช้ไป/คงเหลือ (ตัวเลือก OS / Office / Anti Virus / Software อื่นๆ) */
+assetRoutes.get("/assets/software-options", async (req, res) => {
+  authorize(can(me(req), "assets.manage"));
+  res.json({ data: await softwareOptions() });
 });
 
 /* ---------------------------------------------------------------- import ทะเบียนคอมพิวเตอร์ (Excel) */
@@ -291,7 +321,7 @@ assetRoutes.post("/assets/import", async (req, res) => {
 });
 
 assetRoutes.post("/assets", async (req, res) => {
-  const data = await validate(req.input, { ...assetRules(), ...licenseRules(req.input) }, { locale: req.locale, messages: assetMessages(req), after: licenseAfter(req) });
+  const data = await validate(req.input, { ...assetRules(), ...licenseRules(req.input) }, { locale: req.locale, messages: assetMessages(req), after: assetAfter(req) });
   const u = me(req);
   authorize(can(u, "assets.manage"));
 
@@ -309,7 +339,9 @@ assetRoutes.post("/assets", async (req, res) => {
       updated_at: now,
     });
     await recordRegistration(assetId, (values.location_id as number) ?? null, (values.custodian_id as number) ?? null, u.id);
+    await recordUserChange(assetId, { user_name: null, department: null }, { user_name: (values.user_name as string) ?? null, department: (values.department as string) ?? null }, u.id, "create");
     if (values.category === LICENSE_CATEGORY) await saveLicense(assetId, data.license as Record<string, unknown>);
+    await applySoftware(req, assetId, u.id);
     return assetId;
   });
 
@@ -328,7 +360,7 @@ async function updateAsset(req: Request, res: import("express").Response) {
   const data = await validate(req.input, { ...assetRules(current.id), ...licenseRules(req.input, current) }, {
     locale: req.locale,
     messages: assetMessages(req),
-    after: licenseAfter(req, current.id),
+    after: assetAfter(req, current.id),
   });
   const u = me(req);
   authorize(can(u, "assets.manage"));
@@ -345,6 +377,16 @@ async function updateAsset(req: Request, res: import("express").Response) {
       custodian: "custodian_id" in changes ? (changes.custodian_id as number | null) : locked.custodian_id,
     };
     await recordIfMoved(current.id, { location: locked.location_id, custodian: locked.custodian_id }, to, u.id, (data.movement_reason as string) ?? null);
+    await recordUserChange(
+      current.id,
+      { user_name: locked.user_name, department: locked.department },
+      {
+        user_name: "user_name" in changes ? (changes.user_name as string | null) : locked.user_name,
+        department: "department" in changes ? (changes.department as string | null) : locked.department,
+      },
+      u.id,
+      "edit",
+    );
 
     // license ตามหมวดใหม่: SOFTWARE → บันทึก (ถ้าส่งมา), หมวดอื่น → ลบ (ไฟล์แนบยังเก็บไว้)
     const category = "category" in changes ? changes.category : locked.category;
@@ -353,6 +395,7 @@ async function updateAsset(req: Request, res: import("express").Response) {
     } else {
       await deleteLicense(current.id);
     }
+    await applySoftware(req, current.id, u.id);
   });
 
   const asset = (await first<AssetRow>("SELECT * FROM assets WHERE id = ?", [current.id]))!;
@@ -372,12 +415,16 @@ assetRoutes.delete("/assets/:uuid", async (req, res) => {
 
 /* ---------------------------------------------------------------- license key + ไฟล์ */
 
-/** ดู license key (ถอดรหัส) — ผู้จัดการสินทรัพย์ หรือฝ่าย IT */
+/** ดู license key (ถอดรหัส) — ผู้จัดการสินทรัพย์ หรือฝ่าย IT; ตรวจ IP / ยืนยันรหัสผ่านซ้ำ (ถ้าเปิดใช้) + บันทึก audit ทุกครั้ง + แจ้งหัวหน้า IT (ถ้าเปิดใช้) */
 assetRoutes.post("/assets/:uuid/license-key", limits.reveal, async (req, res) => {
   const asset = await findAsset(String(req.params.uuid));
   const u = me(req);
   authorize(can(u, "assets.license_key"));
-  res.json({ data: { license_key: await revealKey(asset.id) } });
+  await assertCanReveal(req);
+  const key = await revealKey(asset.id);
+  await audit(req, { action: "asset.license_key_revealed", subjectType: "asset", subjectId: asset.id, after: { asset_tag: asset.asset_tag, name: asset.name } });
+  await notifyReveal(req, "license", { id: asset.uuid, title: `${asset.asset_tag} — ${asset.name}` });
+  res.json({ data: { license_key: key } });
 });
 
 const FILE_RULE = ["file", "mimes:pdf,txt,xml,zip,jpg,jpeg,png,webp,doc,docx,xls,xlsx", "max:10240"]; // ≤ 10MB
@@ -427,6 +474,91 @@ async function findFile(assetId: number, id: string): Promise<AssetFileRow> {
   if (!row) throw notFound();
   return row;
 }
+
+/* ---------------------------------------------------------------- ประวัติผู้ใช้งาน / ประวัติการซ่อม */
+
+/** GET /assets/{uuid}/user-logs — การเปลี่ยน "ชื่อ-สกุลผู้ใช้งาน" / Department ล่าสุดก่อน (สูงสุด 100) */
+assetRoutes.get("/assets/:uuid/user-logs", async (req, res) => {
+  const asset = await findVisibleAsset(req, req.params.uuid);
+  const rows = await select<{
+    id: number; from_user_name: string | null; to_user_name: string | null; from_department: string | null; to_department: string | null;
+    source: string; changed_at: string; by_id: number | null; by_name: string | null;
+  }>(
+    `SELECT l.id, l.from_user_name, l.to_user_name, l.from_department, l.to_department, l.source, l.changed_at, u.id AS by_id, u.name AS by_name
+       FROM asset_user_logs l LEFT JOIN users u ON u.id = l.performed_by
+      WHERE l.asset_id = ? ORDER BY l.changed_at DESC, l.id DESC LIMIT 100`,
+    [asset.id],
+  );
+  res.json({
+    data: rows.map((r) => ({
+      id: r.id,
+      from_user_name: r.from_user_name,
+      to_user_name: r.to_user_name,
+      from_department: r.from_department,
+      to_department: r.to_department,
+      source: r.source,
+      changed_at: iso(r.changed_at),
+      performed_by: r.by_id ? { id: r.by_id, name: r.by_name } : null,
+    })),
+  });
+});
+
+/** GET /assets/{uuid}/repairs — ประวัติการซ่อมของสินทรัพย์นี้ ล่าสุดก่อน (สูงสุด 100) — ดู services/asset-repairs.ts */
+assetRoutes.get("/assets/:uuid/repairs", async (req, res) => {
+  const asset = await findVisibleAsset(req, req.params.uuid);
+  res.json({ data: await repairList("(t.asset_id = ? OR (t.asset_id IS NULL AND t.asset_tag = ?))", [asset.id, asset.asset_tag], 100) });
+});
+
+/**
+ * GET /repairs?search=&status=open|completed&result=&repair_method=&branch_id=&category=&from=&to=&per_page=
+ * หน้ารวมประวัติการซ่อมทุกเครื่อง — เฉพาะผู้ที่เห็นสินทรัพย์ทั้งหมด (เหมือน /movements)
+ * search = เลขที่ใบงาน / เลขครุภัณฑ์ / ชื่อสินทรัพย์ / ชื่ออุปกรณ์ / อาการ
+ */
+assetRoutes.get("/repairs", async (req, res) => {
+  authorize(seesAllAssets(me(req)));
+  const f = await validate(
+    req.input,
+    {
+      search: ["nullable", "string", "max:100"],
+      status: ["nullable", "in:open,completed"],
+      result: ["nullable", "in:completed,cannot_complete"],
+      repair_method: ["nullable", "in:in_house,external"],
+      branch_id: ["nullable", "integer"],
+      category: ["nullable", "string", "max:30"],
+      from: ["nullable", "date"],
+      to: ["nullable", "date", "after_or_equal:from"],
+      per_page: ["nullable", "integer", "min:1", "max:100"],
+    },
+    { locale: req.locale },
+  );
+  const perPage = int(f.per_page) ?? 25;
+  const page = pageParam(req);
+  const where: string[] = ["1 = 1"];
+  const params: unknown[] = [];
+  const search = String(f.search ?? "").trim();
+  if (search) {
+    const like = `%${likeEscape(search)}%`;
+    where.push("(t.ticket_no LIKE ? OR t.asset_tag LIKE ? OR a.name LIKE ? OR t.device_name LIKE ? OR t.symptom LIKE ?)");
+    params.push(like, `${likeEscape(search)}%`, like, like, like);
+  }
+  if (f.status === "completed") where.push("t.status = 'completed'");
+  else if (f.status === "open") where.push("t.status <> 'completed'");
+  if (f.result) (where.push("t.result = ?"), params.push(f.result));
+  if (f.repair_method) (where.push("t.repair_method = ?"), params.push(f.repair_method));
+  if (f.branch_id) (where.push("b.id = ?"), params.push(int(f.branch_id)));
+  if (f.category) (where.push("a.category = ?"), params.push(String(f.category)));
+  if (f.from) (where.push("t.requested_at >= ?"), params.push(String(f.from).slice(0, 10)));
+  if (f.to) {
+    const end = parseDate(String(f.to).slice(0, 10))!;
+    end.setUTCDate(end.getUTCDate() + 1);
+    where.push("t.requested_at < ?");
+    params.push(end.toISOString().slice(0, 10));
+  }
+  const whereSql = where.join(" AND ");
+  const total = Number(await scalar(`SELECT COUNT(*) FROM ${REPAIR_FROM} WHERE ${REPAIR_BASE_WHERE} AND ${whereSql}`, params));
+  const data = await repairList(whereSql, params, perPage, (page - 1) * perPage);
+  res.json(paginated(req, data, total, page, perPage));
+});
 
 /* ---------------------------------------------------------------- movements ของสินทรัพย์ */
 
@@ -491,7 +623,11 @@ assetRoutes.post("/assets/:uuid/movements", async (req, res) => {
 
 /* ---------------------------------------------------------------- รายงานการโอนย้ายรวม */
 
-/** GET /movements?search=เลขครุภัณฑ์&location_id=&type=&from=&to=&per_page= */
+/**
+ * GET /movements?search=&type=&location_id=&branch_id=&category=&from=&to=&per_page=
+ * search = เลขครุภัณฑ์ (ขึ้นต้น) / ชื่อสินทรัพย์ / ชื่อผู้ถือครองเดิมหรือใหม่
+ * type = registered / transfer (ทั้งหมด) / location (เปลี่ยนสถานที่) / custodian (เปลี่ยนผู้ถือครอง)
+ */
 assetRoutes.get("/movements", async (req, res) => {
   // รายงานรวมของทุกสินทรัพย์ — เฉพาะผู้ที่เห็นสินทรัพย์ทั้งหมด
   authorize(seesAllAssets(me(req)));
@@ -500,7 +636,9 @@ assetRoutes.get("/movements", async (req, res) => {
     {
       search: ["nullable", "string", "max:100"],
       location_id: ["nullable", "integer"],
-      type: ["nullable", "in:registered,transfer"],
+      type: ["nullable", "in:registered,transfer,location,custodian"],
+      branch_id: ["nullable", "integer"],
+      category: ["nullable", "string", "max:30"],
       from: ["nullable", "date"],
       to: ["nullable", "date", "after_or_equal:from"],
       per_page: ["nullable", "integer", "min:1", "max:100"],
@@ -513,9 +651,20 @@ assetRoutes.get("/movements", async (req, res) => {
   const where: string[] = ["1 = 1"];
   const params: unknown[] = [];
   const search = String(f.search ?? "").trim();
-  if (search) (where.push("a.asset_tag LIKE ?"), params.push(`${likeEscape(search)}%`));
+  if (search) {
+    const like = `%${likeEscape(search)}%`;
+    where.push(
+      `(a.asset_tag LIKE ? OR a.name LIKE ?
+        OR EXISTS (SELECT 1 FROM users cu WHERE cu.id IN (m.from_custodian_id, m.to_custodian_id) AND cu.name LIKE ?))`,
+    );
+    params.push(`${likeEscape(search)}%`, like, like);
+  }
+  if (f.branch_id) (where.push("a.branch_id = ?"), params.push(int(f.branch_id)));
+  if (f.category) (where.push("a.category = ?"), params.push(String(f.category)));
   if (f.location_id) (where.push("(m.to_location_id = ? OR m.from_location_id = ?)"), params.push(int(f.location_id), int(f.location_id)));
-  if (f.type) (where.push("m.type = ?"), params.push(f.type));
+  if (f.type === "location") where.push("m.type = 'transfer' AND NOT (m.from_location_id <=> m.to_location_id)");
+  else if (f.type === "custodian") where.push("m.type = 'transfer' AND NOT (m.from_custodian_id <=> m.to_custodian_id)");
+  else if (f.type) (where.push("m.type = ?"), params.push(f.type));
   if (f.from) (where.push("m.moved_at >= ?"), params.push(String(f.from).slice(0, 10)));
   if (f.to) {
     const end = parseDate(String(f.to).slice(0, 10))!;
@@ -525,7 +674,7 @@ assetRoutes.get("/movements", async (req, res) => {
   }
   const whereSql = where.join(" AND ");
   // whereHas('asset') ของ Laravel ใช้ SoftDeletes scope → ค้นเฉพาะสินทรัพย์ที่ยังไม่ถูกลบ
-  const searchJoin = search ? "JOIN assets a ON a.id = m.asset_id AND a.deleted_at IS NULL" : "LEFT JOIN assets a ON a.id = m.asset_id";
+  const searchJoin = search || f.branch_id || f.category ? "JOIN assets a ON a.id = m.asset_id AND a.deleted_at IS NULL" : "LEFT JOIN assets a ON a.id = m.asset_id";
 
   const total = Number(await scalar(`SELECT COUNT(*) FROM asset_movements m ${searchJoin} WHERE ${whereSql}`, params));
   const rows = await select<MovementJoinedRow>(

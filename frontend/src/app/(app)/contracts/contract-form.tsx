@@ -9,9 +9,11 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { Branch, Contract } from "@/lib/types";
 import { AppSelect } from "@/components/app-select";
+import { useConfirm } from "@/components/dialog-provider";
 
 export function ContractForm({ contract, branches, defaultNotifyDays }: { contract?: Contract; branches: Branch[]; defaultNotifyDays: number }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const isEdit = Boolean(contract);
   const [v, setV] = useState<ContractPayload>({
     title: contract?.title ?? "",
@@ -61,8 +63,8 @@ export function ContractForm({ contract, branches, defaultNotifyDays }: { contra
     });
   };
 
-  const remove = () => {
-    if (!contract || !confirm(t("contracts.form.confirmDelete", { title: contract.title }))) return;
+  const remove = async () => {
+    if (!contract || !(await confirm(t("contracts.form.confirmDelete", { title: contract.title })))) return;
     setAction("delete");
     start(async () => {
       const res = await deleteContract(contract.id);

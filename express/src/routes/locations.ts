@@ -91,7 +91,17 @@ locationRoutes.get("/locations/:id", async (req, res) => {
   res.json({ data: locationResource(await findWithCounts(routeId(req))) });
 });
 
+/** รหัสสถานที่ถัดไปแบบอัตโนมัติ LOC-0001, LOC-0002, … (นับรวมที่ถูกลบ เพราะรหัสห้ามซ้ำ) */
+async function nextLocationCode() {
+  const rows = await select<{ code: string }>("SELECT code FROM locations WHERE code LIKE 'LOC-%'");
+  const max = rows.reduce((m, r) => Math.max(m, /^LOC-(\d+)$/.test(r.code) ? Number(r.code.slice(4)) : 0), 0);
+  return `LOC-${String(max + 1).padStart(4, "0")}`;
+}
+
 locationRoutes.post("/locations", async (req, res) => {
+  // เพิ่มด่วนจากฟอร์มสินทรัพย์ (พิมพ์แค่ชื่อ): ไม่ส่งรหัส → สร้างให้, ไม่ส่งประเภท → ห้อง (room) — แก้ภายหลังได้ที่หน้าสถานที่
+  if (req.input.code == null) req.input.code = await nextLocationCode();
+  if (req.input.type == null) req.input.type = "room";
   const data = await validated(req, null);
   authorize(can(me(req), "assets.manage"));
   const now = nowDb();

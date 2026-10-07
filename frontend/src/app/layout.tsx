@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Thai } from "next/font/google";
+import { DialogProvider } from "@/components/dialog-provider";
 import { PrefsProvider } from "@/components/prefs-provider";
 import { PwaRegister } from "@/components/pwa-register";
 import { I18nProvider } from "@/i18n/client";
@@ -58,7 +59,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full bg-canvas text-ink">
         <I18nProvider locale={prefs.locale} dict={dict}>
-          <PrefsProvider initial={prefs}>{children}</PrefsProvider>
+          <PrefsProvider initial={prefs}>
+            <DialogProvider>{children}</DialogProvider>
+          </PrefsProvider>
           <PwaRegister />
         </I18nProvider>
       </body>

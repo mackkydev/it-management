@@ -8,7 +8,7 @@ datasource db {
 
 model app_settings {
   key        String    @id @db.VarChar(100)
-  value      Json?    
+  value      Json?
   updated_by BigInt?
   created_at DateTime? @db.DateTime(0)
   updated_at DateTime? @db.DateTime(0)
@@ -83,7 +83,7 @@ model it_ticket_approval_steps {
   it_ticket_id BigInt
   step_no      Int        @db.SmallInt
   name         String     @db.VarChar(100)
-  approver_ids Json      
+  approver_ids Json
   status       String     @default("pending") @db.VarChar(20)
   acted_by     BigInt?
   acted_at     DateTime?  @db.DateTime(0)
@@ -129,6 +129,8 @@ model license_installations {
   installed_at                                          DateTime  @db.Date
   uninstalled_at                                        DateTime? @db.Date
   notes                                                 String?   @db.Text
+  /// ช่องในฟอร์มเครื่องคอมพิวเตอร์: os / office / antivirus — NULL = Software อื่นๆ
+  slot                                                  String?   @db.VarChar(20)
   created_by                                            BigInt?
   created_at                                            DateTime? @db.DateTime(0)
   updated_at                                            DateTime? @db.DateTime(0)
@@ -190,6 +192,25 @@ model asset_movements {
   @@index([to_location_id, moved_at], map: "asset_movements_to_location_id_moved_at_index")
 }
 
+/// ประวัติผู้ใช้งาน (ชื่อ-สกุลผู้ใช้งาน / Department ของทะเบียนคอมพิวเตอร์) — source: create / edit / import
+model asset_user_logs {
+  id              BigInt   @id @default(autoincrement())
+  asset_id        BigInt
+  from_user_name  String?  @db.VarChar(255)
+  to_user_name    String?  @db.VarChar(255)
+  from_department String?  @db.VarChar(100)
+  to_department   String?  @db.VarChar(100)
+  source          String   @db.VarChar(20)
+  changed_at      DateTime @db.DateTime(0)
+  performed_by    BigInt?
+  created_at      DateTime @default(now()) @db.DateTime(0)
+  assets          assets   @relation(fields: [asset_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "asset_user_logs_asset_id_foreign")
+  users           users?   @relation(fields: [performed_by], references: [id], onUpdate: Restrict, map: "asset_user_logs_performed_by_foreign")
+
+  @@index([asset_id, changed_at], map: "asset_user_logs_asset_id_changed_at_index")
+  @@index([performed_by], map: "asset_user_logs_performed_by_index")
+}
+
 model assets {
   id                               BigInt                  @id @default(autoincrement())
   uuid                             String                  @unique(map: "assets_uuid_unique") @db.Char(36)
@@ -236,6 +257,7 @@ model assets {
   license_installations_license    license_installations[] @relation("license_installations_license_asset_idToassets")
   license_installations_device     license_installations[] @relation("license_installations_device_asset_idToassets")
   asset_movements                  asset_movements[]
+  asset_user_logs                  asset_user_logs[]
   users_assets_created_byTousers   users?                  @relation("assets_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "assets_created_by_foreign")
   users_assets_custodian_idTousers users?                  @relation("assets_custodian_idTousers", fields: [custodian_id], references: [id], onUpdate: Restrict, map: "assets_custodian_id_foreign")
   locations                        locations?              @relation(fields: [location_id], references: [id], onUpdate: Restrict, map: "assets_location_id_foreign")
@@ -353,6 +375,8 @@ model credentials {
   created_at                          DateTime?                @db.DateTime(0)
   updated_at                          DateTime?                @db.DateTime(0)
   deleted_at                          DateTime?                @db.DateTime(0)
+  /// ต้องยืนยันตัวตนก่อนเปิดดูรหัสของบัญชีนี้ (ปิด = กดดูได้เลย)
+  require_reauth                      Boolean                  @default(true)
   credential_access_logs              credential_access_logs[]
   branches                            branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "credentials_branch_id_foreign")
   users_credentials_created_byTousers users?                   @relation("credentials_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "credentials_created_by_foreign")
@@ -474,6 +498,7 @@ model it_tickets {
   it_ticket_attachments                it_ticket_attachments[]
   it_ticket_events                     it_ticket_events[]
   it_ticket_parts                      it_ticket_parts[]
+  kpi_entries                          kpi_entries[]
   users_it_tickets_approver_idTousers  users?                     @relation("it_tickets_approver_idTousers", fields: [approver_id], references: [id], onUpdate: Restrict, map: "it_tickets_approver_id_foreign")
   assets                               assets?                    @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "it_tickets_asset_id_foreign")
   users_it_tickets_assignee_idTousers  users?                     @relation("it_tickets_assignee_idTousers", fields: [assignee_id], references: [id], onUpdate: Restrict, map: "it_tickets_assignee_id_foreign")
@@ -516,14 +541,24 @@ model jobs {
 }
 
 /// บันทึกการปฏิบัติงาน (KPI) รายวันของผู้ใช้
+/// KPI ฝ่าย IT (Template-KPI-IT Part2 Details) — entry_type: work / holiday; ticket_id = แถวที่ผูกใบแจ้งงาน (เก็บเฉพาะ service_type + complexity)
 model kpi_entries {
-  id         BigInt    @id @default(autoincrement())
-  user_id    BigInt
-  work_date  DateTime  @db.Date
-  details    String    @db.Text
-  created_at DateTime? @db.DateTime(0)
-  updated_at DateTime? @db.DateTime(0)
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "kpi_entries_user_id_foreign")
+  id             BigInt      @id @default(autoincrement())
+  user_id        BigInt
+  work_date      DateTime    @db.Date
+  details        String      @db.Text
+  created_at     DateTime?   @db.DateTime(0)
+  updated_at     DateTime?   @db.DateTime(0)
+  entry_type     String      @default("work") @db.VarChar(10)
+  ticket_id      BigInt?     @unique(map: "kpi_entries_ticket_id_unique")
+  requester_name String?     @db.VarChar(255)
+  branch_name    String?     @db.VarChar(100)
+  service_type   String?     @db.VarChar(40)
+  solution       String?     @db.Text
+  complexity     Decimal?    @db.Decimal(3, 1)
+  completed_date DateTime?   @db.Date
+  users          users       @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "kpi_entries_user_id_foreign")
+  it_tickets     it_tickets? @relation(fields: [ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "kpi_entries_ticket_id_foreign")
 
   @@index([user_id, work_date], map: "kpi_entries_user_id_work_date_index")
   @@index([work_date], map: "kpi_entries_work_date_index")
@@ -586,6 +621,8 @@ model personal_access_tokens {
   expires_at     DateTime? @db.DateTime(0)
   created_at     DateTime? @db.DateTime(0)
   updated_at     DateTime? @db.DateTime(0)
+  /// ยืนยันรหัสผ่านซ้ำล่าสุด (ก่อนเปิดดูรหัสผ่าน / License key)
+  reauth_at      DateTime? @db.DateTime(0)
 
   external_session external_sessions?
 
@@ -630,6 +667,9 @@ model users {
   external_id                                              String?                    @db.VarChar(191)
   /// ซิงก์โปรไฟล์/สถานะกับต้นทางล่าสุดเมื่อไร (API User)
   external_synced_at                                       DateTime?                  @db.DateTime(0)
+  /// PIN กลาง (app_settings.secret_pin): กรอกผิดติดกัน 5 ครั้ง = ล็อก 15 นาที
+  secret_pin_failures                                      Int                        @default(0) @db.SmallInt
+  secret_pin_locked_until                                  DateTime?                  @db.DateTime(0)
   /// สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing (null = ยังไม่เคยซิงค์) — ซิงค์ปิดใช้งาน/เปิดคืนเฉพาะที่ซิงค์เป็นคนปิด
   external_status                                          String?                    @db.VarChar(20)
   remember_token                                           String?                    @db.VarChar(100)
@@ -650,6 +690,7 @@ model users {
   kpi_entries                                              kpi_entries[]
   asset_movements_asset_movements_from_custodian_idTousers asset_movements[]          @relation("asset_movements_from_custodian_idTousers")
   asset_movements_asset_movements_performed_byTousers      asset_movements[]          @relation("asset_movements_performed_byTousers")
+  asset_user_logs                                          asset_user_logs[]
   asset_movements_asset_movements_to_custodian_idTousers   asset_movements[]          @relation("asset_movements_to_custodian_idTousers")
   assets_assets_created_byTousers                          assets[]                   @relation("assets_created_byTousers")
   assets_assets_custodian_idTousers                        assets[]                   @relation("assets_custodian_idTousers")

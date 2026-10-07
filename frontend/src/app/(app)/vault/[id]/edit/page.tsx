@@ -7,7 +7,7 @@ import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
 import { has, getCurrentUser } from "@/lib/auth";
-import type { Branch, Credential } from "@/lib/types";
+import type { Branch, Credential, CredentialCategories } from "@/lib/types";
 import { CredentialForm } from "../../credential-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -30,9 +30,10 @@ export default async function EditCredentialPage({ params }: PageProps<"/vault/[
   const user = await getCurrentUser();
   if (!has(user, "vault.use")) redirect("/tickets");
 
-  const [{ data: credential }, { data: branches }, { data: logs }, { t, fmt }] = await Promise.all([
+  const [{ data: credential }, { data: branches }, { data: categories }, { data: logs }, { t, fmt }] = await Promise.all([
     load<Credential>(`/credentials/${id}`),
     apiFetch<{ data: Branch[] }>("/branches"),
+    apiFetch<{ data: CredentialCategories }>("/credentials/categories"),
     load<{ id: number; action: string; user: { name: string } | null; ip: string | null; created_at: string }[]>(`/credentials/${id}/logs`),
     getI18n(),
   ]);
@@ -40,7 +41,7 @@ export default async function EditCredentialPage({ params }: PageProps<"/vault/[
   return (
     <div className="space-y-5">
       <PageHeader icon={KeyIcon} title={t("vault.editTitle")} subtitle={credential.title} />
-      <CredentialForm credential={credential} branches={branches} />
+      <CredentialForm credential={credential} branches={branches} customCategories={categories.custom} />
 
       {/* ประวัติการเข้าถึง (audit) */}
       <section className={`p-4 sm:p-6 ${card}`}>

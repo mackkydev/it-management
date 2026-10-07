@@ -5,6 +5,7 @@ import { deleteInstallation, uninstallInstallation } from "@/app/actions/license
 import { ResetIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
 import { Tooltip } from "@/components/tooltip";
 import { useI18n } from "@/i18n/client";
+import { useConfirm } from "@/components/dialog-provider";
 
 const ICON_BTN =
   "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
@@ -12,12 +13,13 @@ const ICON_BTN =
 /** ถอนการติดตั้ง (คืน seat) / ลบรายการที่บันทึกผิด */
 export function RowActions({ id, licenseId, active, label }: { id: number; licenseId: string; active: boolean; label: string }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<"uninstall" | "delete" | null>(null);
   const [pending, start] = useTransition();
 
-  const run = (kind: "uninstall" | "delete") => {
-    if (!confirm(kind === "uninstall" ? t("installations.confirmUninstall", { name: label }) : t("installations.confirmDelete", { name: label }))) return;
+  const run = async (kind: "uninstall" | "delete") => {
+    if (!(await confirm(kind === "uninstall" ? t("installations.confirmUninstall", { name: label }) : t("installations.confirmDelete", { name: label })))) return;
     setBusy(kind);
     start(async () => {
       const res = kind === "uninstall" ? await uninstallInstallation(id, licenseId) : await deleteInstallation(id, licenseId);

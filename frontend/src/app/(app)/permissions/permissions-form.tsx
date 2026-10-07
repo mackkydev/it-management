@@ -12,6 +12,7 @@ import {
   type Audience, type MenuOrder, type UiConfig, type UiPermissions,
 } from "@/lib/permissions";
 import type { User } from "@/lib/types";
+import { useConfirm } from "@/components/dialog-provider";
 
 /** ย้ายตำแหน่งในรายการ (dir = -1 ขึ้น, +1 ลง) */
 function move<T>(list: T[], index: number, dir: -1 | 1): T[] {
@@ -31,6 +32,7 @@ const ICON_BTN =
  */
 export function PermissionsForm({ initial }: { initial: UiConfig }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const [deny, setDeny] = useState<UiPermissions>(initial.ui_permissions);
   const [groupOrder, setGroupOrder] = useState<string[]>(() => sortByOrder(NAV, initial.menu_order.groups, (g) => g.id).map((g) => g.id));
   const [itemOrder, setItemOrder] = useState<Record<string, string[]>>(() =>
@@ -56,8 +58,8 @@ export function PermissionsForm({ initial }: { initial: UiConfig }) {
     start(async () => setResult(await saveUiConfig({ ui_permissions: deny, menu_order })));
   };
 
-  const reset = () => {
-    if (!confirm(t("permissions.confirmReset"))) return;
+  const reset = async () => {
+    if (!(await confirm(t("permissions.confirmReset")))) return;
     setDeny({});
     setGroupOrder(NAV.map((g) => g.id));
     setItemOrder(Object.fromEntries(NAV.map((g) => [g.id, g.items.map((i) => i.href)])));

@@ -24,6 +24,8 @@ export interface TicketFormOptions {
   approvers: { id: number; name: string; branch_id: number; role: string }[];
   it_staff: { id: number; name: string }[];
   other_types: string[];
+  /** สินทรัพย์ของผู้แจ้ง (ผู้ถือครอง / ชื่อผู้ใช้งานในทะเบียนคอมพิวเตอร์) — เลือกเครื่องที่ส่งซ่อม / ติดตั้ง */
+  my_assets: { id: string; asset_tag: string; name: string; brand: string | null; model: string | null; category: string }[];
 }
 
 type Field =
@@ -122,6 +124,18 @@ export function TicketForm({
 
   const needsPerson = type === "grant_access" || type === "revoke_access";
   const isRepair = type === "repair";
+  // 1.2 ข้อมูลเครื่อง: งานซ่อม (เครื่องที่ส่งซ่อม + อาการ) และงานติดตั้ง (เครื่องที่ติดตั้ง)
+  const isInstall = type === "install";
+  const showDevice = isRepair || isInstall;
+  const myAssets = options.my_assets ?? [];
+  // ติ๊ก "เลือกจากสินทรัพย์ของฉัน" — แก้ไขใบเดิมที่เลขครุภัณฑ์ตรงกับสินทรัพย์ของฉัน = ติ๊กไว้ให้
+  const [useMine, setUseMine] = useState(() => myAssets.some((a) => a.asset_tag === (editing?.asset_tag ?? "")));
+  const assetLabel = (a: (typeof myAssets)[number]) => [a.name, [a.brand, a.model].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
+  const pickAsset = (tag: string) => {
+    const a = myAssets.find((x) => x.asset_tag === tag);
+    setV((s) => ({ ...s, asset_tag: a?.asset_tag ?? "", device_name: a ? assetLabel(a) : "" }));
+    setErrors((e) => ({ ...e, asset_tag: "", device_name: "" }));
+  };
 
   const set = (name: keyof typeof v, value: string) => {
     setV((s) => ({ ...s, [name]: value }));
@@ -176,11 +190,11 @@ export function TicketForm({
       fd.set("person_name_th", v.person_name_th.trim());
       fd.set("person_name_en", v.person_name_en.trim());
     }
-    if (isRepair) {
-      fd.set("device_name", v.device_name.trim());
-      fd.set("symptom", v.symptom.trim());
+    if (showDevice) {
+      if (v.device_name.trim() || isRepair) fd.set("device_name", v.device_name.trim());
       if (v.asset_tag.trim()) fd.set("asset_tag", v.asset_tag.trim());
     }
+    if (isRepair) fd.set("symptom", v.symptom.trim());
     photos.forEach((f) => fd.append("photos[]", f));
     docs.forEach((f) => fd.append("documents[]", f));
 
@@ -407,14 +421,52 @@ export function TicketForm({
           </section>
         )}
 
-        {/* 1.2 งานซ่อม */}
-        {isRepair && (
+        {/* 1.2 เครื่องที่ส่งซ่อม (งานซ่อม) / เครื่องที่ติดตั้ง (งานติดตั้ง) — ติ๊กเลือกจากสินทรัพย์ของตัวเองได้ */}
+        {showDevice && (
           <section className={`p-4 sm:p-6 ${card}`}>
-            <h2 className="mb-3 font-semibold">{t("tickets.form.section12")}</h2>
+            <h2 className="mb-3 font-semibold">{t(isRepair ? "tickets.form.section12" : "tickets.form.section12Install")}</h2>
+            <div className="mb-4 space-y-2">
+              {myAssets.length > 0 ? (
+                <label className="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={useMine}
+                    onChange={(e) => {
+                      setUseMine(e.target.checked);
+                      if (!e.target.checked) setV((s) => ({ ...s, asset_tag: "", device_name: "" }));
+                    }}
+                    className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+                  />
+                  {t("tickets.form.useMyAssets")}
+                  <span className="font-normal text-muted">{t("tickets.form.myAssetsCount", { count: fmt.number(myAssets.length) })}</span>
+                </label>
+              ) : (
+                <p className="text-xs text-muted">{t("tickets.form.noMyAssets")}</p>
+              )}
+              {useMine && (
+                <AppSelect value={v.asset_tag} onValueChange={pickAsset} className={`${input} sm:max-w-xl`} aria-label={t("tickets.form.chooseAsset")}>
+                  <option value="">{t("tickets.form.chooseAsset")}</option>
+                  {myAssets.map((a) => (
+                    <option key={a.id} value={a.asset_tag}>
+                      {`${a.asset_tag} — ${assetLabel(a)}`}
+                    </option>
+                  ))}
+                </AppSelect>
+              )}
+            </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {field("device_name", t("tickets.form.device"), text("device_name", { maxLength: 255 }), true)}
-              {field("asset_tag", t("tickets.form.assetTag"), text("asset_tag", { maxLength: 50, className: `${cls("asset_tag")} font-mono` }))}
               {field(
+                "device_name",
+                t(isRepair ? "tickets.form.device" : "tickets.form.deviceInstall"),
+                text("device_name", { maxLength: 255, readOnly: useMine, className: `${cls("device_name")} ${useMine ? "bg-subtle" : ""}` }),
+                isRepair,
+              )}
+              {field(
+                "asset_tag",
+                t("tickets.form.assetTag"),
+                text("asset_tag", { maxLength: 50, readOnly: useMine, className: `${cls("asset_tag")} font-mono ${useMine ? "bg-subtle" : ""}` }),
+              )}
+              {isRepair && field(
                 "symptom",
                 t("tickets.form.symptom"),
                 <textarea id="symptom" rows={3} maxLength={5000} value={v.symptom} onChange={(e) => set("symptom", e.target.value)} className={cls("symptom")} />,

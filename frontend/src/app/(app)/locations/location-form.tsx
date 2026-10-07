@@ -9,6 +9,7 @@ import { useI18n } from "@/i18n/client";
 import type { TFunction } from "@/i18n/types";
 import { LOCATION_TYPES, type Location, type LocationFormValues } from "@/lib/types";
 import { AppSelect } from "@/components/app-select";
+import { useConfirm } from "@/components/dialog-provider";
 
 type Field = keyof LocationFormValues;
 type Errors = Partial<Record<Field, string>>;
@@ -49,6 +50,7 @@ interface Props {
 
 export function LocationForm({ locations, location, canDelete = false }: Props) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const [values, setValues] = useState<LocationFormValues>(
     location
       ? {
@@ -96,8 +98,8 @@ export function LocationForm({ locations, location, canDelete = false }: Props) 
     startTransition(async () => handle(location ? await updateLocation(location.id, values) : await createLocation(values)));
   };
 
-  const onDelete = () => {
-    if (!location || !confirm(t("locations.form.confirmDelete", { code: location.code }))) return;
+  const onDelete = async () => {
+    if (!location || !(await confirm(t("locations.form.confirmDelete", { code: location.code })))) return;
     setPendingAction("delete");
     startTransition(async () => handle(await deleteLocation(location.id)));
   };

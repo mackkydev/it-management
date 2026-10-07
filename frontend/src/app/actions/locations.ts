@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { apiFetch } from "@/lib/api";
-import type { LocationFormValues } from "@/lib/types";
+import type { Location, LocationFormValues } from "@/lib/types";
 
 export type LocationResult = ActionResult<keyof LocationFormValues | "location">;
 
@@ -65,4 +65,17 @@ export async function deleteLocation(id: number): Promise<LocationResult> {
     return result.errors?.location ? { message: result.errors.location } : result;
   }
   done("deleted");
+}
+
+/** เพิ่มสถานที่ด่วนจากฟอร์มสินทรัพย์ — พิมพ์แค่ชื่อ (API สร้างรหัส LOC-#### และประเภท "ห้อง" ให้) */
+export async function quickCreateLocation(name: string): Promise<{ location?: Location; message?: string }> {
+  try {
+    const res = await apiFetch<{ data: Location }>("/locations", { method: "POST", body: JSON.stringify({ name: String(name).trim().slice(0, 255) }) });
+    revalidatePath("/locations");
+    revalidatePath("/assets");
+    return { location: res.data };
+  } catch (e) {
+    const result = await toResult(e);
+    return { message: result.errors?.name ?? result.message };
+  }
 }

@@ -3,6 +3,8 @@
 import { useEffect, useState, useTransition } from "react";
 import { revealCredential } from "@/app/actions/it-data";
 import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon, SpinnerIcon } from "@/components/icons";
+import { ReauthPrompt } from "@/components/reauth-prompt";
+import type { ReauthChallenge } from "@/lib/types";
 import { Tooltip } from "@/components/tooltip";
 import { useI18n } from "@/i18n/client";
 
@@ -18,6 +20,8 @@ export function RevealPassword({ id }: { id: number }) {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [pending, start] = useTransition();
+  // ต้องยืนยันรหัสผ่านซ้ำก่อน (ตั้งค่าความปลอดภัย) → แสดงช่องยืนยัน แล้วเปิดดูอีกครั้งอัตโนมัติ
+  const [reauth, setReauth] = useState<ReauthChallenge | null>(null);
 
   useEffect(() => {
     if (value === null) return;
@@ -28,8 +32,10 @@ export function RevealPassword({ id }: { id: number }) {
   const reveal = () =>
     start(async () => {
       const res = await revealCredential(id);
-      if ("error" in res) setError(res.error);
-      else setValue(res.password ?? "");
+      if ("error" in res) {
+        if (res.reauth) setReauth(res.reauth);
+        else setError(res.error);
+      } else setValue(res.password ?? "");
     });
 
   const copy = async () => {
@@ -40,6 +46,7 @@ export function RevealPassword({ id }: { id: number }) {
   };
 
   if (error) return <span className="text-xs text-danger-600">{error}</span>;
+  if (reauth) return <ReauthPrompt challenge={reauth} onConfirmed={() => (setReauth(null), reveal())} onCancel={() => setReauth(null)} />;
 
   return (
     <div className="flex items-center gap-1">

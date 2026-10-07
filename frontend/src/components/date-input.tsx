@@ -21,6 +21,8 @@ interface Props {
   max?: string;
   className: string;
   disabled?: boolean;
+  /** ข้อความในช่องว่าง (ค่าเริ่มต้น = รูปแบบวันที่ เช่น วว/ดด/ปปปป) */
+  placeholder?: string;
   "aria-label"?: string;
 }
 
@@ -29,7 +31,7 @@ interface Props {
  * พิมพ์ตัวเลขได้เลย ใส่ / ให้อัตโนมัติ หรือกดไอคอน/ช่องเพื่อเปิดปฏิทิน (เลือกวัน, เลื่อนเดือน, วันนี้, ล้าง)
  * ส่งออกเป็น "YYYY-MM-DD" ครบวันเท่านั้น — ยังพิมพ์ไม่ครบ/วันที่ไม่มีจริง = ""
  */
-export function DateInput({ id, value, defaultValue = "", onChange, name, min, max, className, disabled, ...rest }: Props) {
+export function DateInput({ id, value, defaultValue = "", onChange, name, min, max, className, disabled, placeholder, ...rest }: Props) {
   const { t, locale } = useI18n();
   const controlled = value !== undefined;
   const [inner, setInner] = useState(defaultValue);
@@ -77,7 +79,7 @@ export function DateInput({ id, value, defaultValue = "", onChange, name, min, m
         type="text"
         inputMode="numeric"
         autoComplete="off"
-        placeholder={t("common.datePlaceholder")}
+        placeholder={placeholder ?? t("common.datePlaceholder")}
         value={text}
         onChange={onType}
         onFocus={() => !disabled && setOpen(true)}

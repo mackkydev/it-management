@@ -14,8 +14,9 @@ import { getI18n } from "@/i18n/server";
 import type { Formatters, MessageKey, TFunction } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
 import { getAccess, canManageAssets, canViewAllAssets, getCurrentUser } from "@/lib/auth";
-import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Branch, type Location, type Paginated } from "@/lib/types";
+import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Branch, type LicenseUsage, type Location, type Paginated } from "@/lib/types";
 import { ImportAssets } from "./import-assets";
+import { ClickableRow } from "@/components/clickable-row";
 import { AppSelect } from "@/components/app-select";
 
 /** วันหมดอายุ license ในรายการ: หมดแล้ว = แดง, เหลือ ≤ 30 วัน = เหลือง */
@@ -28,6 +29,24 @@ function LicenseExpiry({ license: l, t, fmt }: { license: AssetLicense; t: TFunc
         {l.days_left < 0 ? t("assets.license.expiredOn", { date: fmt.date(l.expires_at) }) : t("assets.license.expiresOn", { date: fmt.date(l.expires_at) })}
       </span>
     </div>
+  );
+}
+
+/** จำนวนสิทธิ์ license ในรายการ: ใช้ครบ = แดง, เหลือ ≤ 10% = เหลือง, ไม่จำกัด = เทา */
+function LicenseSeats({ usage: u, t, fmt }: { usage: LicenseUsage; t: TFunction; fmt: Formatters }) {
+  const n = (v: number | null) => fmt.number(v ?? 0);
+  const look = u.seats === null ? tone.idle : u.available === 0 ? tone.danger : (u.available ?? 0) <= Math.ceil(u.seats * 0.1) ? tone.warning : tone.info;
+  // ป้ายแสดงแค่ตัวเลข คงเหลือ/ทั้งหมด (เช่น 18/20) — คำอธิบายเต็มอยู่ใน tooltip
+  const title =
+    u.seats === null
+      ? t("assets.license.usageUnlimited", { used: n(u.used) })
+      : u.available === 0
+        ? t("assets.license.usageFull", { used: n(u.used), seats: n(u.seats) })
+        : t("assets.license.usage", { seats: n(u.seats), used: n(u.used), available: n(u.available) });
+  return (
+    <span title={title} className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${look.badge}`}>
+      {u.seats === null ? "∞" : `${n(u.available)}/${n(u.seats)}`}
+    </span>
   );
 }
 
@@ -204,7 +223,7 @@ async function AssetResults({ query, canEdit, mineOnly }: { query: URLSearchPara
               </thead>
               <tbody className={table.body}>
                 {assets.data.map((a) => (
-                  <tr key={a.id} className={table.row}>
+                  <ClickableRow key={a.id} href={`/assets/${a.id}`} className={table.row}>
                     <td className={`${table.td} whitespace-nowrap font-mono text-xs text-muted`}>{a.asset_tag}</td>
                     <td className={table.td}>
                       <Link href={`/assets/${a.id}`} className="cursor-pointer font-medium text-ink hover:text-accent-700 hover:underline dark:hover:text-accent-300">
@@ -220,7 +239,11 @@ async function AssetResults({ query, canEdit, mineOnly }: { query: URLSearchPara
                       )}
                     </td>
                     <td className={table.td}>
-                      {t(`assets.categories.${a.category}` as MessageKey)}
+                      {/* หมวดหมู่ + จำนวนสิทธิ์ (seat) บรรทัดเดียวกัน, วันหมดอายุบรรทัดถัดไป */}
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {t(`assets.categories.${a.category}` as MessageKey)}
+                        {a.license_usage && <LicenseSeats usage={a.license_usage} t={t} fmt={fmt} />}
+                      </div>
                       {a.license && <LicenseExpiry license={a.license} t={t} fmt={fmt} />}
                     </td>
                     <td className={table.td}>{a.branch?.name ?? "-"}</td>
@@ -233,7 +256,7 @@ async function AssetResults({ query, canEdit, mineOnly }: { query: URLSearchPara
                       {a.purchase_cost ? fmt.money(a.purchase_cost) : "-"}
                     </td>
                     {canEdit && <td className={`${table.td} whitespace-nowrap text-right`}>{editLink(a)}</td>}
-                  </tr>
+                  </ClickableRow>
                 ))}
               </tbody>
             </table>
@@ -242,7 +265,7 @@ async function AssetResults({ query, canEdit, mineOnly }: { query: URLSearchPara
           {/* Mobile / Tablet แนวตั้ง: การ์ด */}
           <ul className="grid gap-3 sm:grid-cols-2 md:hidden">
             {assets.data.map((a) => (
-              <li key={a.id} className={`p-4 ${card}`}>
+              <ClickableRow key={a.id} as="li" href={`/assets/${a.id}`} className={`p-4 ${card}`}>
                 <div className="flex items-start justify-between gap-2">
                   <span className="font-mono text-xs text-muted">{a.asset_tag}</span>
                   <StatusBadge status={a.status} label={a.status_label} />
@@ -251,6 +274,11 @@ async function AssetResults({ query, canEdit, mineOnly }: { query: URLSearchPara
                   {a.name}
                 </Link>
                 <div className="text-xs text-muted">{[a.brand, a.model].filter(Boolean).join(" ")}</div>
+                {a.license_usage && (
+                  <div className="mt-0.5">
+                    <LicenseSeats usage={a.license_usage} t={t} fmt={fmt} />
+                  </div>
+                )}
                 {a.license && <LicenseExpiry license={a.license} t={t} fmt={fmt} />}
                 {(a.user_name || a.ip_address) && <div className="text-xs text-muted">{[a.user_name, a.ip_address].filter(Boolean).join(" · ")}</div>}
                 <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
@@ -266,7 +294,7 @@ async function AssetResults({ query, canEdit, mineOnly }: { query: URLSearchPara
                   <dd className="tabular-nums">{a.purchase_cost ? fmt.money(a.purchase_cost) : "-"}</dd>
                 </dl>
                 {canEdit && editLink(a, true)}
-              </li>
+              </ClickableRow>
             ))}
           </ul>
         </>

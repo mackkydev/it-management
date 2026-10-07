@@ -1,14 +1,17 @@
 import { Router, type Request } from "express";
+import { config } from "../config.js";
 import { exec, first, insert, isUuid, likeEscape, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
 import { decryptNullable, encryptNullable } from "../lib/laravel-crypt.js";
 import { limits } from "../lib/rate-limit.js";
 import { dateOnly, diffInDays, fromDbDate, iso, nowDb } from "../lib/time.js";
-import { bool, exists, int, regex, unique, validate } from "../lib/validator.js";
+import { bool, custom, exists, int, makeHash, regex, unique, validate } from "../lib/validator.js";
+import { audit } from "../services/audit.js";
 import { me, shortMeta, pageParam } from "../http.js";
 import { can } from "../models/user.js";
 import { audiencePermissions } from "../services/permissions.js";
+import { assertCanReveal, centralPin, centralPinStatus, isValidIpEntry, notifyReveal, PIN_PATTERN, pinSetAt, secretGuard, verifyLoginPassword } from "../services/secret-guard.js";
 import { allSettings, getSetting, putSetting } from "../services/settings.js";
 
 /** IT-SYSTEM: สาขา, ตั้งค่า, แจ้งเตือนในระบบ, คลังบัญชี/รหัสผ่าน, สัญญา vendor */
@@ -113,9 +116,57 @@ itDataRoutes.delete("/branches/:id", async (req, res) => {
 
 /* ================================================================ 5.2 ตั้งค่าการแจ้งเตือน (admin) */
 
+/** ตั้งค่าทั้งหมด — secret_guard คืนค่าที่ใช้งานจริง (รวมค่าเริ่มต้น); PIN กลางส่งเฉพาะสถานะ (ห้ามส่ง hash) */
+const settingsJson = async () => {
+  const { secret_pin: _hidden, ...rest } = await allSettings();
+  return { ...rest, secret_guard: await secretGuard(), secret_pin_status: await centralPinStatus() };
+};
+
+/* ================================================================ PIN กลางสำหรับเปิดดูข้อมูลลับ */
+
+/** GET /secret-pin — สถานะ PIN กลาง (ตั้งแล้วหรือยัง / เมื่อไร / โดยใคร) */
+itDataRoutes.get("/secret-pin", async (req, res) => {
+  const u = me(req);
+  authorize(can(u, "secrets.pin_manage") || can(u, "vault.use") || can(u, "assets.license_key"));
+  res.json({ data: { ...(await centralPinStatus()), can_manage: can(u, "secrets.pin_manage") } });
+});
+
+/**
+ * PUT /secret-pin { password, pin, pin_confirmation } — ตั้ง / เปลี่ยน PIN กลาง (สิทธิ์ secrets.pin_manage: admin หรือเจ้าหน้าที่ที่ได้รับสิทธิ์)
+ * ต้องยืนยันด้วยรหัสผ่าน login ของผู้ตั้ง — เปลี่ยนแล้วปลดล็อก PIN ของทุกคน + audit (ไม่บันทึกค่า PIN)
+ */
+itDataRoutes.put("/secret-pin", limits.pinSet, async (req, res) => {
+  const u = me(req);
+  authorize(can(u, "secrets.pin_manage"));
+  const t = (key: string) => trans(req.locale, `eam.secret_guard.${key}`);
+  const data = await validate(
+    req.input,
+    {
+      password: ["required", "string", "max:255"],
+      pin: ["required", "string", custom((v) => typeof v === "string" && PIN_PATTERN.test(v), t("pin_format"))],
+      pin_confirmation: ["required", "string"],
+    },
+    {
+      locale: req.locale,
+      after: ({ errors }) => {
+        if (req.input.pin !== req.input.pin_confirmation) errors.add("pin_confirmation", t("pin_mismatch"));
+      },
+    },
+  );
+  if (!(await verifyLoginPassword(req, u, String(data.password)))) {
+    await audit(req, { action: "settings.secret_pin_failed", subjectType: "settings", subjectId: "secret_pin" });
+    throw ValidationError.withMessages({ password: t("wrong_password") });
+  }
+  const existed = (await centralPin()) !== null;
+  await putSetting("secret_pin", { hash: makeHash(String(data.pin), config.bcryptRounds), set_at: pinSetAt(), set_by: { id: u.id, name: u.name } }, u.id);
+  await exec("UPDATE users SET secret_pin_failures = 0, secret_pin_locked_until = NULL WHERE secret_pin_failures > 0 OR secret_pin_locked_until IS NOT NULL");
+  await audit(req, { action: existed ? "settings.secret_pin_changed" : "settings.secret_pin_set", subjectType: "settings", subjectId: "secret_pin" });
+  res.json({ data: { ...(await centralPinStatus()), can_manage: true } });
+});
+
 itDataRoutes.get("/settings", async (req, res) => {
   settings(req);
-  res.json({ data: await allSettings() });
+  res.json({ data: await settingsJson() });
 });
 
 itDataRoutes.put("/settings", async (req, res) => {
@@ -141,8 +192,28 @@ itDataRoutes.put("/settings", async (req, res) => {
       "menu_order.items": ["sometimes", "array", "max:50"],
       "menu_order.items.*": ["array", "max:100"],
       "menu_order.items.*.*": ["string", "max:100"],
+      // การป้องกันตอนเปิดดูรหัสผ่าน / License key (services/secret-guard.ts) — เปิด-ปิดแยกกัน
+      secret_guard: ["sometimes", "array"],
+      "secret_guard.reauth": ["sometimes", "boolean"],
+      "secret_guard.reauth_method": ["sometimes", "in:password,pin"],
+      "secret_guard.reauth_minutes": ["sometimes", "integer", "min:1", "max:60"],
+      "secret_guard.ip_restrict": ["sometimes", "boolean"],
+      "secret_guard.allowed_ips": ["sometimes", "array", "max:50"],
+      "secret_guard.allowed_ips.*": ["string", "max:50", custom((v) => typeof v === "string" && isValidIpEntry(v), trans(req.locale, "eam.secret_guard.invalid_ip"))],
+      "secret_guard.notify_heads": ["sometimes", "boolean"],
     },
-    { locale: req.locale },
+    {
+      locale: req.locale,
+      after: async ({ errors }) => {
+        const g = req.input.secret_guard as Record<string, unknown> | undefined;
+        if (!g || typeof g !== "object") return;
+        const current = await secretGuard();
+        const restrict = "ip_restrict" in g ? bool(g.ip_restrict) : current.ip_restrict;
+        const ips = Array.isArray(g.allowed_ips) ? g.allowed_ips : current.allowed_ips;
+        // เปิดจำกัด IP แต่ไม่มี IP ในรายการ = ไม่มีใครเปิดดูได้เลย
+        if (restrict && ips.length === 0) errors.add("secret_guard.allowed_ips", trans(req.locale, "eam.secret_guard.ip_required"));
+      },
+    },
   );
 
   const u = me(req);
@@ -160,9 +231,22 @@ itDataRoutes.put("/settings", async (req, res) => {
   const emptyToList = (v: unknown) => (v && typeof v === "object" && Object.keys(v).length === 0 ? [] : v);
   if ("ui_permissions" in data) values.ui_permissions = emptyToList(data.ui_permissions);
   if ("menu_order" in data) values.menu_order = emptyToList(data.menu_order);
+  if ("secret_guard" in data && data.secret_guard && typeof data.secret_guard === "object") {
+    const g = data.secret_guard as Record<string, unknown>;
+    const current = await secretGuard();
+    values.secret_guard = {
+      reauth: "reauth" in g ? bool(g.reauth) : current.reauth,
+      reauth_method: "reauth_method" in g ? (g.reauth_method === "pin" ? "pin" : "password") : current.reauth_method,
+      reauth_minutes: "reauth_minutes" in g ? int(g.reauth_minutes) : current.reauth_minutes,
+      ip_restrict: "ip_restrict" in g ? bool(g.ip_restrict) : current.ip_restrict,
+      allowed_ips: Array.isArray(g.allowed_ips) ? [...new Set((g.allowed_ips as string[]).map((s) => s.trim()))] : current.allowed_ips,
+      notify_heads: "notify_heads" in g ? bool(g.notify_heads) : current.notify_heads,
+    };
+  }
   for (const [key, value] of Object.entries(values)) await putSetting(key, value, u.id);
+  if ("secret_guard" in values) await audit(req, { action: "settings.secret_guard_updated", subjectType: "settings", subjectId: "secret_guard", after: values.secret_guard as Record<string, unknown> });
 
-  res.json({ data: await allSettings() });
+  res.json({ data: await settingsJson() });
 });
 
 /** GET /ui-config — การมองเห็นเมนู/ปุ่ม + ลำดับเมนู (ทุกคนที่ login อ่านได้ ใช้สร้างเมนู) */
@@ -236,13 +320,16 @@ itDataRoutes.post("/notifications/:id/read", async (req, res) => {
 
 /* ================================================================ 4.1.1 คลังบัญชี/รหัสผ่าน */
 
+/** หมวดหมู่ตั้งต้น (แปลชื่อที่หน้าเว็บ) — เพิ่มหมวดใหม่เองได้จากฟอร์ม (เก็บเป็นชื่อที่พิมพ์ ไม่เกิน 30 ตัว) */
 const CATEGORIES = ["system", "server", "network", "email", "software", "cloud", "other"];
+const categoryRule = (req: Request) =>
+  custom((v) => typeof v === "string" && v.trim().length > 0 && v.trim().length <= 30, trans(req.locale, "eam.vault.invalid_category"));
 
 interface CredentialRow {
   id: number; title: string; category: string; url: string | null; username: string | null;
   password: string | null; secret_notes: string | null; notes: string | null;
   branch_id: number | null; owner_id: number | null; expires_at: string | null;
-  password_changed_at: string | null; updated_at: string | null;
+  password_changed_at: string | null; updated_at: string | null; require_reauth: boolean;
   b_id?: number | null; b_name?: string | null; o_id?: number | null; o_name?: string | null; upd_name?: string | null;
 }
 
@@ -261,6 +348,8 @@ const credentialJson = (c: CredentialRow) => ({
   username: c.username,
   has_password: c.password !== null,
   has_secret_notes: c.secret_notes !== null,
+  /** ต้องยืนยันตัวตนก่อนเปิดดู (ใช้เมื่อเปิดการยืนยันในหน้าตั้งค่าระบบ) */
+  require_reauth: Boolean(c.require_reauth),
   notes: c.notes,
   branch: c.b_id ? { id: c.b_id, name: c.b_name } : null,
   branch_id: c.branch_id,
@@ -283,7 +372,7 @@ async function credentialInput(req: Request, partial: boolean) {
     req.input,
     {
       title: [...s, "required", "string", "max:255"],
-      category: [...s, "required", `in:${CATEGORIES.join(",")}`],
+      category: [...s, "required", "string", categoryRule(req)],
       url: ["sometimes", "nullable", "string", "max:500"],
       username: ["sometimes", "nullable", "string", "max:255"],
       password: ["sometimes", "nullable", "string", "max:1000"],
@@ -292,11 +381,14 @@ async function credentialInput(req: Request, partial: boolean) {
       branch_id: ["sometimes", "nullable", "integer", exists("branches", "id", "deleted_at IS NULL")],
       owner_id: ["sometimes", "nullable", "integer", exists("users", "id")],
       expires_at: ["sometimes", "nullable", "date"],
+      require_reauth: ["sometimes", "boolean"],
     },
     { locale: req.locale },
   );
   const out: Record<string, unknown> = {};
-  for (const key of ["title", "category", "url", "username", "notes"]) if (key in data) out[key] = data[key];
+  if ("require_reauth" in data) out.require_reauth = bool(data.require_reauth);
+  for (const key of ["title", "url", "username", "notes"]) if (key in data) out[key] = data[key];
+  if ("category" in data) out.category = String(data.category).trim();
   for (const key of ["branch_id", "owner_id"]) if (key in data) out[key] = int(data[key]);
   if ("expires_at" in data) out.expires_at = data.expires_at === null ? null : String(data.expires_at).slice(0, 10);
   // password/secret_notes: ไม่ส่งมา = คงเดิม, ส่ง null ("") = ลบ — เข้ารหัสด้วย APP_KEY เหมือน encrypted cast
@@ -315,7 +407,7 @@ itDataRoutes.get("/credentials", async (req, res) => {
     req.input,
     {
       search: ["nullable", "string", "max:100"],
-      category: ["nullable", `in:${CATEGORIES.join(",")}`],
+      category: ["nullable", "string", "max:30"],
       branch_id: ["nullable", "integer"],
       per_page: ["nullable", "integer", "min:1", "max:100"],
     },
@@ -340,6 +432,16 @@ itDataRoutes.get("/credentials", async (req, res) => {
     ...params, perPage, (page - 1) * perPage,
   ]);
   res.json({ data: rows.map(credentialJson), meta: shortMeta(total, page, perPage, rows.length) });
+});
+
+/** GET /credentials/categories — หมวดตั้งต้น + หมวดที่ผู้ใช้เพิ่มเอง (ที่ยังมีบัญชีใช้อยู่) */
+itDataRoutes.get("/credentials/categories", async (req, res) => {
+  vault(req);
+  const custom = await select<{ category: string }>(
+    "SELECT DISTINCT category FROM credentials WHERE deleted_at IS NULL AND category NOT IN (?) ORDER BY category",
+    [CATEGORIES],
+  );
+  res.json({ data: { builtin: CATEGORIES, custom: custom.map((c) => c.category) } });
 });
 
 itDataRoutes.get("/credentials/:id", async (req, res) => {
@@ -399,11 +501,14 @@ itDataRoutes.delete("/credentials/:id", async (req, res) => {
   res.status(204).end();
 });
 
-/** เปิดดูรหัสผ่าน — บันทึก log ผู้เปิดดู + IP ทุกครั้ง */
+/** เปิดดูรหัสผ่าน — ตรวจ IP / ยืนยันรหัสผ่านซ้ำ (ถ้าเปิดใช้) แล้วบันทึก log ผู้เปิดดู + IP ทุกครั้ง + แจ้งหัวหน้า IT (ถ้าเปิดใช้) */
 itDataRoutes.post("/credentials/:id/reveal", limits.reveal, async (req, res) => {
   const c = await loadCredential(routeId(req));
   vault(req);
+  // บัญชีที่ปิด "ต้องยืนยันก่อนเปิดดู" → ข้ามการยืนยันตัวตน (ยังตรวจ IP + บันทึก log + แจ้งเตือนตามปกติ)
+  await assertCanReveal(req, { reauth: Boolean(c.require_reauth) });
   await logAccess(req, c.id, "reveal");
+  await notifyReveal(req, "vault", { id: c.id, title: c.title });
   res.json({ data: { password: decryptNullable(c.password), secret_notes: decryptNullable(c.secret_notes) } });
 });
 

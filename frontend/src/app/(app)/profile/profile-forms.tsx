@@ -10,6 +10,8 @@ import { SignaturePad } from "@/components/signature-pad";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { User } from "@/lib/types";
+import { useConfirm } from "@/components/dialog-provider";
+import { PasswordInput } from "@/components/password-input";
 
 function Feedback({ result }: { result: { ok?: boolean; message?: string } }) {
   if (!result.message) return null;
@@ -40,13 +42,24 @@ function Field({
       <label htmlFor={name} className="mb-1 block text-sm font-medium">
         {label}
       </label>
-      <input
-        id={name}
-        name={name}
-        onChange={() => setTouched(true)}
-        className={`${input} ${showError ? inputError : ""}`}
-        {...props}
-      />
+      {/* ช่องรหัสผ่าน: มีปุ่มกดดูรหัสที่พิมพ์ */}
+      {props.type === "password" ? (
+        <PasswordInput
+          id={name}
+          name={name}
+          onChange={() => setTouched(true)}
+          className={`${input} ${showError ? inputError : ""}`}
+          {...Object.fromEntries(Object.entries(props).filter(([k]) => k !== "type"))}
+        />
+      ) : (
+        <input
+          id={name}
+          name={name}
+          onChange={() => setTouched(true)}
+          className={`${input} ${showError ? inputError : ""}`}
+          {...props}
+        />
+      )}
       {showError && <p className="mt-1 text-xs font-medium text-red-500">{error}</p>}
     </div>
   );
@@ -96,6 +109,7 @@ const SIGNATURE_TYPES = ["image/png", "image/jpeg"];
  */
 export function SignatureCard({ url }: { url: string | null }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const inputRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<"upload" | "draw">("upload");
   const [result, setResult] = useState<SignatureResult>({});
@@ -157,8 +171,8 @@ export function SignatureCard({ url }: { url: string | null }) {
     }
   };
 
-  const onRemove = () => {
-    if (!confirm(t("profile.signatureConfirmRemove"))) return;
+  const onRemove = async () => {
+    if (!(await confirm(t("profile.signatureConfirmRemove")))) return;
     setAction("remove");
     start(async () => setResult(await deleteSignature()));
   };

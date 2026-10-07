@@ -17,6 +17,9 @@ export interface UserRow {
   connection_id: number | null;
   external_id: string | null;
   external_synced_at: string | null;
+  /** PIN กลาง: กรอกผิดติดกัน / ล็อกถึงเวลา (ตัวนับรายคน) */
+  secret_pin_failures?: number;
+  secret_pin_locked_until?: string | null;
   /** สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing */
   external_status: "active" | "disabled" | "missing" | null;
   is_active: boolean;

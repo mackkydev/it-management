@@ -6,7 +6,8 @@ import { card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
 import { canDeleteAssets, canManageAssets, getCurrentUser } from "@/lib/auth";
-import { COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, type Asset, type AssetFormValues, type AssetMovement, type Branch, type Location, type Paginated } from "@/lib/types";
+import { licenseYears } from "@/lib/date";
+import { COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, EMPTY_SOFTWARE, type Asset, type AssetFormValues, type AssetMovement, type Branch, type Location, type Paginated } from "@/lib/types";
 import { AssetForm } from "../../asset-form";
 import { MovementTimeline } from "../../movement-timeline";
 
@@ -38,6 +39,7 @@ function toFormValues(a: Asset): AssetFormValues {
       (typeof COMPUTER_TEXT_FIELDS)[number] | (typeof COMPUTER_DATE_FIELDS)[number]
     >),
     movement_reason: "",
+    software: a.software ?? EMPTY_SOFTWARE,
     license: {
       billing: a.license?.billing ?? "yearly",
       start_date: a.license?.start_date ?? "",
@@ -47,6 +49,8 @@ function toFormValues(a: Asset): AssetFormValues {
       license_key: "", // ไม่ส่ง key กลับมา — เว้นว่าง = คงเดิม
       clear_license_key: false,
       notify_days_before: a.license?.notify_days_before ? String(a.license.notify_days_before) : "",
+      // กำหนดระยะเวลาเอง: เติมจำนวนปีถ้าช่วงวันลงตัวเป็นปีเต็ม
+      duration_years: a.license?.billing === "custom" ? licenseYears(a.license.start_date, a.license.expires_at ?? "") : "",
     },
   };
 }

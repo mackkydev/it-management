@@ -9,6 +9,26 @@ import { as, day, makeBranch, makeContract, makeUser } from "./helpers.js";
 
 /** ตรงกับ ItDataTest ของ Laravel */
 describe("IT data", () => {
+  it("credential categories: built-ins plus custom names typed in the form", async () => {
+    const api = await as(await makeUser({ is_it_staff: true }));
+    const created = await api.post("/api/v1/credentials").send({ title: "CCTV NVR", category: "  กล้องวงจรปิด  " });
+    expect(created.status).toBe(201);
+    expect(created.body.data.category).toBe("กล้องวงจรปิด");
+    await api.post("/api/v1/credentials").send({ title: "Firewall", category: "network" });
+
+    const cats = (await api.get("/api/v1/credentials/categories")).body.data;
+    expect(cats.builtin).toContain("network");
+    expect(cats.custom).toEqual(["กล้องวงจรปิด"]);
+    const filtered = await api.get("/api/v1/credentials").query({ category: "กล้องวงจรปิด" });
+    expect(filtered.body.data.map((c: { title: string }) => c.title)).toEqual(["CCTV NVR"]);
+
+    expect((await api.post("/api/v1/credentials").send({ title: "x", category: "   " })).status).toBe(422);
+    expect((await api.post("/api/v1/credentials").send({ title: "x", category: "a".repeat(31) })).status).toBe(422);
+    // ลบบัญชีสุดท้ายของหมวด → หมวดหายจากรายการ
+    await api.delete(`/api/v1/credentials/${created.body.data.id}`);
+    expect((await api.get("/api/v1/credentials/categories")).body.data.custom).toEqual([]);
+  });
+
   it("credentials are encrypted, hidden, and reveal is logged", async () => {
     const it_ = await makeUser({ is_it_staff: true });
     const api = await as(it_);
@@ -26,6 +46,9 @@ describe("IT data", () => {
 
     const list = await api.get("/api/v1/credentials");
     expect(JSON.stringify(list.body)).not.toContain("S3cret");
+    // ค่าเริ่มต้น: ยืนยันรหัสผ่านซ้ำก่อนเปิดดู (tests/secret-guard.test.ts)
+    expect((await api.post(`/api/v1/credentials/${id}/reveal`)).status).toBe(428);
+    await api.post("/api/v1/auth/reauth").send({ password: "password" });
     const reveal = await api.post(`/api/v1/credentials/${id}/reveal`);
     expect(reveal.body.data.password).toBe("S3cret!pass");
     expect((await api.get(`/api/v1/credentials/${id}/logs`)).body.data[0].action).toBe("reveal");

@@ -74,5 +74,9 @@ export const limits = {
   /** อัปโหลด/วาดลายเซ็น: 10 ครั้ง/นาที ต่อผู้ใช้ */
   signature: throttle("signature", { max: 10, windowSeconds: 60, key: (req) => (req.user ? `u${req.user.id}` : ip(req)) }),
   /** throttle:30,1 — เปิดดูรหัสผ่าน */
+  /** ยืนยันตัวตนซ้ำก่อนเปิดดูข้อมูลลับ: 10 ครั้ง/นาที ต่อผู้ใช้ (PIN ล็อกเองเมื่อผิดครบ 5 ครั้ง) */
+  reauth: throttle("reauth", { max: 10, windowSeconds: 60, key: (req) => (req.user ? `u${req.user.id}` : ip(req)) }),
+  /** ตั้ง / เปลี่ยน PIN (ตรวจรหัสผ่าน login): 5 ครั้ง/นาที ต่อผู้ใช้ */
+  pinSet: throttle("pin-set", { max: 5, windowSeconds: 60, key: (req) => (req.user ? `u${req.user.id}` : ip(req)) }),
   reveal: throttle("reveal", { max: 30, windowSeconds: 60, key: (req) => (req.user ? `u${req.user.id}` : ip(req)) }),
 };

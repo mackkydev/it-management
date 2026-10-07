@@ -61,7 +61,7 @@ export function LoginDigest({
         aria-modal="true"
         aria-labelledby="login-digest-title"
         onClick={(e) => e.stopPropagation()}
-        className={`w-full ${hasNews ? "max-w-3xl" : "max-w-md"} overflow-hidden rounded-2xl bg-surface shadow-2xl ring-1 ring-line`}
+        className={`w-full ${hasNews ? "max-w-5xl" : "max-w-xl"} overflow-hidden rounded-2xl bg-surface shadow-2xl ring-1 ring-line`}
       >
         <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div className="flex items-center gap-3">
@@ -80,7 +80,7 @@ export function LoginDigest({
           </button>
         </div>
 
-        <div className={`grid max-h-[65vh] gap-4 overflow-y-auto p-5 ${hasNews ? "md:grid-cols-2" : ""}`}>
+        <div className={`grid max-h-[75vh] gap-5 overflow-y-auto p-5 ${hasNews ? "md:grid-cols-2" : ""}`}>
           {/* กล่องการแจ้งเตือน */}
           <section className="space-y-3 rounded-xl p-4 ring-1 ring-line">
             <p className="flex items-center gap-2 text-sm font-semibold">

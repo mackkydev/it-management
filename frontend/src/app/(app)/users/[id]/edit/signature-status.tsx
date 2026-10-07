@@ -6,16 +6,18 @@ import { deleteUserSignature } from "@/app/actions/users";
 import { CheckCircleIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
 import { btn, card, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
+import { useConfirm } from "@/components/dialog-provider";
 
 /** Local Admin: สถานะลายเซ็นของผู้ใช้ (มี/ไม่มี — ไม่แสดงรูป) + ลบเมื่อจำเป็น (บันทึก audit) */
 export function SignatureStatus({ userId, hasSignature }: { userId: number; hasSignature: boolean }) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [pending, start] = useTransition();
 
-  const remove = () => {
-    if (!confirm(t("users.signature.confirmRemove"))) return;
+  const remove = async () => {
+    if (!(await confirm(t("users.signature.confirmRemove")))) return;
     start(async () => {
       const res = await deleteUserSignature(userId);
       setMessage(res.message ?? "");

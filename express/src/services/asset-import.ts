@@ -5,6 +5,7 @@ import type { Locale } from "../lib/i18n.js";
 import { trans } from "../lib/i18n.js";
 import { nowDb } from "../lib/time.js";
 import type { AssetRow } from "../resources.js";
+import { recordUserChange } from "./asset-movements.js";
 
 /**
  * ทะเบียนคอมพิวเตอร์ (หมวด COMPUTER) — import / template Excel ตามไฟล์ทะเบียนของฝ่าย IT
@@ -254,10 +255,17 @@ export async function importRows(rows: ImportRow[], userId: number, locale: Loca
       if (current) {
         // อัปเดตเฉพาะคอลัมน์ที่มีในไฟล์ — Work Group ไม่ตรงสาขาใด = คงสาขาเดิม
         await update("assets", { ...v, ...(branchId !== null ? { branch_id: branchId } : {}), updated_by: userId, updated_at: now }, "id = ?", [current.id]);
+        await recordUserChange(
+          current.id,
+          { user_name: current.user_name, department: current.department },
+          { user_name: "user_name" in v ? (v.user_name as string | null) : current.user_name, department: "department" in v ? (v.department as string | null) : current.department },
+          userId,
+          "import",
+        );
         result.updated++;
       } else {
         const name = [v.computer_type || "Computer", v.brand].filter(Boolean).join(" ");
-        await insert("assets", {
+        const newId = await insert("assets", {
           uuid: randomUUID(),
           asset_tag: r.asset_tag,
           name,
@@ -270,6 +278,7 @@ export async function importRows(rows: ImportRow[], userId: number, locale: Loca
           created_at: now,
           updated_at: now,
         });
+        await recordUserChange(newId, { user_name: null, department: null }, { user_name: (v.user_name as string) ?? null, department: (v.department as string) ?? null }, userId, "import");
         result.created++;
       }
     }

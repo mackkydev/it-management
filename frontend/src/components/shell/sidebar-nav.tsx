@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ChevronDownIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
 import { useI18n } from "@/i18n/client";
+import { GroupBadge, ItemBadge } from "./menu-badges";
 import { activeHref, type NavGroup } from "./nav";
 
 /**
@@ -47,6 +48,7 @@ export function SidebarNav({ groups, onNavigate }: { groups: NavGroup[]; onNavig
                 <group.icon width={16} height={16} />
               </span>
               <span className="flex-1 text-left">{t(group.label)}</span>
+              {!isOpen && <GroupBadge hrefs={group.items.map((i) => i.href)} />}
               <ChevronDownIcon
                 width={15}
                 height={15}
@@ -79,7 +81,8 @@ export function SidebarNav({ groups, onNavigate }: { groups: NavGroup[]; onNavig
                             icon={<item.icon width={15} height={15} className={current ? "" : "text-accent-400"} />}
                             size={15}
                           />
-                          {t(item.label)}
+                          <span className="flex-1">{t(item.label)}</span>
+                          <ItemBadge href={item.href} />
                         </Link>
                       </li>
                     );

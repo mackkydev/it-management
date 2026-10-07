@@ -135,3 +135,12 @@ export async function updateTicket(id: string, values: Record<string, string | n
   revalidatePath("/tickets");
   redirect(`/tickets/${id}?done=edited`);
 }
+
+/** ตัวเลขบนเมนู (href → จำนวนงานที่รอผู้ใช้ทำ) — API ล่ม = ไม่แสดงตัวเลข */
+export async function fetchMenuBadges(): Promise<Record<string, number>> {
+  try {
+    return (await apiFetch<{ data: Record<string, number> }>("/menu-badges")).data;
+  } catch {
+    return {};
+  }
+}
