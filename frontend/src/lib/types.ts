@@ -613,6 +613,8 @@ export interface ApiConnection {
   last_synced_at: string | null;
   last_sync_result: SyncResult | null;
   users_count: number;
+  /** ตั้งจาก .env (API_CONN_SOURCE=env) — แก้/ลบในหน้าเว็บไม่ได้ */
+  managed_by_env: boolean;
   created_at: string | null;
   updated_at: string | null;
 }

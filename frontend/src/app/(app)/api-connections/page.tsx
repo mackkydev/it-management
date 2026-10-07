@@ -47,9 +47,12 @@ export default async function ApiConnectionsPage() {
                   <p className="font-semibold">{c.name}</p>
                   <p className="truncate text-sm text-muted">{c.base_url}</p>
                 </div>
+                <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                {c.managed_by_env && <span className={`rounded-full px-2.5 py-0.5 font-mono text-xs font-medium ${tone.info.badge}`} title={t("apiConnections.envLocked")}>.env</span>}
                 <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${c.is_enabled ? tone.success.badge : tone.idle.badge}`}>
                   <span className={`h-1.5 w-1.5 rounded-full ${c.is_enabled ? tone.success.dot : tone.idle.dot}`} aria-hidden="true" />
                   {c.is_enabled ? t("apiConnections.enabled") : t("apiConnections.disabled")}
+                </span>
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3 text-sm text-muted">

@@ -1159,6 +1159,7 @@ const en: Dictionary = {
       note6: "The STEC manual uses one shared account for reports — per-user sign-in like this needs a STEC API account for each user.",
     },
     stecPreset: "Apply the STEC SyteLine API manual",
+    envLocked: "This connection is set in express/.env (API_CONN_SOURCE=env) — you can view, check and test it, but not edit or delete it here: change API_CONN_* in .env and restart Express, or switch to API_CONN_SOURCE=ui to edit it here.",
     stecPresetDone: "STEC settings applied — enter the Base URL, map roles from app_id and save.",
     health: {
       title: "Check reachability",

@@ -42,6 +42,7 @@
 - ต้นทางจริง = STEC SyteLine API (คู่มือ STEC API Portal): login → `{ token, expiresAt }`, ตรวจซ้ำด้วย `GET /api/v1/auth/permissions` (`{ appIds }`), logout, `/health`
   ไม่มีโปรไฟล์/รายชื่อผู้ใช้/refresh → field_map ใช้ `$login` (ชื่อผู้ใช้ที่ login) เป็นรหัส/ชื่อ (ชื่อนี้ไม่เขียนทับชื่อที่ admin แก้), role จาก array `appIds` (ตรงกฎแรก)
   ค่าตามคู่มือใส่ด้วยปุ่ม "ตั้งค่าตามคู่มือ STEC" ในฟอร์ม — เทสต์ที่ `express/tests/stec-api.test.ts`
+- ตั้งจาก `.env` ได้ (`API_CONN_*`, `services/env-connection.ts` เรียกตอนเปิด server): `API_CONN_SOURCE=ui` (ค่าเริ่มต้น) = สร้างครั้งเดียวถ้ายังไม่มีชื่อ `API_CONN_NAME` แล้วหน้าเว็บจัดการ / `env` = สร้าง-อัปเดตแถวเดิม (ตามชื่อ) ทุกครั้งที่เปิด และล็อก (`managed_by_env`, PUT/DELETE → 422) — ตรวจด้วยกฎเดียวกับหน้าเว็บ (`connectionRowFromInput`) เทสต์ที่ `express/tests/env-connection.test.ts`
 - ทุกการเปลี่ยนสิทธิ์/การตั้งค่า/การผูกบัญชีต้องลง `audit_logs` (ใช้ `audit()` — ตัด key ที่เป็น secret ให้อัตโนมัติ)
 
 ## ลายเซ็น (user_signatures)

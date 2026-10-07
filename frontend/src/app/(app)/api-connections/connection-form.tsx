@@ -78,6 +78,8 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [presetApplied, setPresetApplied] = useState(false);
   const [pending, start] = useTransition();
+  // API_CONN_SOURCE=env: ค่ามาจาก .env — ดู/ตรวจการเข้าถึง/ทดสอบได้ แต่แก้/ลบไม่ได้
+  const locked = Boolean(connection?.managed_by_env);
 
   const set = <K extends keyof Values>(key: K, value: Values[K]) => {
     setV((s) => ({ ...s, [key]: value }));
@@ -241,8 +243,14 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
   return (
     <div className="space-y-5">
       {/* วิธีเชื่อมต่อ STEC (เปิดไว้ตอนเพิ่มใหม่) + ปุ่มใส่ค่าตามคู่มือ */}
+      {locked && (
+        <p role="status" className={alert.info}>
+          <AlertIcon className="shrink-0" />
+          {t("apiConnections.envLocked")}
+        </p>
+      )}
       <ConnectionGuide />
-      <div className="flex flex-wrap items-center gap-3">
+      <div className={`flex flex-wrap items-center gap-3 ${locked ? "hidden" : ""}`}>
         <button type="button" onClick={applyStecPreset} disabled={pending} className={`${btn.soft} disabled:cursor-not-allowed`}>
           <FileTextIcon width={15} height={15} />
           {t("apiConnections.stecPreset")}
@@ -255,6 +263,7 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
         </p>
       )}
 
+      <fieldset disabled={locked} className="min-w-0 space-y-5 disabled:opacity-80">
       {section(
         "apiConnections.sections.general",
         <>
@@ -447,6 +456,7 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
           {field("register_url", { placeholder: "https://" })}
         </>,
       )}
+      </fieldset>
 
       {result && (
         <p role="status" className={result.ok ? alert.success : alert.error}>
@@ -455,7 +465,7 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
         </p>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className={`flex flex-wrap items-center justify-between gap-3 ${locked ? "hidden" : ""}`}>
         {connection && connection.users_count === 0 ? (
           <button type="button" onClick={remove} disabled={pending} className={`${btn.danger} disabled:cursor-not-allowed`}>
             <TrashIcon />

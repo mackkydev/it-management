@@ -45,7 +45,7 @@ export async function linkApiUser(apiUserId: number, localUserId: number): Promi
 
 /* ---------------------------------------------------------------- การเชื่อมต่อ API */
 
-export type ConnectionPayload = Omit<ApiConnection, "id" | "has_auth_secret" | "users_count" | "created_at" | "updated_at" | "last_synced_at" | "last_sync_result"> & {
+export type ConnectionPayload = Omit<ApiConnection, "id" | "has_auth_secret" | "users_count" | "managed_by_env" | "created_at" | "updated_at" | "last_synced_at" | "last_sync_result"> & {
   auth_secret?: string;
   clear_auth_secret?: boolean;
 };

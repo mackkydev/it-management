@@ -1,7 +1,7 @@
 import { Router, type Request } from "express";
 import { exec, insert, scalar, select, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
-import { trans } from "../lib/i18n.js";
+import { trans, type Locale } from "../lib/i18n.js";
 import { isValidPath } from "../lib/json-path.js";
 import { encryptString } from "../lib/laravel-crypt.js";
 import { limits } from "../lib/rate-limit.js";
@@ -13,6 +13,7 @@ import { isLocalAdmin } from "../models/user.js";
 import { API_ROLES, ApiLoginError, callUpstream, LOGIN_USERNAME, loadConnection, upstreamLogin, upstreamLogout } from "../services/api-auth.js";
 import { audit } from "../services/audit.js";
 import { syncConnection } from "../services/directory-sync.js";
+import { isEnvManaged } from "../services/env-connection.js";
 import { isValidAllowEntry, UpstreamError } from "../services/upstream-http.js";
 
 /**
@@ -61,7 +62,12 @@ async function find(id: string): Promise<ApiConnectionRow> {
 }
 
 const usersCount = async (id: number) => Number(await scalar("SELECT COUNT(*) FROM users WHERE connection_id = ?", [id]));
-const resource = async (c: ApiConnectionRow) => ({ ...apiConnectionResource(c), users_count: await usersCount(c.id) });
+const resource = async (c: ApiConnectionRow) => ({ ...apiConnectionResource(c), users_count: await usersCount(c.id), managed_by_env: isEnvManaged(c.id) });
+
+/** โหมด API_CONN_SOURCE=env: การเชื่อมต่อนี้ตั้งจาก .env — แก้/ลบผ่านหน้าเว็บไม่ได้ */
+function assertNotEnvManaged(req: Request, c: ApiConnectionRow) {
+  if (isEnvManaged(c.id)) throw ValidationError.withMessages({ connection: trans(req.locale, "eam.api_connection.managed_by_env") });
+}
 
 /** ตรวจ field ที่เป็น JSON (field_map / role_rules / error_messages / allowed_hosts) + secret ที่จำเป็น */
 function checkJsonFields(req: Request, data: Record<string, unknown>, errors: ErrorBag, current: ApiConnectionRow | null) {
@@ -202,6 +208,12 @@ function toRow(req: Request, data: Record<string, unknown>) {
   return { row, secretChanged };
 }
 
+/** ตรวจ + แปลงค่าเป็นแถวที่จะบันทึก ด้วยกฎเดียวกับหน้าเว็บ — ใช้ตอนสร้างการเชื่อมต่อจาก .env (services/env-connection.ts) */
+export async function connectionRowFromInput(input: Record<string, unknown>, locale: Locale): Promise<Record<string, unknown>> {
+  const req = { input, locale } as unknown as Request;
+  return toRow(req, await validated(req, null)).row;
+}
+
 apiConnectionRoutes.get("/api-connections", async (req, res) => {
   guard(req);
   const rows = await select<ApiConnectionRow>("SELECT * FROM api_connections ORDER BY name, id");
@@ -227,6 +239,7 @@ apiConnectionRoutes.post("/api-connections", async (req, res) => {
 const save = async (req: Request, res: import("express").Response) => {
   const u = guard(req);
   const current = await find(req.params.id as string);
+  assertNotEnvManaged(req, current);
   const data = await validated(req, current);
   const { row, secretChanged } = toRow(req, data);
   await update("api_connections", { ...row, updated_by: u.id, updated_at: nowDb() }, "id = ?", [current.id]);
@@ -250,6 +263,7 @@ apiConnectionRoutes.patch("/api-connections/:id", save);
 apiConnectionRoutes.delete("/api-connections/:id", async (req, res) => {
   guard(req);
   const current = await find(req.params.id as string);
+  assertNotEnvManaged(req, current);
   if ((await usersCount(current.id)) > 0) {
     throw ValidationError.withMessages({ connection: trans(req.locale, "eam.api_connection.in_use") });
   }
