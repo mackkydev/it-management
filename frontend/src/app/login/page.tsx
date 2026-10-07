@@ -97,7 +97,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           <p className="login-muted mt-1 text-sm">{t("auth.welcomeText")}</p>
           {expired && <p className={`mt-5 ${alert.warning}`}>{t("auth.expired")}</p>}
           <LoginForm connections={connections} />
-          <p className="login-muted mt-8 text-center text-xs">{t("auth.sessionNote")}</p>
+          {/* <p className="login-muted mt-8 text-center text-xs">{t("auth.sessionNote")}</p> */}
         </section>
 
         {/* จอเล็ก: ฝั่งซ้ายซ่อนอยู่ — แสดงประกาศใต้กล่อง login แทน */}

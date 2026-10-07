@@ -7,8 +7,8 @@ import type { PublicAnnouncement } from "@/lib/types";
 
 const LEVEL_TONE = { info: tone.info, warning: tone.warning, danger: tone.danger } as const;
 
-/** แสดงพร้อมกันสูงสุด 2 แถว — มากกว่านั้นเลื่อนขึ้นทีละแถวทุก 5 วินาที วนไปเรื่อย ๆ (ชี้เมาส์ค้าง = หยุด) */
-const VISIBLE = 2;
+/** แสดงทีละ 1 แถว — มีมากกว่า 1 ประกาศจะเลื่อนขึ้นทีละแถวทุก 5 วินาที วนไปเรื่อย ๆ (ชี้เมาส์ค้าง = หยุด) */
+const VISIBLE = 1;
 const ROW_PX = 76; // ความสูงแถว 68px + ช่องว่าง 8px — แถวสูงเท่ากันทุกแถว เพื่อให้เลื่อนได้พอดี
 const INTERVAL_MS = 5_000;
 
@@ -29,7 +29,7 @@ export function AnnouncementTicker({ items, title }: { items: PublicAnnouncement
 
   if (items.length === 0) return null;
 
-  // ต่อ 2 แถวแรกไว้ท้ายรายการ — เลื่อนถึงชุดที่ต่อไว้แล้วกระโดดกลับแถวแรกแบบไม่มี animation (ดูเหมือนวนต่อเนื่อง)
+  // ต่อ VISIBLE แถวแรกไว้ท้ายรายการ — เลื่อนถึงชุดที่ต่อไว้แล้วกระโดดกลับแถวแรกแบบไม่มี animation (ดูเหมือนวนต่อเนื่อง)
   const rows = loop ? [...items, ...items.slice(0, VISIBLE)] : items;
   const onTransitionEnd = () => {
     if (index >= items.length) {
