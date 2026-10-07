@@ -20,5 +20,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|svg|jpg|ico)$).*)"],
+  // ไฟล์ PWA (manifest / service worker / หน้า offline) ต้องโหลดได้โดยไม่ต้อง login
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|offline.html|.*\\.(?:png|svg|jpg|ico)$).*)"],
 };

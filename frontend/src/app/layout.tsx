@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Thai } from "next/font/google";
 import { PrefsProvider } from "@/components/prefs-provider";
+import { PwaRegister } from "@/components/pwa-register";
 import { I18nProvider } from "@/i18n/client";
 import { getI18n } from "@/i18n/server";
 import { customThemeVars } from "@/lib/color";
@@ -19,12 +20,17 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: { default: t("app.fullName"), template: `%s | ${t("app.name")}` },
     description: t("app.tagline"),
+    applicationName: t("app.name"),
+    // PWA: manifest มาจาก src/app/manifest.ts อัตโนมัติ — ส่วนนี้สำหรับ iOS (Add to Home Screen)
+    appleWebApp: { capable: true, title: t("app.name"), statusBarStyle: "black-translucent" },
+    icons: { apple: "/icons/apple-touch-icon.png" },
   };
 }
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: "#050816",
 };
 
 /**
@@ -53,6 +59,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full bg-canvas text-ink">
         <I18nProvider locale={prefs.locale} dict={dict}>
           <PrefsProvider initial={prefs}>{children}</PrefsProvider>
+          <PwaRegister />
         </I18nProvider>
       </body>
     </html>

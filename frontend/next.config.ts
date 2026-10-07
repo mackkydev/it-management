@@ -17,7 +17,11 @@ const nextConfig: NextConfig = {
     },
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // PWA: service worker ต้องไม่ถูก cache — แก้ sw.js แล้วเครื่องผู้ใช้ได้ตัวใหม่ทันที
+      { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
+    ];
   },
 };
 
