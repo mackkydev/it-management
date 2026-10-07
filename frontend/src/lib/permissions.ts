@@ -97,7 +97,7 @@ export function sampleUser(a: Audience, config: UiConfig): User {
   const perms = (x: Audience) => config.role_permissions[x] ?? [];
   const role = (ROLES as readonly string[]).includes(a) ? (a as User["role"]) : "viewer";
   const groups = role === a ? [a] : ["viewer", a];
-  return { ...base, role, groups, permissions: [...new Set(groups.flatMap(perms))] };
+  return { ...base, role, groups, permissions: [...new Set(groups.flatMap(perms))], can_approve: role !== "viewer" };
 }
 
 /**

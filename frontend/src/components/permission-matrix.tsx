@@ -9,6 +9,19 @@ import type { PermissionDef, PermissionModule } from "@/lib/types";
 
 /** คอลัมน์ของตาราง — "manage" (เพิ่ม/แก้ไข/ลบ รวมกัน) วางคร่อม 3 คอลัมน์ เพิ่ม–ลบ */
 const COLUMNS = ["view", "create", "update", "delete", "approve", "other"] as const;
+type Column = (typeof COLUMNS)[number];
+
+/**
+ * สิ่งที่ทุกคนทำได้เสมอ (ไม่มี permission key — ระบบอนุญาตตามเจ้าของเอกสาร) — แสดงเป็นช่องติ๊กที่ล็อกไว้ในช่องที่ว่าง
+ * ต้องตรงกับกฎใน express/src/services/ticket-workflow.ts (canEdit / canDelete)
+ */
+const ALWAYS: Partial<Record<string, Partial<Record<Column, MessageKey>>>> = {
+  tickets: {
+    create: "rolePermissions.always.ticketCreate",
+    update: "rolePermissions.always.ticketUpdate",
+    delete: "rolePermissions.always.ticketDelete",
+  },
+};
 
 /**
  * ตารางสิทธิ์แบบ ระบบงาน × การกระทำ (แบบหน้าจอสิทธิ์ของ STEC)
@@ -25,6 +38,19 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
         <LockIcon width={12} height={12} className="shrink-0 text-warning-500" aria-label={t("rolePermissions.locked")} />
       </Tooltip>
     );
+  // ช่อง "ทำได้เสมอ": ติ๊กไว้และล็อก แก้ไม่ได้
+  const always = (moduleKey: string, c: Column) => {
+    const label = ALWAYS[moduleKey]?.[c];
+    if (!label) return null;
+    return (
+      <Tooltip label={t(label)} side="top">
+        <span className="inline-flex items-center gap-1">
+          <input type="checkbox" checked readOnly disabled aria-label={t(label)} className="h-4 w-4 cursor-not-allowed accent-[var(--accent-500)] opacity-60" />
+          <LockIcon width={11} height={11} className="shrink-0 text-faint" />
+        </span>
+      </Tooltip>
+    );
+  };
   const control = (p: PermissionDef) => (
     <Tooltip label={name(p)} side="top">
       <span className="inline-flex items-center gap-1">
@@ -44,7 +70,7 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
               {/* คอลัมน์ระบบงานกินพื้นที่ที่เหลือ → ช่องสิทธิ์ทั้งหมดชิดขวา */}
               <th className="w-full px-4 py-2.5 text-left font-medium">{t("rolePermissions.module")}</th>
               {COLUMNS.map((c) => (
-                <th key={c} className={`px-3 py-2.5 font-medium whitespace-nowrap ${c === "other" ? "min-w-64 text-left" : "w-20 text-center"}`}>
+                <th key={c} className={`px-3 py-2.5 font-medium whitespace-nowrap ${c === "other" ? "min-w-72 pl-6 text-left" : "w-32 text-center"}`}>
                   {t(`rolePermissions.actions.${c}` as MessageKey)}
                 </th>
               ))}
@@ -77,11 +103,12 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
                         {[...at(c), ...(c === "create" ? manage : [])].map((p) => (
                           <span key={p.key}>{control(p)}</span>
                         ))}
+                        {at(c).length === 0 && !(c === "create" && manage.length) && always(m.key, c)}
                       </td>
                     ))
                   )}
                   <td className="px-3 py-2.5 text-center">{at("approve").map((p) => <span key={p.key}>{control(p)}</span>)}</td>
-                  <td className="px-3 py-2.5">
+                  <td className="py-2.5 pl-6 pr-3">
                     <div className="flex flex-col gap-1.5">
                       {at("other").map((p) => (
                         <span key={p.key} className="flex items-center gap-2">
@@ -105,6 +132,13 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
           <div key={m.key} className="rounded-xl ring-1 ring-line">
             <p className="border-b border-line bg-subtle px-3 py-2 text-sm font-semibold">{name(m)}</p>
             <ul className="divide-y divide-line">
+              {Object.entries(ALWAYS[m.key] ?? {}).map(([c, label]) => (
+                <li key={c} className="flex items-center gap-3 px-3 py-2 text-muted">
+                  <input type="checkbox" checked readOnly disabled className="h-4 w-4 accent-[var(--accent-500)] opacity-60" />
+                  <span className="min-w-0 flex-1 text-sm">{t(label!)}</span>
+                  <LockIcon width={12} height={12} className="shrink-0 text-faint" />
+                </li>
+              ))}
               {items.map((p) => (
                 <li key={p.key} className="flex items-center gap-3 px-3 py-2">
                   {cell(p)}

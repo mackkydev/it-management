@@ -9,7 +9,7 @@ import { addMinutes, iso, nowDb, toDbDateTime } from "../lib/time.js";
 import { createToken, deleteToken, deleteUserTokens } from "../lib/tokens.js";
 import { currentPassword, makeHash, password, unique, validate, verifyHash } from "../lib/validator.js";
 import { me } from "../http.js";
-import { can, findUser, isLocal, type UserRow } from "../models/user.js";
+import { can, findUser, isLocal, roleRank, type UserRow } from "../models/user.js";
 import { userResource } from "../resources.js";
 import { ApiLoginError, callUpstream, loadConnection, loginWithApi, revokeApiSession } from "../services/api-auth.js";
 import { audit } from "../services/audit.js";
@@ -144,6 +144,22 @@ loginRoutes.post("/auth/api-login", limits.apiLogin, async (req, res) => {
   }
 });
 
+/**
+ * เป็นผู้อนุมัติใบแจ้งงานได้ไหม: ตำแหน่งสูงกว่าพนักงาน (ผู้แจ้งเลือกเป็นผู้อนุมัติได้) / อนุมัติแทนได้ /
+ * อยู่ในสายอนุมัติ / เป็นหัวหน้าตามสายบังคับบัญชาของใคร / เคยถูกเลือกเป็นผู้อนุมัติ
+ */
+async function canApprove(u: UserRow): Promise<boolean> {
+  if (roleRank(u.role) > roleRank("viewer") || can(u, "tickets.approve_any")) return true;
+  return Boolean(
+    await first(
+      `SELECT 1 AS x FROM approval_step_approvers WHERE user_id = ?
+        UNION ALL SELECT 1 FROM users WHERE supervisor_id = ? AND is_active = true
+        UNION ALL SELECT 1 FROM it_tickets WHERE approver_id = ? LIMIT 1`,
+      [u.id, u.id, u.id],
+    ),
+  );
+}
+
 authRoutes.get("/auth/me", async (req, res) => {
   const u = me(req);
   const branch = u.branch_id ? await first<{ id: number; name: string }>("SELECT id, name FROM branches WHERE id = ? AND deleted_at IS NULL", [u.branch_id]) : null;
@@ -160,6 +176,8 @@ authRoutes.get("/auth/me", async (req, res) => {
       permissions: [...(u.perms ?? [])].sort(),
       // กลุ่มที่มีผล (ตำแหน่ง + กลุ่มที่มอบเพิ่ม) — frontend ใช้กับการซ่อนเมนู/ปุ่มรายกลุ่ม
       groups: await groupsOf(u),
+      // เมนู "รอฉันอนุมัติ" — แสดงเฉพาะผู้ที่มีงานอนุมัติได้จริง
+      can_approve: await canApprove(u),
       ...(external ? { external_connection: external } : {}),
     },
   });

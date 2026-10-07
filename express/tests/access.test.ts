@@ -31,7 +31,7 @@ describe("access management (local admin)", () => {
     const person = await apiUser(await connection());
 
     const view = (await admin.get(`/api/v1/users/${person.id}/permissions`)).body.data;
-    expect(view).toMatchObject({ groups: ["viewer"], inherited: ["signature.manage_own"], overrides: {}, effective: ["signature.manage_own"], is_super_admin: false });
+    expect(view).toMatchObject({ groups: ["viewer"], inherited: ["locations.view", "signature.manage_own"], overrides: {}, effective: ["locations.view", "signature.manage_own"], is_super_admin: false });
 
     const saved = await admin.put(`/api/v1/users/${person.id}/permissions`).send({ role: "manager", overrides: { "vault.view": "allow", "assets.update": "deny" } });
     expect(saved.status).toBe(200);

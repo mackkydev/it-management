@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BoxIcon, CheckCircleIcon, MapPinIcon, PencilIcon, PlusIcon } from "@/components/icons";
@@ -47,6 +48,8 @@ function toTree(list: Location[]): { loc: Location; depth: number }[] {
 export default async function LocationsPage({ searchParams }: PageProps<"/locations">) {
   const [params, user, { t, fmt }, can] = await Promise.all([searchParams, getCurrentUser(), getI18n(), getAccess()]);
   const canManage = has(user, "locations.manage");
+  // หน้ารายการสถานที่: locations.view (ช่องเลือกสถานที่ในฟอร์มใช้ได้ทุกคนอยู่แล้ว)
+  if (!canManage && !has(user, "locations.view")) redirect("/assets");
   const canCreate = canManage && can("btn:locations:create");
   // ผู้จัดการเห็นทั้งหมด (รวมที่ปิดใช้งาน) พร้อมจำนวนสินทรัพย์/สถานที่ย่อย
   const { data } = await apiFetch<{ data: Location[] }>(canManage ? "/locations?include_inactive=1" : "/locations");

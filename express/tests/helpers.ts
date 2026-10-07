@@ -18,7 +18,7 @@ const next = () => ++seq;
 const IT_STAFF_KEYS = [
   "it_tickets.queue", "it_tickets.accept", "kpi.use", "vault.view", "vault.create", "vault.update", "vault.delete",
   "contracts.view", "contracts.create", "contracts.update", "contracts.delete", "announcements.manage",
-  "assets.view_all", "assets.license_key", "licenses.install", "users.search", "signature.manage_own",
+  "assets.view_all", "movements.view", "assets.license_key", "licenses.install", "users.search", "signature.manage_own",
 ];
 const IT_HEAD_KEYS = [...IT_STAFF_KEYS.filter((k) => k !== "it_tickets.accept"), "it_tickets.manage_all", "it_tickets.close", "kpi.view_all"];
 
@@ -111,10 +111,9 @@ export async function makeContract(attrs: Record<string, unknown>): Promise<numb
 }
 
 /** วันที่ (UTC) ห่างจากวันนี้ n วัน "YYYY-MM-DD" */
+/** วันนี้ ± n วัน ตามเวลาไทย (เหมือนที่ API ใช้) — ใช้ UTC จะเพี้ยนช่วงเที่ยงคืนถึง 07:00 */
 export function day(n: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
+  return localDay(n);
 }
 
 /** วันที่ตาม timezone ผู้ใช้ (EAM_LOCAL_TIMEZONE) ห่างจากวันนี้ n วัน — ใช้กับ rule "ห้ามเป็นวันในอนาคต" */

@@ -57,6 +57,70 @@ export async function ensurePermissions(): Promise<void> {
     }
   }
   await migrateUiAudiences();
+  await convertHiddenMenus();
+}
+
+/**
+ * เมนู/ปุ่มที่เคยซ่อน (app_settings.ui_permissions) → สิทธิ์ที่ใช้เปิดหน้านั้น — ใช้แปลง "ซ่อน" เป็น "ถอดสิทธิ์จริง"
+ * เมนูที่ไม่มีสิทธิ์คุม (เช่น แจ้งงานใหม่ / รอฉันอนุมัติ) ไม่แปลง — รอฉันอนุมัติแสดงตามการเป็นผู้อนุมัติจริง
+ */
+const HIDDEN_TO_KEYS: Record<string, string[]> = {
+  "/it/tickets": ["it_tickets.queue"],
+  "/kpi": ["kpi.use"],
+  "/vault": ["vault.view", "vault.create", "vault.update", "vault.delete"],
+  "/contracts": ["contracts.view", "contracts.create", "contracts.update", "contracts.delete"],
+  "/announcements": ["announcements.manage"],
+  "/movements": ["movements.view"],
+  "/license-installations": ["licenses.install"],
+  "/assets/new": ["assets.create"],
+  "/locations": ["locations.view"],
+  "/locations/new": ["locations.manage"],
+  "/users": ["users.view"],
+  "/users/new": ["users.create"],
+  "/branches": ["branches.manage"],
+  "/divisions": ["org.manage"],
+  "/departments": ["org.manage"],
+  "/ticket-types": ["settings.manage"],
+  "/settings": ["settings.manage"],
+  "/approval-routes": ["approval_routes.manage"],
+  "/audit-logs": ["audit_logs.view"],
+  "btn:assets:create": ["assets.create"],
+  "btn:assets:edit": ["assets.update"],
+  "btn:vault:create": ["vault.create"],
+  "btn:vault:reveal": ["vault.view"],
+  "btn:contracts:create": ["contracts.create"],
+  "btn:locations:create": ["locations.manage"],
+  "btn:users:create": ["users.create"],
+};
+
+/**
+ * รวมหน้า "สิทธิ์การใช้งาน" เข้ากับ "สิทธิ์ตามกลุ่ม" (ครั้งเดียว — จำไว้ที่ app_settings.ui_permissions_v3):
+ * ค่าซ่อนเมนู/ปุ่มรายกลุ่ม → ถอดสิทธิ์จริงของกลุ่มนั้น แล้วล้างค่าซ่อนทิ้ง (เก็บสำเนาไว้ที่ ui_permissions_converted)
+ * ผู้ดูแลระบบสูงสุดผ่านทุกสิทธิ์อยู่แล้ว — ไม่แปลง
+ */
+async function convertHiddenMenus(): Promise<void> {
+  if (await first("SELECT 1 FROM app_settings WHERE \"key\" = 'ui_permissions_v3'")) return;
+  const ui = await getSetting("ui_permissions");
+  const hidden = ui && typeof ui === "object" && !Array.isArray(ui) ? (ui as Record<string, unknown>) : {};
+  const removed: { group: string; keys: string[]; from: string }[] = [];
+  const skipped: string[] = [];
+  for (const [target, groups] of Object.entries(hidden)) {
+    const keys = HIDDEN_TO_KEYS[target];
+    if (!keys) {
+      skipped.push(target);
+      continue;
+    }
+    for (const group of Array.isArray(groups) ? groups.map(String) : []) {
+      if (group === SUPER_ADMIN_GROUP) continue;
+      await exec('DELETE FROM role_permissions WHERE role = ? AND permission_id IN (SELECT id FROM permissions WHERE "key" IN (?))', [group, keys]);
+      removed.push({ group, keys, from: target });
+    }
+  }
+  if (Object.keys(hidden).length) {
+    await putSetting("ui_permissions_converted", { at: nowDb(), hidden, removed, skipped }, null);
+    await putSetting("ui_permissions", {}, null);
+  }
+  await putSetting("ui_permissions_v3", true, null);
 }
 
 /**

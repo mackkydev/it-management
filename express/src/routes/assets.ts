@@ -684,8 +684,8 @@ assetRoutes.post("/assets/:uuid/movements", async (req, res) => {
  * type = registered / transfer (ทั้งหมด) / location (เปลี่ยนสถานที่) / custodian (เปลี่ยนผู้ถือครอง)
  */
 assetRoutes.get("/movements", async (req, res) => {
-  // รายงานรวมของทุกสินทรัพย์ — เฉพาะผู้ที่เห็นสินทรัพย์ทั้งหมด
-  authorize(seesAllAssets(me(req)));
+  // รายงานรวมของทุกสินทรัพย์ — สิทธิ์ movements.view
+  authorize(can(me(req), "movements.view"));
   const f = await validate(
     req.input,
     {

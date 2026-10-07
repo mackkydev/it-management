@@ -1274,6 +1274,11 @@ const en: Dictionary = {
     expiryOn: "Use expiry dates",
     expirySaved: "Expiry setting saved",
     locked: "Reserved for super admins to grant or remove",
+    always: {
+      ticketCreate: "Always allowed: everyone can file requests (cannot be changed)",
+      ticketUpdate: "Always allowed: edit own requests before anyone approves (cannot be changed)",
+      ticketDelete: "Always allowed: delete own requests before approval or after rejection (cannot be changed)",
+    },
     save: "Save permissions",
     saved: "Group permissions saved",
     changed: "{count} group(s) not saved yet",

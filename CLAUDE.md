@@ -59,12 +59,13 @@
 - ใช้ลายเซ็นคนอื่นต้องมีสิทธิ์ `signature.use`; ทุกการอัปโหลด/เปลี่ยน/ลบ/นำไปใช้ลง `audit_logs`; JIT ของ API User ห้ามแตะลายเซ็น
 - `users.signature_path` เป็นคอลัมน์เดิม (ไม่ใช้แล้ว — คงไว้ตามกฎ additive)
 
-## สิทธิ์การมองเห็นเมนู/ปุ่ม (หน้า ตั้งค่าระบบ → สิทธิ์การใช้งาน)
+## สิทธิ์การมองเห็นเมนู/ปุ่ม (หน้า ตั้งค่าระบบ → สิทธิ์การใช้งาน `/permissions` — แยกจากสิทธิ์ตามกลุ่ม `/role-permissions`)
 - ตั้งค่าเก็บใน `app_settings`: `ui_permissions` (key → key กลุ่มสิทธิ์ที่ซ่อน — แก้ได้เฉพาะ `access.manage`) และ `menu_order` — โค้ดกลางอยู่ที่ `frontend/src/lib/permissions.ts`
 - key เมนู = `href` ของเมนูใน `components/shell/nav.ts`, key ปุ่ม = `btn:<หน้า>:<ปุ่ม>` (**ห้ามมีจุด** — validator ของ API ใช้จุดแยก path)
-- เพิ่มเมนูใหม่: ใส่ใน `NAV` แล้วจะขึ้นในหน้าสิทธิ์อัตโนมัติ; เพิ่มปุ่มใหม่: เพิ่มใน `BUTTONS` แล้วครอบปุ่มด้วย `(await getAccess())("btn:...")`
+- เพิ่มเมนูใหม่: ใส่ใน `NAV` พร้อม `visible` ตาม permission key แล้วจะขึ้นในหน้าสิทธิ์อัตโนมัติ; เพิ่มปุ่มใหม่: เพิ่มใน `BUTTONS` แล้วครอบปุ่มด้วย `(await getAccess())("btn:...")`
 - เป็นการซ่อนเพิ่มจากสิทธิ์เดิมเท่านั้น — สิทธิ์จริงต้องตรวจที่ API เสมอ
-
+- ค่าซ่อนเดิมถูกแปลงเป็นการถอดสิทธิ์จริงครั้งเดียว (`convertHiddenMenus` ใน `services/permissions.ts`, flag `ui_permissions_v3`, สำเนา `ui_permissions_converted`) — ซ่อนใหม่หลังจากนั้นเป็นการซ่อนปกติ
+- เมนู "รอฉันอนุมัติ" แสดงตาม `can_approve` จาก `/auth/me`; ช่อง "ทุกคนทำได้เสมอ" ในตารางสิทธิ์ (แจ้ง/แก้/ลบใบแจ้งงานของตัวเอง) = ช่องติ๊กล็อก — `ALWAYS` ใน `components/permission-matrix.tsx` (ต้องตรงกับ `ticket-workflow.ts`)
 ## สายอนุมัติใบแจ้งงาน (หน้า ตั้งค่าระบบ → สายอนุมัติ)
 - โค้ดกลาง: `express/src/services/approval-routes.ts` (ลำดับจับคู่: รายบุคคล → สาขา+แผนก → สาขา → แผนก → ตั้งต้น → ระบบเดิม `supervisor_id`)
 - ตอนแจ้งงานคัดลอกสายเป็น snapshot ใน `it_ticket_approval_steps` — แก้/ลบสายไม่กระทบใบเดิม; สถานะยังเป็น `pending_supervisor` ทุกขั้น + `it_tickets.current_step`

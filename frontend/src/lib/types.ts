@@ -98,6 +98,8 @@ export interface User {
   permissions?: string[];
   /** กลุ่มที่มีผล (ตำแหน่ง + กลุ่มที่มอบเพิ่ม) จาก GET /auth/me — ใช้กับการซ่อนเมนู/ปุ่มรายกลุ่ม */
   groups?: string[];
+  /** มีงานอนุมัติใบแจ้งงานได้ (เมนู "รอฉันอนุมัติ") — จาก GET /auth/me */
+  can_approve?: boolean;
   /** API User (จาก GET /auth/me): ระบบต้นทาง + ลิงก์เปลี่ยนรหัสผ่านที่ต้นทาง */
   external_connection?: { name: string; change_password_url: string | null };
   // สังกัด / สายบังคับบัญชา / ฝ่าย IT

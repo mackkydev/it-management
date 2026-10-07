@@ -113,7 +113,7 @@ describe("permissions", () => {
     const res = await (await as(await makeUser())).get("/api/v1/ui-config");
     expect(res.body.data.role_permissions.admin).toEqual(expect.arrayContaining(["it_tickets.close", "kpi.use"]));
     expect(res.body.data.role_permissions.admin).not.toContain("kpi.view_all");
-    expect(res.body.data.role_permissions.viewer).toEqual(["signature.manage_own"]); // ลายเซ็นของตัวเอง = ทุกกลุ่ม
+    expect(res.body.data.role_permissions.viewer).toEqual(["locations.view", "signature.manage_own"]); // หน้าสถานที่ + ลายเซ็นของตัวเอง = ทุกกลุ่ม
     expect(Object.keys(res.body.data.role_permissions).sort()).toEqual(["admin", "division_manager", "manager", "super_admin", "viewer"]);
     expect(res.body.data.role_permissions.super_admin).toHaveLength(PERMISSIONS.length);
   });
@@ -125,5 +125,42 @@ describe("permissions", () => {
     expect((await (await as(helper)).get("/api/v1/tickets?scope=it")).status).toBe(403);
     await override(helper, "it_tickets.queue", "allow");
     expect((await (await as(helper)).get("/api/v1/tickets?scope=it")).status).toBe(200);
+  });
+});
+
+describe("menus follow real permissions (permissions page merged into group permissions)", () => {
+  it("old per-group hidden menus become real permission removals, once; user search still works", async () => {
+    await exec("DELETE FROM app_settings WHERE \"key\" IN ('ui_permissions_v3', 'ui_permissions_converted')");
+    await exec("DELETE FROM app_settings WHERE \"key\" = 'ui_permissions'");
+    await insert("app_settings", { key: "ui_permissions", value: JSON.stringify({ "/users": ["manager"], "/locations": ["viewer"], "/tickets/approvals": ["viewer"], "/vault": ["super_admin"] }), created_at: nowDb(), updated_at: nowDb() });
+    await ensurePermissions();
+
+    const manager = await makeUser({ role: "manager" });
+    const keys = await permissionsOf(manager);
+    expect(keys.has("users.view")).toBe(false);
+    expect(keys.has("users.search")).toBe(true); // ยังค้นหา/เลือกผู้ใช้ในฟอร์มได้
+    expect((await (await as(manager)).get("/api/v1/users?manage=1")).status).toBe(403); // หน้ารายการ/จัดการผู้ใช้
+    expect((await (await as(manager)).get("/api/v1/users?search=a&per_page=10")).status).toBe(200); // ช่องค้นหาผู้ใช้ (users.search)
+    expect((await permissionsOf(await makeUser())).has("locations.view")).toBe(false);
+
+    const json = (v: unknown) => (typeof v === "string" ? JSON.parse(v) : v);
+    const converted = await first<{ value: unknown }>("SELECT \"value\" FROM app_settings WHERE \"key\" = 'ui_permissions_converted'");
+    expect(json(converted?.value).skipped).toEqual(["/tickets/approvals"]);
+    expect(json(await scalar("SELECT \"value\" FROM app_settings WHERE \"key\" = 'ui_permissions'"))).toEqual({});
+
+    // รันซ้ำไม่แปลงอีก (ให้สิทธิ์คืนแล้วต้องคงอยู่)
+    await exec("INSERT IGNORE INTO role_permissions (role, permission_id, created_at) SELECT 'manager', id, ? FROM permissions WHERE \"key\" = 'users.view'", [nowDb()]);
+    await ensurePermissions();
+    expect((await permissionsOf(manager)).has("users.view")).toBe(true);
+  });
+
+  it("the approvals menu shows only for people who can actually approve", async () => {
+    const me = async (u: UserRow) => (await (await as(u)).get("/api/v1/auth/me")).body.data.can_approve;
+    const staff = await makeUser();
+    expect(await me(staff)).toBe(false);
+    expect(await me(await makeUser({ role: "manager" }))).toBe(true);
+    const boss = await makeUser(); // พนักงานที่เป็นหัวหน้าของใคร
+    await exec("UPDATE users SET supervisor_id = ? WHERE id = ?", [boss.id, staff.id]);
+    expect(await me(boss)).toBe(true);
   });
 });

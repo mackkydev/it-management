@@ -56,7 +56,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "nav.ticketNew", href: "/tickets/new", icon: PlusIcon },
       { label: "nav.ticketMine", href: "/tickets", icon: InboxIcon },
-      { label: "nav.ticketApprovals", href: "/tickets/approvals", icon: CheckCircleIcon },
+      { label: "nav.ticketApprovals", href: "/tickets/approvals", icon: CheckCircleIcon, visible: (u) => Boolean(u.can_approve) || has(u, "tickets.approve_any") },
     ],
   },
   {
@@ -85,7 +85,7 @@ export const NAV: NavGroup[] = [
     items: [
       // ทุกคนเห็น — ไม่มีสิทธิ์ assets.view_all = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง
       { label: "nav.assetList", href: "/assets", icon: ListIcon },
-      { label: "nav.movements", href: "/movements", icon: HistoryIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.update") },
+      { label: "nav.movements", href: "/movements", icon: HistoryIcon, visible: perm("movements.view") },
       { label: "nav.repairs", href: "/repairs", icon: WrenchIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.update") },
       { label: "nav.licenseInstallations", href: "/license-installations", icon: MonitorIcon, visible: perm("licenses.install") },
     ],
@@ -98,7 +98,7 @@ export const NAV: NavGroup[] = [
       { label: "nav.branches", href: "/branches", icon: BuildingIcon, visible: perm("branches.manage") },
       { label: "nav.divisions", href: "/divisions", icon: BuildingIcon, visible: perm("org.manage") },
       { label: "nav.departments", href: "/departments", icon: UsersIcon, visible: perm("org.manage") },
-      { label: "nav.locations", href: "/locations", icon: MapPinIcon },
+      { label: "nav.locations", href: "/locations", icon: MapPinIcon, visible: (u) => has(u, "locations.view") || has(u, "locations.manage") },
       { label: "nav.users", href: "/users", icon: UsersIcon, visible: perm("users.view") },
       { label: "nav.apiUsers", href: "/api-users", icon: UsersIcon, visible: perm("access.assign") },
       { label: "nav.ticketTypes", href: "/ticket-types", icon: ListIcon, visible: perm("settings.manage") },
@@ -121,7 +121,7 @@ export const NAV: NavGroup[] = [
 ];
 
 /**
- * เมนูที่ผู้ใช้คนนี้เห็น — สิทธิ์เดิมของระบบ (visible) + การตั้งค่าหน้าสิทธิ์ (ซ่อนเพิ่ม/จัดลำดับ)
+ * เมนูที่ผู้ใช้คนนี้เห็น — สิทธิ์จริง (visible) + การตั้งค่าหน้าสิทธิ์การใช้งาน (ซ่อนเพิ่ม/จัดลำดับ)
  * ซ่อนเฉพาะ UI — สิทธิ์จริงตรวจที่ API
  */
 export function navFor(user: User, config: UiConfig = EMPTY_UI_CONFIG): NavGroup[] {

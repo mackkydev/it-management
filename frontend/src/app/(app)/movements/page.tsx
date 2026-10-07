@@ -12,7 +12,7 @@ import { btn, card, input, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { redirect } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import { canViewAllAssets, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, has } from "@/lib/auth";
 import type { MessageKey } from "@/i18n/types";
 import { CATEGORIES, type AssetMovement, type Branch, type Location, type Paginated } from "@/lib/types";
 import { MOVEMENT_STYLE, MovementChanges } from "../assets/movement-timeline";
@@ -40,7 +40,7 @@ function buildQuery(params: Record<string, string | string[] | undefined>) {
 
 export default async function MovementsPage({ searchParams }: PageProps<"/movements">) {
   // รายงานรวมของทุกสินทรัพย์ — ผู้ที่เห็นเฉพาะของตัวเองดูประวัติได้ในหน้ารายละเอียดสินทรัพย์
-  if (!canViewAllAssets(await getCurrentUser())) redirect("/assets");
+  if (!has(await getCurrentUser(), "movements.view")) redirect("/assets");
   const params = await searchParams;
   const query = buildQuery(params);
   const [{ t }, locations, branches] = await Promise.all([getI18n(), apiFetch<{ data: Location[] }>("/locations"), apiFetch<{ data: Branch[] }>("/branches")]);
