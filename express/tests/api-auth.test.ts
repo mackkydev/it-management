@@ -277,7 +277,7 @@ describe("API users — session", () => {
     expect((await withToken(a.token).get("/api/v1/auth/me")).status).toBe(401);
 
     const res = await login(a.conn, "suda");
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     expect((await admin.patch(`/api/v1/api-connections/${a.conn}`).send({ is_enabled: false })).status).toBe(200);
     expect((await withToken(res.body.token).get("/api/v1/auth/me")).status).toBe(401);
   });
@@ -349,7 +349,7 @@ describe("API connections — admin settings", () => {
   });
 
   it("creates a connection: secret is encrypted, never returned, and every change is audited without it", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const created = await admin.post("/api/v1/api-connections").send(body);
     expect(created.status).toBe(201);
     expect(created.body.data).toMatchObject({ name: "ระบบ HR", has_auth_secret: true, is_enabled: false, users_count: 0 });
@@ -374,7 +374,7 @@ describe("API connections — admin settings", () => {
   });
 
   it("rejects insecure or malformed settings", async () => {
-    const admin = await as(await makeUser({ role: "admin" }), "th");
+    const admin = await as(await makeUser({ role: "super_admin" }), "th");
     const res = await admin.post("/api/v1/api-connections").send({
       ...body,
       base_url: "http://hr.example.com",
@@ -395,7 +395,7 @@ describe("API connections — admin settings", () => {
   });
 
   it("test button logs in for real, shows the mapping, returns no token and logs out again", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const conn = await makeConnection({ is_enabled: false });
     const res = await admin.post(`/api/v1/api-connections/${conn}/test`).send({ username: "somchai", password: PASSWORD });
     expect(res.body.data).toMatchObject({
@@ -418,7 +418,7 @@ describe("API connections — admin settings", () => {
   });
 
   it("a connection with users cannot be deleted", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const conn = await makeConnection();
     await login(conn, "somchai");
     expect((await admin.delete(`/api/v1/api-connections/${conn}`)).status).toBe(422);

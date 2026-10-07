@@ -4,7 +4,7 @@ import { MapPinIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { canManageAssets, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, has } from "@/lib/auth";
 import type { Location } from "@/lib/types";
 import { LocationForm } from "../location-form";
 
@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NewLocationPage() {
   const user = await getCurrentUser();
-  if (!canManageAssets(user)) redirect("/locations");
+  if (!has(user, "locations.manage")) redirect("/locations");
 
   const [{ data }, { t }] = await Promise.all([apiFetch<{ data: Location[] }>("/locations?include_inactive=1"), getI18n()]);
 

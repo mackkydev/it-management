@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NewContractPage() {
   const user = await getCurrentUser();
-  if (!has(user, "contracts.manage")) redirect("/tickets");
+  if (!has(user, "contracts.create")) redirect("/tickets");
   const [{ data: branches }, { default_notify_days }, { t }] = await Promise.all([
     apiFetch<{ data: Branch[] }>("/branches"),
     apiFetch<{ default_notify_days: number }>("/contracts?status=expired"),

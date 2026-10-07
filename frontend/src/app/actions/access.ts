@@ -4,25 +4,26 @@ import { revalidatePath } from "next/cache";
 import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { apiFetch } from "@/lib/api";
-import type { ApiConnection, ApiConnectionTest, SyncResult, UserPermissionView } from "@/lib/types";
+import type { ApiConnection, ApiConnectionTest, OverrideValue, PermissionGroupRow, SyncResult, UserPermissionView } from "@/lib/types";
 
-/** API User / สิทธิ์รายคน / การเชื่อมต่อ API — Local Admin เท่านั้น (API ตรวจซ้ำทุกครั้ง) */
+/** API User / สิทธิ์ / กลุ่มสิทธิ์ / การเชื่อมต่อ API — API ตรวจสิทธิ์และกติกาการมอบซ้ำทุกครั้ง */
 
 const validId = (id: unknown): id is number => Number.isInteger(id) && (id as number) > 0;
 
 export type PermissionResult = ActionResult & { data?: UserPermissionView };
 
-/** บันทึกบทบาท (API User: manager / viewer) + เพิ่ม/ถอดสิทธิ์รายคน (inherit = ตามกลุ่ม) */
+/** บันทึกตำแหน่ง + กลุ่มที่มอบเพิ่ม (ทั้งชุด) + เพิ่ม/ถอดสิทธิ์รายคน (inherit = ตามกลุ่ม) — ส่งเฉพาะส่วนที่เปลี่ยน */
 export async function saveUserPermissions(
   userId: number,
-  payload: { role?: "manager" | "viewer"; overrides: Record<string, "allow" | "deny" | "inherit"> },
+  payload: { role?: string; groups?: { key: string; expires_on: string | null }[]; overrides?: Record<string, OverrideValue | "inherit"> },
 ): Promise<PermissionResult> {
   const { t } = await getI18n();
   if (!validId(userId)) return { message: t("common.saveFailed") };
   try {
     const res = await apiFetch<{ data: UserPermissionView }>(`/users/${userId}/permissions`, { method: "PUT", body: JSON.stringify(payload) });
     revalidatePath("/api-users");
-    revalidatePath(`/api-users/${userId}`);
+    revalidatePath("/users");
+    revalidatePath(`/users/${userId}/permissions`);
     return { ok: true, message: t("access.saved"), data: res.data };
   } catch (e) {
     return toActionResult(e);
@@ -107,10 +108,12 @@ export async function checkHealth(id: number): Promise<ActionResult & { data?: {
   }
 }
 
-/** กำหนดสิทธิ์ทั้งชุดของกลุ่ม (บทบาท / it_staff / it_head) */
+const GROUP_KEY = /^[a-z0-9_]{1,20}$/;
+
+/** กำหนดสิทธิ์ทั้งชุดของกลุ่ม (กลุ่มตามตำแหน่ง / กลุ่มที่สร้างเอง) */
 export async function saveRolePermissions(group: string, keys: string[]): Promise<ActionResult> {
   const { t } = await getI18n();
-  if (!/^[a-z_]{1,30}$/.test(group)) return { message: t("common.saveFailed") };
+  if (!GROUP_KEY.test(group)) return { message: t("common.saveFailed") };
   try {
     await apiFetch(`/permissions/roles/${group}`, { method: "PUT", body: JSON.stringify({ keys }) });
   } catch (e) {
@@ -119,6 +122,50 @@ export async function saveRolePermissions(group: string, keys: string[]): Promis
   revalidatePath("/role-permissions");
   revalidatePath("/permissions");
   return { ok: true, message: t("rolePermissions.saved") };
+}
+
+/** สร้าง (key = null) / เปลี่ยนชื่อกลุ่มสิทธิ์ */
+export async function saveGroup(key: string | null, names: { name_th: string; name_en: string }): Promise<ActionResult & { data?: PermissionGroupRow }> {
+  const { t } = await getI18n();
+  if (key !== null && !GROUP_KEY.test(key)) return { message: t("common.saveFailed") };
+  try {
+    const res = await apiFetch<{ data: PermissionGroupRow }>(key ? `/permission-groups/${key}` : "/permission-groups", {
+      method: key ? "PUT" : "POST",
+      body: JSON.stringify({ name_th: names.name_th.trim(), name_en: names.name_en.trim() }),
+    });
+    revalidatePath("/role-permissions");
+    revalidatePath("/permissions");
+    return { ok: true, message: t("rolePermissions.groupSaved"), data: res.data };
+  } catch (e) {
+    return toActionResult(e);
+  }
+}
+
+/** ลบกลุ่มที่สร้างเอง (สมาชิกหลุดจากกลุ่ม) */
+export async function deleteGroup(key: string): Promise<ActionResult> {
+  const { t } = await getI18n();
+  if (!GROUP_KEY.test(key)) return { message: t("common.saveFailed") };
+  try {
+    await apiFetch(`/permission-groups/${key}`, { method: "DELETE" });
+  } catch (e) {
+    const r = await toActionResult(e);
+    return { ...r, message: Object.values(r.errors ?? {})[0] ?? r.message };
+  }
+  revalidatePath("/role-permissions");
+  revalidatePath("/permissions");
+  return { ok: true, message: t("rolePermissions.groupDeleted") };
+}
+
+/** เปิด/ปิดวันหมดอายุของสิทธิ์ */
+export async function savePermissionExpiry(enabled: boolean): Promise<ActionResult> {
+  const { t } = await getI18n();
+  try {
+    await apiFetch("/permission-expiry", { method: "PUT", body: JSON.stringify({ enabled }) });
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath("/role-permissions");
+  return { ok: true, message: t("rolePermissions.expirySaved") };
 }
 
 /** ซิงค์รายชื่อผู้ใช้จากต้นทางตอนนี้ */

@@ -5,7 +5,7 @@ import { createToken } from "../src/lib/tokens.js";
 import type { UserRow } from "../src/models/user.js";
 import { as, makeAsset, makeUser } from "./helpers.js";
 
-/** เฟส 4: จัดการสิทธิ์รายคน / รายการ API User / ผูกบัญชี / audit log — Local Admin เท่านั้น */
+/** จัดการสิทธิ์รายคน / รายการ API User / ผูกบัญชี / audit log — ผู้มีสิทธิ์ access.assign / audit_logs.view (super_admin ผ่านทุกสิทธิ์) */
 
 async function connection(name = "HR") {
   return insert("api_connections", { name, is_enabled: true, base_url: "https://hr.example.com", login_path: "/login", created_at: nowDb(), updated_at: nowDb() });
@@ -27,23 +27,23 @@ describe("access management (local admin)", () => {
   });
 
   it("shows inherited, per-user and effective permissions, and saves role + overrides with an audit entry", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const person = await apiUser(await connection());
 
     const view = (await admin.get(`/api/v1/users/${person.id}/permissions`)).body.data;
-    expect(view).toMatchObject({ groups: ["viewer"], inherited: ["signature.manage_own"], overrides: {}, effective: ["signature.manage_own"], is_local_admin: false });
+    expect(view).toMatchObject({ groups: ["viewer"], inherited: ["signature.manage_own"], overrides: {}, effective: ["signature.manage_own"], is_super_admin: false });
 
-    const saved = await admin.put(`/api/v1/users/${person.id}/permissions`).send({ role: "manager", overrides: { "vault.use": "allow", "assets.manage": "deny" } });
+    const saved = await admin.put(`/api/v1/users/${person.id}/permissions`).send({ role: "manager", overrides: { "vault.view": "allow", "assets.update": "deny" } });
     expect(saved.status).toBe(200);
     expect(saved.body.data.user.role).toBe("manager");
-    expect(saved.body.data.overrides).toEqual({ "assets.manage": "deny", "vault.use": "allow" });
-    expect(saved.body.data.effective).toContain("vault.use");
-    expect(saved.body.data.effective).not.toContain("assets.manage");
-    expect(saved.body.data.inherited).toContain("assets.manage");
+    expect(saved.body.data.overrides).toEqual({ "assets.update": { effect: "deny", expires_on: null }, "vault.view": { effect: "allow", expires_on: null } });
+    expect(saved.body.data.effective).toContain("vault.view");
+    expect(saved.body.data.effective).not.toContain("assets.update");
+    expect(saved.body.data.inherited).toContain("assets.update");
 
     // inherit = ลบ override
-    const back = await admin.put(`/api/v1/users/${person.id}/permissions`).send({ overrides: { "assets.manage": "inherit" } });
-    expect(back.body.data.overrides).toEqual({ "vault.use": "allow" });
+    const back = await admin.put(`/api/v1/users/${person.id}/permissions`).send({ overrides: { "assets.update": "inherit" } });
+    expect(back.body.data.overrides).toEqual({ "vault.view": { effect: "allow", expires_on: null } });
 
     const logs = await first<{ before: { role: string }; after: { role: string; overrides: Record<string, string> } }>(
       `SELECT "before", "after" FROM audit_logs WHERE action = 'user.permissions_updated' ORDER BY id LIMIT 1`,
@@ -52,19 +52,20 @@ describe("access management (local admin)", () => {
     expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'user.permissions_updated'")).toBe(2);
   });
 
-  it("rejects admin role for API users and unknown permission keys", async () => {
-    const admin = await as(await makeUser({ role: "admin" }), "th");
+  it("API users can hold any role (super_admin too); unknown permission keys are rejected", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }), "th");
     const person = await apiUser(await connection());
-    const res = await admin.put(`/api/v1/users/${person.id}/permissions`).send({ role: "admin", overrides: { "nope.key": "allow", "vault.use": "maybe" } });
+    const res = await admin.put(`/api/v1/users/${person.id}/permissions`).send({ role: "admin", overrides: { "nope.key": "allow", "vault.view": "maybe" } });
     expect(res.status).toBe(422);
-    expect(Object.keys(res.body.errors).sort()).toEqual(["overrides.nope.key", "overrides.vault.use", "role"].sort());
+    expect(Object.keys(res.body.errors).sort()).toEqual(["overrides.nope.key", "overrides.vault.view"].sort());
 
+    expect((await admin.put(`/api/v1/users/${person.id}/permissions`).send({ role: "super_admin" })).body.data).toMatchObject({ user: { role: "super_admin" }, is_super_admin: true });
     const local = await makeUser({ role: "viewer" });
-    expect((await admin.put(`/api/v1/users/${local.id}/permissions`).send({ role: "manager" })).status).toBe(422); // LOCAL แก้บทบาทที่หน้าผู้ใช้
+    expect((await admin.put(`/api/v1/users/${local.id}/permissions`).send({ role: "manager" })).status).toBe(200);
   });
 
   it("lists API users with filters and flags e-mail conflicts", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const hr = await connection("HR");
     const erp = await connection("ERP");
     const somchai = await apiUser(hr, { name: "สมชาย", role: "manager", email: null, external_id: "E1" });
@@ -83,7 +84,7 @@ describe("access management (local admin)", () => {
   });
 
   it("links an API identity to the existing local account (keeps its history, removes its password)", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const conn = await connection();
     const local = await makeUser({ name: "สมชาย (เดิม)", email: "somchai@corp.example", role: "manager" });
     await makeAsset({ custodian_id: local.id });
@@ -99,23 +100,24 @@ describe("access management (local admin)", () => {
     expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'api_user.linked'")).toBe(1);
   });
 
-  it("refuses to link to an admin or when the API user already has history", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+  it("refuses to link a super admin (unless done by a super admin) or when the API user already has history", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }));
+    const deputy = await as(await makeUser({ role: "admin" }));
     const conn = await connection();
-    const otherAdmin = await makeUser({ role: "admin" });
+    const otherAdmin = await makeUser({ role: "super_admin" });
     const a = await apiUser(conn);
-    expect((await admin.post(`/api/v1/api-users/${a.id}/link`).send({ local_user_id: otherAdmin.id })).status).toBe(422);
+    expect((await deputy.post(`/api/v1/api-users/${a.id}/link`).send({ local_user_id: otherAdmin.id })).status).toBe(422);
     const b = await apiUser(conn);
     await makeAsset({ custodian_id: b.id });
     expect((await admin.post(`/api/v1/api-users/${b.id}/link`).send({ local_user_id: (await makeUser()).id })).status).toBe(422);
   });
 
   it("audit log lists changes with filters, newest first, without secrets", async () => {
-    const adminUser = await makeUser({ role: "admin", name: "Root" });
+    const adminUser = await makeUser({ role: "super_admin", name: "Root" });
     const admin = await as(adminUser);
     await admin.post("/api/v1/api-connections").send({ name: "HR", base_url: "https://hr.example.com", login_path: "/login", auth_type: "bearer", auth_secret: "top-secret" });
     const person = await apiUser(await connection("ERP"));
-    await admin.put(`/api/v1/users/${person.id}/permissions`).send({ overrides: { "vault.use": "allow" } });
+    await admin.put(`/api/v1/users/${person.id}/permissions`).send({ overrides: { "vault.view": "allow" } });
 
     const res = await admin.get("/api/v1/audit-logs");
     expect(res.body.data.map((l: { action: string }) => l.action)).toEqual(["user.permissions_updated", "api_connection.created"]);
@@ -126,10 +128,10 @@ describe("access management (local admin)", () => {
   });
 
   it("the user form: API users cannot get a password; role/status changes are audited", async () => {
-    const admin = await as(await makeUser({ role: "admin" }), "th");
+    const admin = await as(await makeUser({ role: "super_admin" }), "th");
     const person = await apiUser(await connection(), { email: null });
     const bad = await admin.patch(`/api/v1/users/${person.id}`).send({ password: "NewPass-123", role: "admin" });
-    expect(Object.keys(bad.body.errors).sort()).toEqual(["password", "role"]);
+    expect(Object.keys(bad.body.errors).sort()).toEqual(["password"]);
     expect((await admin.patch(`/api/v1/users/${person.id}`).send({ email: null, role: "manager", department: "IT" })).status).toBe(200);
 
     const local = await makeUser({ role: "viewer" });

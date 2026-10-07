@@ -717,6 +717,8 @@ model users {
   external_sessions                                        external_sessions[]
   user_permissions                                         user_permissions[]         @relation("user_permissions_user")
   user_permissions_granted                                 user_permissions[]         @relation("user_permissions_created_by")
+  user_groups                                              user_groups[]              @relation("user_groups_user")
+  user_groups_granted                                      user_groups[]              @relation("user_groups_created_by")
   audit_logs                                               audit_logs[]
   user_signatures                                          user_signatures[]          @relation("user_signatures_user")
   user_signatures_created                                  user_signatures[]          @relation("user_signatures_created_by")
@@ -837,7 +839,7 @@ model permissions {
   user_permissions user_permissions[]
 }
 
-/// สิทธิ์ของแต่ละ role (admin | manager | viewer — ค่าเดียวกับ users.role)
+/// สิทธิ์ของแต่ละกลุ่ม — role = permission_groups.key (กลุ่มตามตำแหน่ง users.role หรือกลุ่มที่สร้างเอง)
 model role_permissions {
   role          String      @db.VarChar(20)
   permission_id BigInt
@@ -854,11 +856,42 @@ model user_permissions {
   effect        String      @db.VarChar(10)
   created_by    BigInt?
   created_at    DateTime?   @db.DateTime(0)
+  /// ใช้ได้ถึงวันนี้ (เวลาไทย) — null = ไม่หมดอายุ; มีผลเมื่อเปิด app_settings.permission_expiry
+  expires_on    DateTime?   @db.Date
   user          users       @relation("user_permissions_user", fields: [user_id], references: [id], onDelete: Cascade, map: "user_permissions_user_id_foreign")
   permission    permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, map: "user_permissions_permission_id_foreign")
   creator       users?      @relation("user_permissions_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "user_permissions_created_by_foreign")
 
   @@id([user_id, permission_id])
+}
+
+/// กลุ่มสิทธิ์ — is_system = กลุ่มตามตำแหน่ง (super_admin | admin | division_manager | manager | viewer, ลบไม่ได้) / อื่นๆ = กลุ่มที่สร้างเอง
+/// สิทธิ์ของกลุ่มอยู่ที่ role_permissions (role = key) — super_admin ผ่านทุกสิทธิ์ (ไม่ใช้ตาราง)
+model permission_groups {
+  key         String        @id @db.VarChar(20)
+  name_th     String        @db.VarChar(100)
+  name_en     String        @db.VarChar(100)
+  is_system   Boolean       @default(false)
+  sort_order  Int           @default(0) @db.SmallInt
+  created_at  DateTime?     @db.DateTime(0)
+  updated_at  DateTime?     @db.DateTime(0)
+  user_groups user_groups[]
+}
+
+/// ผู้ใช้อยู่ในกลุ่มสิทธิ์เพิ่มจากกลุ่มตามตำแหน่ง (หลายกลุ่มได้) — expires_on = ใช้ได้ถึงวันนี้ (null = ไม่หมดอายุ)
+model user_groups {
+  user_id    BigInt
+  group_key  String            @db.VarChar(20)
+  expires_on DateTime?         @db.Date
+  created_by BigInt?
+  created_at DateTime?         @db.DateTime(0)
+  user       users             @relation("user_groups_user", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "user_groups_user_id_foreign")
+  group      permission_groups @relation(fields: [group_key], references: [key], onDelete: Cascade, onUpdate: Restrict, map: "user_groups_group_key_foreign")
+  creator    users?            @relation("user_groups_created_by", fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "user_groups_created_by_foreign")
+
+  @@id([user_id, group_key])
+  @@index([group_key], map: "user_groups_group_key_index")
+  @@index([created_by], map: "user_groups_created_by_index")
 }
 
 /// บันทึกการเปลี่ยนสิทธิ์ / การตั้งค่า / ลายเซ็น (ใคร เมื่อไร ก่อน-หลัง IP) — ห้ามเก็บ secret / token / รหัสผ่าน

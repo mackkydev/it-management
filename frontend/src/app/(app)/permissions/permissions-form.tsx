@@ -8,10 +8,10 @@ import { Tooltip } from "@/components/tooltip";
 import { alert, btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import {
-  ALWAYS_FOR_ADMIN, AUDIENCES, BUTTONS, sampleUser, sortByOrder,
+  ALWAYS_FOR_ADMIN, BUTTONS, sampleUser, sortByOrder,
   type Audience, type MenuOrder, type UiConfig, type UiPermissions,
 } from "@/lib/permissions";
-import type { User } from "@/lib/types";
+import type { PermissionGroupRow, User } from "@/lib/types";
 import { useConfirm } from "@/components/dialog-provider";
 
 /** ย้ายตำแหน่งในรายการ (dir = -1 ขึ้น, +1 ลง) */
@@ -27,11 +27,16 @@ const ICON_BTN =
   "flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent";
 
 /**
- * ตารางสิทธิ์: แถว = เมนู/ปุ่ม, คอลัมน์ = กลุ่มผู้ใช้ (ติ๊ก = เห็น)
+ * ตารางสิทธิ์: แถว = เมนู/ปุ่ม, คอลัมน์ = กลุ่มสิทธิ์ (ตามตำแหน่ง + กลุ่มที่สร้างเอง — ติ๊ก = เห็น)
  * ช่องที่ระบบไม่อนุญาตอยู่แล้ว (visible/system ของรายการ) กดไม่ได้ — หน้านี้ซ่อนเพิ่มได้อย่างเดียว
  */
-export function PermissionsForm({ initial }: { initial: UiConfig }) {
-  const { t } = useI18n();
+export function PermissionsForm({ initial, groups }: { initial: UiConfig; groups: PermissionGroupRow[] }) {
+  const { t, locale } = useI18n();
+  const AUDIENCES = useMemo(() => groups.map((g) => g.key), [groups]);
+  const audienceName = (a: Audience) => {
+    const g = groups.find((x) => x.key === a);
+    return g ? (locale === "th" ? g.name_th : g.name_en) : a;
+  };
   const confirm = useConfirm();
   const [deny, setDeny] = useState<UiPermissions>(initial.ui_permissions);
   const [groupOrder, setGroupOrder] = useState<string[]>(() => sortByOrder(NAV, initial.menu_order.groups, (g) => g.id).map((g) => g.id));
@@ -41,7 +46,7 @@ export function PermissionsForm({ initial }: { initial: UiConfig }) {
   const [result, setResult] = useState<{ ok?: boolean; message?: string }>({});
   const [pending, start] = useTransition();
 
-  const samples = useMemo(() => Object.fromEntries(AUDIENCES.map((a) => [a, sampleUser(a, initial)])) as Record<Audience, User>, [initial]);
+  const samples = useMemo(() => Object.fromEntries(AUDIENCES.map((a) => [a, sampleUser(a, initial)])) as Record<Audience, User>, [AUDIENCES, initial]);
   const groupsById = useMemo(() => Object.fromEntries(NAV.map((g) => [g.id, g])), []);
 
   const toggle = (key: string, a: Audience) => {
@@ -68,7 +73,7 @@ export function PermissionsForm({ initial }: { initial: UiConfig }) {
 
   /** ช่องติ๊กของ 1 รายการ × 1 กลุ่ม */
   const cell = (key: string, a: Audience, systemAllows: boolean) => {
-    const locked = a === "admin" && ALWAYS_FOR_ADMIN.has(key);
+    const locked = a === "super_admin" && ALWAYS_FOR_ADMIN.has(key);
     const visible = locked || (systemAllows && !(deny[key] ?? []).includes(a));
     const box = (
       <input
@@ -76,7 +81,7 @@ export function PermissionsForm({ initial }: { initial: UiConfig }) {
         checked={visible}
         disabled={!systemAllows || locked}
         onChange={() => toggle(key, a)}
-        aria-label={`${key} — ${t(`permissions.audiences.${a}`)}`}
+        aria-label={`${key} — ${audienceName(a)}`}
         className="h-4 w-4 cursor-pointer accent-[var(--accent-500)] disabled:cursor-not-allowed disabled:opacity-40"
       />
     );
@@ -100,7 +105,7 @@ export function PermissionsForm({ initial }: { initial: UiConfig }) {
         <th className="min-w-[18rem] px-4 py-2.5 text-left font-medium">{first}</th>
         {AUDIENCES.map((a) => (
           <th key={a} className="w-28 px-3 py-2.5 text-center font-medium">
-            {t(`permissions.audiences.${a}`)}
+            {audienceName(a)}
           </th>
         ))}
       </tr>

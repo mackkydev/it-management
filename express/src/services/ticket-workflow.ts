@@ -150,7 +150,7 @@ export const itStaff = () =>
 
 async function itHeads(): Promise<Person[]> {
   const heads = await select<Person>("SELECT id, name FROM users WHERE is_active = true AND is_it_head = true");
-  return heads.length ? heads : select<Person>("SELECT id, name FROM users WHERE is_active = true AND role = 'admin'");
+  return heads.length ? heads : select<Person>("SELECT id, name FROM users WHERE is_active = true AND role IN ('super_admin', 'admin')");
 }
 
 async function approvers(t: TicketRow): Promise<Person[]> {
@@ -158,7 +158,7 @@ async function approvers(t: TicketRow): Promise<Person[]> {
     const approver = await first<Person>("SELECT id, name FROM users WHERE id = ? AND is_active = true", [t.approver_id]);
     if (approver) return [approver];
   }
-  return select<Person>("SELECT id, name FROM users WHERE is_active = true AND role = 'admin'");
+  return select<Person>("SELECT id, name FROM users WHERE is_active = true AND role IN ('super_admin', 'admin')");
 }
 
 async function stepApprovers(t: TicketRow): Promise<Person[]> {

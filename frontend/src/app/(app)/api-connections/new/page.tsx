@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { GitBranchIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
-import { getCurrentUser, isLocalAdmin } from "@/lib/auth";
+import { getCurrentUser, isLocalSuperAdmin } from "@/lib/auth";
 import { ConnectionForm } from "../connection-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -12,7 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function NewApiConnectionPage() {
-  if (!isLocalAdmin(await getCurrentUser())) redirect("/tickets");
+  if (!isLocalSuperAdmin(await getCurrentUser())) redirect("/tickets");
   const { t } = await getI18n();
   return (
     <div className="space-y-5">

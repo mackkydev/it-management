@@ -7,7 +7,7 @@ import { LinkPendingIcon } from "@/components/pending";
 import { btn, card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getCurrentUser, isLocalAdmin } from "@/lib/auth";
+import { getCurrentUser, isLocalSuperAdmin } from "@/lib/auth";
 import type { ApiConnection } from "@/lib/types";
 import { ConnectionGuide } from "./connection-guide";
 
@@ -18,7 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /** ตั้งค่าระบบ → การเชื่อมต่อ API (Local Admin) */
 export default async function ApiConnectionsPage() {
-  if (!isLocalAdmin(await getCurrentUser())) redirect("/tickets");
+  if (!isLocalSuperAdmin(await getCurrentUser())) redirect("/tickets");
   const [{ t, fmt }, { data }] = await Promise.all([getI18n(), apiFetch<{ data: ApiConnection[] }>("/api-connections")]);
 
   return (

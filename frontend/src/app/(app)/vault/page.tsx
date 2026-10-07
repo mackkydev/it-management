@@ -28,7 +28,7 @@ const SAVED = ["created", "updated", "deleted"] as const;
 /** 4.1.1 คลังบัญชี/รหัสผ่าน — admin และเจ้าหน้าที่ IT */
 export default async function VaultPage({ searchParams }: PageProps<"/vault">) {
   const user = await getCurrentUser();
-  if (!has(user, "vault.use")) redirect("/tickets");
+  if (!has(user, "vault.view")) redirect("/tickets");
   // PIN กลางสำหรับเปิดดูรหัสผ่าน — แสดงเฉพาะผู้มีสิทธิ์ตั้ง (admin / เจ้าหน้าที่ที่ได้รับสิทธิ์)
   const canManagePin = has(user, "secrets.pin_manage");
   const pinStatus = canManagePin ? await apiFetch<{ data: SecretPinStatus }>("/secret-pin").then((r) => r.data, () => null) : null;
@@ -53,7 +53,7 @@ export default async function VaultPage({ searchParams }: PageProps<"/vault">) {
         title={t("vault.title")}
         subtitle={t("vault.subtitle")}
         actions={
-          can("btn:vault:create") && (
+          has(user, "vault.create") && can("btn:vault:create") && (
             <Link href="/vault/new" className={btn.primary}>
               <LinkPendingIcon icon={<PlusIcon />} />
               {t("vault.add")}
@@ -101,15 +101,15 @@ export default async function VaultPage({ searchParams }: PageProps<"/vault">) {
         </div>
       </Form>
       <Suspense key={q.toString()} fallback={<TableSkeleton cols={6} />}>
-        <VaultResults query={q} />
+        <VaultResults query={q} canEdit={has(user, "vault.update")} canReveal={has(user, "vault.view")} />
       </Suspense>
     </div>
   );
 }
 
-async function VaultResults({ query }: { query: URLSearchParams }) {
+async function VaultResults({ query, canEdit, canReveal: mayReveal }: { query: URLSearchParams; canEdit: boolean; canReveal: boolean }) {
   const [res, { t, fmt }, can] = await Promise.all([apiFetch<Paginated<Credential>>(`/credentials?${query}&per_page=25`), getI18n(), getAccess()]);
-  const canReveal = can("btn:vault:reveal");
+  const canReveal = mayReveal && can("btn:vault:reveal");
   const pageHref = (p: number) => {
     const n = new URLSearchParams(query);
     n.set("page", String(p));
@@ -183,10 +183,12 @@ async function VaultResults({ query }: { query: URLSearchParams }) {
                       {t("vault.openPanel")}
                     </a>
                   )}
-                  <Link href={`/vault/${c.id}/edit`} className={`${btn.soft} ${btn.sm}`}>
-                    <LinkPendingIcon icon={<PencilIcon width={13} height={13} />} size={13} />
-                    {t("common.edit")}
-                  </Link>
+                  {canEdit && (
+                    <Link href={`/vault/${c.id}/edit`} className={`${btn.soft} ${btn.sm}`}>
+                      <LinkPendingIcon icon={<PencilIcon width={13} height={13} />} size={13} />
+                      {t("common.edit")}
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}

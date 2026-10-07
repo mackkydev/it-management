@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import { config } from "../src/config.js";
-import { first, insert } from "../src/db.js";
+import { exec, first, insert } from "../src/db.js";
 import { localToday, nowDb } from "../src/lib/time.js";
 import { createToken } from "../src/lib/tokens.js";
 import { makeHash } from "../src/lib/validator.js";
@@ -30,6 +30,9 @@ export async function makeUser(attrs: Partial<UserRow> & { password?: string } =
     updated_at: now,
     ...rest,
   });
+  // เหมือน migration 20261012090000: สิทธิ์ฝ่าย IT มาจากกลุ่มฝ่าย IT เดิม (ช่อง จนท.IT / หัวหน้า IT = หน้าที่ในใบแจ้งงาน)
+  if (rest.is_it_staff) await exec("INSERT IGNORE INTO user_groups (user_id, group_key, created_at) VALUES (?, 'it_staff', ?)", [id, now]);
+  if (rest.is_it_head) await exec("INSERT IGNORE INTO user_groups (user_id, group_key, created_at) VALUES (?, 'it_head', ?)", [id, now]);
   return (await first<UserRow>("SELECT * FROM users WHERE id = ?", [id]))!;
 }
 

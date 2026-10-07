@@ -45,7 +45,9 @@ async function findAsset(uuid: string): Promise<AssetRow> {
 }
 
 /** เห็นสินทรัพย์ทั้งหมด (ฝ่าย IT / ผู้จัดการสินทรัพย์) — ไม่มีสิทธิ์ = เห็นเฉพาะที่ตัวเองถือครอง */
-const seesAllAssets = (u: UserRow) => can(u, "assets.view_all") || can(u, "assets.manage");
+/** เพิ่มหรือแก้ไขสินทรัพย์ได้ (ตัวเลือกในฟอร์ม เช่น ซอฟต์แวร์ / เลขครุภัณฑ์) */
+const editsAssets = (u: UserRow) => can(u, "assets.create") || can(u, "assets.update");
+const seesAllAssets = (u: UserRow) => can(u, "assets.view_all") || editsAssets(u);
 
 /** สินทรัพย์ "ของฉัน": เป็นผู้ถือครอง หรือชื่อผู้ใช้งาน (ทะเบียนคอมพิวเตอร์ — ข้อความจาก Excel) ตรงกับชื่อตัวเอง */
 export const OWN_SQL = "(a.custodian_id = ? OR (a.user_name IS NOT NULL AND LOWER(TRIM(a.user_name)) = LOWER(TRIM(?))))";
@@ -292,7 +294,7 @@ assetRoutes.get("/assets/suggestions", async (req, res) => {
  * ไม่รวมหมวด COMPUTER (รหัส = Host Name) และ Software — พิมพ์ค่าที่ไม่มีในทะเบียนเองได้ที่ฟอร์ม
  */
 assetRoutes.get("/assets/tag-suggestions", async (req, res) => {
-  authorize(can(me(req), "assets.manage"));
+  authorize(editsAssets(me(req)));
   const f = await validate(req.input, { q: ["nullable", "string", "max:100"] }, { locale: req.locale });
   const where = ["a.deleted_at IS NULL", "a.category NOT IN (?)"];
   const params: unknown[] = [[COMPUTER_CATEGORY, LICENSE_CATEGORY]];
@@ -312,7 +314,7 @@ assetRoutes.get("/assets/tag-suggestions", async (req, res) => {
 
 /** GET /assets/software-options — license ทั้งหมด + seat ใช้ไป/คงเหลือ (ตัวเลือก OS / Office / Anti Virus / Software อื่นๆ) */
 assetRoutes.get("/assets/software-options", async (req, res) => {
-  authorize(can(me(req), "assets.manage"));
+  authorize(editsAssets(me(req)));
   res.json({ data: await softwareOptions() });
 });
 
@@ -320,7 +322,7 @@ assetRoutes.get("/assets/software-options", async (req, res) => {
 
 /** GET /assets/import-template — template .xlsx (หัวตารางตามทะเบียนเดิม + แผ่นคำอธิบาย) */
 assetRoutes.get("/assets/import-template", async (req, res) => {
-  authorize(can(me(req), "assets.manage"));
+  authorize(can(me(req), "assets.create"));
   const name = "asset-import-template.xlsx";
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", `attachment; filename="${name}"; filename*=utf-8''${encodeURIComponent(name)}`);
@@ -355,7 +357,7 @@ assetRoutes.get("/assets/export", async (req, res) => {
  */
 assetRoutes.post("/assets/import", async (req, res) => {
   const u = me(req);
-  authorize(can(u, "assets.manage"));
+  authorize(can(u, "assets.create") && can(u, "assets.update"));
   const data = await validate(req.input, { file: ["required", "file", "mimes:xlsx", "max:5120"] }, { locale: req.locale });
   const file = data.file as UploadedFile;
 
@@ -376,7 +378,7 @@ assetRoutes.post("/assets/import", async (req, res) => {
 assetRoutes.post("/assets", async (req, res) => {
   const data = await validate(req.input, { ...assetRules(), ...licenseRules(req.input) }, { locale: req.locale, messages: assetMessages(req), after: assetAfter(req) });
   const u = me(req);
-  authorize(can(u, "assets.manage"));
+  authorize(can(u, "assets.create"));
 
   const id = await transaction(async () => {
     const now = nowDb();
@@ -416,7 +418,7 @@ async function updateAsset(req: Request, res: import("express").Response) {
     after: assetAfter(req, current.id),
   });
   const u = me(req);
-  authorize(can(u, "assets.manage"));
+  authorize(can(u, "assets.update"));
 
   await transaction(async () => {
     // ล็อกแถวกันการแก้ไขพร้อมกัน ไม่ให้ค่า "จาก" ในประวัติคลาดเคลื่อน
@@ -488,7 +490,7 @@ const INLINE_MIME = /^(application\/pdf|image\/(jpeg|png|gif|webp)|text\/plain)$
 assetRoutes.post("/assets/:uuid/files", async (req, res) => {
   const asset = await findAsset(req.params.uuid);
   const u = me(req);
-  authorize(can(u, "assets.manage"));
+  authorize(can(u, "assets.update"));
   const data = await validate(req.input, { files: ["required", "array", "min:1", "max:10"], "files.*": FILE_RULE }, { locale: req.locale });
 
   const uploads = Object.values(data.files as Record<string, unknown>).filter((f): f is UploadedFile => f instanceof UploadedFile);
@@ -516,7 +518,7 @@ assetRoutes.get("/assets/:uuid/files/:id", async (req, res) => {
 assetRoutes.delete("/assets/:uuid/files/:id", async (req, res) => {
   const asset = await findAsset(req.params.uuid);
   const file = await findFile(asset.id, req.params.id);
-  authorize(can(me(req), "assets.manage"));
+  authorize(can(me(req), "assets.update"));
   await exec("DELETE FROM asset_files WHERE id = ?", [file.id]);
   await deleteStored(file.path);
   res.status(204).end();
@@ -654,7 +656,7 @@ assetRoutes.post("/assets/:uuid/movements", async (req, res) => {
     },
   );
   const u = me(req);
-  authorize(can(u, "assets.manage"));
+  authorize(can(u, "assets.update"));
 
   const movementId = await transaction(async () => {
     const locked = (await first<AssetRow>("SELECT * FROM assets WHERE id = ? FOR UPDATE", [current.id]))!;

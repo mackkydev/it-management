@@ -13,6 +13,7 @@ import { can, findUser, isLocal, type UserRow } from "../models/user.js";
 import { userResource } from "../resources.js";
 import { ApiLoginError, callUpstream, loadConnection, loginWithApi, revokeApiSession } from "../services/api-auth.js";
 import { audit } from "../services/audit.js";
+import { groupsOf } from "../services/permissions.js";
 import { checkCentralPin, secretGuard, verifyLoginPassword } from "../services/secret-guard.js";
 import { activeSignature, deactivateSignature, mimeOf, readSignature, saveSignature, SignatureError } from "../services/signatures.js";
 import type { Locale } from "../lib/i18n.js";
@@ -157,6 +158,8 @@ authRoutes.get("/auth/me", async (req, res) => {
       ...userResource(u, { branch, supervisor, signature_id: (await activeSignature(u.id))?.id ?? null }, u.id),
       // สิทธิ์จริงของผู้ใช้ — frontend ใช้ซ่อน/แสดงเมนูและปุ่ม (สิทธิ์จริงตรวจที่ API ทุก request)
       permissions: [...(u.perms ?? [])].sort(),
+      // กลุ่มที่มีผล (ตำแหน่ง + กลุ่มที่มอบเพิ่ม) — frontend ใช้กับการซ่อนเมนู/ปุ่มรายกลุ่ม
+      groups: await groupsOf(u),
       ...(external ? { external_connection: external } : {}),
     },
   });

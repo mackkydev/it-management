@@ -22,7 +22,7 @@ import {
   WrenchIcon,
 } from "@/components/icons";
 import type { MessageKey } from "@/i18n/types";
-import { EMPTY_UI_CONFIG, has, isAllowed, isLocalAdmin, sortByOrder, type UiConfig } from "@/lib/permissions";
+import { EMPTY_UI_CONFIG, has, isAllowed, isLocalSuperAdmin, sortByOrder, type UiConfig } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
@@ -74,8 +74,8 @@ export const NAV: NavGroup[] = [
     label: "nav.itData",
     icon: KeyIcon,
     items: [
-      { label: "nav.vault", href: "/vault", icon: KeyIcon, visible: perm("vault.use") },
-      { label: "nav.contracts", href: "/contracts", icon: FileTextIcon, visible: perm("contracts.manage") },
+      { label: "nav.vault", href: "/vault", icon: KeyIcon, visible: (u) => has(u, "vault.view") || has(u, "vault.create") },
+      { label: "nav.contracts", href: "/contracts", icon: FileTextIcon, visible: (u) => has(u, "contracts.view") || has(u, "contracts.create") },
     ],
   },
   {
@@ -85,8 +85,8 @@ export const NAV: NavGroup[] = [
     items: [
       // ทุกคนเห็น — ไม่มีสิทธิ์ assets.view_all = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง
       { label: "nav.assetList", href: "/assets", icon: ListIcon },
-      { label: "nav.movements", href: "/movements", icon: HistoryIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.manage") },
-      { label: "nav.repairs", href: "/repairs", icon: WrenchIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.manage") },
+      { label: "nav.movements", href: "/movements", icon: HistoryIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.update") },
+      { label: "nav.repairs", href: "/repairs", icon: WrenchIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.update") },
       { label: "nav.licenseInstallations", href: "/license-installations", icon: MonitorIcon, visible: perm("licenses.install") },
     ],
   },
@@ -100,7 +100,7 @@ export const NAV: NavGroup[] = [
       { label: "nav.departments", href: "/departments", icon: UsersIcon, visible: perm("org.manage") },
       { label: "nav.locations", href: "/locations", icon: MapPinIcon },
       { label: "nav.users", href: "/users", icon: UsersIcon, visible: perm("users.view") },
-      { label: "nav.apiUsers", href: "/api-users", icon: UsersIcon, visible: isLocalAdmin },
+      { label: "nav.apiUsers", href: "/api-users", icon: UsersIcon, visible: perm("access.assign") },
       { label: "nav.ticketTypes", href: "/ticket-types", icon: ListIcon, visible: perm("settings.manage") },
     ],
   },
@@ -112,10 +112,10 @@ export const NAV: NavGroup[] = [
       { label: "nav.notificationSettings", href: "/settings", icon: BellIcon, visible: perm("settings.manage") },
       { label: "nav.approvalRoutes", href: "/approval-routes", icon: GitBranchIcon, visible: perm("approval_routes.manage") },
       { label: "nav.announcements", href: "/announcements", icon: BellIcon, visible: perm("announcements.manage") },
-      { label: "nav.permissions", href: "/permissions", icon: ShieldIcon, visible: isLocalAdmin },
-      { label: "nav.rolePermissions", href: "/role-permissions", icon: ShieldIcon, visible: isLocalAdmin },
-      { label: "nav.apiConnections", href: "/api-connections", icon: GitBranchIcon, visible: isLocalAdmin },
-      { label: "nav.auditLogs", href: "/audit-logs", icon: HistoryIcon, visible: isLocalAdmin },
+      { label: "nav.permissions", href: "/permissions", icon: ShieldIcon, visible: perm("access.manage") },
+      { label: "nav.rolePermissions", href: "/role-permissions", icon: ShieldIcon, visible: (u) => has(u, "access.manage") || has(u, "access.assign") },
+      { label: "nav.apiConnections", href: "/api-connections", icon: GitBranchIcon, visible: isLocalSuperAdmin },
+      { label: "nav.auditLogs", href: "/audit-logs", icon: HistoryIcon, visible: perm("audit_logs.view") },
     ],
   },
 ];

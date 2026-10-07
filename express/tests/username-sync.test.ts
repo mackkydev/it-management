@@ -27,7 +27,7 @@ describe("login with e-mail or username", () => {
   });
 
   it("admins set a username: unique (case-insensitive), no @, searchable", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const u = await makeUser({ name: "Kanya" });
     expect((await admin.patch(`/api/v1/users/${u.id}`).send({ username: "kanya.p" })).body.data.username).toBe("kanya.p");
     const other = await makeUser();
@@ -170,7 +170,7 @@ describe("scheduled directory sync for API users", () => {
     await syncConnection(conn);
     expect(await dueConnections()).toEqual([]);
 
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const res = await admin.post(`/api/v1/api-connections/${conn.id}/sync`);
     expect(res.body.data).toMatchObject({ ok: true, fetched: 1 });
     expect((await (await as(await makeUser({ role: "manager" }))).post(`/api/v1/api-connections/${conn.id}/sync`)).status).toBe(403);

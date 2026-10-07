@@ -61,7 +61,7 @@ describe("KPI log", () => {
   });
 
   it("user with KPI history cannot be deleted", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const u = await makeUser({ is_it_staff: true });
     await (await as(u)).post("/api/v1/kpi").send({ work_date: day(0), details: "งาน" });
     expect((await admin.get(`/api/v1/users/${u.id}`)).body.meta.can_delete).toBe(false);
@@ -71,7 +71,7 @@ describe("KPI log", () => {
 describe("UI permissions (ui-config)", () => {
   it("everyone can read; only admin can change; values are validated", async () => {
     const viewer = await as(await makeUser());
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
 
     expect((await viewer.get("/api/v1/ui-config")).body.data).toMatchObject({ ui_permissions: [], menu_order: [] });
     expect((await viewer.put("/api/v1/settings").send({ ui_permissions: {} })).status).toBe(403);

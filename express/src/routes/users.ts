@@ -7,14 +7,19 @@ import { nowDb } from "../lib/time.js";
 import { deleteUserTokens } from "../lib/tokens.js";
 import { bool, exists, int, makeHash, notIn, password, unique, validate, regex } from "../lib/validator.js";
 import { me, pageParam, paginated, simplePaginated } from "../http.js";
-import { can, findUser, hasHistory, isLocalAdmin, ROLES, type UserRow } from "../models/user.js";
+import { can, findUser, hasHistory, isSuperAdmin, ROLES, type UserRow } from "../models/user.js";
 import { deactivateSignature } from "../services/signatures.js";
-import { API_ROLES } from "../services/api-auth.js";
+import { lastLocalSuperAdmin, notifyAccessChange, roleChangeError } from "../services/access-control.js";
 import { audit } from "../services/audit.js";
 import { userResource } from "../resources.js";
 
-/** UserController — ตัวเลือกผู้ถือครอง (admin/manager) และจัดการผู้ใช้ (admin) */
+/** UserController — ตัวเลือกผู้ถือครอง (admin/manager) และจัดการผู้ใช้ (users.create / update / delete) */
 export const userRoutes = Router();
+
+/** จัดการผู้ใช้ได้ (หน้าจัดการ / ดูรายละเอียด) */
+const editsUsers = (u: UserRow) => can(u, "users.create") || can(u, "users.update") || can(u, "users.delete");
+/** แก้บัญชีผู้ดูแลระบบ (super_admin) ได้เฉพาะผู้ดูแลระบบ */
+const superAdminTarget = (actor: UserRow, target: UserRow) => target.id !== actor.id && target.role === "super_admin" && !isSuperAdmin(actor);
 
 const ORG_FIELDS = ["branch_id", "department", "division", "supervisor_id", "is_it_staff", "is_it_head", "approval_route_id"] as const;
 
@@ -64,7 +69,7 @@ userRoutes.get("/users", async (req, res) => {
   const page = pageParam(req);
 
   if (bool(req.query.manage)) {
-    authorize(can(u, "users.manage"));
+    authorize(editsUsers(u));
     const f = await validate(
       req.input,
       {
@@ -114,16 +119,21 @@ userRoutes.get("/users", async (req, res) => {
 userRoutes.get("/users/:id", async (req, res) => {
   const target = await routeUser(req);
   const u = me(req);
-  authorize(can(u, "users.manage") || u.id === target.id);
+  authorize(editsUsers(u) || u.id === target.id);
   res.json({ data: managed(await loadManaged(target.id), u.id), meta: { can_delete: !(await hasHistory(target.id)) } });
 });
 
-/** UserRequest: ตรวจสิทธิ์ก่อน validate (ผู้ที่ไม่ใช่ admin ได้ 403 ทันที) */
+/**
+ * UserRequest: ตรวจสิทธิ์ก่อน validate (ไม่มีสิทธิ์ได้ 403 ทันที)
+ * ตำแหน่ง = การมอบสิทธิ์: ต้องมี access.assign และผ่านกติกาการมอบ (services/access-control.ts) — ผู้ใช้ใหม่ตำแหน่งพนักงานไม่ต้อง
+ */
 async function validatedUser(req: Request, target: UserRow | null) {
-  if (!can(me(req), "users.manage")) throw forbidden();
+  const actor = me(req);
+  if (!can(actor, target ? "users.update" : "users.create")) throw forbidden();
+  if (target && superAdminTarget(actor, target)) throw forbidden();
   const s = target ? ["sometimes"] : [];
   const input = req.input;
-  // API User: อีเมลว่างได้ (ต้นทางไม่ส่งมา), ไม่มีรหัสผ่าน, บทบาทได้เฉพาะ manager / viewer
+  // API User: อีเมลว่างได้ (ต้นทางไม่ส่งมา), ไม่มีรหัสผ่าน — ตำแหน่งได้ทุกระดับเหมือนผู้ใช้ LOCAL (กำหนดในโปรแกรม IT)
   const isApi = target?.type === "API";
   return validate(
     input,
@@ -132,7 +142,7 @@ async function validatedUser(req: Request, target: UserRow | null) {
       email: [...s, isApi ? "nullable" : "required", "string", "email", "max:255", unique("users", "email", target?.id)],
       // ชื่อผู้ใช้สำหรับ login: a-z 0-9 . _ - (ไม่มี @), ห้ามซ้ำแบบไม่สนตัวพิมพ์
       username: ["sometimes", "nullable", "string", "min:3", "max:50", regex(/^[A-Za-z0-9._-]+$/), unique("users", "username", target?.id)],
-      role: [...s, "required", `in:${(isApi ? API_ROLES : ROLES).join(",")}`],
+      role: [...s, "required", `in:${ROLES.join(",")}`],
       is_active: ["sometimes", "boolean"],
       password: [target ? "nullable" : "required", "string", password(8, { letters: true, numbers: true })],
       branch_id: ["sometimes", "nullable", "integer", exists("branches", "id", "deleted_at IS NULL")],
@@ -145,12 +155,19 @@ async function validatedUser(req: Request, target: UserRow | null) {
     },
     {
       locale: req.locale,
-      // กัน admin ล็อกตัวเองออกจากระบบ: ห้ามลดบทบาทหรือปิดใช้งานบัญชีตัวเอง
-      after: ({ errors }) => {
+      // กันล็อกตัวเองออกจากระบบ: ห้ามเปลี่ยนตำแหน่งหรือปิดใช้งานบัญชีตัวเอง / ต้องเหลือ super_admin บัญชี LOCAL อย่างน้อย 1 คน
+      after: async ({ errors }) => {
         if (isApi && typeof input.password === "string" && input.password !== "") errors.add("password", trans(req.locale, "eam.access.api_no_password"));
-        if (!target || target.id !== me(req).id) return;
-        if ("role" in input && input.role !== "admin") errors.add("role", trans(req.locale, "eam.user.self_lock"));
-        if ("is_active" in input && !bool(input.is_active)) errors.add("is_active", trans(req.locale, "eam.user.self_lock"));
+        if (target && target.id === actor.id) {
+          if ("role" in input && input.role !== target.role) errors.add("role", trans(req.locale, "eam.user.self_lock"));
+          if ("is_active" in input && !bool(input.is_active)) errors.add("is_active", trans(req.locale, "eam.user.self_lock"));
+          return;
+        }
+        if ("role" in input && typeof input.role === "string" && (ROLES as readonly string[]).includes(input.role)) {
+          const e = await roleChangeError(actor, target, input.role, req.locale);
+          if (e) errors.add("role", e);
+        }
+        if (target && "is_active" in input && !bool(input.is_active) && (await lastLocalSuperAdmin(target))) errors.add("is_active", trans(req.locale, "eam.access.last_super_admin"));
       },
     },
   );
@@ -177,10 +194,13 @@ userRoutes.post("/users", async (req, res) => {
     is_active: "is_active" in req.input ? bool(req.input.is_active) : true,
     password: makeHash(String(data.password), config.bcryptRounds),
     ...orgColumns(data),
-    ...(data.role === "it_staff" ? { is_it_staff: true } : {}),
     created_at: now,
     updated_at: now,
   });
+  if (data.role !== "viewer") {
+    await audit(req, { action: "user.access_updated", subjectType: "user", subjectId: id, after: { role: data.role } });
+    await notifyAccessChange(req, "user", { id, name: String(data.name) }, { role: data.role });
+  }
   res.status(201).json({ data: managed(await loadManaged(id), me(req).id) });
 });
 
@@ -195,7 +215,6 @@ async function updateUser(req: Request, res: import("express").Response) {
     if ("username" in data) changes.username = data.username ? String(data.username).trim() : null;
     if ("email" in data) changes.email = data.email === null ? null : String(data.email).toLowerCase();
     if ("role" in data) changes.role = data.role;
-    if (data.role === "it_staff") changes.is_it_staff = true;
     if ("is_active" in data) changes.is_active = bool(data.is_active);
     const newPassword = target.type === "LOCAL" && typeof req.input.password === "string" && req.input.password !== "";
     if (newPassword) changes.password = makeHash(req.input.password, config.bcryptRounds);
@@ -211,6 +230,7 @@ async function updateUser(req: Request, res: import("express").Response) {
   const pick = (u: UserRow) => ({ role: u.role, is_active: Boolean(u.is_active), is_it_staff: Boolean(u.is_it_staff), is_it_head: Boolean(u.is_it_head) });
   if (JSON.stringify(pick(target)) !== JSON.stringify(pick(fresh))) {
     await audit(req, { action: "user.access_updated", subjectType: "user", subjectId: target.id, before: pick(target), after: pick(fresh) });
+    if (target.role !== fresh.role) await notifyAccessChange(req, "user", { id: target.id, name: fresh.name }, { role: fresh.role });
   }
 
   res.json({ data: managed(await loadManaged(target.id), me(req).id) });
@@ -223,8 +243,9 @@ userRoutes.patch("/users/:id", updateUser);
 userRoutes.delete("/users/:id", async (req, res) => {
   const target = await routeUser(req);
   const u = me(req);
-  authorize(can(u, "users.manage"));
+  authorize(can(u, "users.delete") && !superAdminTarget(u, target));
   if (u.id === target.id) throw ValidationError.withMessages({ user: trans(req.locale, "eam.user.self_delete") });
+  if (await lastLocalSuperAdmin(target)) throw ValidationError.withMessages({ user: trans(req.locale, "eam.access.last_super_admin") });
   if (await hasHistory(target.id)) throw ValidationError.withMessages({ user: trans(req.locale, "eam.user.has_history") });
 
   await transaction(async () => {
@@ -234,10 +255,10 @@ userRoutes.delete("/users/:id", async (req, res) => {
   res.status(204).end();
 });
 
-/** DELETE /users/{id}/signature — Local Admin ลบ (ปิดใช้งาน) ลายเซ็นของผู้ใช้เมื่อจำเป็น — แถวยังอยู่เป็นประวัติ + audit */
+/** DELETE /users/{id}/signature — ผู้มีสิทธิ์แก้ไขผู้ใช้ลบ (ปิดใช้งาน) ลายเซ็นของผู้ใช้เมื่อจำเป็น — แถวยังอยู่เป็นประวัติ + audit */
 userRoutes.delete("/users/:id/signature", async (req, res) => {
-  authorize(isLocalAdmin(me(req)));
   const target = await routeUser(req);
+  authorize(can(me(req), "users.update") && !superAdminTarget(me(req), target));
   if (!(await deactivateSignature(target.id, req, true))) throw notFound();
   res.status(204).end();
 });

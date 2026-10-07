@@ -118,7 +118,7 @@ describe("STEC SyteLine API connection", () => {
     const user = (await first<UserRow>("SELECT * FROM users WHERE external_id = 'suda'"))!;
     expect(user.role).toBe("viewer");
 
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const view = await admin.get(`/api/v1/users/${user.id}/permissions`);
     expect(view.body.data.role_synced).toBe(true);
     expect((await admin.put(`/api/v1/users/${user.id}/permissions`).send({ role: "manager" })).status).toBe(422);
@@ -137,6 +137,12 @@ describe("STEC SyteLine API connection", () => {
     accounts.suda = [3];
     await stale();
     expect((await withToken(res.body.token).get("/api/v1/auth/me")).body.data.role).toBe("viewer");
+
+    // ตำแหน่งผู้ดูแลระบบตั้งในโปรแกรม IT ได้ (แม้ซิงก์ตำแหน่งอยู่) และการซิงก์ไม่ทับ
+    expect((await admin.put(`/api/v1/users/${user.id}/permissions`).send({ role: "super_admin" })).status).toBe(200);
+    accounts.suda = [3, 7];
+    await stale();
+    expect((await withToken(res.body.token).get("/api/v1/auth/me")).body.data.role).toBe("super_admin");
   });
 
   it("wrong password is a normal login failure; revoked access at the source ends the session", async () => {
@@ -152,7 +158,7 @@ describe("STEC SyteLine API connection", () => {
 
   it("admin tools: health check, test login shows the mapping, $login only allowed for id/name", async () => {
     const conn = await stecConnection();
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
 
     const health = await admin.post(`/api/v1/api-connections/${conn}/health`);
     expect(health.body.data).toMatchObject({ ok: true, status: 200 });

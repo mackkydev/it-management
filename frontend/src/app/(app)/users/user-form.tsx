@@ -39,9 +39,13 @@ interface Props {
   /** แผนก / ฝ่าย จากข้อมูลหลัก (ที่เปิดใช้งาน) */
   departments: { id: number; name: string }[];
   divisions: { id: number; name: string }[];
+  /** ผู้ทำมีสิทธิ์มอบตำแหน่ง (access.assign) — ไม่มี = เปลี่ยนตำแหน่งไม่ได้ (ผู้ใช้ใหม่ = พนักงาน) */
+  canAssign?: boolean;
+  /** ผู้ทำเป็นผู้ดูแลระบบ — ตั้งตำแหน่งผู้ดูแลระบบได้ */
+  superAdmin?: boolean;
 }
 
-export function UserForm({ user, isSelf = false, canDelete = false, branches, routes, departments, divisions }: Props) {
+export function UserForm({ user, isSelf = false, canDelete = false, branches, routes, departments, divisions, canAssign = false, superAdmin = false }: Props) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const isCreate = !user;
@@ -71,7 +75,7 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
     const name = e.target.name as Field;
     const value = e.target instanceof HTMLInputElement && e.target.type === "checkbox" ? e.target.checked : e.target.value;
     // บทบาทเจ้าหน้าที่ IT → ติ๊กเจ้าหน้าที่ IT ให้ด้วย (API ทำซ้ำอีกชั้น)
-    setValues((v) => ({ ...v, [name]: value, ...(name === "role" && value === "it_staff" ? { is_it_staff: true } : {}) }));
+    setValues((v) => ({ ...v, [name]: value }));
     setErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
@@ -142,22 +146,27 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
                 {t("users.form.role")} <span className="text-red-500">*</span>
               </legend>
               <div className="grid gap-2 sm:grid-cols-3">
-                {ROLES.map((r) => (
+                {ROLES.map((r) => {
+                  // เปลี่ยนตำแหน่ง = มอบสิทธิ์: ต้องมี access.assign · ตำแหน่งผู้ดูแลระบบตั้ง/ถอดได้เฉพาะผู้ดูแลระบบ (API ตรวจซ้ำ)
+                  const current = user?.role ?? "viewer";
+                  const blocked = r !== current && (!canAssign || ((r === "super_admin" || current === "super_admin") && !superAdmin));
+                  return (
                   <label
                     key={r}
-                    className={`flex cursor-pointer gap-2 rounded-xl p-3 ring-1 transition-colors ${
+                    className={`flex gap-2 rounded-xl p-3 ring-1 transition-colors ${
                       values.role === r
                         ? "bg-accent-50 ring-accent-300 dark:bg-accent-400/10 dark:ring-accent-400/40"
                         : "ring-line hover:bg-subtle"
-                    } ${isSelf ? "cursor-not-allowed opacity-60" : ""}`}
+                    } ${isSelf || blocked ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
                   >
-                    <input type="radio" name="role" value={r} checked={values.role === r} onChange={onChange} className="mt-1 accent-[var(--accent-500)]" />
+                    <input type="radio" name="role" value={r} checked={values.role === r} disabled={blocked} onChange={onChange} className="mt-1 cursor-pointer accent-[var(--accent-500)] disabled:cursor-not-allowed" />
                     <span>
                       <span className="block text-sm font-medium">{t(`roles.${r}`)}</span>
                       <span className="block text-xs text-muted">{t(`users.form.roleHints.${r}`)}</span>
                     </span>
                   </label>
-                ))}
+                  );
+                })}
               </div>
               {errors.role && <p className="mt-1 text-xs font-medium text-red-500">{errors.role}</p>}
             </fieldset>

@@ -28,7 +28,7 @@ export default async function EditCredentialPage({ params }: PageProps<"/vault/[
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
   const user = await getCurrentUser();
-  if (!has(user, "vault.use")) redirect("/tickets");
+  if (!has(user, "vault.update")) redirect("/tickets");
 
   const [{ data: credential }, { data: branches }, { data: categories }, { data: logs }, { t, fmt }] = await Promise.all([
     load<Credential>(`/credentials/${id}`),
@@ -41,7 +41,7 @@ export default async function EditCredentialPage({ params }: PageProps<"/vault/[
   return (
     <div className="space-y-5">
       <PageHeader icon={KeyIcon} title={t("vault.editTitle")} subtitle={credential.title} />
-      <CredentialForm credential={credential} branches={branches} customCategories={categories.custom} />
+      <CredentialForm credential={credential} branches={branches} customCategories={categories.custom} canDelete={has(user, "vault.delete")} />
 
       {/* ประวัติการเข้าถึง (audit) */}
       <section className={`p-4 sm:p-6 ${card}`}>

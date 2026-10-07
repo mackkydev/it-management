@@ -4,7 +4,7 @@ import { UsersIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getCurrentUser, has } from "@/lib/auth";
+import { getCurrentUser, has, isSuperAdmin } from "@/lib/auth";
 import type { ApprovalRoute, Branch, OrgUnit } from "@/lib/types";
 import { UserForm } from "../user-form";
 
@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NewUserPage() {
   const [user, { t }] = await Promise.all([getCurrentUser(), getI18n()]);
-  if (!has(user, "users.manage")) redirect("/users");
+  if (!has(user, "users.create")) redirect("/users");
   const [{ data: branches }, { data: routes }, { data: departments }, { data: divisions }] = await Promise.all([
     apiFetch<{ data: Branch[] }>("/branches"),
     apiFetch<{ data: ApprovalRoute[] }>("/approval-routes"),
@@ -26,7 +26,7 @@ export default async function NewUserPage() {
   return (
     <div className="space-y-5">
       <PageHeader icon={UsersIcon} title={t("users.newTitle")} />
-      <UserForm branches={branches} routes={routes} departments={departments} divisions={divisions} />
+      <UserForm branches={branches} routes={routes} departments={departments} divisions={divisions} canAssign={has(user, "access.assign")} superAdmin={isSuperAdmin(user)} />
     </div>
   );
 }

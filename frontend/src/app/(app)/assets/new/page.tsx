@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { canManageAssets, getCurrentUser } from "@/lib/auth";
+import { canCreateAssets, getCurrentUser } from "@/lib/auth";
 import { CATEGORIES, type Branch, type Location } from "@/lib/types";
 import { AssetForm } from "../asset-form";
 
@@ -13,7 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NewAssetPage({ searchParams }: PageProps<"/assets/new">) {
   const user = await getCurrentUser();
-  if (!canManageAssets(user)) redirect("/assets");
+  if (!canCreateAssets(user)) redirect("/assets");
 
   // ?category=SOFTWARE — มาจากปุ่ม "เพิ่ม Software / License ใหม่" ในช่อง Software ของฟอร์มคอมพิวเตอร์
   const { category } = await searchParams;

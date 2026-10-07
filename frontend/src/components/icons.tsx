@@ -432,3 +432,11 @@ export const SparklesIcon = (p: P) => (
     <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" />
   </Icon>
 );
+
+/** แม่กุญแจ — สิทธิ์ที่สงวนไว้ให้ผู้ดูแลระบบ */
+export const LockIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="4" y="11" width="16" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </Icon>
+);

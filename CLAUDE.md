@@ -8,6 +8,7 @@
 - **ตั้งแต่ 2026-10-04 ใช้ Express อย่างเดียว** — ถอด Laravel (`backend/`, `it_api`) ออกแล้ว (ดูโค้ดเดิมจาก git history) ห้ามสร้างกลับมา
 - ไฟล์แนบ/ลายเซ็น/ไฟล์ license อยู่ที่ `storage/private` (mount เป็น `/data/private` ใน container, ไม่ขึ้น git — ต้องสำรองแยก)
 - ผู้ใช้ 2 แบบ (`users.type`): `LOCAL` (ผู้ใช้เดิมทั้งหมด, login อีเมล+รหัสผ่าน) / `API` (ผู้ใช้จาก REST API ต้นทาง — ไม่เก็บรหัสผ่าน, `connection_id`+`external_id`) — CHECK ใน DB บังคับ; rollback ด้วยมือ: `prisma/migrations/20261004120000_add_api_users_and_permissions/down.sql`
+- ตำแหน่ง (`users.role`): `super_admin` (ผู้ดูแลระบบ) > `admin` (ผู้ดูแลระบบรอง) > `division_manager` > `manager` > `viewer` — ผู้ใช้ LOCAL และ API เป็นได้ทุกตำแหน่ง (ตำแหน่ง `it_staff` เลิกใช้ ตั้งแต่ migration `20261012090000_permission_groups`)
 
 ## ทั่วไป
 - ตอบผู้ใช้เป็นภาษาไทย; โค้ด/ชื่อตัวแปรเป็นภาษาอังกฤษ
@@ -27,17 +28,24 @@
 - รอบที่รันจากการตั้งเวลา: ไม่มี `- [ ]` → จบทันที; ห้าม commit/push/deploy/ลบข้อมูลจริง; สิ่งที่ต้องให้ผู้ใช้ตัดสินใจ → ทำเครื่องหมาย `- [!]` แล้วข้าม
 
 ## สิทธิ์ (permission) — ตรวจที่ API
-- รายการสิทธิ์อยู่ที่ `express/src/models/permission.ts` (`PERMISSIONS`: key, กลุ่ม, ชื่อ th/en, `defaults` = กลุ่มที่ได้ตอนสร้าง key)
-  กลุ่ม = role (`admin`/`manager`/`viewer`) + `it_staff`/`it_head` ตาม flag — สิทธิ์จริง = สิทธิ์ของกลุ่ม (`role_permissions`) + allow − deny รายคน (`user_permissions`)
-- ตรวจสิทธิ์ด้วย `can(user, "key")` (Express — middleware auth โหลด `user.perms` ทุก request) / `has(user, "key")` (frontend จาก `/auth/me.permissions`) **ห้ามเช็ค role/flag ตรงๆ เพื่อให้สิทธิ์**
-- Local Admin (`role=admin` + `type=LOCAL`) ผ่านทุกสิทธิ์; การตั้งค่าการเชื่อมต่อ API / สิทธิ์ของผู้ใช้ / หน้าการมองเห็นเมนู = Local Admin เท่านั้น (`isLocalAdmin`)
-- เพิ่มสิทธิ์ใหม่: เพิ่มใน `PERMISSIONS` พร้อม `defaults` — `ensurePermissions()` (ตอน start server / seed / เทสต์) สร้าง key ใหม่ + สิทธิ์ตั้งต้น **ไม่แตะ key เดิมและการกำหนดสิทธิ์ที่ admin ปรับไว้**
-- การเลือกผู้รับแจ้งเตือน (SQL ตาม role/flag ใน ticket-workflow, notify-expiring) ไม่ใช่การตรวจสิทธิ์ — คงไว้ตามเดิม
+- รายการสิทธิ์อยู่ที่ `express/src/models/permission.ts` (`PERMISSIONS`: key, `module` + `action` = ตำแหน่งในตาราง ระบบงาน × การกระทำ (ดู/เพิ่ม/แก้ไข/ลบ/อนุมัติ/จัดการ/อื่นๆ), ชื่อ th/en, `defaults` = กลุ่มที่ได้ตอนสร้าง key, `from` = key เดิมที่แยกออกมา, `locked` = สงวนไว้ให้ super_admin มอบ/ถอด)
+- กลุ่มสิทธิ์ (`permission_groups`): กลุ่มตามตำแหน่ง (`is_system`, ลบไม่ได้) + กลุ่มที่สร้างเอง (เช่น `it_staff` / `it_head` = กลุ่มฝ่าย IT เดิม) — สิทธิ์ของกลุ่มอยู่ที่ `role_permissions` (role = key กลุ่ม)
+  สิทธิ์จริง = สิทธิ์ของกลุ่มตามตำแหน่ง + กลุ่มที่มอบเพิ่มรายคน (`user_groups`, หลายกลุ่ม) + allow − deny รายคน (`user_permissions`) — โค้ดกลาง `express/src/services/permissions.ts`
+- วันหมดอายุ: `user_groups.expires_on` / `user_permissions.expires_on` (ใช้ได้ถึงวันนั้น เวลาไทย) มีผลเมื่อเปิดสวิตช์ `app_settings.permission_expiry` เท่านั้น
+- ช่อง `is_it_staff` / `is_it_head` = **หน้าที่ในใบแจ้งงาน** (เลือกผู้รับงาน/ผู้ปิดงาน/ผู้รับแจ้งเตือน) ไม่ให้สิทธิ์ — สิทธิ์ฝ่าย IT มาจากกลุ่ม
+- ตรวจสิทธิ์ด้วย `can(user, "key")` (Express — middleware auth โหลด `user.perms` ทุก request) / `has(user, "key")` (frontend จาก `/auth/me.permissions`, กลุ่มจาก `/auth/me.groups`) **ห้ามเช็ค role/flag ตรงๆ เพื่อให้สิทธิ์**
+- super_admin ผ่านทุกสิทธิ์ (`isSuperAdmin`); หน้าการเชื่อมต่อ API = super_admin **บัญชี LOCAL** เท่านั้น (`isLocalSuperAdmin`) และต้องมี super_admin บัญชี LOCAL ที่ใช้งานอยู่อย่างน้อย 1 คนเสมอ (ทางสำรองเมื่อต้นทางล่ม)
+- กติกาการมอบ (`express/src/services/access-control.ts`): มอบ/ถอดได้เฉพาะสิทธิ์ที่ตัวเองมี (`access.assign`), สิทธิ์ `locked` เฉพาะ super_admin, แก้ของตัวเองไม่ได้, แตะบัญชี super_admin / ตั้ง super_admin ได้เฉพาะ super_admin; เปลี่ยนตำแหน่ง = มอบสิทธิ์ (หน้าผู้ใช้ก็ใช้กติกานี้)
+  ตารางสิทธิ์ของกลุ่ม / สร้าง-ลบกลุ่ม / การมองเห็นเมนู / สวิตช์วันหมดอายุ = `access.manage` (locked)
+- ทุกการเปลี่ยนสิทธิ์ (ตำแหน่ง/กลุ่ม/รายข้อ/ตารางกลุ่ม) และ PIN กลาง → `audit_logs` + แจ้งเตือนในระบบไปยัง super_admin + admin ทุกคน (`notifyAccessChange`)
+- เพิ่มสิทธิ์ใหม่: เพิ่มใน `PERMISSIONS` พร้อม `module`/`action`/`defaults` — `ensurePermissions()` (ตอน start server / seed / เทสต์) สร้าง key ใหม่ + สิทธิ์ตั้งต้น **ไม่แตะ key เดิมและการกำหนดสิทธิ์ที่ admin ปรับไว้**; แยก key เดิม = ใส่ `from` (คัดลอกการกำหนดสิทธิ์ของ key เดิมทั้งกลุ่มและรายคน)
+- การเลือกผู้รับแจ้งเตือน (SQL ตาม role/flag ใน ticket-workflow, notify-expiring) ไม่ใช่การตรวจสิทธิ์ — คงไว้ตามเดิม (role `super_admin` + `admin` = ผู้ดูแลระบบ)
 
 ## API User (login ผ่าน REST API ต้นทาง)
 - โค้ดกลาง: `express/src/services/api-auth.ts` (login / JIT / session), `upstream-http.ts` (เรียกต้นทาง: https เท่านั้น, กัน SSRF + allowlist, จำกัด redirect/ขนาด), `audit.ts`
 - ห้ามเก็บ/ log รหัสผ่านหรือ token ของต้นทาง — token เก็บเข้ารหัสใน `external_sessions` ผูกกับ token ของเรา; อ่านค่าจาก response ด้วย `readPath` (dot path) เท่านั้น
-- JIT ครั้งถัดไป (login / ตรวจซ้ำ / directory sync) อัปเดตชื่อ/อีเมล + role ตามต้นทางเมื่อตั้ง `field_map.role_code` (audit `api_user.role_synced`, admin แก้ role รายคนไม่ได้ → 422) — ห้ามทับสิทธิ์รายคน / it_staff / it_head / สถานะ / ลายเซ็น; อีเมลซ้ำ → เว้นว่าง + audit `api_user.email_conflict` (admin ผูกบัญชีเองที่ `/api-users`)
+- จากต้นทางใช้แค่ข้อมูลผู้ใช้ (ชื่อ/อีเมล/สาขา/แผนก) + ตำแหน่ง — **สิทธิ์ (กลุ่ม/รายข้อ) กำหนดในโปรแกรม IT เท่านั้น**
+- JIT ครั้งถัดไป (login / ตรวจซ้ำ / directory sync) อัปเดตชื่อ/อีเมล + ตำแหน่งตามต้นทางเมื่อตั้ง `field_map.role_code` (audit `api_user.role_synced`; แก้ตำแหน่งรายคนไม่ได้ → 422 ยกเว้นตั้ง/ถอด `super_admin`/`admin` ซึ่งการซิงก์ไม่ทับ — `ADMIN_ROLES`) — ห้ามทับกลุ่ม / สิทธิ์รายคน / it_staff / it_head / สถานะ / ลายเซ็น; อีเมลซ้ำ → เว้นว่าง + audit `api_user.email_conflict` (ผู้มี `access.assign` ผูกบัญชีเองที่ `/api-users`)
 - เทสต์ใช้ upstream จำลอง `setUpstreamTestHooks()` — ห้ามออกเน็ตจริงในเทสต์
 - ต้นทางจริง = STEC SyteLine API (คู่มือ STEC API Portal): login → `{ token, expiresAt }`, ตรวจซ้ำด้วย `GET /api/v1/auth/permissions` (`{ appIds }`), logout, `/health`
   ไม่มีโปรไฟล์/รายชื่อผู้ใช้/refresh → field_map ใช้ `$login` (ชื่อผู้ใช้ที่ login) เป็นรหัส/ชื่อ (ชื่อนี้ไม่เขียนทับชื่อที่ admin แก้), role จาก array `appIds` (ตรงกฎแรก)
@@ -52,7 +60,7 @@
 - `users.signature_path` เป็นคอลัมน์เดิม (ไม่ใช้แล้ว — คงไว้ตามกฎ additive)
 
 ## สิทธิ์การมองเห็นเมนู/ปุ่ม (หน้า ตั้งค่าระบบ → สิทธิ์การใช้งาน)
-- ตั้งค่าเก็บใน `app_settings`: `ui_permissions` (key → กลุ่มที่ซ่อน) และ `menu_order` — โค้ดกลางอยู่ที่ `frontend/src/lib/permissions.ts`
+- ตั้งค่าเก็บใน `app_settings`: `ui_permissions` (key → key กลุ่มสิทธิ์ที่ซ่อน — แก้ได้เฉพาะ `access.manage`) และ `menu_order` — โค้ดกลางอยู่ที่ `frontend/src/lib/permissions.ts`
 - key เมนู = `href` ของเมนูใน `components/shell/nav.ts`, key ปุ่ม = `btn:<หน้า>:<ปุ่ม>` (**ห้ามมีจุด** — validator ของ API ใช้จุดแยก path)
 - เพิ่มเมนูใหม่: ใส่ใน `NAV` แล้วจะขึ้นในหน้าสิทธิ์อัตโนมัติ; เพิ่มปุ่มใหม่: เพิ่มใน `BUTTONS` แล้วครอบปุ่มด้วย `(await getAccess())("btn:...")`
 - เป็นการซ่อนเพิ่มจากสิทธิ์เดิมเท่านั้น — สิทธิ์จริงต้องตรวจที่ API เสมอ
@@ -77,7 +85,7 @@
 ## เปิดดูข้อมูลลับ (รหัสผ่านคลังบัญชี / License key)
 - ทุก endpoint ที่ถอดรหัสส่งให้ผู้ใช้ต้องเรียก `assertCanReveal(req)` + `notifyReveal()` (`express/src/services/secret-guard.ts`) และบันทึกประวัติทุกครั้ง
 - สวิตช์ใน `app_settings.secret_guard` (หน้าตั้งค่าระบบ): ยืนยันตัวตนซ้ำ (428 → `POST /auth/reauth`, เก็บ `personal_access_tokens.reauth_at`) ด้วยรหัสผ่าน login หรือ PIN กลาง (`reauth_method`), จำกัด IP, แจ้งหัวหน้า IT
-- PIN กลางอันเดียว: `app_settings.secret_pin` (bcrypt — ห้ามส่ง hash ออก API, `settingsJson` ตัดออก) ตั้งที่ `PUT /secret-pin` (สิทธิ์ `secrets.pin_manage` + รหัสผ่าน login ผู้ตั้ง); ผิด 5 ครั้ง = ล็อกคนนั้น 15 นาที (`users.secret_pin_failures` / `secret_pin_locked_until`)
+- PIN กลางอันเดียว: `app_settings.secret_pin` (bcrypt — ห้ามส่ง hash ออก API, `settingsJson` ตัดออก) ตั้งที่ `PUT /secret-pin` (สิทธิ์ `secrets.pin_manage` — ตั้งต้น admin + รหัสผ่าน login ผู้ตั้ง, แจ้งเตือน super_admin + admin ทุกครั้ง); ผิด 5 ครั้ง = ล็อกคนนั้น 15 นาที (`users.secret_pin_failures` / `secret_pin_locked_until`)
 - IP ผู้ใช้: frontend ส่ง `X-Forwarded-For` ใน `apiFetch` — เชื่อถือได้เมื่อมี reverse proxy เขียนทับ header หน้า Next.js
 
 ## KPI ฝ่าย IT (หน้า /kpi — ตามไฟล์ Template-KPI-IT-2569-Part2-Details)

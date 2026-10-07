@@ -25,7 +25,7 @@ const STATUS_TONE = { active: tone.success, expiring: tone.warning, expired: ton
 /** 4.1.2 สัญญา vendor พร้อมแจ้งเตือนล่วงหน้า */
 export default async function ContractsPage({ searchParams }: PageProps<"/contracts">) {
   const user = await getCurrentUser();
-  if (!has(user, "contracts.manage")) redirect("/tickets");
+  if (!has(user, "contracts.view")) redirect("/tickets");
   const params = await searchParams;
   const [{ t }, can] = await Promise.all([getI18n(), getAccess()]);
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string).slice(0, 100) : "");
@@ -43,7 +43,7 @@ export default async function ContractsPage({ searchParams }: PageProps<"/contra
         title={t("contracts.title")}
         subtitle={t("contracts.subtitle")}
         actions={
-          can("btn:contracts:create") && (
+          has(user, "contracts.create") && can("btn:contracts:create") && (
             <Link href="/contracts/new" className={btn.primary}>
               <LinkPendingIcon icon={<PlusIcon />} />
               {t("contracts.add")}
@@ -73,13 +73,13 @@ export default async function ContractsPage({ searchParams }: PageProps<"/contra
         </div>
       </Form>
       <Suspense key={q.toString()} fallback={<TableSkeleton cols={5} />}>
-        <ContractResults query={q} status={status} search={str("search")} />
+        <ContractResults query={q} status={status} search={str("search")} canEdit={has(user, "contracts.update")} />
       </Suspense>
     </div>
   );
 }
 
-async function ContractResults({ query, status, search }: { query: URLSearchParams; status?: (typeof STATUSES)[number]; search: string }) {
+async function ContractResults({ query, status, search, canEdit }: { query: URLSearchParams; status?: (typeof STATUSES)[number]; search: string; canEdit: boolean }) {
   const [res, { t, fmt }] = await Promise.all([
     apiFetch<{ data: Contract[]; summary: Record<(typeof STATUSES)[number], number> }>(`/contracts?${query}`),
     getI18n(),
@@ -160,10 +160,12 @@ async function ContractResults({ query, status, search }: { query: URLSearchPara
                     </span>
                   </td>
                   <td className={`${table.td} text-right`}>
-                    <Link href={`/contracts/${c.id}/edit`} className={`${btn.soft} ${btn.sm}`}>
-                      <LinkPendingIcon icon={<PencilIcon width={13} height={13} />} size={13} />
-                      {t("common.edit")}
-                    </Link>
+                    {canEdit && (
+                      <Link href={`/contracts/${c.id}/edit`} className={`${btn.soft} ${btn.sm}`}>
+                        <LinkPendingIcon icon={<PencilIcon width={13} height={13} />} size={13} />
+                        {t("common.edit")}
+                      </Link>
+                    )}
                   </td>
                 </tr>
               ))}

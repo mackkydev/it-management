@@ -9,7 +9,7 @@ import { nowDb } from "../lib/time.js";
 import { bool, custom, regex, validate, type ErrorBag } from "../lib/validator.js";
 import { me } from "../http.js";
 import { apiConnectionResource, AUTH_TYPES, ERROR_KINDS, HTTP_METHODS, LOGIN_BODY_TYPES, type ApiConnectionRow } from "../models/api-connection.js";
-import { isLocalAdmin } from "../models/user.js";
+import { isLocalSuperAdmin } from "../models/user.js";
 import { API_ROLES, ApiLoginError, callUpstream, LOGIN_USERNAME, loadConnection, upstreamLogin, upstreamLogout } from "../services/api-auth.js";
 import { audit } from "../services/audit.js";
 import { syncConnection } from "../services/directory-sync.js";
@@ -50,7 +50,8 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null &
 
 function guard(req: Request) {
   const u = me(req);
-  authorize(isLocalAdmin(u));
+  // ผู้ดูแลระบบบัญชี LOCAL เท่านั้น — บัญชีต้นทางที่ถูกยึดต้องแก้หน้า login (ปลายทางดักรหัสผ่าน) ไม่ได้
+  authorize(isLocalSuperAdmin(u));
   return u;
 }
 

@@ -77,7 +77,7 @@ function columns(data: Record<string, unknown>) {
  */
 locationRoutes.get("/locations", async (req, res) => {
   if (bool(req.query.include_inactive)) {
-    authorize(can(me(req), "assets.manage"));
+    authorize(can(me(req), "locations.manage"));
     const all = await select<LocationRow>(`SELECT ${WITH_COUNTS} FROM locations l WHERE l.deleted_at IS NULL ORDER BY l.code`);
     return res.json({ data: all.map(locationResource) });
   }
@@ -103,7 +103,7 @@ locationRoutes.post("/locations", async (req, res) => {
   if (req.input.code == null) req.input.code = await nextLocationCode();
   if (req.input.type == null) req.input.type = "room";
   const data = await validated(req, null);
-  authorize(can(me(req), "assets.manage"));
+  authorize(can(me(req), "locations.manage"));
   const now = nowDb();
   const id = await insert("locations", { ...columns(data), created_at: now, updated_at: now });
   await forgetLaravelCache("locations:active");
@@ -113,7 +113,7 @@ locationRoutes.post("/locations", async (req, res) => {
 async function updateLocation(req: Request, res: import("express").Response) {
   const current = await findWithCounts(routeId(req));
   const data = await validated(req, current);
-  authorize(can(me(req), "assets.manage"));
+  authorize(can(me(req), "locations.manage"));
   await update("locations", { ...columns(data), updated_at: nowDb() }, "id = ?", [current.id]);
   await forgetLaravelCache("locations:active");
   res.json({ data: locationResource(await findWithCounts(current.id)) });

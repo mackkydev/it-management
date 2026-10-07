@@ -16,6 +16,8 @@ import { upstreamFetch, UpstreamError } from "./upstream-http.js";
  * - อายุ session = ค่าที่น้อยกว่าระหว่างอายุ token ต้นทาง กับ EAM_TOKEN_TTL_MINUTES + idle timeout (API_SESSION_IDLE_MINUTES)
  */
 
+/** ตำแหน่งผู้ดูแลระบบ — กำหนดในโปรแกรม IT เท่านั้น (การซิงก์ตำแหน่งจากต้นทางไม่ตั้ง/ไม่ทับ) */
+export const ADMIN_ROLES: Role[] = ["super_admin", "admin"];
 /** role ที่ API User ได้จากการ map (ไม่มีทางได้ admin) */
 export const API_ROLES: Role[] = ["manager", "viewer"];
 
@@ -239,8 +241,9 @@ async function emailOwner(email: string, exceptId: number | null): Promise<numbe
 
 /**
  * ครั้งแรก: สร้างผู้ใช้ type=API ด้วย role จาก role mapping (ไม่ตรงกฎ = default_role)
- * ครั้งถัดไป: อัปเดตชื่อ/อีเมล และ role ตามรหัสจากต้นทาง (เช่น appIds) เมื่อตั้ง field_map.role_code ไว้
- *   — ห้ามแตะสิทธิ์รายคน / จนท.IT / หัวหน้า IT / สถานะ / ลายเซ็น ที่ admin ตั้งไว้
+ * ครั้งถัดไป: อัปเดตชื่อ/อีเมล และตำแหน่ง (role) ตามรหัสจากต้นทาง (เช่น appIds) เมื่อตั้ง field_map.role_code ไว้
+ *   — ตำแหน่งผู้ดูแลระบบ / ผู้ดูแลระบบรอง (ADMIN_ROLES) ตั้งในโปรแกรม IT เท่านั้น ไม่ถูกซิงก์ทับ
+ *   — ห้ามแตะกลุ่มสิทธิ์ / สิทธิ์รายคน / จนท.IT / หัวหน้า IT / สถานะ / ลายเซ็น ที่ admin ตั้งไว้ (สิทธิ์กำหนดในโปรแกรม IT)
  * อีเมลซ้ำกับผู้ใช้อื่น → ไม่ใช้อีเมลนั้น (เว้นว่าง/คงค่าเดิม) และบันทึก audit api_user.email_conflict ให้ admin ผูกบัญชีเอง
  * ต้นทางไม่ส่งอีเมล → คงค่าเดิมในระบบเรา
  */
@@ -282,7 +285,7 @@ export async function provisionUser(conn: ApiConnectionRow, profile: MappedProfi
     if (profile.email && !conflictWith && user.email !== profile.email) changes.email = profile.email;
     // บทบาทตามต้นทางทุกครั้งที่ login/ตรวจซ้ำ — ไม่ได้ map รหัส role ไว้ = admin กำหนดเอง
     const roleBefore = user.role;
-    if (conn.field_map?.role_code && user.role !== profile.role) changes.role = profile.role;
+    if (conn.field_map?.role_code && user.role !== profile.role && !ADMIN_ROLES.includes(user.role)) changes.role = profile.role;
     if (Object.keys(changes).length > 1) changes.updated_at = now;
     await update("users", changes, "id = ?", [user.id]);
     user = (await find())!;

@@ -6,7 +6,7 @@ import { as, fakeImage, guest, makeUser } from "./helpers.js";
 /** แผนก/ฝ่าย (ข้อมูลหลัก), บทบาทใหม่, โลโก้ระบบ, สิทธิ์ของกลุ่ม */
 describe("departments / divisions", () => {
   it("anyone can list active ones; only org.manage can manage; renames follow into users", async () => {
-    const admin = await as(await makeUser({ role: "admin" }), "th");
+    const admin = await as(await makeUser({ role: "super_admin" }), "th");
     const viewer = await as(await makeUser());
     expect((await viewer.post("/api/v1/departments").send({ name: "บัญชี" })).status).toBe(403);
 
@@ -29,7 +29,7 @@ describe("departments / divisions", () => {
   });
 
   it("divisions work the same way", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const d = await admin.post("/api/v1/divisions").send({ name: "ฝ่ายขาย" });
     expect(d.status).toBe(201);
     expect((await admin.delete(`/api/v1/divisions/${d.body.data.id}`)).status).toBe(204);
@@ -37,12 +37,16 @@ describe("departments / divisions", () => {
 });
 
 describe("new roles", () => {
-  it("division manager and IT staff roles; picking IT staff ticks the IT flag", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
-    const res = await admin.post("/api/v1/users").send({ name: "IT ใหม่", email: "it.new@example.com", role: "it_staff", password: "Pass-1234" });
+  it("division manager role; the IT staff role is gone — IT permissions come from a group", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }));
+    expect((await admin.post("/api/v1/users").send({ name: "IT", email: "it.old@example.com", role: "it_staff", password: "Pass-1234" })).status).toBe(422);
+    const res = await admin.post("/api/v1/users").send({ name: "IT ใหม่", email: "it.new@example.com", role: "viewer", is_it_staff: true, password: "Pass-1234" });
     expect(res.status).toBe(201);
-    expect(res.body.data).toMatchObject({ role: "it_staff", is_it_staff: true });
+    expect(res.body.data).toMatchObject({ role: "viewer", is_it_staff: true });
     const me = await as((await first<UserRow>("SELECT * FROM users WHERE id = ?", [res.body.data.id]))!);
+    // ช่อง จนท.IT = หน้าที่ในใบแจ้งงาน ไม่ให้สิทธิ์ — มอบกลุ่มฝ่าย IT แล้วจึงเห็นคิวงาน
+    expect((await me.get("/api/v1/tickets?scope=it")).status).toBe(403);
+    await admin.put(`/api/v1/users/${res.body.data.id}/permissions`).send({ groups: [{ key: "it_staff" }] });
     expect((await me.get("/api/v1/tickets?scope=it")).status).toBe(200);
 
     const dm = await admin.post("/api/v1/users").send({ name: "ผจก.ฝ่าย", email: "dm@example.com", role: "division_manager", password: "Pass-1234" });
@@ -50,7 +54,7 @@ describe("new roles", () => {
   });
 
   it("local admins set a group's permissions in one go (audited)", async () => {
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     const dm = await as(await makeUser({ role: "division_manager" }));
     expect((await dm.get("/api/v1/users?search=a")).status).toBe(403);
     const saved = await admin.put("/api/v1/permissions/roles/division_manager").send({ keys: ["users.search", "users.view"] });
@@ -65,7 +69,7 @@ describe("new roles", () => {
 
 describe("system logo", () => {
   it("settings.manage uploads a logo; everyone (even logged out) can load it; ui-config exposes its version", async () => {
-    const admin = await as(await makeUser({ role: "admin" }), "th");
+    const admin = await as(await makeUser({ role: "super_admin" }), "th");
     expect((await guest().get("/api/v1/branding/logo")).status).toBe(404);
     expect((await (await as(await makeUser())).post("/api/v1/settings/logo").attach("logo", fakeImage(10, "png"), "logo.png")).status).toBe(403);
     expect((await admin.post("/api/v1/settings/logo").attach("logo", fakeImage(2000, "png"), "big.png")).status).toBe(422);

@@ -20,7 +20,7 @@ describe("prisma seed", () => {
     expect(staff!.supervisor_id).toBe(chief!.id);
 
     const admin = await first<{ password: string; role: string }>("SELECT password, role FROM users WHERE email = 'admin@example.com'");
-    expect(admin!.role).toBe("admin");
+    expect(admin!.role).toBe("super_admin");
     expect(verifyHash("Seed-Pass-1", admin!.password)).toBe(true);
 
     const login = await guest().post("/api/v1/auth/login").send({ email: "admin@example.com", password: "Seed-Pass-1", device_name: "seed-test" });

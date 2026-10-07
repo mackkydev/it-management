@@ -10,7 +10,7 @@ import { btn, card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
-import { canManageAssets, has, getAccess, getCurrentUser } from "@/lib/auth";
+import { canEditAssets, has, getAccess, getCurrentUser } from "@/lib/auth";
 import { CATEGORY_FORM, type Asset, type AssetMovement, type LicenseUsage, type Paginated } from "@/lib/types";
 import { UsageBar } from "../../license-installations/usage-bar";
 import { MovementTimeline } from "../movement-timeline";
@@ -73,7 +73,7 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
   if (!UUID_RE.test(id)) notFound();
 
   const [asset, user, { t, fmt }, can] = await Promise.all([getAsset(id), getCurrentUser(), getI18n(), getAccess()]);
-  const canEdit = canManageAssets(user) && can("btn:assets:edit");
+  const canEdit = canEditAssets(user) && can("btn:assets:edit");
   const form = CATEGORY_FORM[asset.category];
   const lic = asset.license ?? null;
   // license: หมดแล้ว = danger, เหลือ ≤ 30 วัน = warning
@@ -212,7 +212,7 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
             </span>
             {t("assets.files.title")}
           </h2>
-          <LicenseFiles assetId={asset.id} files={asset.files ?? []} canManage={canManageAssets(user)} />
+          <LicenseFiles assetId={asset.id} files={asset.files ?? []} canManage={canEditAssets(user)} />
         </section>
       )}
 

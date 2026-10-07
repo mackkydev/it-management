@@ -9,7 +9,7 @@ export interface UserRow {
   email: string | null;
   /** ชื่อผู้ใช้สำหรับ login (ไม่บังคับ, ไม่มี @) */
   username: string | null;
-  /** admin | division_manager (ผู้จัดการฝ่าย) | manager (ผู้จัดการ) | it_staff (เจ้าหน้าที่ IT) | viewer (พนักงาน) */
+  /** ตำแหน่ง: super_admin (ผู้ดูแลระบบ) | admin (ผู้ดูแลระบบรอง) | division_manager (ผู้จัดการฝ่าย) | manager (ผู้จัดการ) | viewer (พนักงาน) */
   role: Role;
   /** LOCAL = ผู้ใช้ของระบบเรา (ผู้ใช้เดิมทั้งหมด) / API = ผู้ใช้จาก REST API ต้นทาง */
   type: UserType;
@@ -41,11 +41,11 @@ export interface UserRow {
   perms?: ReadonlySet<string>;
 }
 
-export const ROLES = ["admin", "division_manager", "manager", "it_staff", "viewer"] as const;
+export const ROLES = ["super_admin", "admin", "division_manager", "manager", "viewer"] as const;
 export type Role = (typeof ROLES)[number];
 
-/** ลำดับตำแหน่ง (มาก = สูงกว่า): ผู้ดูแลระบบ > ผู้จัดการ > ผู้จัดการฝ่าย > พนักงาน / เจ้าหน้าที่ IT — ใช้กรองผู้อนุมัติที่ผู้แจ้งเลือกได้ */
-export const ROLE_RANK: Record<Role, number> = { admin: 4, manager: 3, division_manager: 2, it_staff: 1, viewer: 1 };
+/** ลำดับตำแหน่ง (มาก = สูงกว่า): ผู้ดูแลระบบ > ผู้ดูแลระบบรอง > ผู้จัดการ > ผู้จัดการฝ่าย > พนักงาน — ใช้กรองผู้อนุมัติที่ผู้แจ้งเลือกได้ */
+export const ROLE_RANK: Record<Role, number> = { super_admin: 5, admin: 4, manager: 3, division_manager: 2, viewer: 1 };
 export const roleRank = (role: string): number => ROLE_RANK[role as Role] ?? 1;
 /** บทบาทที่สูงกว่าบทบาทนี้ */
 export const rolesAbove = (role: string): Role[] => ROLES.filter((r) => ROLE_RANK[r] > roleRank(role));
@@ -56,21 +56,28 @@ export type UserType = (typeof USER_TYPES)[number];
 /** ผู้ใช้ของระบบเรา — login ด้วยอีเมล+รหัสผ่านใน DB เรา */
 export const isLocal = (u: UserRow): u is UserRow & { email: string; password: string } => u.type === "LOCAL" && u.password !== null;
 
-/** role = admin (ใช้กับกติกาข้อมูล เช่น กันแก้ role ของตัวเอง — การตรวจสิทธิ์ใช้ can()) */
-export const isAdmin = (u: UserRow) => u.role === "admin";
-/** Local Admin = ผ่านทุกสิทธิ์ และเป็นผู้เดียวที่จัดการการเชื่อมต่อ API / สิทธิ์ของผู้ใช้ได้ */
-export const isLocalAdmin = (u: UserRow) => u.role === "admin" && isLocal(u);
+/** ผู้ดูแลระบบ (super_admin — ผู้ใช้ LOCAL หรือ API) = ผ่านทุกสิทธิ์ และเป็นผู้เดียวที่มอบ/ถอดสิทธิ์ที่สงวนไว้ (locked) และตั้ง super_admin ได้ */
+export const isSuperAdmin = (u: Pick<UserRow, "role">) => u.role === "super_admin";
+/**
+ * ผู้ดูแลระบบที่เป็นบัญชี LOCAL — ทางสำรองเข้าระบบเมื่อระบบต้นทางล่ม (ต้องเหลืออย่างน้อย 1 คนที่ใช้งานอยู่เสมอ)
+ * และเป็นผู้เดียวที่แก้การเชื่อมต่อ API ได้ (กันบัญชีต้นทางที่ถูกยึด เปลี่ยนหน้า login ไปดักรหัสผ่าน)
+ */
+export const isLocalSuperAdmin = (u: UserRow) => isSuperAdmin(u) && isLocal(u);
+
+/** จำนวน super_admin บัญชี LOCAL ที่ใช้งานอยู่ (ยกเว้น id ที่ระบุ) — กันลด/ปิด/ลบคนสุดท้าย */
+export async function otherLocalSuperAdmins(exceptId: number): Promise<number> {
+  return Number(await scalar("SELECT COUNT(*) FROM users WHERE role = 'super_admin' AND type = 'LOCAL' AND password IS NOT NULL AND is_active = true AND id <> ?", [exceptId]));
+}
 
 /**
  * ตรวจสิทธิ์ตาม permission key (ดู models/permission.ts)
- * สิทธิ์จริง = สิทธิ์ของกลุ่ม (role + it_staff/it_head) + เพิ่มรายคน − ถอดรายคน — middleware auth คำนวณไว้ใน u.perms
- * ถ้ายังไม่ได้โหลด (เช่น CLI) ใช้สิทธิ์ตั้งต้นของกลุ่มจาก catalog
+ * สิทธิ์จริง = สิทธิ์ของทุกกลุ่ม (ตำแหน่ง + กลุ่มที่มอบเพิ่ม) + เพิ่มรายคน − ถอดรายคน — middleware auth คำนวณไว้ใน u.perms
+ * ถ้ายังไม่ได้โหลด (เช่น CLI) ใช้สิทธิ์ตั้งต้นของกลุ่มตามตำแหน่งจาก catalog
  */
 export function can(u: UserRow, key: string): boolean {
-  if (isLocalAdmin(u)) return true;
+  if (isSuperAdmin(u)) return true;
   if (u.perms) return u.perms.has(key);
-  const groups: string[] = [u.role, ...(u.is_it_staff ? ["it_staff"] : []), ...(u.is_it_head ? ["it_head"] : [])];
-  return PERMISSIONS.some((p) => p.key === key && p.defaults.some((d) => groups.includes(d)));
+  return PERMISSIONS.some((p) => p.key === key && p.defaults.includes(u.role as never));
 }
 
 export async function findUser(id: number): Promise<UserRow | null> {

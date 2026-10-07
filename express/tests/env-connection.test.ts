@@ -59,7 +59,7 @@ describe("API_CONN_SOURCE=env: .env is the source of truth and the web UI is loc
     expect(created.status).toBe("created");
     const id = (created as { id: number }).id;
 
-    const admin = await as(await makeUser({ role: "admin" }));
+    const admin = await as(await makeUser({ role: "super_admin" }));
     expect((await admin.get(`/api/v1/api-connections/${id}`)).body.data.managed_by_env).toBe(true);
     const put = await admin.put(`/api/v1/api-connections/${id}`).send({ base_url: "https://hack.example.com" });
     expect(put.status).toBe(422);

@@ -1,5 +1,5 @@
 import { config } from "../config.js";
-import { closePool, first, insert, transaction, update } from "../db.js";
+import { closePool, exec, first, insert, transaction, update } from "../db.js";
 import { nowDb } from "../lib/time.js";
 import { makeHash } from "../lib/validator.js";
 import { ensurePermissions } from "../services/permissions.js";
@@ -67,7 +67,7 @@ try {
     for (const [i, [code, name]] of BRANCHES.entries()) ids[code] = await upsertBranch(code, name, (i + 1) * 10);
 
     const itDivision = { department: "IT", division: "เทคโนโลยีสารสนเทศ" };
-    await upsertUser("admin@example.com", { name: "System Admin", role: "admin", branch_id: ids.BKK, ...itDivision });
+    await upsertUser("admin@example.com", { name: "System Admin", role: "super_admin", branch_id: ids.BKK, ...itDivision });
     await upsertUser("viewer@example.com", { name: "Read Only User", role: "viewer" });
     const itHead = await upsertUser("it.head@example.com", {
       name: "IT Manager", role: "manager", branch_id: ids.BKK, ...itDivision, is_it_head: true, is_it_staff: true,
@@ -80,7 +80,15 @@ try {
       name: "Sales Staff", role: "viewer", branch_id: ids.KKN, department: "ขาย", division: "ขาย", supervisor_id: chief,
     });
   });
-  await ensurePermissions(); // key สิทธิ์ + สิทธิ์ตั้งต้นของกลุ่ม (ไม่แตะที่ปรับไว้แล้ว)
+  await ensurePermissions(); // กลุ่ม + key สิทธิ์ + สิทธิ์ตั้งต้นของกลุ่ม (ไม่แตะที่ปรับไว้แล้ว)
+  // ผู้ใช้ตัวอย่างฝ่าย IT: สิทธิ์มาจากกลุ่มฝ่าย IT (ช่อง จนท.IT / หัวหน้า IT = หน้าที่ในใบแจ้งงานเท่านั้น) — ข้ามถ้าลบกลุ่มไปแล้ว
+  for (const [group, flag] of [["it_staff", "is_it_staff"], ["it_head", "is_it_head"]] as const) {
+    await exec(
+      `INSERT IGNORE INTO user_groups (user_id, group_key, created_at)
+       SELECT u.id, g."key", ? FROM users u JOIN permission_groups g ON g."key" = ? WHERE u.${flag} = true AND u.email LIKE '%@example.com'`,
+      [nowDb(), group],
+    );
+  }
   console.log(`Seeded ${BRANCHES.length} branches and 6 users (existing passwords unchanged).`);
 } finally {
   await closePool();

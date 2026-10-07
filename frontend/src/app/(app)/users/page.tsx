@@ -30,10 +30,10 @@ interface SimplePage<T> {
 
 /** บทบาทใช้ความเข้มของสีธีม (ไม่ใช้สีสถานะของระบบ) */
 const ROLE_STYLE: Record<User["role"], string> = {
+  super_admin: "bg-accent-500 text-white dark:bg-accent-400/60 dark:text-white",
   admin: "bg-accent-300 text-accent-900 dark:bg-accent-400/35 dark:text-accent-100",
   division_manager: "bg-accent-200 text-accent-900 dark:bg-accent-400/25 dark:text-accent-100",
   manager: "bg-accent-100 text-accent-800 dark:bg-accent-400/15 dark:text-accent-200",
-  it_staff: "bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent-200 dark:bg-accent-400/10 dark:text-accent-300 dark:ring-accent-400/30",
   viewer: "bg-surface text-muted ring-1 ring-inset ring-line",
 };
 
@@ -49,7 +49,7 @@ export default async function UsersPage({ searchParams }: PageProps<"/users">) {
 
   const params = await searchParams;
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string).slice(0, 100) : "");
-  const canManageUsers = has(user, "users.manage");
+  const canManageUsers = has(user, "users.create") || has(user, "users.update") || has(user, "users.delete");
   const [{ t }, can] = await Promise.all([getI18n(), getAccess()]);
   const saved = SAVED.find((s) => s === params.saved);
 

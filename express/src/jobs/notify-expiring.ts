@@ -86,7 +86,7 @@ export async function notifyExpiring(opts: { dryRun?: boolean; today?: Date } = 
 
   // แจ้งเตือนในระบบ: admin + เจ้าหน้าที่ IT ที่ยังใช้งาน
   const recipients = await select<{ id: number }>(
-    "SELECT id FROM users WHERE is_active = true AND (role = 'admin' OR is_it_staff = true OR is_it_head = true)",
+    "SELECT id FROM users WHERE is_active = true AND (role IN ('super_admin', 'admin') OR is_it_staff = true OR is_it_head = true)",
   );
   await notifyUsers(recipients.map((r) => r.id), EXPIRING_DIGEST, { kind: "expiring", count: items.length, items: items.slice(0, 10) });
 

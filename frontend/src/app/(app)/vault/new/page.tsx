@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NewCredentialPage() {
   const user = await getCurrentUser();
-  if (!has(user, "vault.use")) redirect("/tickets");
+  if (!has(user, "vault.create")) redirect("/tickets");
   const [{ data: branches }, { data: categories }, { t }] = await Promise.all([
     apiFetch<{ data: Branch[] }>("/branches"),
     apiFetch<{ data: CredentialCategories }>("/credentials/categories"),

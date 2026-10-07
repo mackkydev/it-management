@@ -4,7 +4,7 @@ import { MapPinIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
-import { canDeleteLocations, canManageAssets, getCurrentUser } from "@/lib/auth";
+import { canDeleteLocations, getCurrentUser, has } from "@/lib/auth";
 import type { Location } from "@/lib/types";
 import { LocationForm } from "../../location-form";
 
@@ -27,7 +27,7 @@ export default async function EditLocationPage({ params }: PageProps<"/locations
   if (!/^\d+$/.test(id)) notFound();
 
   const user = await getCurrentUser();
-  if (!canManageAssets(user)) redirect("/locations");
+  if (!has(user, "locations.manage")) redirect("/locations");
 
   const [location, { data }, { t, fmt }] = await Promise.all([
     getLocation(id),

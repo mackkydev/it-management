@@ -14,7 +14,8 @@ const NEW_CATEGORY = "__new__";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
 
-export function CredentialForm({ credential, branches, customCategories = [] }: { credential?: Credential; branches: Branch[]; customCategories?: string[] }) {
+/** canDelete = มีสิทธิ์ vault.delete (API ตรวจซ้ำ) */
+export function CredentialForm({ credential, branches, customCategories = [], canDelete = false }: { credential?: Credential; branches: Branch[]; customCategories?: string[]; canDelete?: boolean }) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const isEdit = Boolean(credential);
@@ -199,7 +200,7 @@ export function CredentialForm({ credential, branches, customCategories = [] }: 
       </fieldset>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
-        {isEdit && (
+        {isEdit && canDelete && (
           <button type="button" onClick={remove} disabled={pending} className={`${btn.danger} sm:mr-auto`}>
             {pending && action === "delete" ? <SpinnerIcon /> : <TrashIcon />}
             {t("vault.form.delete")}

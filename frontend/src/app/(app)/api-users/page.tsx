@@ -12,8 +12,8 @@ import { Tooltip } from "@/components/tooltip";
 import { btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getCurrentUser, isLocalAdmin } from "@/lib/auth";
-import type { ApiConnection, ApiUser, Paginated } from "@/lib/types";
+import { getCurrentUser, has } from "@/lib/auth";
+import { ROLES, type ApiConnection, type ApiUser, type Paginated } from "@/lib/types";
 import { LinkAccountButton } from "./link-account-button";
 import { AppSelect } from "@/components/app-select";
 
@@ -23,22 +23,25 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const ROLE_STYLE: Record<ApiUser["role"], string> = {
+  super_admin: "bg-accent-500 text-white dark:bg-accent-400/60 dark:text-white",
   admin: "bg-accent-300 text-accent-900 dark:bg-accent-400/35 dark:text-accent-100",
+  division_manager: "bg-accent-200 text-accent-900 dark:bg-accent-400/25 dark:text-accent-100",
   manager: "bg-accent-100 text-accent-800 dark:bg-accent-400/15 dark:text-accent-200",
   viewer: "bg-surface text-muted ring-1 ring-inset ring-line",
 };
 
-/** ข้อมูลหลัก → ผู้ใช้จาก API (Local Admin) */
+/** ข้อมูลหลัก → ผู้ใช้จาก API (ผู้มีสิทธิ์มอบสิทธิ์ access.assign) */
 export default async function ApiUsersPage({ searchParams }: PageProps<"/api-users">) {
-  if (!isLocalAdmin(await getCurrentUser())) redirect("/tickets");
+  if (!has(await getCurrentUser(), "access.assign")) redirect("/tickets");
   const params = await searchParams;
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string).slice(0, 100) : "");
-  const [{ t }, connections] = await Promise.all([getI18n(), apiFetch<{ data: ApiConnection[] }>("/api-connections").then((r) => r.data)]);
+  // รายการการเชื่อมต่อ (ตัวกรอง) อ่านได้เฉพาะผู้ดูแลระบบบัญชี LOCAL — คนอื่นไม่มีตัวกรองนี้
+  const [{ t }, connections] = await Promise.all([getI18n(), apiFetch<{ data: ApiConnection[] }>("/api-connections").then((r) => r.data, () => [] as ApiConnection[])]);
 
   // ส่งต่อเฉพาะค่าที่รู้จัก
   const q = new URLSearchParams();
   if (str("search")) q.set("search", str("search"));
-  if (["manager", "viewer"].includes(str("role"))) q.set("role", str("role"));
+  if ((ROLES as readonly string[]).includes(str("role"))) q.set("role", str("role"));
   if (["active", "inactive"].includes(str("status"))) q.set("status", str("status"));
   if (connections.some((c) => String(c.id) === str("connection_id"))) q.set("connection_id", str("connection_id"));
   if (str("conflict") === "1") q.set("conflict", "1");
@@ -55,8 +58,11 @@ export default async function ApiUsersPage({ searchParams }: PageProps<"/api-use
         </div>
         <AppSelect name="role" defaultValue={str("role")} className={input} aria-label={t("access.col.role")}>
           <option value="">{t("access.allRoles")}</option>
-          <option value="manager">{t("roles.manager")}</option>
-          <option value="viewer">{t("roles.viewer")}</option>
+          {ROLES.map((r) => (
+            <option key={r} value={r}>
+              {t(`roles.${r}`)}
+            </option>
+          ))}
         </AppSelect>
         <AppSelect name="status" defaultValue={str("status")} className={input} aria-label={t("access.col.status")}>
           <option value="">{t("access.allStatuses")}</option>
@@ -160,7 +166,7 @@ async function ApiUserTable({ query }: { query: URLSearchParams }) {
                     {u.conflict_email && u.conflict_user_id && (
                       <LinkAccountButton apiUserId={u.id} localUserId={u.conflict_user_id} connection={u.connection_name} email={u.conflict_email} />
                     )}
-                    <Link href={`/api-users/${u.id}`} className={`${btn.soft} ${btn.sm}`}>
+                    <Link href={`/users/${u.id}/permissions?from=api-users`} className={`${btn.soft} ${btn.sm}`}>
                       <LinkPendingIcon icon={<ShieldIcon width={13} height={13} />} size={13} />
                       {t("access.editPermissions")}
                     </Link>

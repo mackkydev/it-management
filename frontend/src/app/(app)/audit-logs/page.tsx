@@ -14,7 +14,7 @@ import { btn, card, input, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
-import { getCurrentUser, isLocalAdmin } from "@/lib/auth";
+import { getCurrentUser, has } from "@/lib/auth";
 import type { AuditLog, Paginated } from "@/lib/types";
 import { AppSelect } from "@/components/app-select";
 
@@ -27,7 +27,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** ตั้งค่าระบบ → บันทึกการเปลี่ยนแปลง (Local Admin) */
 export default async function AuditLogsPage({ searchParams }: PageProps<"/audit-logs">) {
-  if (!isLocalAdmin(await getCurrentUser())) redirect("/tickets");
+  if (!has(await getCurrentUser(), "audit_logs.view")) redirect("/tickets");
   const params = await searchParams;
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string).slice(0, 100) : "");
   const [{ t }, actions] = await Promise.all([getI18n(), apiFetch<{ data: string[] }>("/audit-logs/actions").then((r) => r.data)]);

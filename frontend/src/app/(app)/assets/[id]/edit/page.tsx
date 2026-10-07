@@ -5,7 +5,7 @@ import { LoadingLabel } from "@/components/skeletons";
 import { card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
-import { canDeleteAssets, canManageAssets, getCurrentUser } from "@/lib/auth";
+import { canDeleteAssets, canEditAssets, getCurrentUser } from "@/lib/auth";
 import { licenseYears } from "@/lib/date";
 import { COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, EMPTY_SOFTWARE, type Asset, type AssetFormValues, type AssetMovement, type Branch, type Location, type Paginated } from "@/lib/types";
 import { AssetForm } from "../../asset-form";
@@ -75,7 +75,7 @@ export default async function EditAssetPage({ params }: PageProps<"/assets/[id]/
   if (!UUID_RE.test(id)) notFound();
 
   const user = await getCurrentUser();
-  if (!canManageAssets(user)) redirect("/assets");
+  if (!canEditAssets(user)) redirect("/assets");
 
   const [asset, { data: locations }, { data: branches }, { t }] = await Promise.all([
     getAsset(id),

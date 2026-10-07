@@ -17,7 +17,7 @@ export default async function EditContractPage({ params }: PageProps<"/contracts
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
   const user = await getCurrentUser();
-  if (!has(user, "contracts.manage")) redirect("/tickets");
+  if (!has(user, "contracts.update")) redirect("/tickets");
 
   const contractReq = apiFetch<{ data: Contract }>(`/contracts/${id}`).catch((e) => {
     if (e instanceof ApiError && e.status === 404) notFound();
@@ -33,7 +33,7 @@ export default async function EditContractPage({ params }: PageProps<"/contracts
   return (
     <div className="space-y-5">
       <PageHeader icon={FileTextIcon} title={t("contracts.editTitle")} subtitle={`${contract.title} · ${contract.vendor_name}`} />
-      <ContractForm contract={contract} branches={branches} defaultNotifyDays={default_notify_days} />
+      <ContractForm contract={contract} branches={branches} defaultNotifyDays={default_notify_days} canDelete={has(user, "contracts.delete")} />
     </div>
   );
 }

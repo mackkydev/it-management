@@ -4,7 +4,7 @@ import { GitBranchIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
-import { getCurrentUser, isLocalAdmin } from "@/lib/auth";
+import { getCurrentUser, isLocalSuperAdmin } from "@/lib/auth";
 import type { ApiConnection } from "@/lib/types";
 import { ConnectionForm } from "../connection-form";
 
@@ -14,7 +14,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function EditApiConnectionPage({ params }: PageProps<"/api-connections/[id]">) {
-  if (!isLocalAdmin(await getCurrentUser())) redirect("/tickets");
+  if (!isLocalSuperAdmin(await getCurrentUser())) redirect("/tickets");
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
   const [{ t }, connection] = await Promise.all([

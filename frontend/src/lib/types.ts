@@ -96,6 +96,8 @@ export interface User {
   username?: string | null;
   /** สิทธิ์จริง (permission key) จาก GET /auth/me — ใช้ผ่าน has(user, key) */
   permissions?: string[];
+  /** กลุ่มที่มีผล (ตำแหน่ง + กลุ่มที่มอบเพิ่ม) จาก GET /auth/me — ใช้กับการซ่อนเมนู/ปุ่มรายกลุ่ม */
+  groups?: string[];
   /** API User (จาก GET /auth/me): ระบบต้นทาง + ลิงก์เปลี่ยนรหัสผ่านที่ต้นทาง */
   external_connection?: { name: string; change_password_url: string | null };
   // สังกัด / สายบังคับบัญชา / ฝ่าย IT
@@ -329,7 +331,14 @@ export interface AppNotification {
   data:
     | { kind: "ticket"; event: string; ticket_id: string; ticket_no: string; ticket_type: TicketType; actor: string | null }
     | { kind: "expiring"; count: number; items: { type: string; title: string; date: string; days_left: number }[] }
-    | { kind: "secret_revealed"; secret: "vault" | "license"; subject_id: string | number; title: string; actor: string; ip: string | null };
+    | { kind: "secret_revealed"; secret: "vault" | "license"; subject_id: string | number; title: string; actor: string; ip: string | null }
+    | {
+        kind: "access_changed";
+        change: "user" | "group_permissions" | "group_created" | "group_updated" | "group_deleted" | "pin" | "expiry";
+        subject_id: string | number | null;
+        subject: string;
+        actor: string;
+      };
   read_at: string | null;
   created_at: string;
 }
@@ -387,7 +396,8 @@ export interface AssetMovement {
 }
 
 /** ผู้ดูแลระบบ / ผู้จัดการฝ่าย / ผู้จัดการ / เจ้าหน้าที่ IT / พนักงาน — สิทธิ์ของแต่ละบทบาทตั้งที่หน้า "สิทธิ์ตามบทบาท" */
-export const ROLES = ["admin", "division_manager", "manager", "it_staff", "viewer"] as const;
+/** ตำแหน่ง: ผู้ดูแลระบบ > ผู้ดูแลระบบรอง > ผู้จัดการฝ่าย > ผู้จัดการ > พนักงาน (ผู้ใช้ LOCAL และ API ได้ทุกตำแหน่ง) */
+export const ROLES = ["super_admin", "admin", "division_manager", "manager", "viewer"] as const;
 export type Role = (typeof ROLES)[number];
 
 /** ผู้ใช้ในหน้าจัดการ (GET /users?manage=1, GET /users/{id}) — admin เท่านั้น */
@@ -633,25 +643,70 @@ export const STATUSES: AssetStatus[] = ["active", "in_storage", "in_repair", "lo
 
 export type PermissionGroup = "tickets" | "it_data" | "assets" | "users" | "system";
 
+/** คอลัมน์ของตารางสิทธิ์ (manage = เพิ่ม/แก้ไข/ลบ รวมกัน) */
+export const PERMISSION_ACTIONS = ["view", "create", "update", "delete", "approve", "other"] as const;
+export type PermissionAction = (typeof PERMISSION_ACTIONS)[number] | "manage";
+
 export interface PermissionDef {
+  key: string;
+  group: PermissionGroup;
+  /** ระบบงาน (แถวของตาราง) */
+  module: string;
+  action: PermissionAction;
+  name_th: string;
+  name_en: string;
+  /** สงวนไว้ให้ผู้ดูแลระบบ (super_admin) มอบ/ถอด */
+  locked: boolean;
+}
+
+export interface PermissionModule {
   key: string;
   group: PermissionGroup;
   name_th: string;
   name_en: string;
 }
 
+/** กลุ่มสิทธิ์ — is_system = กลุ่มตามตำแหน่ง (ลบไม่ได้) */
+export interface PermissionGroupRow {
+  key: string;
+  name_th: string;
+  name_en: string;
+  is_system: boolean;
+  sort_order: number;
+  members: number;
+}
+
+/** GET /permissions */
+export interface PermissionCatalog {
+  data: PermissionDef[];
+  modules: PermissionModule[];
+  groups: PermissionGroupRow[];
+  role_permissions: Record<string, string[]>;
+  expiry_enabled: boolean;
+}
+
 export type OverrideEffect = "allow" | "deny";
+export interface OverrideValue {
+  effect: OverrideEffect;
+  /** ใช้ได้ถึงวันนี้ (YYYY-MM-DD) — null = ไม่หมดอายุ */
+  expires_on: string | null;
+}
 
 /** GET /users/{id}/permissions */
 export interface UserPermissionView {
   user: { id: number; name: string; email: string | null; type: "LOCAL" | "API"; role: User["role"]; is_active: boolean; is_it_staff: boolean; is_it_head: boolean };
+  /** กลุ่มที่มีผล (ตำแหน่ง + กลุ่มที่มอบเพิ่มที่ยังไม่หมดอายุ) */
   groups: string[];
+  /** กลุ่มที่มอบเพิ่ม (รวมที่หมดอายุแล้ว) */
+  assigned_groups: { key: string; expires_on: string | null }[];
   inherited: string[];
-  overrides: Record<string, OverrideEffect>;
+  overrides: Record<string, OverrideValue>;
   effective: string[];
-  is_local_admin: boolean;
-  /** role ตามรหัสจากต้นทาง (appIds) อัตโนมัติ */
+  is_super_admin: boolean;
+  /** ตำแหน่งตามรหัสจากต้นทาง (appIds) อัตโนมัติ — ตั้ง/ถอดได้เฉพาะตำแหน่งผู้ดูแลระบบ */
   role_synced: boolean;
+  /** ผู้เปิดดูแก้ผู้ใช้นี้ไม่ได้เพราะ (null = แก้ได้) */
+  locked_reason?: string | null;
 }
 
 /** GET /api-users */
@@ -659,7 +714,7 @@ export interface ApiUser {
   id: number;
   name: string;
   email: string | null;
-  role: "manager" | "viewer" | "admin";
+  role: Role;
   is_active: boolean;
   external_id: string;
   external_synced_at: string | null;

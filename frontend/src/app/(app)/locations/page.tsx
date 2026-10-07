@@ -6,7 +6,7 @@ import { LinkPendingIcon } from "@/components/pending";
 import { alert, btn, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getAccess, canManageAssets, getCurrentUser } from "@/lib/auth";
+import { getAccess, getCurrentUser, has } from "@/lib/auth";
 import { LOCATION_TYPES, type Location, type LocationType } from "@/lib/types";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -46,7 +46,7 @@ function toTree(list: Location[]): { loc: Location; depth: number }[] {
 
 export default async function LocationsPage({ searchParams }: PageProps<"/locations">) {
   const [params, user, { t, fmt }, can] = await Promise.all([searchParams, getCurrentUser(), getI18n(), getAccess()]);
-  const canManage = canManageAssets(user);
+  const canManage = has(user, "locations.manage");
   const canCreate = canManage && can("btn:locations:create");
   // ผู้จัดการเห็นทั้งหมด (รวมที่ปิดใช้งาน) พร้อมจำนวนสินทรัพย์/สถานที่ย่อย
   const { data } = await apiFetch<{ data: Location[] }>(canManage ? "/locations?include_inactive=1" : "/locations");

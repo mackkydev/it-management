@@ -13,7 +13,7 @@ import { alert, btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { Formatters, MessageKey, TFunction } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
-import { getAccess, canManageAssets, canViewAllAssets, getCurrentUser } from "@/lib/auth";
+import { getAccess, canCreateAssets, canEditAssets, canViewAllAssets, getCurrentUser } from "@/lib/auth";
 import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Branch, type LicenseUsage, type Location, type Paginated } from "@/lib/types";
 import { ImportAssets } from "./import-assets";
 import { ClickableRow } from "@/components/clickable-row";
@@ -81,8 +81,8 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
     getAccess(),
   ]);
   // สิทธิ์เดิม (admin/manager) + การตั้งค่าหน้าสิทธิ์การใช้งาน
-  const canCreate = canManageAssets(user) && can("btn:assets:create");
-  const canEdit = canManageAssets(user) && can("btn:assets:edit");
+  const canCreate = canCreateAssets(user) && can("btn:assets:create");
+  const canEdit = canEditAssets(user) && can("btn:assets:edit");
   // ส่งออก Excel ตามตัวกรองที่เลือก (ทะเบียนคอมพิวเตอร์ — คอลัมน์เดียวกับไฟล์นำเข้า)
   const canExport = canViewAllAssets(user) && can("btn:assets:export");
   const exportQuery = new URLSearchParams(query);

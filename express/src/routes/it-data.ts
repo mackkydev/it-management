@@ -8,6 +8,7 @@ import { limits } from "../lib/rate-limit.js";
 import { dateOnly, diffInDays, fromDbDate, iso, nowDb } from "../lib/time.js";
 import { bool, custom, exists, int, makeHash, regex, unique, validate } from "../lib/validator.js";
 import { audit } from "../services/audit.js";
+import { notifyAccessChange } from "../services/access-control.js";
 import { me, shortMeta, pageParam } from "../http.js";
 import { can } from "../models/user.js";
 import { audiencePermissions } from "../services/permissions.js";
@@ -18,11 +19,11 @@ import { allSettings, getSetting, putSetting } from "../services/settings.js";
 export const itDataRoutes = Router();
 
 /** กลุ่มผู้ใช้ในหน้าสิทธิ์การใช้งาน (frontend: lib/permissions.ts) */
-const UI_AUDIENCES = ["admin", "manager", "viewer", "it_staff", "it_head"];
 
 const routeId = (req: Request) => (/^\d+$/.test(String(req.params.id)) ? Number(req.params.id) : NaN);
-const vault = (req: Request) => authorize(can(me(req), "vault.use"));
-const contracts = (req: Request) => authorize(can(me(req), "contracts.manage"));
+/** ต้องมีสิทธิ์อย่างน้อยหนึ่งข้อของระบบงาน (เช่น vault.view หรือ vault.update สำหรับหน้าแก้ไข) */
+const vault = (req: Request, ...actions: ("view" | "create" | "update" | "delete")[]) => authorize(actions.some((a) => can(me(req), `vault.${a}`)));
+const contracts = (req: Request, ...actions: ("view" | "create" | "update" | "delete")[]) => authorize(actions.some((a) => can(me(req), `contracts.${a}`)));
 const branches = (req: Request) => authorize(can(me(req), "branches.manage"));
 const settings = (req: Request) => authorize(can(me(req), "settings.manage"));
 
@@ -127,7 +128,7 @@ const settingsJson = async () => {
 /** GET /secret-pin — สถานะ PIN กลาง (ตั้งแล้วหรือยัง / เมื่อไร / โดยใคร) */
 itDataRoutes.get("/secret-pin", async (req, res) => {
   const u = me(req);
-  authorize(can(u, "secrets.pin_manage") || can(u, "vault.use") || can(u, "assets.license_key"));
+  authorize(can(u, "secrets.pin_manage") || can(u, "vault.view") || can(u, "assets.license_key"));
   res.json({ data: { ...(await centralPinStatus()), can_manage: can(u, "secrets.pin_manage") } });
 });
 
@@ -161,6 +162,8 @@ itDataRoutes.put("/secret-pin", limits.pinSet, async (req, res) => {
   await putSetting("secret_pin", { hash: makeHash(String(data.pin), config.bcryptRounds), set_at: pinSetAt(), set_by: { id: u.id, name: u.name } }, u.id);
   await exec("UPDATE users SET secret_pin_failures = 0, secret_pin_locked_until = NULL WHERE secret_pin_failures > 0 OR secret_pin_locked_until IS NOT NULL");
   await audit(req, { action: existed ? "settings.secret_pin_changed" : "settings.secret_pin_set", subjectType: "settings", subjectId: "secret_pin" });
+  // PIN กลางเปลี่ยน = แจ้งผู้ดูแลระบบ + ผู้ดูแลระบบรองทุกคน
+  await notifyAccessChange(req, "pin", { id: "secret_pin", name: "" }, { first_time: !existed });
   res.json({ data: { ...(await centralPinStatus()), can_manage: true } });
 });
 
@@ -171,6 +174,9 @@ itDataRoutes.get("/settings", async (req, res) => {
 
 itDataRoutes.put("/settings", async (req, res) => {
   settings(req);
+  // การมองเห็นเมนู/ปุ่ม = ส่วนหนึ่งของการจัดการสิทธิ์ (สงวนไว้ให้ผู้ดูแลระบบ)
+  if ("ui_permissions" in req.input) authorize(can(me(req), "access.manage"));
+  const groupKeys = new Set((await select<{ key: string }>('SELECT "key" FROM permission_groups')).map((g) => g.key));
   const data = await validate(
     req.input,
     {
@@ -184,7 +190,7 @@ itDataRoutes.put("/settings", async (req, res) => {
       // สิทธิ์การมองเห็นเมนู/ปุ่ม: { "<key>": ["viewer", ...] }
       ui_permissions: ["sometimes", "array", "max:200"],
       "ui_permissions.*": ["array"],
-      "ui_permissions.*.*": [`in:${UI_AUDIENCES.join(",")}`],
+      "ui_permissions.*.*": [custom((v) => typeof v === "string" && groupKeys.has(v), trans(req.locale, "eam.access.invalid_group"))],
       // ลำดับเมนู: { groups: [...], items: { "<groupId>": ["/href", ...] } }
       menu_order: ["sometimes", "array"],
       "menu_order.groups": ["sometimes", "array", "max:50"],
@@ -402,7 +408,7 @@ async function logAccess(req: Request, credentialId: number, action: string) {
 }
 
 itDataRoutes.get("/credentials", async (req, res) => {
-  vault(req);
+  vault(req, "view");
   const f = await validate(
     req.input,
     {
@@ -436,7 +442,7 @@ itDataRoutes.get("/credentials", async (req, res) => {
 
 /** GET /credentials/categories — หมวดตั้งต้น + หมวดที่ผู้ใช้เพิ่มเอง (ที่ยังมีบัญชีใช้อยู่) */
 itDataRoutes.get("/credentials/categories", async (req, res) => {
-  vault(req);
+  vault(req, "view", "create", "update");
   const custom = await select<{ category: string }>(
     "SELECT DISTINCT category FROM credentials WHERE deleted_at IS NULL AND category NOT IN (?) ORDER BY category",
     [CATEGORIES],
@@ -446,12 +452,12 @@ itDataRoutes.get("/credentials/categories", async (req, res) => {
 
 itDataRoutes.get("/credentials/:id", async (req, res) => {
   const c = await loadCredential(routeId(req));
-  vault(req);
+  vault(req, "view", "update");
   res.json({ data: credentialJson(c) });
 });
 
 itDataRoutes.post("/credentials", async (req, res) => {
-  vault(req);
+  vault(req, "create");
   const { out, plainPassword } = await credentialInput(req, false);
   const u = me(req);
   const id = await transaction(async () => {
@@ -475,7 +481,7 @@ itDataRoutes.post("/credentials", async (req, res) => {
 
 async function updateCredential(req: Request, res: import("express").Response) {
   const current = await loadCredential(routeId(req));
-  vault(req);
+  vault(req, "update");
   const { out, plainPassword } = await credentialInput(req, true);
   await transaction(async () => {
     const changes: Record<string, unknown> = { ...out, updated_by: me(req).id, updated_at: nowDb() };
@@ -495,7 +501,7 @@ itDataRoutes.patch("/credentials/:id", updateCredential);
 
 itDataRoutes.delete("/credentials/:id", async (req, res) => {
   const c = await loadCredential(routeId(req));
-  vault(req);
+  vault(req, "delete");
   await logAccess(req, c.id, "delete");
   await update("credentials", { deleted_at: nowDb(), updated_at: nowDb() }, "id = ?", [c.id]);
   res.status(204).end();
@@ -504,7 +510,7 @@ itDataRoutes.delete("/credentials/:id", async (req, res) => {
 /** เปิดดูรหัสผ่าน — ตรวจ IP / ยืนยันรหัสผ่านซ้ำ (ถ้าเปิดใช้) แล้วบันทึก log ผู้เปิดดู + IP ทุกครั้ง + แจ้งหัวหน้า IT (ถ้าเปิดใช้) */
 itDataRoutes.post("/credentials/:id/reveal", limits.reveal, async (req, res) => {
   const c = await loadCredential(routeId(req));
-  vault(req);
+  vault(req, "view");
   // บัญชีที่ปิด "ต้องยืนยันก่อนเปิดดู" → ข้ามการยืนยันตัวตน (ยังตรวจ IP + บันทึก log + แจ้งเตือนตามปกติ)
   await assertCanReveal(req, { reauth: Boolean(c.require_reauth) });
   await logAccess(req, c.id, "reveal");
@@ -515,7 +521,7 @@ itDataRoutes.post("/credentials/:id/reveal", limits.reveal, async (req, res) => 
 /** ประวัติการเข้าถึง (ล่าสุด 50 รายการ) */
 itDataRoutes.get("/credentials/:id/logs", async (req, res) => {
   const c = await loadCredential(routeId(req));
-  vault(req);
+  vault(req, "view");
   const logs = await select<{ id: number; action: string; ip: string | null; created_at: string; u_id: number | null; u_name: string | null }>(
     `SELECT l.id, l.action, l.ip, l.created_at, u.id AS u_id, u.name AS u_name
        FROM credential_access_logs l LEFT JOIN users u ON u.id = l.user_id
@@ -616,7 +622,7 @@ async function contractInput(req: Request, partial: boolean) {
 
 /** GET /contracts?status=active|expiring|expired&search= (+ summary, default_notify_days) */
 itDataRoutes.get("/contracts", async (req, res) => {
-  contracts(req);
+  contracts(req, "view");
   const f = await validate(
     req.input,
     {
@@ -644,12 +650,12 @@ itDataRoutes.get("/contracts", async (req, res) => {
 
 itDataRoutes.get("/contracts/:id", async (req, res) => {
   const c = await loadContract(routeId(req));
-  contracts(req);
+  contracts(req, "view", "update");
   res.json({ data: contractJson(c, Number(await getSetting("contract_notify_days")), true) });
 });
 
 itDataRoutes.post("/contracts", async (req, res) => {
-  contracts(req);
+  contracts(req, "create");
   const out = await contractInput(req, false);
   const now = nowDb();
   const id = await insert("contracts", { notify_enabled: true, ...out, created_by: me(req).id, created_at: now, updated_at: now });
@@ -658,7 +664,7 @@ itDataRoutes.post("/contracts", async (req, res) => {
 
 async function updateContract(req: Request, res: import("express").Response) {
   const current = await loadContract(routeId(req));
-  contracts(req);
+  contracts(req, "update");
   const out = await contractInput(req, true);
   await update("contracts", { ...out, updated_at: nowDb() }, "id = ?", [current.id]);
   res.json({ data: contractJson(await loadContract(current.id), Number(await getSetting("contract_notify_days")), true) });
@@ -668,7 +674,7 @@ itDataRoutes.patch("/contracts/:id", updateContract);
 
 itDataRoutes.delete("/contracts/:id", async (req, res) => {
   const c = await loadContract(routeId(req));
-  contracts(req);
+  contracts(req, "delete");
   await update("contracts", { deleted_at: nowDb(), updated_at: nowDb() }, "id = ?", [c.id]);
   res.status(204).end();
 });
