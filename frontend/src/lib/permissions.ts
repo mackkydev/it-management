@@ -80,6 +80,7 @@ export const BUTTONS: { key: string; label: MessageKey; system?: (u: User) => bo
   { key: "btn:kpi:create", label: "permissions.buttons.kpiCreate" },
   { key: "btn:assets:create", label: "permissions.buttons.assetCreate", system: perm("assets.manage") },
   { key: "btn:assets:edit", label: "permissions.buttons.assetEdit", system: perm("assets.manage") },
+  { key: "btn:assets:export", label: "permissions.buttons.assetExport", system: (u) => has(u, "assets.view_all") || has(u, "assets.manage") },
   { key: "btn:vault:create", label: "permissions.buttons.vaultCreate", system: perm("vault.use") },
   { key: "btn:vault:reveal", label: "permissions.buttons.vaultReveal", system: perm("vault.use") },
   { key: "btn:contracts:create", label: "permissions.buttons.contractCreate", system: perm("contracts.manage") },

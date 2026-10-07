@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
-import { createAsset, deleteAsset, loadSoftwareOptions, suggestAssetValues, updateAsset, type SaveResult } from "@/app/actions/assets";
+import { createAsset, deleteAsset, loadSoftwareOptions, searchUsers, suggestAssetTags, suggestAssetValues, updateAsset, type SaveResult } from "@/app/actions/assets";
 import { DateInput } from "@/components/date-input";
-import { SuggestInput } from "@/components/suggest-input";
+import { SuggestInput, type SuggestItem } from "@/components/suggest-input";
+import { Tooltip } from "@/components/tooltip";
 import { AlertIcon, SaveIcon, SpinnerIcon, TrashIcon, TruckIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input as inputBase, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
@@ -193,6 +194,22 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
       </div>
     );
   };
+
+  // ---- ชื่อ-สกุลผู้ใช้งาน: ค้นจากผู้ใช้ (LOCAL + API) → เลือกแล้วเติมชื่อ + แผนก (พิมพ์เองได้เหมือนเดิม)
+  const loadUserNames = async (q: string): Promise<SuggestItem<UserOption>[]> =>
+    (await searchUsers(q)).map((u) => ({
+      value: u.name,
+      hint: [u.department, u.type === "API" ? t("assets.computer.apiUser") : null, u.email].filter(Boolean).join(" · "),
+      data: u,
+    }));
+  const pickUser = (item: SuggestItem<UserOption>) => {
+    const dept = item.data?.department?.trim();
+    setValues((v) => ({ ...v, user_name: item.value, ...(dept ? { department: dept.slice(0, 100) } : {}) }));
+    setErrors((prev) => ({ ...prev, user_name: "", ...(dept ? { department: "" } : {}) }));
+  };
+  // ---- เลขที่ทรัพย์สิน Monitor: ค้นจากทะเบียนสินทรัพย์ (พิมพ์เองได้เหมือนเดิม)
+  const loadMonitorTags = async (q: string): Promise<SuggestItem[]> =>
+    (await suggestAssetTags(q)).map((a) => ({ value: a.asset_tag, hint: [a.name, [a.brand, a.model].filter(Boolean).join(" ")].filter(Boolean).join(" · ") }));
 
   const onCustodianChange = (user: UserOption | null) => {
     setCustodian(user);
@@ -403,7 +420,21 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
             <p className="mb-4 mt-1 text-sm text-muted">{t("assets.computer.sectionHint")}</p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {field("department", t("assets.computer.department"), input("department", { maxLength: 100 }))}
-              {field("user_name", t("assets.computer.userName"), input("user_name", { maxLength: 255 }))}
+              {field(
+                "user_name",
+                t("assets.computer.userName"),
+                <SuggestInput<UserOption>
+                  id="user_name"
+                  value={values.user_name}
+                  onChange={(v) => setField("user_name", v)}
+                  load={loadUserNames}
+                  onPick={pickUser}
+                  allowNew={false}
+                  maxLength={255}
+                  placeholder={t("assets.computer.userNamePlaceholder")}
+                  className={cls("user_name")}
+                />,
+              )}
               {field(
                 "computer_type",
                 t("assets.computer.computerType"),
@@ -422,13 +453,24 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
               {field("work_group", t("assets.computer.workGroup"), input("work_group", { maxLength: 50, placeholder: "LAMPHUN" }))}
               {field("ip_address", t("assets.computer.ip"), input("ip_address", { maxLength: 45, placeholder: "192.168.4.36", className: `${cls("ip_address")} font-mono` }))}
               {field("mac_address", t("assets.computer.mac"), input("mac_address", { maxLength: 50, placeholder: "A0:36:BC:25:1C:5C", className: `${cls("mac_address")} font-mono` }))}
-              {field("monitor_tag", t("assets.computer.monitorTag"), input("monitor_tag", { maxLength: 255, className: `${cls("monitor_tag")} font-mono` }))}
+              {field(
+                "monitor_tag",
+                t("assets.computer.monitorTag"),
+                <SuggestInput
+                  id="monitor_tag"
+                  value={values.monitor_tag}
+                  onChange={(v) => setField("monitor_tag", v)}
+                  load={loadMonitorTags}
+                  allowNew={false}
+                  maxLength={255}
+                  placeholder={t("assets.computer.monitorTagPlaceholder")}
+                  className={`${cls("monitor_tag")} font-mono`}
+                />,
+              )}
               {/* แถวเครื่อง: IP / MAC / Monitor — แถวซอฟต์แวร์: OS / Office / Anti Virus = license ที่ติดตั้งบนเครื่องนี้ (Email 365 ไม่แสดงในฟอร์ม — ค่าเดิมยังเก็บไว้) */}
               {slotField("os", t("assets.computer.os"))}
               {slotField("office", t("assets.computer.office"))}
               {slotField("antivirus", t("assets.computer.antivirus"))}
-              {field("notebook_tag", t("assets.computer.notebookTag"), input("notebook_tag", { maxLength: 100, className: `${cls("notebook_tag")} font-mono` }))}
-              {field("cpu_tag", t("assets.computer.cpuTag"), input("cpu_tag", { maxLength: 100, className: `${cls("cpu_tag")} font-mono` }))}
               {/* Software อื่นๆ (หลายรายการ) — เลือกจาก license เหมือน OS / Office */}
               <div className="sm:col-span-2 lg:col-span-3">
                 <label htmlFor="software-others" className="mb-1 block text-sm font-medium">
@@ -443,12 +485,34 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
                   onChange={setOthers}
                   className={`${inputBase} ${errors["software.others"] ? inputError : ""}`}
                 />
-                {errors["software.others"] ? (
-                  <p className="mt-1 text-xs font-medium text-red-500">{errors["software.others"]}</p>
+                {/* ข้อความเดิมที่ยังไม่ผูก license (นำเข้า Excel แล้วไม่ตรงชื่อ License หรือ seat เต็ม) */}
+                {values.other_software.trim() && (
+                  <div className="mt-2 flex items-start gap-2 rounded-xl bg-warning-50 px-3 py-2 text-sm ring-1 ring-inset ring-warning-200 dark:bg-warning-400/10 dark:ring-warning-400/30">
+                    <AlertIcon width={14} height={14} className="mt-0.5 shrink-0 text-warning-500" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs text-muted">{t("assets.software.otherLegacy")}</span>
+                      <span className="block break-words">{values.other_software.split(/\r?\n/).filter(Boolean).join(", ")}</span>
+                    </span>
+                    <Tooltip label={t("common.clear")} side="top">
+                      <button
+                        type="button"
+                        onClick={() => setField("other_software", "")}
+                        aria-label={t("common.clear")}
+                        className={`${btn.danger} ${btn.sm} shrink-0 px-1.5 py-1`}
+                      >
+                        <XIcon width={12} height={12} />
+                      </button>
+                    </Tooltip>
+                  </div>
+                )}
+                {errors["software.others"] || errors.other_software ? (
+                  <p className="mt-1 text-xs font-medium text-red-500">{errors["software.others"] || errors.other_software}</p>
                 ) : (
                   <p className="mt-1 text-xs text-muted">{t("assets.software.otherHint")}</p>
                 )}
               </div>
+              {field("notebook_tag", t("assets.computer.notebookTag"), input("notebook_tag", { maxLength: 100, className: `${cls("notebook_tag")} font-mono` }))}
+              {field("cpu_tag", t("assets.computer.cpuTag"), input("cpu_tag", { maxLength: 100, className: `${cls("cpu_tag")} font-mono` }))}
             </div>
           </section>
         )}

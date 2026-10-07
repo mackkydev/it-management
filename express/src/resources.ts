@@ -115,6 +115,7 @@ export interface AssetRow {
   notebook_tag: string | null;
   cpu_tag: string | null;
   monitor_tag: string | null;
+  other_software: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -164,6 +165,7 @@ export function assetResource(
     notebook_tag: a.notebook_tag,
     cpu_tag: a.cpu_tag,
     monitor_tag: a.monitor_tag,
+    other_software: a.other_software,
     ...("license" in rel ? { license: rel.license ? licenseJson(rel.license) : null } : {}),
     ...(rel.software ? { software: rel.software } : {}),
     ...("files" in rel ? { files: (rel.files ?? []).map((f) => fileJson(a.uuid, f)) } : {}),

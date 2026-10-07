@@ -251,6 +251,8 @@ model assets {
   notebook_tag                     String?                 @db.VarChar(100)
   cpu_tag                          String?                 @db.VarChar(100)
   monitor_tag                      String?                 @db.VarChar(255)
+  /// Software อื่นๆ ที่ยังไม่ผูก license (ข้อความจาก Excel ที่ไม่ตรงชื่อ License หรือ seat เต็ม — คั่นด้วยขึ้นบรรทัดใหม่)
+  other_software                   String?                 @db.VarChar(1000)
   branches                         branches?               @relation(fields: [branch_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "assets_branch_id_foreign")
   asset_files                      asset_files[]
   asset_licenses                   asset_licenses?

@@ -125,7 +125,10 @@ const eamTh = {
       "Computer Type|เช่น Desktop, Laptop, All-in-One\n" +
       "ช่องที่ไม่มีข้อมูล|เว้นว่าง หรือใส่ - ได้\n" +
       "Department / ชื่อ-สกุลผู้ใช้งาน|เก็บเป็นข้อความไปก่อน (ภายหลังเชื่อมกับผู้ใช้จากระบบต้นทาง)\n" +
-      "OS / Office|เก็บเป็นข้อความไปก่อน (ภายหลังผูกกับข้อมูลการติดตั้ง license)\n" +
+      "OS / Office / Anti Virus|ชื่อตรงกับ License ในระบบ (ชื่อหรือเลขครุภัณฑ์ของสินทรัพย์ Software ไม่สนตัวพิมพ์) = ผูกเป็นการติดตั้งและนับ seat — ไม่ตรง หรือ seat เต็ม = เก็บเป็นข้อความและแจ้งเตือน\n" +
+      "Software อื่นๆ|ใส่ได้หลายรายการ คั่นด้วยขึ้นบรรทัดใหม่ (Alt+Enter) หรือ , — จับคู่กับ License แบบเดียวกับ OS (เว้นว่าง = ถอน Software อื่นๆ ที่ผูกไว้ออก)\n" +
+      "ไฟล์เดิม|ไฟล์ที่ไม่มีบางคอลัมน์ (เช่น Software อื่นๆ) นำเข้าได้ — คอลัมน์ที่ไม่มีในไฟล์จะไม่แก้ข้อมูลเดิม\n" +
+      "ส่งออก Excel|ไฟล์ที่ส่งออกจากหน้าสินทรัพย์ใช้คอลัมน์เดียวกัน แก้แล้วนำกลับเข้ามาได้ทันที\n" +
       "ถ้ามีแถวที่ผิด|ระบบจะไม่นำเข้าเลยทั้งไฟล์ และแจ้งแถวที่ต้องแก้ทั้งหมด",
     unreadable: "อ่านไฟล์ไม่ได้ — ต้องเป็นไฟล์ Excel (.xlsx)",
     no_header: "ไม่พบหัวตาราง — แถวหัวตารางต้องมีคอลัมน์ Host Name (ดาวน์โหลด template)",
@@ -138,6 +141,8 @@ const eamTh = {
     date_invalid: "รูปแบบวันที่ในคอลัมน์ \":column\" ไม่ถูกต้อง",
     too_long: "คอลัมน์ \":column\" ยาวเกิน :max ตัวอักษร",
     branch_not_found: "Work Group \":value\" ไม่ตรงกับสาขาใด — นำเข้าโดยไม่ระบุสาขา",
+    license_not_found: ":column \":value\" ไม่ตรงกับ License ในระบบ — เก็บเป็นข้อความ (ยังไม่นับ seat)",
+    license_seats_full: ":column \":value\" ติดตั้งครบ :seats เครื่องแล้ว — เก็บเป็นข้อความ (ยังไม่นับ seat)",
     failed: "นำเข้าไม่สำเร็จ — แก้ไขแถวที่แจ้งแล้วนำเข้าใหม่ (ยังไม่มีข้อมูลใดถูกบันทึก)",
   },
   expiring: {
@@ -279,7 +284,10 @@ const eamEn: Eam = {
       "Computer Type|e.g. Desktop, Laptop, All-in-One\n" +
       "Empty values|Leave blank or enter -\n" +
       "Department / user name|Stored as text for now (to be linked to users from the source system)\n" +
-      "OS / Office|Stored as text for now (to be linked to license installations)\n" +
+      "OS / Office / Anti Virus|A value matching a license in the system (name or asset code of a Software asset, case-insensitive) is linked as an installation and uses a seat — no match or no free seat = kept as text with a warning\n" +
+      "Other software|Several items separated by line breaks (Alt+Enter) or commas — matched like OS (empty = linked other software is removed)\n" +
+      "Older files|Files missing some columns (e.g. Other software) can be imported — missing columns leave existing data unchanged\n" +
+      "Excel export|Files exported from the Assets page use the same columns and can be edited and imported back\n" +
       "If any row is invalid|Nothing is imported and every row to fix is listed",
     unreadable: "The file cannot be read — it must be an Excel file (.xlsx).",
     no_header: "No header row found — it must include a Host Name column (download the template).",
@@ -292,6 +300,8 @@ const eamEn: Eam = {
     date_invalid: "Invalid date in column \":column\".",
     too_long: "Column \":column\" is longer than :max characters.",
     branch_not_found: "Work Group \":value\" matches no branch — imported without a branch.",
+    license_not_found: ":column \":value\" matches no license in the system — kept as text (no seat used).",
+    license_seats_full: ":column \":value\" already uses all :seats seats — kept as text (no seat used).",
     failed: "Import failed — fix the listed rows and import again (nothing was saved).",
   },
   expiring: {
@@ -423,7 +433,7 @@ const attributesTh: Record<string, string> = {
   work_date: "วันที่ปฏิบัติงาน", user_id: "ผู้ใช้", approval_route_id: "สายอนุมัติ", steps: "ขั้นอนุมัติ",
   user_name: "ชื่อ-สกุลผู้ใช้งาน", received_date: "วันที่รับเข้า", start_use_date: "วันที่เริ่มใช้งาน", work_group: "Work Group",
   mac_address: "MAC Address", computer_type: "Computer Type", ip_address: "IP", os: "OS", office: "Office", email_365: "Email 365",
-  antivirus: "Anti Virus", notebook_tag: "เลขที่ทรัพย์สิน Notebook", cpu_tag: "เลขที่ทรัพย์สิน CPU", monitor_tag: "เลขที่ทรัพย์สิน Monitor", file: "ไฟล์",
+  antivirus: "Anti Virus", notebook_tag: "เลขที่ทรัพย์สิน Notebook", cpu_tag: "เลขที่ทรัพย์สิน CPU", monitor_tag: "เลขที่ทรัพย์สิน Monitor", other_software: "Software อื่นๆ", file: "ไฟล์",
   license: "ข้อมูล license", "license.billing": "ประเภทการซื้อ", "license.start_date": "วันเริ่มใช้งาน", "license.expires_at": "วันหมดอายุ",
   "license.seats": "จำนวน seat", "license.vendor": "ผู้ขาย", "license.license_key": "license key", "license.notify_days_before": "แจ้งเตือนล่วงหน้า",
   files: "ไฟล์", "files.*": "ไฟล์", field: "ช่องข้อมูล", q: "คำค้นหา",

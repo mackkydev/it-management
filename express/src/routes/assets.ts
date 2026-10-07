@@ -19,7 +19,7 @@ import {
 } from "../resources.js";
 import { recordIfMoved, recordRegistration, recordUserChange } from "../services/asset-movements.js";
 import { REPAIR_BASE_WHERE, REPAIR_FROM, repairList } from "../services/asset-repairs.js";
-import { COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, buildTemplate, importRows, parseWorkbook } from "../services/asset-import.js";
+import { COMPUTER_CATEGORY, COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, buildExport, buildTemplate, importRows, parseWorkbook } from "../services/asset-import.js";
 import { audit } from "../services/audit.js";
 import { assertCanReveal, notifyReveal } from "../services/secret-guard.js";
 import { loadSoftware, softwareErrors, softwareOptions, syncSoftware, SOFTWARE_SLOTS } from "../services/asset-software.js";
@@ -168,28 +168,16 @@ function columnValue(key: string, v: unknown): unknown {
 
 /* ---------------------------------------------------------------- assets */
 
-/** GET /assets?search=&status=&category=&location_id=&branch_id=&sort=-created_at&per_page=25&page=1 */
-assetRoutes.get("/assets", async (req, res) => {
-  const f = await validate(
-    req.input,
-    {
-      search: ["nullable", "string", "max:100"],
-      status: ["nullable", `in:${STATUSES.join(",")}`],
-      category: ["nullable", "string", "max:50"],
-      location_id: ["nullable", "integer"],
-      branch_id: ["nullable", "integer"],
-      sort: ["nullable", "string", `in:${[...SORTABLE, ...SORTABLE.map((c) => `-${c}`)].join(",")}`],
-      per_page: ["nullable", "integer", "min:1", "max:100"],
-    },
-    { locale: req.locale },
-  );
+const FILTER_RULES: Rules = {
+  search: ["nullable", "string", "max:100"],
+  status: ["nullable", `in:${STATUSES.join(",")}`],
+  category: ["nullable", "string", "max:50"],
+  location_id: ["nullable", "integer"],
+  branch_id: ["nullable", "integer"],
+};
 
-  const sort = (f.sort as string | null) ?? "-created_at";
-  const dir = sort.startsWith("-") ? "DESC" : "ASC";
-  const column = sort.replace(/^-/, ""); // อยู่ใน whitelist แล้ว
-  const perPage = int(f.per_page) ?? 25;
-  const page = pageParam(req);
-
+/** เงื่อนไขของตัวกรองหน้ารายการ (ใช้ทั้งรายการและส่งออก Excel) — ไม่มีสิทธิ์ดูทั้งหมด = เฉพาะที่ตัวเองถือครอง */
+function filterWhere(req: Request, f: Record<string, unknown>): { whereSql: string; params: unknown[] } {
   const where = ["a.deleted_at IS NULL"];
   const params: unknown[] = [];
   const term = String(f.search ?? "").trim();
@@ -206,7 +194,27 @@ assetRoutes.get("/assets", async (req, res) => {
   // ไม่มีสิทธิ์ดูทั้งหมด → เฉพาะที่ตัวเองถือครอง
   const viewer = me(req);
   if (!seesAllAssets(viewer)) (where.push(OWN_SQL), params.push(viewer.id, viewer.name));
-  const whereSql = where.join(" AND ");
+  return { whereSql: where.join(" AND "), params };
+}
+
+/** GET /assets?search=&status=&category=&location_id=&branch_id=&sort=-created_at&per_page=25&page=1 */
+assetRoutes.get("/assets", async (req, res) => {
+  const f = await validate(
+    req.input,
+    {
+      ...FILTER_RULES,
+      sort: ["nullable", "string", `in:${[...SORTABLE, ...SORTABLE.map((c) => `-${c}`)].join(",")}`],
+      per_page: ["nullable", "integer", "min:1", "max:100"],
+    },
+    { locale: req.locale },
+  );
+
+  const sort = (f.sort as string | null) ?? "-created_at";
+  const dir = sort.startsWith("-") ? "DESC" : "ASC";
+  const column = sort.replace(/^-/, ""); // อยู่ใน whitelist แล้ว
+  const perPage = int(f.per_page) ?? 25;
+  const page = pageParam(req);
+  const { whereSql, params } = filterWhere(req, f);
 
   const total = Number(await scalar(`SELECT COUNT(*) FROM assets a WHERE ${whereSql}`, params));
   const rows = await select<
@@ -279,6 +287,29 @@ assetRoutes.get("/assets/suggestions", async (req, res) => {
   res.json({ data: values.slice(0, 10) });
 });
 
+/**
+ * GET /assets/tag-suggestions?q= — เลขครุภัณฑ์จากทะเบียนสินทรัพย์ (ช่องเลขที่ทรัพย์สิน Monitor ของทะเบียนคอมพิวเตอร์)
+ * ไม่รวมหมวด COMPUTER (รหัส = Host Name) และ Software — พิมพ์ค่าที่ไม่มีในทะเบียนเองได้ที่ฟอร์ม
+ */
+assetRoutes.get("/assets/tag-suggestions", async (req, res) => {
+  authorize(can(me(req), "assets.manage"));
+  const f = await validate(req.input, { q: ["nullable", "string", "max:100"] }, { locale: req.locale });
+  const where = ["a.deleted_at IS NULL", "a.category NOT IN (?)"];
+  const params: unknown[] = [[COMPUTER_CATEGORY, LICENSE_CATEGORY]];
+  const term = String(f.q ?? "").trim();
+  if (term) {
+    const esc = likeEscape(term);
+    where.push("(a.asset_tag LIKE ? OR a.name LIKE ? OR a.model LIKE ? OR a.serial_number LIKE ?)");
+    params.push(`%${esc}%`, `%${esc}%`, `%${esc}%`, `${esc}%`);
+  }
+  const rows = await select<{ asset_tag: string; name: string; brand: string | null; model: string | null; category: string }>(
+    `SELECT a.asset_tag, a.name, a.brand, a.model, a.category FROM assets a WHERE ${where.join(" AND ")}
+      ORDER BY (a.asset_tag LIKE ?) DESC, a.asset_tag LIMIT 10`,
+    [...params, `${likeEscape(term)}%`],
+  );
+  res.json({ data: rows });
+});
+
 /** GET /assets/software-options — license ทั้งหมด + seat ใช้ไป/คงเหลือ (ตัวเลือก OS / Office / Anti Virus / Software อื่นๆ) */
 assetRoutes.get("/assets/software-options", async (req, res) => {
   authorize(can(me(req), "assets.manage"));
@@ -294,6 +325,28 @@ assetRoutes.get("/assets/import-template", async (req, res) => {
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", `attachment; filename="${name}"; filename*=utf-8''${encodeURIComponent(name)}`);
   res.send(await buildTemplate(req.locale));
+});
+
+/** จำนวนแถวสูงสุดของไฟล์ส่งออก */
+const EXPORT_MAX = 20000;
+
+/**
+ * GET /assets/export?search=&status=&branch_id=&location_id= — ทะเบียนคอมพิวเตอร์เป็น Excel ตามตัวกรองที่เลือก
+ * คอลัมน์เดียวกับ template นำเข้า (นำไฟล์กลับเข้ามาได้) — เฉพาะหมวด COMPUTER (ตัวกรองหมวดอื่น = ไฟล์ว่าง)
+ */
+assetRoutes.get("/assets/export", async (req, res) => {
+  authorize(seesAllAssets(me(req)));
+  const f = await validate(req.input, FILTER_RULES, { locale: req.locale });
+  const { whereSql, params } = filterWhere(req, f);
+  const rows = await select<AssetRow>(
+    `SELECT a.* FROM assets a WHERE ${whereSql} AND a.category = ? ORDER BY a.asset_tag, a.id LIMIT ?`,
+    [...params, COMPUTER_CATEGORY, EXPORT_MAX],
+  );
+  const name = `computers-${localToday()}.xlsx`;
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${name}"; filename*=utf-8''${encodeURIComponent(name)}`);
+  res.setHeader("Cache-Control", "no-store");
+  res.send(await buildExport(rows, req.locale));
 });
 
 /**

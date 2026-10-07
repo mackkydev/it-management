@@ -6,6 +6,7 @@ import { trans } from "../lib/i18n.js";
 import { nowDb } from "../lib/time.js";
 import type { AssetRow } from "../resources.js";
 import { recordUserChange } from "./asset-movements.js";
+import { applyInstallations, licenseCatalog, SOFTWARE_SLOTS, softwareNamesOf, type SoftwareSlot, type WantedInstall } from "./asset-software.js";
 
 /**
  * ทะเบียนคอมพิวเตอร์ (หมวด COMPUTER) — import / template Excel ตามไฟล์ทะเบียนของฝ่าย IT
@@ -13,6 +14,9 @@ import { recordUserChange } from "./asset-movements.js";
  * - สาขาจับคู่จาก Work Group ของสาขา (branches.work_group) — ไม่พบ = ไม่ระบุสาขา (แจ้งเตือน ไม่ถือว่าผิด)
  * - วันที่ปี พ.ศ. (> 2400) แปลงเป็น ค.ศ. ให้, "-" หรือว่าง = ไม่มีข้อมูล
  * - ตรวจทุกแถวก่อน — มีแถวผิดแม้แถวเดียว ไม่บันทึกเลย (แจ้งแถวที่ผิดทั้งหมด)
+ * - OS / Office / Anti Virus / Software อื่นๆ: ชื่อตรงกับ License ในระบบ = ผูกเป็นการติดตั้ง (นับ seat) — ไม่ตรง/seat เต็ม = เก็บข้อความ + แจ้งเตือน
+ * - คอลัมน์ที่ไม่มีในไฟล์ (เช่น ไฟล์เดิมที่ไม่มี Software อื่นๆ) = ไม่แก้ข้อมูลเดิม
+ * - ส่งออก (buildExport) ใช้คอลัมน์เดียวกัน — นำไฟล์กลับเข้ามาได้
  */
 
 export const COMPUTER_CATEGORY = "COMPUTER";
@@ -32,12 +36,14 @@ export const COMPUTER_TEXT_FIELDS = {
   notebook_tag: 100,
   cpu_tag: 100,
   monitor_tag: 255,
+  /** Software อื่นๆ ที่ยังไม่ผูก license (ขึ้นบรรทัดใหม่คั่น) */
+  other_software: 1000,
 } as const;
 export const COMPUTER_DATE_FIELDS = ["received_date", "start_use_date"] as const;
 
 type TextField = keyof typeof COMPUTER_TEXT_FIELDS;
 type DateField = (typeof COMPUTER_DATE_FIELDS)[number];
-type Field = TextField | DateField | "asset_tag" | "brand" | "no";
+type Field = Exclude<TextField, "other_software"> | DateField | "asset_tag" | "brand" | "no" | "others";
 
 /** คอลัมน์ของ template — เรียงตามไฟล์ทะเบียนเดิม */
 export const IMPORT_COLUMNS: { header: string; field: Field; width: number; aliases?: string[] }[] = [
@@ -56,12 +62,15 @@ export const IMPORT_COLUMNS: { header: string; field: Field; width: number; alia
   { header: "Office", field: "office", width: 17 },
   { header: "Email 365", field: "email_365", width: 26, aliases: ["Email"] },
   { header: "Anti Virus", field: "antivirus", width: 16, aliases: ["Antivirus"] },
+  { header: "Software อื่นๆ", field: "others", width: 30, aliases: ["Software อื่น ๆ", "Software อื่น", "Other Software", "Software"] },
   { header: "เลขที่ทรัพย์สิน Notebook", field: "notebook_tag", width: 22 },
   { header: "เลขที่ทรัพย์สินCPU", field: "cpu_tag", width: 22, aliases: ["เลขที่ทรัพย์สิน CPU"] },
   { header: "เลขที่ทรัพย์สิน Monitor", field: "monitor_tag", width: 26 },
 ];
 
 const TAG = /^[A-Za-z0-9\-_/]+$/;
+/** ความยาวสูงสุดของเซลล์ Software อื่นๆ (รวมชื่อ license ที่ผูกแล้ว) */
+const OTHERS_MAX = 5000;
 const norm = (s: string) => s.toLowerCase().replace(/[\s.()\-_/:]/g, "");
 const HEADER_MAP = new Map<string, Field>(IMPORT_COLUMNS.flatMap((c) => [c.header, ...(c.aliases ?? [])].map((h) => [norm(h), c.field] as [string, Field])));
 
@@ -69,6 +78,11 @@ const HEADER_MAP = new Map<string, Field>(IMPORT_COLUMNS.flatMap((c) => [c.heade
 
 /** template สำหรับ import — แผ่นแรก = ทะเบียน (หัวตาราง), แผ่นที่สอง = คำอธิบาย */
 export async function buildTemplate(locale: Locale): Promise<Buffer> {
+  return buildWorkbook(locale, []);
+}
+
+/** แผ่นทะเบียน (หัวตาราง + แถวข้อมูล) + แผ่นคำอธิบาย — ใช้ทั้ง template และส่งออก */
+async function buildWorkbook(locale: Locale, rows: Record<string, unknown>[]): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(trans(locale, "eam.asset_import.sheet"), { views: [{ state: "frozen", ySplit: 1 }] });
   ws.columns = IMPORT_COLUMNS.map((c) => ({ header: c.header, key: c.field, width: c.width }));
@@ -81,6 +95,9 @@ export async function buildTemplate(locale: Locale): Promise<Buffer> {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
   for (const key of COMPUTER_DATE_FIELDS) ws.getColumn(key).numFmt = "dd/mm/yyyy";
+  // Software อื่นๆ หลายรายการ = ขึ้นบรรทัดใหม่ในเซลล์
+  for (const r of rows) ws.addRow(r).getCell("others").alignment = { wrapText: true, vertical: "top" };
+  if (rows.length) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: IMPORT_COLUMNS.length } };
 
   const help = wb.addWorksheet(trans(locale, "eam.asset_import.help_sheet"));
   help.columns = [{ width: 30 }, { width: 90 }];
@@ -134,6 +151,8 @@ export interface ImportRow {
   row: number;
   asset_tag: string;
   values: Record<string, string | null>;
+  /** Software อื่นๆ แยกรายการ — undefined = ไฟล์ไม่มีคอลัมน์นี้ (ไม่แตะของเดิม) */
+  others?: string[];
 }
 export interface ImportIssue {
   row: number;
@@ -142,9 +161,20 @@ export interface ImportIssue {
 export interface ImportResult {
   created: number;
   updated: number;
-  /** แถวที่ Work Group ไม่ตรงกับสาขาใด (นำเข้าแล้ว แต่ไม่ระบุสาขา) */
+  /** แถวที่นำเข้าแล้วแต่ควรตรวจ: Work Group ไม่ตรงสาขา / ซอฟต์แวร์ไม่ตรง License หรือ seat เต็ม (เก็บเป็นข้อความ) */
   warnings: ImportIssue[];
 }
+
+/** ข้อความหลายรายการ → รายการไม่ซ้ำ (ค่าเริ่มต้นแยกด้วยขึ้นบรรทัดใหม่) */
+export function splitSoftware(text: string | null, separator: RegExp = /[\r\n]+/): string[] {
+  if (!text) return [];
+  const items = text.split(separator).map((x) => x.trim()).filter((x) => x && x !== "-");
+  const seen = new Set<string>();
+  return items.filter((x) => (seen.has(key(x)) ? false : (seen.add(key(x)), true)));
+}
+
+/** เทียบชื่อแบบไม่สนตัวพิมพ์และช่องว่างซ้ำ */
+const key = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
 
 /** อ่านแผ่นแรกของไฟล์ → แถวข้อมูล + ข้อผิดพลาดรายแถว */
 export async function parseWorkbook(buffer: Buffer, locale: Locale): Promise<{ rows: ImportRow[]; errors: ImportIssue[] }> {
@@ -204,6 +234,14 @@ export async function parseWorkbook(buffer: Buffer, locale: Locale): Promise<{ r
     let bad = false;
     for (const [field, v] of raw) {
       if (field === "asset_tag" || field === "no") continue;
+      if (field === "others") {
+        const text = v instanceof Date ? null : v;
+        if (text && text.length > OTHERS_MAX) {
+          errors.push({ row: r, message: t("too_long", { column: IMPORT_COLUMNS.find((c) => c.field === field)!.header, max: OTHERS_MAX }) });
+          bad = true;
+        }
+        continue;
+      }
       if ((COMPUTER_DATE_FIELDS as readonly string[]).includes(field)) {
         const iso = v === null ? null : toIsoDate(v);
         if (iso === undefined) {
@@ -219,7 +257,9 @@ export async function parseWorkbook(buffer: Buffer, locale: Locale): Promise<{ r
         bad = true;
       } else values[field] = text;
     }
-    if (!bad) rows.push({ row: r, asset_tag: hostName, values });
+    if (bad) continue;
+    const othersCell = raw.has("others") ? raw.get("others") : undefined;
+    rows.push({ row: r, asset_tag: hostName, values, ...(othersCell !== undefined ? { others: splitSoftware(othersCell instanceof Date ? null : othersCell) } : {}) });
   }
   if (rows.length === 0 && errors.length === 0) errors.push({ row: 0, message: t("empty") });
   return { rows, errors };
@@ -245,9 +285,11 @@ export async function importRows(rows: ImportRow[], userId: number, locale: Loca
   if (errors.length) return { errors };
 
   const result: ImportResult = { created: 0, updated: 0, warnings: [] };
+  const catalog = await licenseCatalog();
   await transaction(async () => {
     const now = nowDb();
     for (const r of rows) {
+      let deviceId: number;
       const v = r.values;
       const branchId = branchOf(v.work_group);
       if (v.work_group && branchId === null) result.warnings.push({ row: r.row, message: t("branch_not_found", { value: v.work_group }) });
@@ -262,6 +304,7 @@ export async function importRows(rows: ImportRow[], userId: number, locale: Loca
           userId,
           "import",
         );
+        deviceId = current.id;
         result.updated++;
       } else {
         const name = [v.computer_type || "Computer", v.brand].filter(Boolean).join(" ");
@@ -279,9 +322,125 @@ export async function importRows(rows: ImportRow[], userId: number, locale: Loca
           updated_at: now,
         });
         await recordUserChange(newId, { user_name: null, department: null }, { user_name: (v.user_name as string) ?? null, department: (v.department as string) ?? null }, userId, "import");
+        deviceId = newId;
         result.created++;
       }
+      const sw = await importSoftware(deviceId, r, catalog, userId, locale);
+      result.warnings.push(...sw.warnings.map((message) => ({ row: r.row, message })));
+      if (Object.keys(sw.texts).length) await update("assets", sw.texts, "id = ?", [deviceId]);
     }
   });
   return result;
+}
+
+const SLOT_HEADER: Record<SoftwareSlot | "others", string> = Object.fromEntries(
+  (["os", "office", "antivirus", "others"] as const).map((f) => [f, IMPORT_COLUMNS.find((c) => c.field === f)!.header]),
+) as Record<SoftwareSlot | "others", string>;
+
+/**
+ * ซอฟต์แวร์ของแถว → การติดตั้ง license ของเครื่อง (เฉพาะคอลัมน์ที่มีในไฟล์)
+ * - ชื่อ (หรือเลขครุภัณฑ์) ตรงกับ License = ผูก (ติดตั้งอยู่แล้ว = คงไว้, ใหม่ = ตรวจ seat) — คอลัมน์ข้อความใช้ชื่อ License
+ * - ไม่ตรง / seat เต็ม = เก็บเป็นข้อความ (os / office / antivirus / other_software) + แจ้งเตือน
+ * - ช่องว่าง = ถอนการติดตั้งในช่องนั้น (เก็บประวัติ)
+ */
+async function importSoftware(
+  deviceId: number,
+  r: ImportRow,
+  catalog: { id: number; asset_tag: string; name: string }[],
+  userId: number,
+  locale: Locale,
+): Promise<{ texts: Record<string, string | null>; warnings: string[] }> {
+  const t = (k: string, replace: Record<string, string | number> = {}) => trans(locale, `eam.asset_import.${k}`, replace);
+  const scope = new Set<SoftwareSlot | null>();
+  for (const s of SOFTWARE_SLOTS) if (s in r.values) scope.add(s);
+  if (r.others !== undefined) scope.add(null);
+  if (!scope.size) return { texts: {}, warnings: [] };
+
+  const device = (await first<{ id: number; custodian_id: number | null; branch_id: number | null }>("SELECT id, custodian_id, branch_id FROM assets WHERE id = ?", [deviceId]))!;
+  const installedIds = new Set(
+    (await select<{ license_asset_id: number }>("SELECT license_asset_id FROM license_installations WHERE device_asset_id = ? AND uninstalled_at IS NULL", [deviceId])).map((x) => Number(x.license_asset_id)),
+  );
+  // ชื่อซ้ำกันหลาย License → ใช้ตัวที่ติดตั้งบนเครื่องนี้อยู่แล้วก่อน
+  const match = (text: string) => {
+    const k = key(text);
+    const found = catalog.filter((l) => key(l.name) === k);
+    const list = found.length ? found : catalog.filter((l) => key(l.asset_tag) === k);
+    return list.find((l) => installedIds.has(Number(l.id))) ?? list[0];
+  };
+
+  const warnings: string[] = [];
+  const texts: Record<string, string | null> = {};
+  const wanted: (WantedInstall & { raw: string })[] = [];
+  const unlinked: string[] = []; // Software อื่นๆ ที่เก็บเป็นข้อความ
+  const add = (slot: SoftwareSlot | null, raw: string) => {
+    const lic = match(raw);
+    if (!lic) {
+      warnings.push(t("license_not_found", { column: SLOT_HEADER[slot ?? "others"], value: raw }));
+      if (slot) texts[slot] = raw;
+      else unlinked.push(raw);
+      return;
+    }
+    // license เดียวกันซ้ำในแถว (เช่น ช่อง OS และ Software อื่นๆ) = ติดตั้งครั้งเดียว
+    if (wanted.some((w) => w.id === Number(lic.id))) {
+      if (slot) texts[slot] = lic.name.slice(0, 100);
+      return;
+    }
+    wanted.push({ slot, id: Number(lic.id), name: lic.name, raw });
+  };
+  for (const s of SOFTWARE_SLOTS) {
+    if (!scope.has(s)) continue;
+    const raw = r.values[s];
+    if (raw) add(s, raw);
+    else texts[s] = null;
+  }
+  // Software อื่นๆ: ทีละบรรทัด — บรรทัดที่ไม่ตรง License ทั้งบรรทัดแยกด้วย , หรือ ; อีกชั้น (ชื่อ License ที่มี , ยังจับคู่ได้)
+  for (const line of r.others ?? []) {
+    if (match(line)) add(null, line);
+    else for (const part of splitSoftware(line, /[,;]+/)) add(null, part);
+  }
+
+  const applied = await applyInstallations(device, wanted, scope, userId, (w, seats) => {
+    warnings.push(t("license_seats_full", { column: SLOT_HEADER[w.slot ?? "others"], value: (w as (typeof wanted)[number]).raw, seats }));
+  });
+  for (const w of wanted) {
+    if (applied.has(w)) {
+      if (w.slot) texts[w.slot] = w.name.slice(0, 100);
+    } else if (w.slot) texts[w.slot] = w.raw;
+    else unlinked.push(w.raw);
+  }
+  if (scope.has(null)) {
+    let text = [...new Map(unlinked.map((x) => [key(x), x])).values()].join("\n");
+    if (text.length > COMPUTER_TEXT_FIELDS.other_software) {
+      warnings.push(t("too_long", { column: SLOT_HEADER.others, max: COMPUTER_TEXT_FIELDS.other_software }));
+      text = text.slice(0, COMPUTER_TEXT_FIELDS.other_software);
+    }
+    texts.other_software = text || null;
+  }
+  return { texts, warnings };
+}
+
+/* ---------------------------------------------------------------- ส่งออก */
+
+/** ส่งออกทะเบียนคอมพิวเตอร์ — คอลัมน์เดียวกับ template (ชื่อ License ที่ผูกอยู่ + ข้อความที่ยังไม่ผูก) นำกลับเข้ามาได้ */
+export async function buildExport(assets: AssetRow[], locale: Locale): Promise<Buffer> {
+  const software = await softwareNamesOf(assets.map((a) => a.id));
+  const toDate = (v: unknown) => {
+    const d = v ? String(v instanceof Date ? v.toISOString() : v).slice(0, 10) : "";
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T00:00:00Z`) : null;
+  };
+  const rows = assets.map((a, i) => {
+    const sw = software.get(a.id);
+    const row: Record<string, unknown> = { no: i + 1, asset_tag: a.asset_tag, brand: a.brand };
+    for (const c of IMPORT_COLUMNS) {
+      if (c.field === "no" || c.field === "asset_tag" || c.field === "brand" || c.field === "others") continue;
+      const value = (a as unknown as Record<string, unknown>)[c.field];
+      row[c.field] = (COMPUTER_DATE_FIELDS as readonly string[]).includes(c.field) ? toDate(value) : (value ?? null);
+    }
+    // ช่องที่ผูก License = ชื่อ License ปัจจุบัน (กรณีเปลี่ยนชื่อ License ภายหลัง)
+    for (const s of SOFTWARE_SLOTS) if (sw?.[s]) row[s] = sw[s];
+    const others = [...(sw?.others ?? []), ...splitSoftware(a.other_software)];
+    row.others = others.length ? others.join("\n") : null;
+    return row;
+  });
+  return buildWorkbook(locale, rows);
 }

@@ -83,7 +83,7 @@ describe("user management", () => {
     const res = await api.get("/api/v1/users?search=somchai");
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
-    expect(res.body.data[0]).toEqual({ id: expect.any(Number), name: "Somchai Jaidee", email: "somchai@example.com" });
+    expect(res.body.data[0]).toEqual({ id: expect.any(Number), name: "Somchai Jaidee", email: "somchai@example.com", department: null, type: "LOCAL" });
     expect(res.body.links.last).toBeNull();
   });
 

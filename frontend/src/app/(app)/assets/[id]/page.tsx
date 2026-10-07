@@ -149,7 +149,10 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
           <Item label={t("assets.computer.os")}>{asset.os}</Item>
           <Item label={t("assets.computer.office")}>{asset.office}</Item>
           <Item label={t("assets.computer.antivirus")}>{asset.antivirus}</Item>
-          <Item label={t("assets.computer.otherSoftware")}>{asset.software?.others.map((o) => o.name).join(", ")}</Item>
+          {/* License ที่ผูกแล้ว + ข้อความที่ยังไม่ผูก (นำเข้า Excel) */}
+          <Item label={t("assets.computer.otherSoftware")}>
+            {[...(asset.software?.others.map((o) => o.name) ?? []), ...(asset.other_software?.split(/\r?\n/).filter(Boolean) ?? [])].join(", ")}
+          </Item>
           {/* Email 365 ไม่อยู่ในฟอร์มแล้ว — แสดงเฉพาะค่าเดิมที่มี */}
           {asset.email_365 && <Item label={t("assets.computer.email365")}>{asset.email_365}</Item>}
           <Item label={t("assets.computer.notebookTag")}>{asset.notebook_tag && <span className="font-mono text-sm">{asset.notebook_tag}</span>}</Item>

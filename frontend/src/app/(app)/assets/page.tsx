@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Form from "next/form";
 import Link from "next/link";
 import { Suspense } from "react";
-import { BoxIcon, CheckCircleIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
+import { BoxIcon, CheckCircleIcon, DownloadIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
@@ -83,6 +83,11 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
   // สิทธิ์เดิม (admin/manager) + การตั้งค่าหน้าสิทธิ์การใช้งาน
   const canCreate = canManageAssets(user) && can("btn:assets:create");
   const canEdit = canManageAssets(user) && can("btn:assets:edit");
+  // ส่งออก Excel ตามตัวกรองที่เลือก (ทะเบียนคอมพิวเตอร์ — คอลัมน์เดียวกับไฟล์นำเข้า)
+  const canExport = canViewAllAssets(user) && can("btn:assets:export");
+  const exportQuery = new URLSearchParams(query);
+  exportQuery.delete("page");
+  exportQuery.delete("per_page");
   const saved = SAVED.find((s) => s === params.saved);
   // ไม่มีสิทธิ์ดูทั้งหมด → API ส่งเฉพาะสินทรัพย์ที่ผู้ใช้ถือครอง
   const mineOnly = !canViewAllAssets(user);
@@ -94,14 +99,27 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
         title={mineOnly ? t("assets.mine.title") : t("assets.title")}
         subtitle={mineOnly ? t("assets.mine.subtitle") : undefined}
         actions={
-          canCreate && (
+          (canCreate || canExport) && (
             <div className="flex flex-wrap gap-2">
-              {/* นำเข้าทะเบียนคอมพิวเตอร์จาก Excel (มีปุ่มดาวน์โหลด template ใน modal) */}
-              <ImportAssets />
-              <Link href="/assets/new" className={btn.primary}>
-                <LinkPendingIcon icon={<PlusIcon />} />
-                {t("assets.add")}
-              </Link>
+              {canExport && (
+                <Tooltip label={t("assets.import.exportHint")} side="bottom">
+                  {/* ดาวน์โหลดไฟล์จาก route handler (ไม่ใช่หน้าเว็บ) */}
+                  <a href={`/files/assets/export?${exportQuery}`} className={btn.secondary}>
+                    <DownloadIcon className="text-accent-500" />
+                    {t("assets.import.export")}
+                  </a>
+                </Tooltip>
+              )}
+              {canCreate && (
+                <>
+                  {/* นำเข้าทะเบียนคอมพิวเตอร์จาก Excel (มีปุ่มดาวน์โหลด template ใน modal) */}
+                  <ImportAssets />
+                  <Link href="/assets/new" className={btn.primary}>
+                    <LinkPendingIcon icon={<PlusIcon />} />
+                    {t("assets.add")}
+                  </Link>
+                </>
+              )}
             </div>
           )
         }

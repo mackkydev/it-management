@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { toActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch, reauthChallenge } from "@/lib/api";
-import { CATEGORY_FORM, COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, type AssetFormValues, type FieldErrors, type SoftwareOption, type UserOption } from "@/lib/types";
+import { CATEGORY_FORM, COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, type AssetFormValues, type AssetTagOption, type FieldErrors, type SoftwareOption, type UserOption } from "@/lib/types";
 
 export interface SaveResult {
   errors?: FieldErrors;
@@ -112,6 +112,17 @@ export async function suggestAssetValues(field: "brand" | "model", q: string, br
   if (field === "model" && brand.trim()) query.set("brand", brand.trim().slice(0, 100));
   try {
     return (await apiFetch<{ data: string[] }>(`/assets/suggestions?${query}`)).data;
+  } catch (e) {
+    if (e instanceof ApiError) return [];
+    throw e;
+  }
+}
+
+/** เลขครุภัณฑ์จากทะเบียนสินทรัพย์ (ช่องเลขที่ทรัพย์สิน Monitor) */
+export async function suggestAssetTags(q: string): Promise<AssetTagOption[]> {
+  const query = new URLSearchParams({ q: q.slice(0, 100) });
+  try {
+    return (await apiFetch<{ data: AssetTagOption[] }>(`/assets/tag-suggestions?${query}`)).data;
   } catch (e) {
     if (e instanceof ApiError) return [];
     throw e;

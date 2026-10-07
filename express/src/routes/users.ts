@@ -101,11 +101,14 @@ userRoutes.get("/users", async (req, res) => {
   const perPage = int(f.per_page) ?? 20;
   const s = searchWhere(f.search);
   // ดึงเกิน 1 แถวเพื่อรู้ว่ามีหน้าถัดไป (simplePaginate ไม่นับ total)
-  const rows = await select<{ id: number; name: string; email: string }>(
-    `SELECT u.id, u.name, u.email FROM users u WHERE ${s.sql} AND u.is_active = true ORDER BY u.name, u.id LIMIT ? OFFSET ?`,
+  // ผู้ใช้ทั้ง LOCAL และ API — department ใช้เติมแผนกในทะเบียนคอมพิวเตอร์เมื่อเลือกชื่อผู้ใช้งาน
+  const rows = await select<{ id: number; name: string; email: string | null; department: string | null; type: string }>(
+    `SELECT u.id, u.name, u.email, u.department, u."type" FROM users u WHERE ${s.sql} AND u.is_active = true ORDER BY u.name, u.id LIMIT ? OFFSET ?`,
     [...s.params, perPage + 1, (page - 1) * perPage],
   );
-  res.json(simplePaginated(req, rows.map((r) => ({ id: r.id, name: r.name, email: r.email })), page, perPage, (f.per_page as string | null) ?? 20));
+  res.json(
+    simplePaginated(req, rows.map((r) => ({ id: r.id, name: r.name, email: r.email, department: r.department, type: r.type })), page, perPage, (f.per_page as string | null) ?? 20),
+  );
 });
 
 userRoutes.get("/users/:id", async (req, res) => {

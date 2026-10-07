@@ -58,6 +58,8 @@ export interface Asset {
   notebook_tag: string | null;
   cpu_tag: string | null;
   monitor_tag: string | null;
+  /** Software อื่นๆ ที่ยังไม่ผูก license (ข้อความจาก Excel — ขึ้นบรรทัดใหม่คั่น) */
+  other_software: string | null;
   /** เฉพาะหมวด SOFTWARE (null = ไม่มี) */
   license?: AssetLicense | null;
   /** หน้ารายการ: จำนวนสิทธิ์ทั้งหมด / ติดตั้งแล้ว / คงเหลือ (เฉพาะ license) */
@@ -419,7 +421,19 @@ export interface UserFormValues {
 export interface UserOption {
   id: number;
   name: string;
-  email: string;
+  email: string | null;
+  /** ผู้ใช้ทั้ง LOCAL และ API — แผนกใช้เติมช่อง Department ของทะเบียนคอมพิวเตอร์ */
+  department?: string | null;
+  type?: "LOCAL" | "API";
+}
+
+/** เลขครุภัณฑ์จากทะเบียนสินทรัพย์ (ช่องเลขที่ทรัพย์สิน Monitor) */
+export interface AssetTagOption {
+  asset_tag: string;
+  name: string;
+  brand: string | null;
+  model: string | null;
+  category: string;
 }
 
 export const CATEGORIES = ["COMPUTER", "IT", "SOFTWARE", "FURNITURE", "VEHICLE", "EQUIPMENT"];
@@ -437,7 +451,7 @@ export const CATEGORY_FORM: Record<string, { license?: boolean; computer?: boole
 /** ช่องข้อมูลเครื่องคอมพิวเตอร์ตามลำดับทะเบียน Excel — ข้อความ / วันที่ */
 export const COMPUTER_TEXT_FIELDS = [
   "department", "user_name", "work_group", "mac_address", "computer_type", "ip_address", "os", "office", "email_365", "antivirus",
-  "notebook_tag", "cpu_tag", "monitor_tag",
+  "notebook_tag", "cpu_tag", "monitor_tag", "other_software",
 ] as const;
 export const COMPUTER_DATE_FIELDS = ["received_date", "start_use_date"] as const;
 /** ค่าที่เลือกได้ของ Computer Type (พิมพ์ค่าอื่นจาก Excel ได้ — แสดงตามที่บันทึก) */
@@ -582,6 +596,7 @@ export interface AssetFormValues {
   notebook_tag: string;
   cpu_tag: string;
   monitor_tag: string;
+  other_software: string;
   /** เหตุผลการโอนย้าย — ส่งเฉพาะตอนแก้ไขและสถานที่/ผู้ถือครองเปลี่ยน */
   movement_reason: string;
   /** ใช้เมื่อหมวดมี license (CATEGORY_FORM) */
