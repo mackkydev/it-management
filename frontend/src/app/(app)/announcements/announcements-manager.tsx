@@ -23,6 +23,10 @@ function showState(a: Announcement, today: string): "live" | "scheduled" | "ende
   return "live";
 }
 const STATE_TONE = { live: tone.success, scheduled: tone.info, ended: tone.idle, off: tone.idle } as const;
+/** แท็บ: กำลังจะมาถึง (กำลังแสดง / ตั้งเวลาไว้ / ปิดอยู่) กับ ผ่านไปแล้ว (เลยวันสิ้นสุด) */
+type Tab = "current" | "past";
+const TAB_CLS = (active: boolean) =>
+  `flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
 
 /** จัดการประกาศหน้า login — ฟอร์มเพิ่ม/แก้ไขด้านบน รายการด้านล่าง */
 export function AnnouncementsManager({ items }: { items: Announcement[] }) {
@@ -36,6 +40,10 @@ export function AnnouncementsManager({ items }: { items: Announcement[] }) {
   const [deleting, setDeleting] = useState<number | null>(null);
   const [pending, start] = useTransition();
   const today = localToday();
+  const [tab, setTab] = useState<Tab>("current");
+  const past = items.filter((a) => showState(a, today) === "ended");
+  const current = items.filter((a) => showState(a, today) !== "ended");
+  const shown = tab === "past" ? past : current;
 
   const set = <K extends keyof AnnouncementPayload>(k: K, value: AnnouncementPayload[K]) => {
     setV((s) => ({ ...s, [k]: value }));
@@ -169,18 +177,31 @@ export function AnnouncementsManager({ items }: { items: Announcement[] }) {
             </button>
           </div>
         </section>
-      ) : (
-        <button type="button" onClick={() => openForm()} className={btn.primary}>
-          <PlusIcon />
-          {t("announcements.add")}
-        </button>
-      )}
+      ) : null}
 
-      {items.length === 0 ? (
-        <div className={`p-10 text-center text-muted ${card}`}>{t("announcements.empty")}</div>
+      {/* แท็บ (ซ้าย) + ปุ่มเพิ่มประกาศ (ขวา) */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div role="tablist" className="inline-flex gap-1 rounded-xl bg-subtle p-1">
+          {(["current", "past"] as const).map((k) => (
+            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={TAB_CLS(tab === k)}>
+              {t(`announcements.tabs.${k}`)}
+              <span className="rounded-full bg-line/70 px-1.5 text-xs tabular-nums text-muted">{(k === "past" ? past : current).length}</span>
+            </button>
+          ))}
+        </div>
+        {!open && (
+          <button type="button" onClick={() => openForm()} className={btn.primary}>
+            <PlusIcon />
+            {t("announcements.add")}
+          </button>
+        )}
+      </div>
+
+      {shown.length === 0 ? (
+        <div className={`p-10 text-center text-muted ${card}`}>{t(tab === "past" ? "announcements.emptyPast" : "announcements.empty")}</div>
       ) : (
         <ul className="space-y-2.5">
-          {items.map((a) => {
+          {shown.map((a) => {
             const state = showState(a, today);
             return (
               <li key={a.id} className={`relative flex items-start gap-3 overflow-hidden py-4 pl-5 pr-3 ${card}`}>

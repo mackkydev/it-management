@@ -127,6 +127,7 @@ export function LoginForm({ connections = [] }: { connections?: LoginConnection[
           {pending ? <SpinnerIcon /> : <LoginIcon />}
           {pending ? t("auth.loggingIn") : t("auth.login")}
         </button>
+        <p className="login-muted -mt-2 text-center text-xs">{t("auth.sameAsCorpSys")}</p>
         {conn?.register_url && (
           <p className="login-muted text-center text-sm">
             {t("auth.noAccount")}{" "}

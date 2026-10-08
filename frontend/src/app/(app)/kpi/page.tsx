@@ -55,10 +55,11 @@ export default async function KpiPage({ searchParams }: PageProps<"/kpi">) {
     <div className="space-y-5">
       <PageHeader icon={ChartIcon} title={t("kpi.title")} subtitle={t("kpi.subtitle")} />
 
-      <div className={`grid grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto] ${card}`}>
-        <Form action="/kpi" className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(2,minmax(0,14rem))_auto] sm:items-end">
+      {/* ฝั่งเลือกเดือน / ฝั่ง Export: หัวข้อชิดบน, ช่องเลือก + ปุ่ม อยู่แถวเดียวกัน */}
+      <div className={`grid grid-cols-1 items-start gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto] ${card}`}>
+        <Form action="/kpi" className="grid grid-cols-1 gap-2 sm:grid-cols-[repeat(2,minmax(0,14rem))_auto] sm:items-end">
           <label className="text-sm">
-            <span className="mb-1 block text-muted">{t("kpi.month")}</span>
+            <span className="mb-1.5 block font-medium leading-5">{t("kpi.month")}</span>
             <AppSelect name="month" defaultValue={month} className={input}>
               {months.map((m) => (
                 <option key={m.value} value={m.value}>
@@ -69,7 +70,7 @@ export default async function KpiPage({ searchParams }: PageProps<"/kpi">) {
           </label>
           {viewAll ? (
             <label className="text-sm">
-              <span className="mb-1 block text-muted">{t("kpi.staff")}</span>
+              <span className="mb-1.5 block font-medium leading-5">{t("kpi.staff")}</span>
               <AppSelect name="user_id" defaultValue={String(userId)} className={input}>
                 {staff.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -81,7 +82,7 @@ export default async function KpiPage({ searchParams }: PageProps<"/kpi">) {
           ) : (
             <span className="hidden sm:block" />
           )}
-          <SubmitButton icon={<SearchIcon />} pendingText={t("common.searching")} className={btn.primary}>
+          <SubmitButton icon={<SearchIcon />} pendingText={t("common.searching")} className={`${btn.primary} whitespace-nowrap`}>
             {t("kpi.show")}
           </SubmitButton>
         </Form>
@@ -100,5 +101,5 @@ async function Sheet({ month, userId, monthText, canCreate }: { month: string; u
   // เพิ่มบรรทัดได้เมื่อแก้ชีตนี้ได้ (ของตัวเอง หรือมีสิทธิ์แก้ของผู้อื่น) + ปุ่มไม่ถูกซ่อนในหน้าการมองเห็นเมนู
   const user = await getCurrentUser();
   const canEdit = user?.id === res.user.id ? has(user, "kpi.use") : has(user, "kpi.edit_all");
-  return <KpiSheet sheet={res} branches={branches.data.map((b) => b.name)} monthText={monthText} canAdd={canEdit && canCreate} canEdit={canEdit} />;
+  return <KpiSheet sheet={res} branches={branches.data.map((b) => b.name)} monthText={monthText} canAdd={canEdit && canCreate} canEdit={canEdit} own={user?.id === res.user.id} />;
 }

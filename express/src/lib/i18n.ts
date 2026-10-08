@@ -136,7 +136,14 @@ const eamTh = {
       "วันที่|ใส่เป็นวันที่ของ Excel หรือพิมพ์ วว/ดด/ปปปป — ปี พ.ศ. หรือ ค.ศ. ก็ได้\n" +
       "Computer Type|เช่น Desktop, Laptop, All-in-One\n" +
       "ช่องที่ไม่มีข้อมูล|เว้นว่าง หรือใส่ - ได้\n" +
-      "Department / ชื่อ-สกุลผู้ใช้งาน|เก็บเป็นข้อความไปก่อน (ภายหลังเชื่อมกับผู้ใช้จากระบบต้นทาง)\n" +
+      "Department / ชื่อ-สกุลผู้ใช้งาน|เก็บเป็นข้อความ — ชื่อตรงกับผู้ใช้ในระบบและไม่ได้กรอก Department = เติมแผนกของผู้ใช้นั้นให้\n" +
+      "ชื่อสินทรัพย์|เว้นว่างได้ — เพิ่มใหม่ = ตั้งจาก Computer Type + Brand ให้, ของเดิม = คงชื่อเดิม\n" +
+      "สถานะ|ใช้งาน / เก็บในคลัง / ส่งซ่อม / สูญหาย / จำหน่ายแล้ว (หรือ active, in_storage, in_repair, lost, disposed) — ว่าง = ไม่เปลี่ยน (เพิ่มใหม่ = ใช้งาน)\n" +
+      "สาขา|ชื่อหรือรหัสสาขา — มีคอลัมน์นี้จะใช้ก่อน Work Group\n" +
+      "สถานที่|ชื่อหรือรหัสสถานที่ — ยังไม่มีในระบบ = เพิ่มให้อัตโนมัติ (รหัส LOC-####) และแจ้งไว้\n" +
+      "ผู้ถือครอง|ชื่อ-สกุลหรืออีเมลของผู้ใช้ในระบบ — ไม่พบ/ชื่อซ้ำหลายคน = คงเดิมและแจ้งเตือน; เปลี่ยนสถานที่/ผู้ถือครอง = บันทึกประวัติการโอนย้ายให้\n" +
+      "วันที่ซื้อ / มูลค่า / วันหมดประกัน|วันที่ซื้อต้องไม่เกินวันนี้ — มูลค่าเป็นตัวเลข (ใส่ , ได้)\n" +
+      "Email 365|เอาออกจากฟอร์มแล้ว — ไฟล์เดิมที่มีคอลัมน์นี้ยังนำเข้าได้\n" +
       "OS / Office / Anti Virus|ชื่อตรงกับ License ในระบบ (ชื่อหรือเลขครุภัณฑ์ของสินทรัพย์ Software ไม่สนตัวพิมพ์) = ผูกเป็นการติดตั้งและนับ seat — ไม่ตรง หรือ seat เต็ม = เก็บเป็นข้อความและแจ้งเตือน\n" +
       "Software อื่นๆ|ใส่ได้หลายรายการ คั่นด้วยขึ้นบรรทัดใหม่ (Alt+Enter) หรือ , — จับคู่กับ License แบบเดียวกับ OS (เว้นว่าง = ถอน Software อื่นๆ ที่ผูกไว้ออก)\n" +
       "ไฟล์เดิม|ไฟล์ที่ไม่มีบางคอลัมน์ (เช่น Software อื่นๆ) นำเข้าได้ — คอลัมน์ที่ไม่มีในไฟล์จะไม่แก้ข้อมูลเดิม\n" +
@@ -156,6 +163,14 @@ const eamTh = {
     license_not_found: ":column \":value\" ไม่ตรงกับ License ในระบบ — เก็บเป็นข้อความ (ยังไม่นับ seat)",
     license_seats_full: ":column \":value\" ติดตั้งครบ :seats เครื่องแล้ว — เก็บเป็นข้อความ (ยังไม่นับ seat)",
     failed: "นำเข้าไม่สำเร็จ — แก้ไขแถวที่แจ้งแล้วนำเข้าใหม่ (ยังไม่มีข้อมูลใดถูกบันทึก)",
+    status_invalid: "สถานะ \":value\" ไม่ถูกต้อง — ใช้ได้: :allowed",
+    cost_invalid: "มูลค่า \":value\" ต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป",
+    purchase_future: "วันที่ซื้อต้องไม่เกินวันนี้",
+    branch_name_not_found: "สาขา \":value\" ไม่ตรงกับสาขาใด — ใช้ Work Group แทน (ถ้ามี)",
+    location_created: "เพิ่มสถานที่ใหม่ \":value\" (รหัส :code) — แก้ไขได้ที่หน้าสถานที่",
+    custodian_not_found: "ไม่พบผู้ใช้ \":value\" — ไม่เปลี่ยนผู้ถือครอง",
+    custodian_ambiguous: "มีผู้ใช้ชื่อ \":value\" หลายคน — ใส่อีเมลแทน (ไม่เปลี่ยนผู้ถือครอง)",
+    movement_reason: "นำเข้า Excel",
   },
   expiring: {
     subject: "แจ้งเตือน: รายการใกล้หมดอายุ :count รายการ",
@@ -307,7 +322,14 @@ const eamEn: Eam = {
       "Dates|Excel dates or dd/mm/yyyy — Buddhist or Gregorian years\n" +
       "Computer Type|e.g. Desktop, Laptop, All-in-One\n" +
       "Empty values|Leave blank or enter -\n" +
-      "Department / user name|Stored as text for now (to be linked to users from the source system)\n" +
+      "Department / user name|Stored as text — a name matching a user in the system with no Department fills in that user's department\n" +
+      "Asset name|Optional — new rows get Computer Type + Brand, existing rows keep their name\n" +
+      "Status|Active / In storage / In repair / Lost / Disposed (or active, in_storage, in_repair, lost, disposed) — empty = unchanged (new = Active)\n" +
+      "Branch|Branch name or code — used before Work Group when present\n" +
+      "Location|Location name or code — unknown locations are created automatically (code LOC-####) and reported\n" +
+      "Custodian|A user's name or email — not found / several matches = unchanged with a warning; location / custodian changes are recorded as movements\n" +
+      "Purchase date / cost / warranty|The purchase date cannot be in the future — cost is a number (commas allowed)\n" +
+      "Email 365|Removed from the form — older files with this column still import\n" +
       "OS / Office / Anti Virus|A value matching a license in the system (name or asset code of a Software asset, case-insensitive) is linked as an installation and uses a seat — no match or no free seat = kept as text with a warning\n" +
       "Other software|Several items separated by line breaks (Alt+Enter) or commas — matched like OS (empty = linked other software is removed)\n" +
       "Older files|Files missing some columns (e.g. Other software) can be imported — missing columns leave existing data unchanged\n" +
@@ -327,6 +349,14 @@ const eamEn: Eam = {
     license_not_found: ":column \":value\" matches no license in the system — kept as text (no seat used).",
     license_seats_full: ":column \":value\" already uses all :seats seats — kept as text (no seat used).",
     failed: "Import failed — fix the listed rows and import again (nothing was saved).",
+    status_invalid: "Status \":value\" is not valid — use: :allowed",
+    cost_invalid: "Cost \":value\" must be a number of 0 or more.",
+    purchase_future: "The purchase date cannot be in the future.",
+    branch_name_not_found: "Branch \":value\" matches no branch — Work Group is used instead (if any).",
+    location_created: "Created a new location \":value\" (code :code) — edit it on the Locations page.",
+    custodian_not_found: "User \":value\" not found — custodian unchanged.",
+    custodian_ambiguous: "Several users are named \":value\" — use the email instead (custodian unchanged).",
+    movement_reason: "Excel import",
   },
   expiring: {
     subject: "Reminder: :count item(s) expiring soon",

@@ -78,7 +78,8 @@
 - ใบแจ้งงาน: ฝ่าย IT (และเจ้าหน้าที่ที่ผู้แจ้งเลือก) เห็น/ได้แจ้งเตือนหลังหัวหน้าอนุมัติแล้วเท่านั้น (`PRE_APPROVAL` ใน `express/src/services/ticket-workflow.ts`)
 - การติดตั้ง license (`license_installations`): นับ seat จากรายการที่ `uninstalled_at` เป็น null — บันทึกเกิน `asset_licenses.seats` ไม่ได้ และลด seats ต่ำกว่าที่ใช้อยู่ไม่ได้
 - หมวด `COMPUTER` = ทะเบียนคอมพิวเตอร์ตาม Excel ของฝ่าย IT: `asset_tag` = Host Name, ข้อมูลเครื่องอยู่ในคอลัมน์ของ `assets` (department, user_name, ip_address, os, office ฯลฯ)
-  นำเข้า/template ที่ `express/src/services/asset-import.ts` (Host Name เดิม = อัปเดต, สาขาจับคู่จาก `branches.work_group`, ผิดแม้แถวเดียว = ไม่บันทึกเลย)
+  นำเข้า/template/ส่งออก ที่ `express/src/services/asset-import.ts` (Host Name เดิม = อัปเดต, ผิดแม้แถวเดียว = ไม่บันทึกเลย, คอลัมน์ที่ไม่มีในไฟล์ = ไม่แก้ข้อมูลเดิม)
+  คอลัมน์ตามฟอร์ม (`IMPORT_COLUMNS`): สาขา (ชื่อ/รหัส ก่อน `branches.work_group`), สถานที่ (ไม่มี = สร้าง LOC-#### ผ่าน `services/locations.ts`), ผู้ถือครอง (ชื่อ/อีเมล → บันทึกการโอนย้าย), สถานะ, วันที่ซื้อ/มูลค่า/ประกัน — `legacy` (Email 365) อ่านได้แต่ไม่อยู่ใน template/ส่งออก; เพิ่มคอลัมน์ = แก้ `SHEET_HEADERS` ใน `tests/asset-import.test.ts` ด้วย
   department / user_name / os / office เป็นข้อความชั่วคราว — ภายหลังผูกกับผู้ใช้จาก API และการติดตั้ง license
 - หมวดสินทรัพย์กำหนดฟอร์มเพิ่มเติมที่ `CATEGORY_FORM` (`frontend/src/lib/types.ts`) — `SOFTWARE` = ข้อมูล license (`asset_licenses`, key เข้ารหัส APP_KEY) + ไฟล์ (`asset_files`) และรวมในการแจ้งเตือนหมดอายุ
 - ประวัติผู้ใช้งาน (ชื่อ-สกุล/Department ของทะเบียนคอมพิวเตอร์) = `asset_user_logs` ผ่าน `recordUserChange()`; ประวัติการซ่อม = ใบงาน type repair ผูกด้วย asset_id หรือเลขครุภัณฑ์ (`services/asset-repairs.ts`)

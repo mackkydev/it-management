@@ -3,9 +3,10 @@ import ExcelJS from "exceljs";
 import { first, insert, select, transaction, update } from "../db.js";
 import type { Locale } from "../lib/i18n.js";
 import { trans } from "../lib/i18n.js";
-import { nowDb } from "../lib/time.js";
+import { localToday, nowDb } from "../lib/time.js";
 import type { AssetRow } from "../resources.js";
-import { recordUserChange } from "./asset-movements.js";
+import { recordIfMoved, recordRegistration, recordUserChange } from "./asset-movements.js";
+import { quickCreateLocation } from "./locations.js";
 import { applyInstallations, licenseCatalog, SOFTWARE_SLOTS, softwareNamesOf, type SoftwareSlot, type WantedInstall } from "./asset-software.js";
 
 /**
@@ -43,30 +44,65 @@ export const COMPUTER_DATE_FIELDS = ["received_date", "start_use_date"] as const
 
 type TextField = keyof typeof COMPUTER_TEXT_FIELDS;
 type DateField = (typeof COMPUTER_DATE_FIELDS)[number];
-type Field = Exclude<TextField, "other_software"> | DateField | "asset_tag" | "brand" | "no" | "others";
+/** ช่องของฟอร์มสินทรัพย์ (นอกเหนือข้อมูลเครื่อง) ที่นำเข้าได้ */
+const ASSET_TEXT_FIELDS = { name: 255, brand: 100, model: 100, serial_number: 100, notes: 5000 } as const;
+const ASSET_DATE_FIELDS = ["purchase_date", "warranty_expires_at"] as const;
+/** อ้างอิงข้อมูลอื่นในระบบ (จับคู่ตอนบันทึก): สาขา / สถานที่ / ผู้ถือครอง */
+const REF_FIELDS = ["branch", "location", "custodian"] as const;
+type RefField = (typeof REF_FIELDS)[number];
+const STATUSES = ["active", "in_storage", "in_repair", "lost", "disposed"] as const;
+
+type Field =
+  | Exclude<TextField, "other_software">
+  | DateField
+  | keyof typeof ASSET_TEXT_FIELDS
+  | (typeof ASSET_DATE_FIELDS)[number]
+  | RefField
+  | "asset_tag"
+  | "no"
+  | "others"
+  | "status"
+  | "purchase_cost";
 
 /** คอลัมน์ของ template — เรียงตามไฟล์ทะเบียนเดิม */
-export const IMPORT_COLUMNS: { header: string; field: Field; width: number; aliases?: string[] }[] = [
+/** legacy = อ่านได้จากไฟล์เดิม แต่ไม่อยู่ใน template / ไฟล์ส่งออก (เอาออกจากฟอร์มแล้ว) */
+export const IMPORT_COLUMNS: { header: string; field: Field; width: number; aliases?: string[]; legacy?: boolean }[] = [
   { header: "No.", field: "no", width: 7, aliases: ["ลำดับ"] },
   { header: "Department", field: "department", width: 14, aliases: ["แผนก"] },
   { header: "ชื่อ-สกุลผู้ใช้งาน(Thai)", field: "user_name", width: 24, aliases: ["ชื่อ-สกุลผู้ใช้งาน", "ผู้ใช้งาน"] },
   { header: "วันที่รับเข้า (Received Date)", field: "received_date", width: 22, aliases: ["วันที่รับเข้า", "Received Date"] },
   { header: "วันที่เริ่มใช้งาน", field: "start_use_date", width: 18 },
   { header: "Host Name", field: "asset_tag", width: 18, aliases: ["Hostname", "Computer Name"] },
+  { header: "ชื่อสินทรัพย์", field: "name", width: 20, aliases: ["Asset Name", "Name"] },
   { header: "Work Group", field: "work_group", width: 16, aliases: ["Workgroup"] },
   { header: "MAC Address", field: "mac_address", width: 20, aliases: ["MAC"] },
   { header: "Computer Type", field: "computer_type", width: 15, aliases: ["Type"] },
   { header: "Brand", field: "brand", width: 14, aliases: ["ยี่ห้อ"] },
+  { header: "รุ่น", field: "model", width: 16, aliases: ["Model"] },
+  { header: "Serial Number", field: "serial_number", width: 18, aliases: ["S/N", "Serial", "SN"] },
   { header: "IP", field: "ip_address", width: 16, aliases: ["IP Address"] },
   { header: "OS", field: "os", width: 17 },
   { header: "Office", field: "office", width: 17 },
-  { header: "Email 365", field: "email_365", width: 26, aliases: ["Email"] },
+  { header: "Email 365", field: "email_365", width: 26, aliases: ["Email"], legacy: true },
   { header: "Anti Virus", field: "antivirus", width: 16, aliases: ["Antivirus"] },
   { header: "Software อื่นๆ", field: "others", width: 30, aliases: ["Software อื่น ๆ", "Software อื่น", "Other Software", "Software"] },
   { header: "เลขที่ทรัพย์สิน Notebook", field: "notebook_tag", width: 22 },
   { header: "เลขที่ทรัพย์สินCPU", field: "cpu_tag", width: 22, aliases: ["เลขที่ทรัพย์สิน CPU"] },
   { header: "เลขที่ทรัพย์สิน Monitor", field: "monitor_tag", width: 26 },
+  // ช่องจากฟอร์มสินทรัพย์ (ไฟล์ทะเบียนเดิมไม่มี — ไม่มีคอลัมน์ = ไม่แก้ข้อมูลเดิม)
+  { header: "สถานะ", field: "status", width: 13, aliases: ["Status"] },
+  { header: "สาขา", field: "branch", width: 16, aliases: ["Branch"] },
+  { header: "สถานที่", field: "location", width: 20, aliases: ["Location"] },
+  { header: "ผู้ถือครอง", field: "custodian", width: 22, aliases: ["Custodian"] },
+  { header: "วันที่ซื้อ", field: "purchase_date", width: 14, aliases: ["Purchase Date"] },
+  { header: "มูลค่า (บาท)", field: "purchase_cost", width: 14, aliases: ["มูลค่า", "Cost", "Price"] },
+  { header: "วันหมดประกัน", field: "warranty_expires_at", width: 15, aliases: ["Warranty", "Warranty Expires"] },
+  { header: "หมายเหตุ", field: "notes", width: 30, aliases: ["Notes", "Remark"] },
 ];
+/** คอลัมน์ใน template / ไฟล์ส่งออก */
+const SHEET_COLUMNS = IMPORT_COLUMNS.filter((c) => !c.legacy);
+const DATE_COLUMNS: readonly string[] = [...COMPUTER_DATE_FIELDS, ...ASSET_DATE_FIELDS];
+const header = (field: Field) => IMPORT_COLUMNS.find((c) => c.field === field)!.header;
 
 const TAG = /^[A-Za-z0-9\-_/]+$/;
 /** ความยาวสูงสุดของเซลล์ Software อื่นๆ (รวมชื่อ license ที่ผูกแล้ว) */
@@ -85,7 +121,7 @@ export async function buildTemplate(locale: Locale): Promise<Buffer> {
 async function buildWorkbook(locale: Locale, rows: Record<string, unknown>[]): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(trans(locale, "eam.asset_import.sheet"), { views: [{ state: "frozen", ySplit: 1 }] });
-  ws.columns = IMPORT_COLUMNS.map((c) => ({ header: c.header, key: c.field, width: c.width }));
+  ws.columns = SHEET_COLUMNS.map((c) => ({ header: c.header, key: c.field, width: c.width }));
   const head = ws.getRow(1);
   head.font = { bold: true };
   head.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
@@ -94,10 +130,11 @@ async function buildWorkbook(locale: Locale, rows: Record<string, unknown>[]): P
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9E1F2" } };
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
-  for (const key of COMPUTER_DATE_FIELDS) ws.getColumn(key).numFmt = "dd/mm/yyyy";
+  for (const key of DATE_COLUMNS) ws.getColumn(key).numFmt = "dd/mm/yyyy";
+  ws.getColumn("purchase_cost").numFmt = "#,##0.00";
   // Software อื่นๆ หลายรายการ = ขึ้นบรรทัดใหม่ในเซลล์
   for (const r of rows) ws.addRow(r).getCell("others").alignment = { wrapText: true, vertical: "top" };
-  if (rows.length) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: IMPORT_COLUMNS.length } };
+  if (rows.length) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: SHEET_COLUMNS.length } };
 
   const help = wb.addWorksheet(trans(locale, "eam.asset_import.help_sheet"));
   help.columns = [{ width: 30 }, { width: 90 }];
@@ -153,6 +190,20 @@ export interface ImportRow {
   values: Record<string, string | null>;
   /** Software อื่นๆ แยกรายการ — undefined = ไฟล์ไม่มีคอลัมน์นี้ (ไม่แตะของเดิม) */
   others?: string[];
+  /** สาขา / สถานที่ / ผู้ถือครอง ตามที่พิมพ์ (จับคู่ตอนบันทึก) — ไม่มี key = ไฟล์ไม่มีคอลัมน์นั้น */
+  refs: Partial<Record<RefField, string | null>>;
+}
+
+/** สถานะจากเซลล์: key (active) หรือชื่อภาษาไทย/อังกฤษ (ใช้งาน / Active) — ไม่รู้จัก = undefined */
+function statusOf(text: string): (typeof STATUSES)[number] | undefined {
+  const k = text.trim().toLowerCase();
+  return STATUSES.find((st) => st === k || (["th", "en"] as const).some((l) => trans(l, `eam.status.${st}`).toLowerCase() === k));
+}
+
+/** มูลค่า: ตัวเลข ≥ 0 (ตัด , ฿ บาท ช่องว่าง) — ไม่ถูกต้อง = undefined */
+function costOf(v: string): string | undefined {
+  const n = Number(v.replace(/[,s฿]|บาท/g, ""));
+  return Number.isFinite(n) && n >= 0 && n <= 9999999999999.99 ? n.toFixed(2) : undefined;
 }
 export interface ImportIssue {
   row: number;
@@ -231,9 +282,30 @@ export async function parseWorkbook(buffer: Buffer, locale: Locale): Promise<{ r
     seen.set(key, r);
 
     const values: Record<string, string | null> = {};
+    const refs: ImportRow["refs"] = {};
     let bad = false;
+    const fail = (message: string) => (errors.push({ row: r, message }), (bad = true));
     for (const [field, v] of raw) {
       if (field === "asset_tag" || field === "no") continue;
+      if ((REF_FIELDS as readonly string[]).includes(field)) {
+        const text = v instanceof Date ? null : v;
+        if (text && text.length > 255) fail(t("too_long", { column: header(field), max: 255 }));
+        else refs[field as RefField] = text;
+        continue;
+      }
+      if (field === "status") {
+        if (v === null) continue; // ว่าง = ไม่เปลี่ยน (เพิ่มใหม่ = ใช้งาน)
+        const st = v instanceof Date ? undefined : statusOf(v);
+        if (!st) fail(t("status_invalid", { value: String(v), allowed: STATUSES.map((x) => trans(locale, `eam.status.${x}`)).join(", ") }));
+        else values.status = st;
+        continue;
+      }
+      if (field === "purchase_cost") {
+        const cost = v === null ? null : v instanceof Date ? undefined : costOf(v);
+        if (cost === undefined) fail(t("cost_invalid", { value: String(v) }));
+        else values.purchase_cost = cost;
+        continue;
+      }
       if (field === "others") {
         const text = v instanceof Date ? null : v;
         if (text && text.length > OTHERS_MAX) {
@@ -242,16 +314,15 @@ export async function parseWorkbook(buffer: Buffer, locale: Locale): Promise<{ r
         }
         continue;
       }
-      if ((COMPUTER_DATE_FIELDS as readonly string[]).includes(field)) {
+      if (DATE_COLUMNS.includes(field)) {
         const iso = v === null ? null : toIsoDate(v);
-        if (iso === undefined) {
-          errors.push({ row: r, message: t("date_invalid", { column: IMPORT_COLUMNS.find((c) => c.field === field)!.header }) });
-          bad = true;
-        } else values[field] = iso;
+        if (iso === undefined) fail(t("date_invalid", { column: header(field) }));
+        else if (field === "purchase_date" && iso && iso > localToday()) fail(t("purchase_future"));
+        else values[field] = iso;
         continue;
       }
       const text = v instanceof Date ? toIsoDate(v) ?? null : v;
-      const max = field === "brand" ? 100 : COMPUTER_TEXT_FIELDS[field as TextField];
+      const max = field in ASSET_TEXT_FIELDS ? ASSET_TEXT_FIELDS[field as keyof typeof ASSET_TEXT_FIELDS] : COMPUTER_TEXT_FIELDS[field as TextField];
       if (text && text.length > max) {
         errors.push({ row: r, message: t("too_long", { column: IMPORT_COLUMNS.find((c) => c.field === field)!.header, max }) });
         bad = true;
@@ -259,7 +330,7 @@ export async function parseWorkbook(buffer: Buffer, locale: Locale): Promise<{ r
     }
     if (bad) continue;
     const othersCell = raw.has("others") ? raw.get("others") : undefined;
-    rows.push({ row: r, asset_tag: hostName, values, ...(othersCell !== undefined ? { others: splitSoftware(othersCell instanceof Date ? null : othersCell) } : {}) });
+    rows.push({ row: r, asset_tag: hostName, values, refs, ...(othersCell !== undefined ? { others: splitSoftware(othersCell instanceof Date ? null : othersCell) } : {}) });
   }
   if (rows.length === 0 && errors.length === 0) errors.push({ row: 0, message: t("empty") });
   return { rows, errors };
@@ -270,8 +341,13 @@ export async function parseWorkbook(buffer: Buffer, locale: Locale): Promise<{ r
 /** ตรวจกับข้อมูลในระบบ (Host Name ที่เป็นสินทรัพย์หมวดอื่น / ถูกลบไปแล้ว) แล้วบันทึกทั้งหมดใน transaction เดียว */
 export async function importRows(rows: ImportRow[], userId: number, locale: Locale): Promise<{ errors: ImportIssue[] } | ImportResult> {
   const t = (key: string, replace: Record<string, string | number> = {}) => trans(locale, `eam.asset_import.${key}`, replace);
-  const branches = await select<{ id: number; work_group: string }>("SELECT id, work_group FROM branches WHERE work_group IS NOT NULL AND deleted_at IS NULL");
-  const branchOf = (wg: string | null | undefined) => (wg ? (branches.find((b) => b.work_group.toUpperCase() === wg.toUpperCase())?.id ?? null) : null);
+  const branches = await select<{ id: number; code: string; name: string; work_group: string | null }>("SELECT id, code, name, work_group FROM branches WHERE deleted_at IS NULL");
+  const branchOf = (wg: string | null | undefined) => (wg ? (branches.find((b) => b.work_group && b.work_group.toUpperCase() === wg.toUpperCase())?.id ?? null) : null);
+  const branchByName = (text: string) => branches.find((b) => key(b.name) === key(text) || key(b.code) === key(text))?.id ?? null;
+  const locations = await select<{ id: number; code: string; name: string }>("SELECT id, code, name FROM locations WHERE deleted_at IS NULL");
+  const people = await select<{ id: number; name: string; email: string | null; department: string | null }>("SELECT id, name, email, department FROM users WHERE is_active = true");
+  const peopleNamed = (text: string) => people.filter((u) => key(u.name) === key(text) || (u.email !== null && key(u.email) === key(text)));
+  const idOrNull = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
   const errors: ImportIssue[] = [];
   const existing = new Map<string, AssetRow>();
@@ -290,13 +366,80 @@ export async function importRows(rows: ImportRow[], userId: number, locale: Loca
     const now = nowDb();
     for (const r of rows) {
       let deviceId: number;
-      const v = r.values;
-      const branchId = branchOf(v.work_group);
-      if (v.work_group && branchId === null) result.warnings.push({ row: r.row, message: t("branch_not_found", { value: v.work_group }) });
+      const v = { ...r.values };
+      const warn = (message: string) => result.warnings.push({ row: r.row, message });
+      if (v.name === null) delete v.name; // ชื่อสินทรัพย์ต้องมีเสมอ — ว่าง = คงเดิม / ตั้งให้อัตโนมัติ
+
+      // สาขา: คอลัมน์ "สาขา" (ชื่อหรือรหัส) ก่อน — ไม่มี/ไม่ตรง จึงใช้ Work Group
+      let branchId: number | null = null;
+      if (r.refs.branch) {
+        branchId = branchByName(r.refs.branch);
+        if (branchId === null) warn(t("branch_name_not_found", { value: r.refs.branch }));
+      }
+      if (branchId === null) {
+        branchId = branchOf(v.work_group);
+        if (v.work_group && branchId === null && !r.refs.branch) warn(t("branch_not_found", { value: v.work_group }));
+      }
+
+      // สถานที่: ชื่อหรือรหัส — ไม่มีในระบบ = เพิ่มให้ (เหมือนปุ่มเพิ่มสถานที่ในฟอร์ม), เว้นว่าง = ไม่ระบุ, ไม่มีคอลัมน์ = คงเดิม
+      let locationId: number | null | undefined;
+      if ("location" in r.refs) {
+        const text = r.refs.location;
+        if (!text) locationId = null;
+        else {
+          const found = locations.find((l) => key(l.code) === key(text) || key(l.name) === key(text));
+          if (found) locationId = Number(found.id);
+          else {
+            const created = await quickCreateLocation(text);
+            locations.push(created);
+            locationId = created.id;
+            warn(t("location_created", { value: text, code: created.code }));
+          }
+        }
+      }
+
+      // ผู้ถือครอง: ชื่อหรืออีเมลของผู้ใช้ในระบบ — ไม่พบ/ชื่อซ้ำหลายคน = คงเดิม + แจ้งเตือน
+      let custodianId: number | null | undefined;
+      if ("custodian" in r.refs) {
+        const text = r.refs.custodian;
+        if (!text) custodianId = null;
+        else {
+          const found = peopleNamed(text);
+          if (found.length === 1) custodianId = Number(found[0].id);
+          else warn(t(found.length ? "custodian_ambiguous" : "custodian_not_found", { value: text }));
+        }
+      }
+
+      // ชื่อผู้ใช้งานตรงกับผู้ใช้ในระบบ + ไม่ได้กรอก Department = เติมแผนกให้ (เหมือนเลือกชื่อในฟอร์ม)
+      if (v.user_name && !v.department) {
+        const found = peopleNamed(v.user_name);
+        if (found.length === 1 && found[0].department) v.department = found[0].department;
+      }
+
       const current = existing.get(r.asset_tag.toUpperCase());
       if (current) {
-        // อัปเดตเฉพาะคอลัมน์ที่มีในไฟล์ — Work Group ไม่ตรงสาขาใด = คงสาขาเดิม
-        await update("assets", { ...v, ...(branchId !== null ? { branch_id: branchId } : {}), updated_by: userId, updated_at: now }, "id = ?", [current.id]);
+        // อัปเดตเฉพาะคอลัมน์ที่มีในไฟล์ — Work Group / สาขา ไม่ตรงสาขาใด = คงสาขาเดิม
+        await update(
+          "assets",
+          {
+            ...v,
+            ...(branchId !== null ? { branch_id: branchId } : {}),
+            ...(locationId !== undefined ? { location_id: locationId } : {}),
+            ...(custodianId !== undefined ? { custodian_id: custodianId } : {}),
+            updated_by: userId,
+            updated_at: now,
+          },
+          "id = ?",
+          [current.id],
+        );
+        const from = { location: idOrNull(current.location_id), custodian: idOrNull(current.custodian_id) };
+        await recordIfMoved(
+          current.id,
+          from,
+          { location: locationId === undefined ? from.location : locationId, custodian: custodianId === undefined ? from.custodian : custodianId },
+          userId,
+          t("movement_reason"),
+        );
         await recordUserChange(
           current.id,
           { user_name: current.user_name, department: current.department },
@@ -316,11 +459,14 @@ export async function importRows(rows: ImportRow[], userId: number, locale: Loca
           status: "active",
           ...v,
           branch_id: branchId,
+          location_id: locationId ?? null,
+          custodian_id: custodianId ?? null,
           created_by: userId,
           updated_by: userId,
           created_at: now,
           updated_at: now,
         });
+        await recordRegistration(newId, locationId ?? null, custodianId ?? null, userId);
         await recordUserChange(newId, { user_name: null, department: null }, { user_name: (v.user_name as string) ?? null, department: (v.department as string) ?? null }, userId, "import");
         deviceId = newId;
         result.created++;
@@ -424,17 +570,36 @@ async function importSoftware(
 /** ส่งออกทะเบียนคอมพิวเตอร์ — คอลัมน์เดียวกับ template (ชื่อ License ที่ผูกอยู่ + ข้อความที่ยังไม่ผูก) นำกลับเข้ามาได้ */
 export async function buildExport(assets: AssetRow[], locale: Locale): Promise<Buffer> {
   const software = await softwareNamesOf(assets.map((a) => a.id));
+  const names = async (table: "branches" | "locations" | "users", ids: unknown[]) => {
+    const list = [...new Set(ids.filter((x) => x !== null && x !== undefined).map(Number))];
+    const rows = list.length ? await select<{ id: number; name: string }>(`SELECT id, name FROM ${table} WHERE id IN (?)`, [list]) : [];
+    return new Map(rows.map((x) => [Number(x.id), x.name]));
+  };
+  const [branchNames, locationNames, userNames] = await Promise.all([
+    names("branches", assets.map((a) => a.branch_id)),
+    names("locations", assets.map((a) => a.location_id)),
+    names("users", assets.map((a) => a.custodian_id)),
+  ]);
+  const nameOf = (map: Map<number, string>, id: unknown) => (id === null || id === undefined ? null : (map.get(Number(id)) ?? null));
   const toDate = (v: unknown) => {
     const d = v ? String(v instanceof Date ? v.toISOString() : v).slice(0, 10) : "";
     return /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T00:00:00Z`) : null;
   };
   const rows = assets.map((a, i) => {
     const sw = software.get(a.id);
-    const row: Record<string, unknown> = { no: i + 1, asset_tag: a.asset_tag, brand: a.brand };
-    for (const c of IMPORT_COLUMNS) {
-      if (c.field === "no" || c.field === "asset_tag" || c.field === "brand" || c.field === "others") continue;
+    const row: Record<string, unknown> = {
+      no: i + 1,
+      asset_tag: a.asset_tag,
+      status: trans(locale, `eam.status.${a.status}`),
+      branch: nameOf(branchNames, a.branch_id),
+      location: nameOf(locationNames, a.location_id),
+      custodian: nameOf(userNames, a.custodian_id),
+      purchase_cost: a.purchase_cost === null || a.purchase_cost === undefined ? null : Number(a.purchase_cost),
+    };
+    for (const c of SHEET_COLUMNS) {
+      if (c.field in row || c.field === "others") continue;
       const value = (a as unknown as Record<string, unknown>)[c.field];
-      row[c.field] = (COMPUTER_DATE_FIELDS as readonly string[]).includes(c.field) ? toDate(value) : (value ?? null);
+      row[c.field] = DATE_COLUMNS.includes(c.field) ? toDate(value) : (value ?? null);
     }
     // ช่องที่ผูก License = ชื่อ License ปัจจุบัน (กรณีเปลี่ยนชื่อ License ภายหลัง)
     for (const s of SOFTWARE_SLOTS) if (sw?.[s]) row[s] = sw[s];

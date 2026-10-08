@@ -13,6 +13,12 @@ const HEADERS = [
 ];
 /** template / ไฟล์ส่งออก: เพิ่ม Software อื่นๆ ต่อจาก Anti Virus */
 const TEMPLATE_HEADERS = [...HEADERS.slice(0, 15), "Software อื่นๆ", ...HEADERS.slice(15)];
+/** template / ไฟล์ส่งออกปัจจุบัน: ช่องตามฟอร์มใหม่ (ไม่มี Email 365) — ไฟล์รูปแบบด้านบนยังนำเข้าได้ */
+const SHEET_HEADERS = [
+  "No.", "Department", "ชื่อ-สกุลผู้ใช้งาน(Thai)", "วันที่รับเข้า (Received Date)", "วันที่เริ่มใช้งาน", "Host Name", "ชื่อสินทรัพย์", "Work Group", "MAC Address",
+  "Computer Type", "Brand", "รุ่น", "Serial Number", "IP", "OS", "Office", "Anti Virus", "Software อื่นๆ", "เลขที่ทรัพย์สิน Notebook", "เลขที่ทรัพย์สินCPU",
+  "เลขที่ทรัพย์สิน Monitor", "สถานะ", "สาขา", "สถานที่", "ผู้ถือครอง", "วันที่ซื้อ", "มูลค่า (บาท)", "วันหมดประกัน", "หมายเหตุ",
+];
 
 async function makeLicense(name: string, seats: number | null, tag?: string) {
   const a = await makeAsset({ name, category: "SOFTWARE", ...(tag ? { asset_tag: tag } : {}) });
@@ -128,7 +134,7 @@ describe("computer register import", () => {
     expect(res.status).toBe(200);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(res.body);
-    expect((wb.worksheets[0].getRow(1).values as unknown[]).slice(1)).toEqual(TEMPLATE_HEADERS);
+    expect((wb.worksheets[0].getRow(1).values as unknown[]).slice(1)).toEqual(SHEET_HEADERS);
     expect(wb.worksheets).toHaveLength(2);
 
     const viewer = await as(await makeUser());
@@ -205,13 +211,15 @@ describe("computer register import", () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(res.body);
     const ws = wb.worksheets[0];
-    expect((ws.getRow(1).values as unknown[]).slice(1)).toEqual(TEMPLATE_HEADERS);
+    expect((ws.getRow(1).values as unknown[]).slice(1)).toEqual(SHEET_HEADERS);
     expect(ws.rowCount).toBe(2); // เฉพาะคอมพิวเตอร์ของสาขาที่กรอง
     const cells = (ws.getRow(2).values as unknown[]).slice(1);
-    expect(cells[5]).toBe("LP001");
-    expect(cells[11]).toBe("Windows 11 Pro");
-    expect(cells[15]).toBe("WinRAR\nLINE");
-    expect(cells[3]).toEqual(new Date(Date.UTC(2022, 8, 12)));
+    const at = (h: string) => cells[SHEET_HEADERS.indexOf(h)];
+    expect(at("Host Name")).toBe("LP001");
+    expect(at("OS")).toBe("Windows 11 Pro");
+    expect(at("Software อื่นๆ")).toBe("WinRAR\nLINE");
+    expect(at("วันที่รับเข้า (Received Date)")).toEqual(new Date(Date.UTC(2022, 8, 12)));
+    expect(at("สถานะ")).toBe("ใช้งาน");
 
     // นำไฟล์ที่ส่งออกกลับเข้ามา = อัปเดตเครื่องเดิม ข้อมูล/การติดตั้งไม่เปลี่ยน
     const before = await select("SELECT * FROM assets WHERE asset_tag = 'LP001'");
@@ -244,5 +252,75 @@ describe("computer register import", () => {
     const dup = await api.post("/api/v1/branches").send({ code: "LP2", name: "ลำพูน 2", work_group: "Lamphun" });
     expect(dup.status).toBe(422);
     expect(dup.body.errors).toHaveProperty("work_group");
+  });
+});
+
+describe("computer register import — columns of the asset form", () => {
+  const COLS = ["Host Name", "ชื่อสินทรัพย์", "รุ่น", "Serial Number", "สถานะ", "สาขา", "สถานที่", "ผู้ถือครอง", "วันที่ซื้อ", "มูลค่า (บาท)", "วันหมดประกัน", "หมายเหตุ", "ชื่อ-สกุลผู้ใช้งาน(Thai)", "Department"];
+
+  it("imports name / model / serial / status / branch / location / custodian / purchase data and records movements", async () => {
+    const api = await as(await makeUser({ role: "admin" }), "th");
+    const branch = await makeBranch({ code: "KKN", name: "ขอนแก่น" });
+    const owner = await makeUser({ name: "สมหญิง ใจดี", email: "somying@example.com", department: "บัญชี" });
+    await makeUser({ name: "ชื่อซ้ำ" });
+    await makeUser({ name: "ชื่อซ้ำ" });
+
+    const res = await api.post("/api/v1/assets/import").attach(
+      "file",
+      await xlsx(
+        [
+          ["PC-F1", "Notebook บัญชี", "ThinkPad E14", "SN-123", "ส่งซ่อม", "KKN", "ห้องบัญชี ชั้น 2", "somying@example.com", "15/01/2568", "25,900", "15/01/2571", "เครื่องสำรอง", "สมหญิง ใจดี", null],
+          ["PC-F2", null, null, null, null, "ไม่มีสาขานี้", null, "ชื่อซ้ำ", null, null, null, null, null, null],
+        ],
+        COLS,
+      ),
+      "f.xlsx",
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ created: 2, updated: 0 });
+    const warnings = res.body.data.warnings.map((w: { message: string }) => w.message).join(" | ");
+    expect(warnings).toContain("เพิ่มสถานที่ใหม่ \"ห้องบัญชี ชั้น 2\"");
+    expect(warnings).toContain("สาขา \"ไม่มีสาขานี้\"");
+    expect(warnings).toContain("มีผู้ใช้ชื่อ \"ชื่อซ้ำ\" หลายคน");
+
+    const pc = await first<Record<string, unknown>>("SELECT * FROM assets WHERE asset_tag = 'PC-F1'");
+    const loc = await first<{ id: number; code: string }>("SELECT id, code FROM locations WHERE name = 'ห้องบัญชี ชั้น 2'");
+    expect(loc?.code).toMatch(/^LOC-\d{4}$/);
+    expect(pc).toMatchObject({
+      name: "Notebook บัญชี", model: "ThinkPad E14", serial_number: "SN-123", status: "in_repair", notes: "เครื่องสำรอง",
+      purchase_cost: "25900.00", department: "บัญชี", // แผนกเติมจากผู้ใช้ที่ชื่อตรงกัน
+    });
+    expect(Number(pc?.branch_id)).toBe(branch);
+    expect(Number(pc?.location_id)).toBe(Number(loc?.id));
+    expect(Number(pc?.custodian_id)).toBe(owner.id);
+    expect(String(pc?.purchase_date).slice(0, 10)).toBe("2025-01-15");
+    expect(String(pc?.warranty_expires_at).slice(0, 10)).toBe("2028-01-15");
+    expect(await scalar("SELECT COUNT(*) FROM asset_movements WHERE asset_id = ? AND type = 'registered'", [pc?.id])).toBe(1);
+
+    const pc2 = await first<Record<string, unknown>>("SELECT * FROM assets WHERE asset_tag = 'PC-F2'");
+    expect(pc2).toMatchObject({ name: "Computer", status: "active", custodian_id: null, branch_id: null });
+
+    // แก้ไขผ่านไฟล์: เปลี่ยนผู้ถือครอง/สถานที่ = บันทึกการโอนย้าย, ไม่มีคอลัมน์ = คงเดิม
+    const again = await api.post("/api/v1/assets/import").attach("file", await xlsx([["PC-F1", "ห้องบัญชี ชั้น 2", ""]], ["Host Name", "สถานที่", "ผู้ถือครอง"]), "g.xlsx");
+    expect(again.body.data).toMatchObject({ created: 0, updated: 1 });
+    const moved = await first<Record<string, unknown>>("SELECT * FROM assets WHERE asset_tag = 'PC-F1'");
+    expect(moved).toMatchObject({ custodian_id: null, name: "Notebook บัญชี", status: "in_repair" });
+    expect(await scalar("SELECT COUNT(*) FROM asset_movements WHERE asset_id = ? AND type = 'transfer' AND reason = 'นำเข้า Excel'", [pc?.id])).toBe(1);
+    expect(await scalar("SELECT COUNT(*) FROM locations WHERE name = 'ห้องบัญชี ชั้น 2'")).toBe(1); // ไม่สร้างซ้ำ
+  });
+
+  it("rejects an unknown status, a bad cost and a future purchase date (nothing is saved)", async () => {
+    const api = await as(await makeUser({ role: "admin" }), "th");
+    const res = await api.post("/api/v1/assets/import").attach(
+      "file",
+      await xlsx([["PC-X1", "พัง", null], ["PC-X2", null, "สองหมื่น"], ["PC-X3", null, null, "01/01/2600"]], ["Host Name", "สถานะ", "มูลค่า (บาท)", "วันที่ซื้อ"]),
+      "x.xlsx",
+    );
+    expect(res.status).toBe(422);
+    const messages = res.body.rows.map((r: { message: string }) => r.message).join(" | ");
+    expect(messages).toContain("สถานะ \"พัง\" ไม่ถูกต้อง");
+    expect(messages).toContain("มูลค่า \"สองหมื่น\"");
+    expect(messages).toContain("วันที่ซื้อต้องไม่เกินวันนี้");
+    expect(await scalar("SELECT COUNT(*) FROM assets WHERE asset_tag LIKE 'PC-X%'")).toBe(0);
   });
 });

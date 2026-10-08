@@ -5,7 +5,7 @@ import { useState, useTransition, type ReactNode } from "react";
 import { deleteKpi, saveKpiEntry, saveKpiTicket, type KpiEntryValues, type KpiResult } from "@/app/actions/kpi";
 import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
-import { AlertIcon, CalendarIcon, DownloadIcon, PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { AlertIcon, CalendarIcon, ChevronDownIcon, DownloadIcon, PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { Tooltip } from "@/components/tooltip";
 import { alert, btn, card, input, inputError, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
@@ -16,6 +16,16 @@ import { useConfirm } from "@/components/dialog-provider";
 
 const cell = "px-3 py-2 align-top";
 const small = `${input} px-2 py-1.5 text-sm`;
+/** รายการ / วิธีการแก้ไข: ยาวเกินช่อง = ตัดเป็น … (ชี้เมาส์ดูข้อความเต็ม) */
+const clampCell = "max-w-64";
+const Clamped = ({ text }: { text: string | null }) =>
+  text ? (
+    <p className="line-clamp-2 break-words" title={text}>
+      {text}
+    </p>
+  ) : (
+    <>-</>
+  );
 
 /* ---------------------------------------------------------------- export */
 
@@ -32,7 +42,7 @@ export function KpiExport({ months, defaultMonth, userId }: { months: { value: s
   ));
   return (
     <div className="space-y-1.5 lg:border-l lg:border-line lg:pl-4">
-      <p className="text-sm font-medium">{t("kpi.exportTitle")}</p>
+      <p className="text-sm font-medium leading-5">{t("kpi.exportTitle")}</p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[repeat(2,minmax(0,11rem))_auto] sm:items-center">
         <AppSelect value={from} onValueChange={setFrom} className={input} aria-label={t("kpi.exportFrom")}>
           {options}
@@ -59,10 +69,12 @@ interface SheetProps {
   monthText: string;
   canAdd: boolean;
   canEdit: boolean;
+  /** ชีตของตัวเอง — แถวใบงานที่ยังไม่บันทึกเปิดให้เลือกทันที (ดูชีตของคนอื่น = แสดงค่า + ปุ่มแก้ไข) */
+  own: boolean;
 }
 
 /** ชีต KPI รายเดือน — คอลัมน์ตามไฟล์ต้นฉบับ: วันที่แจ้ง … Complexity, Mark, วันที่แล้วเสร็จ + Total */
-export function KpiSheet({ sheet, branches, monthText, canAdd, canEdit }: SheetProps) {
+export function KpiSheet({ sheet, branches, monthText, canAdd, canEdit, own }: SheetProps) {
   const { t, fmt } = useI18n();
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState<"work" | "holiday" | null>(null);
@@ -101,9 +113,9 @@ export function KpiSheet({ sheet, branches, monthText, canAdd, canEdit }: SheetP
               <th className={`${cell} w-36`}>{t("kpi.col.requester")}</th>
               <th className={`${cell} w-28`}>{t("kpi.col.branch")}</th>
               <th className={`${cell} w-48`}>{t("kpi.col.serviceType")}</th>
-              <th className={cell}>{t("kpi.col.details")}</th>
+              <th className={`${cell} w-64`}>{t("kpi.col.details")}</th>
               <th className={`${cell} w-28`}>{t("kpi.col.assignee")}</th>
-              <th className={cell}>{t("kpi.col.solution")}</th>
+              <th className={`${cell} w-64`}>{t("kpi.col.solution")}</th>
               <th className={`${cell} w-36`}>{t("kpi.col.complexity")}</th>
               <th className={`${cell} w-16 text-right`}>{t("kpi.col.mark")}</th>
               <th className={`${cell} w-32`}>{t("kpi.col.completed")}</th>
@@ -122,7 +134,7 @@ export function KpiSheet({ sheet, branches, monthText, canAdd, canEdit }: SheetP
               editing === r.key && r.entry_id ? (
                 <EntryEditor key={r.key} sheet={sheet} branches={branches} kind={r.kind === "holiday" ? "holiday" : "work"} row={r} defaultDate={r.work_date} onDone={() => setEditing(null)} />
               ) : r.kind === "ticket" ? (
-                <TicketRow key={r.key} row={r} sheet={sheet} />
+                <TicketRow key={r.key} row={r} sheet={sheet} own={own} />
               ) : (
                 <EntryRow key={r.key} row={r} onEdit={() => (setEditing(r.key), setAdding(null))} />
               ),
@@ -152,7 +164,10 @@ function ServiceTypeLegend({ sheet }: { sheet: KpiMonth }) {
   const { t } = useI18n();
   return (
     <details className={`group p-4 ${card}`}>
-      <summary className="cursor-pointer list-none text-sm font-medium">{t("kpi.serviceTypes")}</summary>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+        {t("kpi.serviceTypes")}
+        <ChevronDownIcon width={16} height={16} className="shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
       <dl className="mt-3 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-[12rem_1fr]">
         {sheet.service_types.map((s) => (
           <div key={s.name} className="contents">
@@ -181,10 +196,11 @@ function complexityOptions(sheet: KpiMonth, t: ReturnType<typeof useI18n>["t"], 
  * แถวใบแจ้งงาน — ข้อมูลจากใบงาน (อ่านอย่างเดียว) + ประเภทการแจ้ง / Complexity
  * ยังไม่เคยบันทึก = เลือกแล้วกด "บันทึก" / บันทึกแล้ว = แสดงค่า + ปุ่ม "แก้ไข" (แก้ภายหลังได้)
  */
-function TicketRow({ row, sheet }: { row: KpiSheetRow; sheet: KpiMonth }) {
+function TicketRow({ row, sheet, own }: { row: KpiSheetRow; sheet: KpiMonth; own: boolean }) {
   const { t, fmt } = useI18n();
   const saved = row.entry_id !== null;
-  const [editing, setEditing] = useState(!saved);
+  // ยังไม่บันทึก: ชีตของตัวเอง = เปิดให้เลือกเลย, ชีตของคนอื่น = แสดง "ยังไม่บันทึก" + ปุ่มแก้ไข
+  const [editing, setEditing] = useState(!saved && own);
   const [serviceType, setServiceType] = useState(row.service_type ?? "");
   const [complexity, setComplexity] = useState(String(row.complexity));
   const [pending, start] = useTransition();
@@ -216,6 +232,7 @@ function TicketRow({ row, sheet }: { row: KpiSheetRow; sheet: KpiMonth }) {
       <td className={cell}>
         {canEditNow ? (
           <AppSelect value={serviceType} onValueChange={setServiceType} disabled={pending} className={small} aria-label={t("kpi.col.serviceType")}>
+            <option value="">{t("kpi.noServiceType")}</option>
             {sheet.service_types.map((s) => (
               <option key={s.name} value={s.name}>
                 {s.name}
@@ -223,19 +240,24 @@ function TicketRow({ row, sheet }: { row: KpiSheetRow; sheet: KpiMonth }) {
             ))}
           </AppSelect>
         ) : (
-          (row.service_type ?? "-")
+          <>
+            {row.service_type ?? "-"}
+            {!saved && <p className="mt-1 text-xs text-warning-700 dark:text-warning-300">{t("kpi.notSaved")}</p>}
+          </>
         )}
       </td>
-      <td className={cell}>
+      <td className={`${cell} ${clampCell}`}>
         <Tooltip label={t("kpi.ticketHint")} side="top">
           <Link href={`/tickets/${row.ticket!.id}`} className={`mb-1 inline-flex whitespace-nowrap rounded-full px-2 py-0.5 font-mono text-xs font-medium ${tone.info.badge}`}>
             {row.ticket!.ticket_no}
           </Link>
         </Tooltip>
-        <p className="whitespace-pre-line">{row.details}</p>
+        <Clamped text={row.details} />
       </td>
       <td className={cell}>{row.assignee ?? "-"}</td>
-      <td className={`${cell} whitespace-pre-line`}>{row.solution ?? "-"}</td>
+      <td className={`${cell} ${clampCell}`}>
+        <Clamped text={row.solution} />
+      </td>
       <td className={cell}>
         {canEditNow ? (
           <AppSelect value={complexity} onValueChange={setComplexity} disabled={pending} className={small} aria-label={t("kpi.col.complexity")}>
@@ -244,7 +266,7 @@ function TicketRow({ row, sheet }: { row: KpiSheetRow; sheet: KpiMonth }) {
         ) : (
           <span className="tabular-nums">{fmt.number(row.complexity)}</span>
         )}
-        {!canEditNow && pendingComplexity && row.can_edit && <p className="mt-1 text-xs text-warning-700 dark:text-warning-300">{t("kpi.complexityPending")}</p>}
+        {!canEditNow && saved && pendingComplexity && row.can_edit && <p className="mt-1 text-xs text-warning-700 dark:text-warning-300">{t("kpi.complexityPending")}</p>}
         {error && <p className="mt-1 text-xs font-medium text-red-500">{error}</p>}
       </td>
       <td className={`${cell} text-right tabular-nums`}>{fmt.number(mark)}</td>
@@ -322,12 +344,14 @@ function EntryRow({ row, onEdit }: { row: KpiSheetRow; onEdit: () => void }) {
       <td className={cell}>{row.requester ?? "-"}</td>
       <td className={cell}>{row.branch ?? "-"}</td>
       <td className={cell}>{row.service_type ?? "-"}</td>
-      <td className={`${cell} whitespace-pre-line`}>
-        {row.details}
+      <td className={`${cell} ${clampCell}`}>
+        <Clamped text={row.details} />
         {error && <p className="mt-1 text-xs font-medium text-red-500">{error}</p>}
       </td>
       <td className={cell}>{row.assignee ?? "-"}</td>
-      <td className={`${cell} whitespace-pre-line`}>{row.solution ?? "-"}</td>
+      <td className={`${cell} ${clampCell}`}>
+        <Clamped text={row.solution} />
+      </td>
       <td className={`${cell} tabular-nums`}>{fmt.number(row.complexity)}</td>
       <td className={`${cell} text-right tabular-nums`}>{fmt.number(row.mark)}</td>
       <td className={`${cell} whitespace-nowrap`}>{dateText(fmt, row.completed_date)}</td>
