@@ -2386,6 +2386,31 @@ const th = {
     tooLong: "ยาวได้ไม่เกิน 100 ตัวอักษร",
     saved: "บันทึกตัวเลือกเรียบร้อยแล้ว",
   },
+  install: {
+    title: "ติดตั้ง (Install)",
+    subtitle: "ติดตั้ง IT-SYSTEM ไว้บนหน้าจอโฮม เปิดได้เร็วเหมือนแอป",
+    button: "ติดตั้ง",
+    dismiss: "ไว้ทีหลัง",
+    close: "ปิด",
+    sheetTitle: "ติดตั้ง IT-SYSTEM บนเครื่องนี้",
+    benefits: "เปิดจากหน้าจอโฮมได้ทันที เต็มจอไม่มีแถบเบราว์เซอร์ และได้หน้าแจ้งเมื่อไม่มีอินเทอร์เน็ต",
+    iosTitle: "iPhone / iPad (Safari)",
+    iosSteps: {
+      share: "แตะปุ่ม แชร์ {icon} ที่แถบด้านล่าง (iPad อยู่มุมขวาบน)",
+      add: "เลื่อนลงแล้วแตะ \"เพิ่มไปยังหน้าจอโฮม\" {icon}",
+      confirm: "แตะ \"เพิ่ม\" มุมขวาบน — ไอคอน IT-SYSTEM จะอยู่บนหน้าจอโฮม",
+    },
+    iosOtherBrowser: "ถ้าเปิดจากแอป LINE / Facebook หรือเบราว์เซอร์อื่น ให้คัดลอกลิงก์ไปเปิดใน Safari ก่อน",
+    androidTitle: "Android (Chrome)",
+    androidSteps: {
+      menu: "แตะเมนู {icon} มุมขวาบนของ Chrome",
+      install: "เลือก \"ติดตั้งแอป\" หรือ \"เพิ่มลงในหน้าจอหลัก\"",
+      confirm: "แตะ \"ติดตั้ง\" — ไอคอน IT-SYSTEM จะอยู่บนหน้าจอหลัก",
+    },
+    androidOtherBrowser: "ถ้าเปิดจากแอป LINE / Facebook ให้แตะ \"เปิดในเบราว์เซอร์\" (Chrome) ก่อน",
+    installed: "ติดตั้งเรียบร้อยแล้ว เปิดจากไอคอนบนหน้าจอโฮมได้เลย",
+    alreadyInstalled: "ติดตั้งแล้ว — ไม่ต้องแสดงอีก",
+  },
 };
 
 export default th;

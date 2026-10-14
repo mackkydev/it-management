@@ -654,3 +654,31 @@ body {
     animation: none !important;
   }
 }
+
+/* แถบติดตั้งแอป (PWA) บนมือถือ: เลื่อนขึ้นจากขอบล่าง + ไอคอนลอยเบาๆ */
+@keyframes install-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(110%);
+  }
+}
+@keyframes install-icon-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@keyframes install-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .install-anim {
+    animation: none !important;
+  }
+}

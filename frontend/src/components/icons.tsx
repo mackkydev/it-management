@@ -487,3 +487,36 @@ export const GaugeIcon = (p: P) => (
     <circle cx="12" cy="15" r="1.5" />
   </Icon>
 );
+
+/** ติดตั้งแอป (โทรศัพท์ + ลูกศรลง) — แถบติดตั้ง PWA */
+export const InstallIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="6" y="2" width="12" height="20" rx="2.5" />
+    <path d="M12 7v7M9 11l3 3 3-3M10.5 18.5h3" />
+  </Icon>
+);
+
+/** ปุ่มแชร์ของ Safari (กล่อง + ลูกศรขึ้น) */
+export const ShareIosIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 3v12M8 7l4-4 4 4" />
+    <path d="M8 10H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2" />
+  </Icon>
+);
+
+/** เพิ่มไปยังหน้าจอโฮม (กล่อง + เครื่องหมายบวก) */
+export const PlusSquareIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="4" />
+    <path d="M12 8v8M8 12h8" />
+  </Icon>
+);
+
+/** เมนูจุดสามจุดแนวตั้ง (Chrome บน Android) */
+export const MoreVerticalIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="12" cy="5" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="12" cy="19" r="1" />
+  </Icon>
+);

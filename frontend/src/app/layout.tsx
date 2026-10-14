@@ -3,6 +3,7 @@ import { Noto_Sans_Thai } from "next/font/google";
 import { headers } from "next/headers";
 import { DialogProvider } from "@/components/dialog-provider";
 import { PrefsProvider } from "@/components/prefs-provider";
+import { InstallPrompt } from "@/components/install-prompt";
 import { PwaRegister } from "@/components/pwa-register";
 import { I18nProvider } from "@/i18n/client";
 import { getI18n } from "@/i18n/server";
@@ -66,6 +67,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <DialogProvider>{children}</DialogProvider>
           </PrefsProvider>
           <PwaRegister />
+          <InstallPrompt />
         </I18nProvider>
       </body>
     </html>

@@ -185,5 +185,6 @@
 - ข้อความทุกจุดผ่าน i18n: `src/i18n/th.ts` (ต้นแบบ) + `en.ts` — ห้าม hard-code ข้อความในคอมโพเนนต์
 - ทุกหน้าที่โหลดข้อมูลต้องมี `loading.tsx` หรือ `<Suspense>` + skeleton; ปุ่มที่ส่งข้อมูลต้องแสดง spinner
 - ฟอร์ม: error ใต้ช่องสีแดง + ล้าง error ของช่องทันทีเมื่อผู้ใช้แก้
+- PWA: `public/sw.js` (เปลี่ยน sw.js/offline.html ต้องเพิ่ม `VERSION`), แถบ "ติดตั้ง (Install)" ล่างจอ = `components/install-prompt.tsx` (เฉพาะ iPhone/iPad/Android ที่ยังไม่ติดตั้ง — Android ใช้ `beforeinstallprompt` / iOS แสดงวิธี "เพิ่มไปยังหน้าจอโฮม", ไว้ทีหลัง = ซ่อน 7 วันใน localStorage; ติดตั้งแล้วไม่แสดงอีก = เปิดแบบ standalone / appinstalled / getInstalledRelatedApps (`related_applications` ใน manifest) / ปุ่ม "ติดตั้งแล้ว" → `it-pwa-installed`)
 - เรียก API ผ่าน `apiFetch` (server-side) เท่านั้น — token อยู่ใน httpOnly cookie ห้ามส่งไป browser
 - Next.js 16 มี breaking changes — อ่าน `frontend/node_modules/next/dist/docs/` ก่อนใช้ API ที่ไม่แน่ใจ (เช่น `proxy.ts` แทน middleware)

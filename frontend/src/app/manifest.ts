@@ -12,6 +12,8 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     orientation: "any",
+    // ให้หน้าเว็บถามได้ว่าติดตั้งแอปนี้แล้วหรือยัง (getInstalledRelatedApps — Android Chrome) → ไม่แสดงแถบติดตั้ง
+    related_applications: [{ platform: "webapp", url: "/manifest.webmanifest" }],
     background_color: "#050816",
     theme_color: "#050816",
     icons: [

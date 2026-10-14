@@ -2384,6 +2384,31 @@ const en: Dictionary = {
     tooLong: "Up to 100 characters",
     saved: "Options saved",
   },
+  install: {
+    title: "Install",
+    subtitle: "Add IT-SYSTEM to your home screen and open it like an app",
+    button: "Install",
+    dismiss: "Later",
+    close: "Close",
+    sheetTitle: "Install IT-SYSTEM on this device",
+    benefits: "Open it straight from your home screen, full screen without the browser bar, with an offline page when there is no internet",
+    iosTitle: "iPhone / iPad (Safari)",
+    iosSteps: {
+      share: "Tap the Share button {icon} in the bottom bar (top right on iPad)",
+      add: "Scroll down and tap \"Add to Home Screen\" {icon}",
+      confirm: "Tap \"Add\" in the top right — the IT-SYSTEM icon appears on your home screen",
+    },
+    iosOtherBrowser: "Opened from LINE / Facebook or another browser? Copy the link and open it in Safari first",
+    androidTitle: "Android (Chrome)",
+    androidSteps: {
+      menu: "Tap the {icon} menu in the top right of Chrome",
+      install: "Choose \"Install app\" or \"Add to Home screen\"",
+      confirm: "Tap \"Install\" — the IT-SYSTEM icon appears on your home screen",
+    },
+    androidOtherBrowser: "Opened from LINE / Facebook? Tap \"Open in browser\" (Chrome) first",
+    installed: "Installed — open it from the icon on your home screen",
+    alreadyInstalled: "Already installed — don't show again",
+  },
 };
 
 export default en;
