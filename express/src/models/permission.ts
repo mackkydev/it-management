@@ -64,10 +64,14 @@ const DEFS: Def[] = [
   // ใบแจ้งงาน — การแจ้งงาน/ดูใบของตัวเอง/อนุมัติตามสาย ทุกคนทำได้เสมอ (ไม่ต้องมีสิทธิ์)
   { key: "tickets.view_all", module: "tickets", action: "view", name_th: "ดูใบแจ้งงานทั้งหมด (รวมที่ยังไม่อนุมัติ)", name_en: "View every ticket (including pending approval)", defaults: ["admin"] },
   { key: "tickets.approve_any", module: "tickets", action: "approve", name_th: "อนุมัติแทนผู้อนุมัติทุกสาย", name_en: "Approve on behalf of any approver", defaults: ["admin"] },
+  // ผู้จัดการขึ้นไปอนุมัติใบแจ้งงานของตัวเองได้ (ทุกขั้นของสาย) — ปุ่มอนุมัติในหน้าใบงาน ไม่นับเป็นงานรออนุมัติ (ตัวเลขเมนู)
+  { key: "tickets.approve_own", module: "tickets", action: "approve", name_th: "อนุมัติใบแจ้งงานของตัวเอง", name_en: "Approve own tickets", defaults: ["division_manager", "manager", "admin"] },
   { key: "it_tickets.queue", module: "it_jobs", action: "view", name_th: "เห็นคิวงาน IT และใบงานที่อนุมัติแล้ว", name_en: "See the IT queue and approved tickets", defaults: IT },
   { key: "it_tickets.manage_all", module: "it_jobs", action: "update", name_th: "รับงาน/บันทึกความคืบหน้าและผลแทนผู้อื่น", name_en: "Accept / update tickets on behalf of others", defaults: ["admin"] },
   { key: "it_tickets.close", module: "it_jobs", action: "approve", name_th: "ตรวจรับและปิดงาน / ส่งกลับแก้ไข", name_en: "Review and close / return tickets", defaults: ["admin"] },
   { key: "it_tickets.accept", module: "it_jobs", action: "other", name_th: "รับงานที่ยังไม่มีผู้รับ", name_en: "Accept unassigned tickets", defaults: ["admin"] },
+  // คิวงาน IT: รับงานที่ผู้แจ้งเลือกคนอื่นไว้ (เช่น คนนั้นลา) — ผู้รับเดิมไม่มีงานค้างในเมนู/KPI อีก
+  { key: "it_tickets.take_over", module: "it_jobs", action: "other", name_th: "รับงานแทนเจ้าหน้าที่ที่ถูกเลือก (คิวงาน IT)", name_en: "Take over tickets assigned to other staff (IT queue)", defaults: IT },
   { key: "kpi.view_all", module: "kpi", action: "view", name_th: "ดู KPI ของทุกคน", name_en: "View everyone's KPI", defaults: [] }, // หัวหน้า IT = ผู้ดูแลระบบสูงสุด (ผ่านทุกสิทธิ์) — ผู้ดูแลระบบเห็นแค่ของตัวเอง
   { key: "kpi.use", module: "kpi", action: "create", name_th: "บันทึก/ดู KPI ของตัวเอง", name_en: "Record / view own KPI", defaults: IT },
   { key: "kpi.edit_all", module: "kpi", action: "update", name_th: "แก้ไข/ลบ KPI ของผู้อื่น", name_en: "Edit / delete others' KPI", defaults: [] },

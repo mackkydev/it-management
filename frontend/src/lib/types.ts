@@ -237,7 +237,7 @@ export type TicketType = (typeof TICKET_TYPES)[number];
 export const TICKET_STATUSES = ["pending_supervisor", "approved", "in_progress", "pending_it_head", "pending_requester", "completed", "rejected", "pending_cancel", "cancelled"] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 export type TicketAction =
-  | "approve" | "reject" | "accept" | "progress" | "result" | "close" | "return" | "confirm_close"
+  | "approve" | "reject" | "accept" | "forward" | "progress" | "result" | "close" | "return" | "confirm_close"
   | "edit" | "delete" | "cancel_request" | "cancel_confirm" | "cancel_reject" | "cancel_withdraw";
 
 type Person = { id: number; name: string } | null;
@@ -266,6 +266,10 @@ export interface TicketDetail extends TicketSummary {
   can_edit_helpers?: boolean;
   /** ตัวเลือก (เจ้าหน้าที่ IT + วันนี้ลา/ออกหน้างาน) — ส่งมาเฉพาะผู้ที่รับงาน/แก้รายชื่อได้ */
   helper_options?: { id: number; name: string; busy: "leave" | "onsite" | null }[];
+  /** โยนงาน (ยังไม่รับ): เจ้าหน้าที่ IT ที่เลือกได้ */
+  forward_options?: { id: number; name: string; busy: "leave" | "onsite" | null }[];
+  /** รับงานแทนผู้ที่ผู้แจ้งเลือกไว้ (ชื่อผู้ถูกเลือกเดิม) — null = รับงานของตัวเอง */
+  take_over_from?: string | null;
   department: string | null;
   division: string | null;
   requester: { id: number; name: string; email: string } | null;
@@ -345,6 +349,11 @@ export interface TicketCounts {
   it_mine?: number;
   it_review?: number;
   it_cancel?: number;
+  /** คิวงานของฉัน */
+  my_new?: number;
+  my_in_progress?: number;
+  my_review?: number;
+  my_cancel?: number;
 }
 
 export interface AppNotification {

@@ -99,6 +99,8 @@ const eamTh = {
   ticket: {
     signature_invalid: "ลายเซ็นไม่ถูกต้อง กรุณาเซ็นใหม่",
     helpers_invalid: "ผู้ร่วมดำเนินการต้องเป็นเจ้าหน้าที่ IT ที่ใช้งานอยู่ และไม่ใช่ผู้รับงานเอง",
+    took_over_from: "รับงานแทน :name",
+    forward_same: "เจ้าหน้าที่คนนี้เป็นผู้รับงานของใบนี้อยู่แล้ว",
   },
   vault: { invalid_category: "หมวดหมู่ต้องยาว 1–30 ตัวอักษร" },
   secret_guard: {
@@ -119,6 +121,7 @@ const eamTh = {
     future_date: "วันที่แจ้งต้องไม่เป็นวันในอนาคต",
     invalid_service_type: "กรุณาเลือกประเภทการแจ้งจากรายการ",
     invalid_complexity: "Complexity ต้องเป็น 0, 0.5 หรือ 1–8",
+    not_approved: "ใบงานนี้ยังไม่ผ่านการอนุมัติผลจากผู้จัดการ IT — บันทึก KPI ได้หลังอนุมัติแล้ว",
     completed_before: "วันที่แล้วเสร็จต้องไม่ก่อนวันที่แจ้ง",
     month_range: "เลือกช่วงไม่เกิน 24 เดือน",
   },
@@ -383,6 +386,8 @@ const eamEn: Eam = {
   ticket: {
     signature_invalid: "Invalid signature. Please sign again.",
     helpers_invalid: "Co-workers must be active IT staff and not the assignee.",
+    took_over_from: "Took over from :name",
+    forward_same: "This staff member is already the assignee of this ticket.",
   },
   vault: { invalid_category: "The category must be 1–30 characters." },
   secret_guard: {
@@ -403,6 +408,7 @@ const eamEn: Eam = {
     future_date: "The request date cannot be in the future.",
     invalid_service_type: "Please choose a service type from the list.",
     invalid_complexity: "Complexity must be 0, 0.5 or 1–8.",
+    not_approved: "This ticket's result has not been approved by the IT manager yet — record KPI after approval.",
     completed_before: "The completion date cannot be before the request date.",
     month_range: "Choose a range of at most 24 months.",
   },

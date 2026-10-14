@@ -16,7 +16,7 @@ const next = () => ++seq;
 
 /** สิทธิ์ของกลุ่มฝ่าย IT เดิม (ก่อน migration 20261013090000) — ใช้เป็นกลุ่มที่สร้างเองในเทสต์ */
 const IT_STAFF_KEYS = [
-  "it_tickets.queue", "it_tickets.accept", "kpi.use", "vault.view", "vault.create", "vault.update", "vault.delete",
+  "it_tickets.queue", "it_tickets.accept", "it_tickets.take_over", "kpi.use", "vault.view", "vault.create", "vault.update", "vault.delete",
   "contracts.view", "contracts.create", "contracts.update", "contracts.delete", "announcements.manage",
   "assets.view_all", "movements.view", "assets.license_key", "licenses.install", "users.search", "signature.manage_own",
 ];

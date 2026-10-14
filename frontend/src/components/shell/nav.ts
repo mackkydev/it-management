@@ -106,12 +106,13 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
-    // มุมผู้ทำงาน — เฉพาะฝ่าย IT: คิวงาน (ทุกใบที่อนุมัติแล้ว) / KPI — ใบที่เจ้าหน้าที่ IT แจ้งเองจึงอยู่ทั้งสองที่ในบทบาทต่างกัน
+    // มุมผู้ทำงาน — เฉพาะฝ่าย IT: คิวงานของฉัน (เฉพาะใบของตัวเอง + ตัวเลขงานรอ) / คิวงาน IT (ทุกใบ — รับงานแทนได้) / KPI
     id: "it-work",
     label: "nav.itWork",
     icon: WrenchIcon,
     items: [
-      { label: "nav.itBackoffice", href: "/it/tickets", icon: WrenchIcon, visible: perm("it_tickets.queue") },
+      { label: "nav.itMyQueue", href: "/it/tickets", icon: InboxIcon, visible: perm("it_tickets.queue") },
+      { label: "nav.itBackoffice", href: "/it/queue", icon: WrenchIcon, visible: perm("it_tickets.queue") },
       { label: "nav.kpi", href: "/kpi", icon: ChartIcon, visible: perm("kpi.use") },
     ],
   },

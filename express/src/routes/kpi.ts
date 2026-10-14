@@ -7,7 +7,7 @@ import { custom, int, regex, validate } from "../lib/validator.js";
 import { me, pageParam, shortMeta } from "../http.js";
 import { can, findUser, type UserRow } from "../models/user.js";
 import { buildKpiWorkbook, fiscalYear, monthsBetween } from "../services/kpi-export.js";
-import { COMPLEXITY_VALUES, kpiMonthRows, kpiTotals, markOf, SERVICE_TYPE_NAMES, SERVICE_TYPES, SERVICE_TYPE_NOTE } from "../services/kpi.js";
+import { COMPLEXITY_VALUES, KPI_TICKET_STATUSES, kpiMonthRows, kpiTotals, markOf, SERVICE_TYPE_NAMES, SERVICE_TYPES, SERVICE_TYPE_NOTE } from "../services/kpi.js";
 
 /**
  * KPI ฝ่าย IT ตามไฟล์ Template-KPI-IT (Part2 Details) — เฉพาะฝ่าย IT (สิทธิ์ kpi.use)
@@ -159,11 +159,13 @@ kpiRoutes.get("/kpi/month", async (req, res) => {
 kpiRoutes.put("/kpi/tickets/:uuid", async (req, res) => {
   const u = me(req);
   authorize(can(u, "kpi.use"));
-  const ticket = await first<{ id: number; assignee_id: number | null; requested_at: string }>(
-    "SELECT id, assignee_id, requested_at FROM it_tickets WHERE uuid = ?",
+  const ticket = await first<{ id: number; assignee_id: number | null; requested_at: string; status: string }>(
+    "SELECT id, assignee_id, requested_at, status FROM it_tickets WHERE uuid = ?",
     [String(req.params.uuid)],
   );
   if (!ticket || ticket.assignee_id === null) throw notFound();
+  // บันทึก KPI ได้หลังผู้จัดการ IT อนุมัติผลแล้วเท่านั้น (เงื่อนไขเดียวกับแถวในชีต)
+  if (!KPI_TICKET_STATUSES.includes(ticket.status)) throw ValidationError.withMessages({ complexity: trans(req.locale, "eam.kpi.not_approved") });
   // เจ้าของชีต (user_id) = ผู้รับงาน (ค่าตั้งต้น) หรือผู้ร่วมดำเนินการของใบนี้
   const ownerId = req.input.user_id === undefined || req.input.user_id === null ? Number(ticket.assignee_id) : Number(req.input.user_id);
   const isHelper = Boolean(await first("SELECT 1 AS x FROM it_ticket_helpers WHERE it_ticket_id = ? AND user_id = ?", [ticket.id, ownerId]));

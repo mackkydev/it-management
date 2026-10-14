@@ -5,8 +5,10 @@ import { useState, useTransition, type ReactNode } from "react";
 import { deleteTicket, recordResult, requestCancel, ticketAction, type TicketResult } from "@/app/actions/tickets";
 import { DateInput } from "@/components/date-input";
 import { PhotoPicker } from "@/components/file-pickers";
+import { AppSelect } from "@/components/app-select";
 import {
   AlertIcon,
+  ArrowRightIcon,
   CheckCircleIcon,
   CheckIcon,
   HistoryIcon,
@@ -33,6 +35,7 @@ const ICONS: Record<TicketAction, ReactNode> = {
   approve: <CheckCircleIcon />,
   reject: <XIcon />,
   accept: <InboxIcon />,
+  forward: <ArrowRightIcon />,
   progress: <HistoryIcon />,
   result: <WrenchIcon />,
   close: <CheckIcon />,
@@ -58,7 +61,9 @@ export function TicketActions({ ticket }: { ticket: TicketDetail }) {
 
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
-  const style = (a: TicketAction) => (DANGER.includes(a) ? btn.danger : a === "result" || a === "progress" || a === "edit" ? btn.soft : btn.primary);
+  const style = (a: TicketAction) => (DANGER.includes(a) ? btn.danger : a === "result" || a === "progress" || a === "edit" || a === "forward" ? btn.soft : btn.primary);
+  // รับงานแทนผู้ที่ผู้แจ้งเลือกไว้ (คิวงาน IT) — ปุ่มบอกชื่อคนเดิม
+  const label = (a: TicketAction) => (a === "accept" && ticket.take_over_from ? t("tickets.actions.takeOver", { name: ticket.take_over_from }) : t(`tickets.actions.${a}`));
 
   /** แก้ไข = ไปหน้าแก้ไข, ลบ / ถอนคำขอยกเลิก = ยืนยันแล้วทำทันที */
   const instant = async (a: TicketAction) => {
@@ -88,7 +93,7 @@ export function TicketActions({ ticket }: { ticket: TicketDetail }) {
               className={`${style(a)} disabled:cursor-not-allowed ${active === a ? "ring-2 ring-offset-1 ring-offset-surface ring-accent-300" : ""}`}
             >
               {pending && INSTANT.includes(a) ? <SpinnerIcon /> : ICONS[a]}
-              {t(`tickets.actions.${a}`)}
+              {label(a)}
             </button>
           ),
         )}
@@ -121,6 +126,8 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
   // รับงาน: ผู้ร่วมดำเนินการ (ทำงานมากกว่า 1 คน)
   const [helpersOn, setHelpersOn] = useState(false);
   const [helperIds, setHelperIds] = useState<number[]>([]);
+  // โยนงาน: เจ้าหน้าที่ IT ที่รับงานต่อ
+  const [forwardTo, setForwardTo] = useState("");
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
   const commentRequired = action === "reject" || action === "return" || action === "progress" || action === "cancel_request" || action === "cancel_reject";
@@ -130,12 +137,13 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
     if (commentRequired && !comment.trim()) return setError(t("tickets.actions.commentRequired"));
     if (needsSignature && !signature) return setError(t("signature.required"));
     if (action === "accept" && onsiteOn && (!onsite.start_on || !onsite.end_on)) return setError(t("calendar.onsiteRequired"));
+    if (action === "forward" && !forwardTo) return setError(t("tickets.actions.forwardRequired"));
     setError("");
     start(async () => {
       const res: TicketResult | undefined =
         action === "cancel_request"
           ? await requestCancel(ticket.id, comment)
-          : await ticketAction(ticket.id, action, { comment, signature, calendar: action === "accept" && onsiteOn ? onsite : null, helper_ids: action === "accept" && helpersOn ? helperIds : [] });
+          : await ticketAction(ticket.id, action, { comment, signature, calendar: action === "accept" && onsiteOn ? onsite : null, helper_ids: action === "accept" && helpersOn ? helperIds : [], assignee_id: action === "forward" ? Number(forwardTo) : null });
       if (res) setError(res.errors ? Object.values(res.errors)[0] ?? res.message ?? "" : (res.message ?? ""));
     });
   };
@@ -146,6 +154,28 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
         <p role="alert" className={alert.error}>
           <AlertIcon className="shrink-0 text-danger-400" />
           {error}
+        </p>
+      )}
+      {action === "forward" && (
+        <div className="space-y-1">
+          <label htmlFor="forward-to" className="mb-1 block text-sm font-medium">
+            {t("tickets.actions.forwardTo")} <span className="text-red-500">*</span>
+          </label>
+          <AppSelect id="forward-to" value={forwardTo} onValueChange={(v) => (setForwardTo(v), setError(""))} className={`${input} ${error && !forwardTo ? inputError : ""}`}>
+            <option value="">{t("tickets.actions.forwardChoose")}</option>
+            {(ticket.forward_options ?? []).map((o) => (
+              <option key={o.id} value={String(o.id)}>
+                {o.busy ? `${o.name} (${t(o.busy === "leave" ? "tickets.actions.busyLeave" : "tickets.actions.busyOnsite")})` : o.name}
+              </option>
+            ))}
+          </AppSelect>
+          <p className="text-xs text-muted">{t("tickets.actions.forwardHint")}</p>
+        </div>
+      )}
+      {action === "accept" && ticket.take_over_from && (
+        <p className={alert.warning}>
+          <AlertIcon className="shrink-0" />
+          {t("tickets.actions.takeOverHint", { name: ticket.take_over_from })}
         </p>
       )}
       {action !== "accept" && (

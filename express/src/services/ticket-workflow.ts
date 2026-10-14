@@ -86,15 +86,30 @@ export const canView = (u: UserRow, t: TicketRow) =>
  * สายอนุมัติ: ผู้อนุมัติคนใดคนหนึ่งของขั้นปัจจุบัน
  * ระบบเดิม (ไม่มีสาย): หัวหน้าตามสายบังคับบัญชาของผู้แจ้ง — ถ้าผู้แจ้งไม่มีหัวหน้า admin อนุมัติแทน
  * ผู้มีสิทธิ์ tickets.approve_any (ตั้งต้น = admin) อนุมัติแทนได้ทุกกรณี
+ * ผู้มีสิทธิ์ tickets.approve_own (ตั้งต้น = ผู้จัดการขึ้นไป) อนุมัติใบของตัวเองได้ทุกขั้น — ไม่นับในรายการ/ตัวเลข "รอฉันอนุมัติ" (approvalsWhere)
  */
 export const canApprove = (u: UserRow, t: TicketRow) =>
   t.status === "pending_supervisor" &&
-  (can(u, "tickets.approve_any") || (t.current_step !== null ? (t.step_approver_ids ?? []).map(Number).includes(u.id) : u.id === t.approver_id));
+  (can(u, "tickets.approve_any") ||
+    (t.requester_id === u.id && can(u, "tickets.approve_own")) ||
+    (t.current_step !== null ? (t.step_approver_ids ?? []).map(Number).includes(u.id) : u.id === t.approver_id));
 
-/** ผู้ที่ถูกเลือกไว้ หรือผู้มีสิทธิ์ it_tickets.accept ถ้ายังไม่ได้เลือก (it_tickets.manage_all = หัวหน้า IT/admin รับแทนได้) */
+/**
+ * ผู้ที่ถูกเลือกไว้ หรือผู้มีสิทธิ์ it_tickets.accept ถ้ายังไม่ได้เลือก (it_tickets.manage_all = หัวหน้า IT/admin รับแทนได้)
+ * it_tickets.take_over = รับงานที่เลือกคนอื่นไว้จากคิวงาน IT (เช่น คนนั้นลา) → ผู้รับเดิมหลุดจากใบนี้ (ตัวเลขเมนู / KPI ตาม assignee_id)
+ */
 export const canAccept = (u: UserRow, t: TicketRow) =>
   t.status === "approved" &&
-  (can(u, "it_tickets.manage_all") || t.assignee_id === u.id || (can(u, "it_tickets.accept") && t.assignee_id === null));
+  (can(u, "it_tickets.manage_all") ||
+    t.assignee_id === u.id ||
+    (can(u, "it_tickets.accept") && t.assignee_id === null) ||
+    (can(u, "it_tickets.take_over") && t.assignee_id !== null));
+
+/** รับงานแทนผู้ที่ถูกเลือกไว้ (ไม่ใช่ตัวเอง และใบมีผู้ถูกเลือกแล้ว) */
+export const isTakeOver = (u: UserRow, t: TicketRow) => t.assignee_id !== null && t.assignee_id !== u.id;
+
+/** โยนงาน (ยังไม่รับ) ให้เจ้าหน้าที่ IT คนอื่น — ผู้ที่รับงานใบนี้ได้ (ผู้แจ้งเลือกคนไม่ตรงงาน) */
+export const canForward = canAccept;
 
 export const canRecordResult = (u: UserRow, t: TicketRow) =>
   t.status === "in_progress" && (u.id === t.assignee_id || can(u, "it_tickets.manage_all"));
@@ -129,6 +144,7 @@ export function actionsFor(u: UserRow, t: TicketRow): string[] {
     ["approve", canApprove(u, t)],
     ["reject", canApprove(u, t)],
     ["accept", canAccept(u, t)],
+    ["forward", canForward(u, t)],
     ["progress", canProgress(u, t)],
     ["result", canRecordResult(u, t)],
     ["close", canClose(u, t)],
@@ -198,7 +214,9 @@ const RESOLVES: Record<string, string[]> = {
   step_approved: APPROVAL,
   approved: APPROVAL,
   rejected: APPROVAL,
-  accepted: ["approved"],
+  accepted: ["approved", "forwarded"],
+  // โยนงาน → "รอรับงาน" ของผู้รับเดิมจบ (ผู้รับคนใหม่ได้ "forwarded" แทน)
+  forwarded: ["approved", "forwarded"],
   resulted: ["returned"],
   returned: ["resulted"],
   head_approved: ["resulted"],
@@ -206,7 +224,7 @@ const RESOLVES: Record<string, string[]> = {
   closed: ["resulted"],
   cancel_rejected: ["cancel_requested"],
   cancel_withdrawn: ["cancel_requested"],
-  cancelled: [...APPROVAL, "approved", "returned", "resulted", "cancel_requested"],
+  cancelled: [...APPROVAL, "approved", "forwarded", "returned", "resulted", "cancel_requested"],
 };
 
 async function stepApprovers(t: TicketRow): Promise<Person[]> {
@@ -236,6 +254,10 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
       break;
     case "approved":
       recipients = [requester, ...(assignee ? [assignee] : await acceptors())];
+      break;
+    // โยนงาน → ผู้รับคนใหม่ (รอรับงาน) + ผู้แจ้ง (ทราบว่าใครดูแล)
+    case "forwarded":
+      recipients = [assignee, requester];
       break;
     case "rejected":
     case "accepted":

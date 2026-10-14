@@ -35,8 +35,11 @@ export function defaultServiceType(ticketType: string): string {
   return "ETC.";
 }
 
-/** ใบงานที่ "รับงานแล้ว" — ไม่รวมรออนุมัติ / รอรับงาน / ยกเลิก / ไม่อนุมัติ */
-export const ACCEPTED_TICKET_STATUSES = ["in_progress", "pending_it_head", "pending_requester", "completed", "pending_cancel"];
+/**
+ * ใบงานที่นับในชีต KPI = ผู้จัดการ IT อนุมัติผลแล้ว (รอผู้แจ้งรับงาน / เสร็จสิ้น)
+ * กำลังทำ / รออนุมัติผล / ถูกส่งกลับแก้ไข ยังไม่ขึ้น — ค่าที่กรอกไว้ (kpi_entries) ไม่หาย แสดงอีกครั้งเมื่ออนุมัติ
+ */
+export const KPI_TICKET_STATUSES = ["pending_requester", "completed"];
 
 export type KpiRowKind = "ticket" | "work" | "holiday";
 export interface KpiRow {
@@ -88,7 +91,7 @@ export async function kpiMonthRows(userId: number, month: string, locale: Locale
       WHERE (t.assignee_id = o.id OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = o.id))
         AND t.status IN (?)
         AND t.requested_at >= DATE_SUB(?, INTERVAL 1 DAY) AND t.requested_at < DATE_ADD(?, INTERVAL 2 DAY)`,
-    [userId, ACCEPTED_TICKET_STATUSES, first, last],
+    [userId, KPI_TICKET_STATUSES, first, last],
   );
   const entries = await select<{
     id: number; entry_type: string; work_date: string; details: string; requester_name: string | null; branch_name: string | null;

@@ -29,18 +29,18 @@ describe("menu badges ↔ notification bell", () => {
     await notify(t, "approved", null);
 
     const bossApi = await as(boss);
-    expect((await bossApi.get("/api/v1/menu-badges")).body.data["/it/tickets"]).toBe(0);
+    expect((await bossApi.get("/api/v1/menu-badges")).body.data["/it/queue"]).toBe(0);
     expect(await unread(boss.id, t.uuid)).toBe(0);
-    expect((await (await as(staff)).get("/api/v1/menu-badges")).body.data["/it/tickets"]).toBe(1);
+    expect((await (await as(staff)).get("/api/v1/menu-badges")).body.data["/it/queue"]).toBe(1);
     expect(await unread(staff.id, t.uuid)).toBe(1);
-    // รออนุมัติผล: หัวหน้า IT ได้ทั้งเมนูและกระดิ่ง — ผู้ดูแลระบบสูงสุดไม่ได้
+    // รออนุมัติผล: หัวหน้า IT ได้ทั้งเมนู (คิวงาน IT) และกระดิ่ง — ผู้ดูแลระบบสูงสุดไม่ได้
     const head = await makeUser({ role: "admin", is_it_head: true });
     await exec("UPDATE it_tickets SET status = 'pending_it_head' WHERE id = ?", [t.id]);
     await notify({ ...t, status: "pending_it_head" }, "resulted", null);
     expect(await unread(head.id, t.uuid)).toBe(1);
-    expect((await (await as(head)).get("/api/v1/menu-badges")).body.data["/it/tickets"]).toBe(1);
+    expect((await (await as(head)).get("/api/v1/menu-badges")).body.data["/it/queue"]).toBe(1);
     expect(await unread(boss.id, t.uuid)).toBe(0);
-    expect((await bossApi.get("/api/v1/menu-badges")).body.data["/it/tickets"]).toBe(0);
+    expect((await bossApi.get("/api/v1/menu-badges")).body.data["/it/queue"]).toBe(0);
     await exec("UPDATE it_tickets SET status = 'approved' WHERE id = ?", [t.id]);
 
     await (await as(head)).get(`/api/v1/tickets/${t.uuid}`); // หัวหน้าเปิดดูแล้ว
@@ -55,10 +55,10 @@ describe("menu badges ↔ notification bell", () => {
     expect(await unread(requester.id, t.uuid)).toBe(0);
 
     // ใบที่เลือกผู้รับไว้แล้วเป็นของคนนั้น — ไม่นับในเมนูของคนอื่น (และไม่แจ้งเตือน)
-    const before = (await bossApi.get("/api/v1/menu-badges")).body.data["/it/tickets"];
+    const before = (await bossApi.get("/api/v1/menu-badges")).body.data["/it/queue"];
     const assigned = await ticket(requester.id, "FM-T-SYNC-2", { assignee_id: staff.id });
     await notify(assigned, "approved", null);
-    expect((await bossApi.get("/api/v1/menu-badges")).body.data["/it/tickets"]).toBe(before);
+    expect((await bossApi.get("/api/v1/menu-badges")).body.data["/it/queue"]).toBe(before);
     expect(await unread(boss.id, assigned.uuid)).toBe(0);
     expect(await unread(staff.id, assigned.uuid)).toBe(1);
   });

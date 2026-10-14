@@ -15,9 +15,10 @@ import { TICKET_STATUSES, TICKET_TYPES, type Paginated, type TicketCounts, type 
 import { TicketStatusBadge, ticketSubject } from "./ticket-ui";
 import { AppSelect } from "@/components/app-select";
 
-export type TicketScope = "mine" | "approvals" | "it";
+/** it_mine = คิวงานของฉัน (เฉพาะใบของตัวเอง), it = คิวงาน IT (ทุกใบ — รับงานแทนได้) */
+export type TicketScope = "mine" | "approvals" | "it" | "it_mine";
 
-const BASE: Record<TicketScope, string> = { mine: "/tickets", approvals: "/tickets/approvals", it: "/it/tickets" };
+const BASE: Record<TicketScope, string> = { mine: "/tickets", approvals: "/tickets/approvals", it: "/it/queue", it_mine: "/it/tickets" };
 
 function buildQuery(scope: TicketScope, params: Record<string, string | string[] | undefined>) {
   const q = new URLSearchParams({ scope });
@@ -29,19 +30,20 @@ function buildQuery(scope: TicketScope, params: Record<string, string | string[]
   return q;
 }
 
-/** หน้ารายการใบแจ้งงาน (ใช้ร่วม 3 หน้า: ของฉัน / รออนุมัติ / งาน IT หลังบ้าน) */
+/** หน้ารายการใบแจ้งงาน (ใช้ร่วม 4 หน้า: ของฉัน / รออนุมัติ / คิวงานของฉัน / คิวงาน IT) */
 export async function TicketListPage({ scope, params }: { scope: TicketScope; params: Record<string, string | string[] | undefined> }) {
   const [{ t }, can] = await Promise.all([getI18n(), getAccess()]);
   const query = buildQuery(scope, params);
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string) : "");
-  const title = scope === "mine" ? t("tickets.mineTitle") : scope === "approvals" ? t("tickets.approvalsTitle") : t("tickets.itTitle");
+  const title = scope === "mine" ? t("tickets.mineTitle") : scope === "approvals" ? t("tickets.approvalsTitle") : scope === "it_mine" ? t("tickets.itMineTitle") : t("tickets.itTitle");
+  const subtitle = scope === "it" ? t("tickets.itSubtitle") : scope === "it_mine" ? t("tickets.itMineSubtitle") : undefined;
 
   return (
     <div className="space-y-5">
       <PageHeader
         icon={ClipboardIcon}
         title={title}
-        subtitle={scope === "it" ? t("tickets.itSubtitle") : undefined}
+        subtitle={subtitle}
         actions={
           can("btn:tickets:create") && (
             <Link href="/tickets/new" className={btn.primary}>
@@ -53,7 +55,7 @@ export async function TicketListPage({ scope, params }: { scope: TicketScope; pa
       />
 
       <Suspense fallback={<div className="h-10" />}>
-        {scope === "it" ? <ItQueueTabs status={str("status")} assigned={str("assigned")} /> : <ScopeTabs scope={scope} />}
+        {scope === "it" ? <ItQueueTabs status={str("status")} /> : scope === "it_mine" ? <MyQueueTabs status={str("status")} /> : <ScopeTabs scope={scope} />}
       </Suspense>
 
       <Form action={BASE[scope]} className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_12rem_12rem_auto] ${card}`}>
@@ -85,12 +87,6 @@ export async function TicketListPage({ scope, params }: { scope: TicketScope; pa
             {t("common.search")}
           </SubmitButton>
         </div>
-        {scope === "it" && (
-          <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2 lg:col-span-4">
-            <input type="checkbox" name="assigned" value="me" defaultChecked={str("assigned") === "me"} className="h-4 w-4 accent-[var(--accent-500)]" />
-            {t("tickets.assignedToMe")}
-          </label>
-        )}
       </Form>
 
       <Suspense key={query.toString()} fallback={<TableSkeleton cols={7} />}>
@@ -124,18 +120,33 @@ async function ScopeTabs({ scope }: { scope: TicketScope }) {
   );
 }
 
-/** แท็บด่วนของคิวงาน IT: รอรับงาน / งานของฉัน / รอหัวหน้าปิด / ทั้งหมด */
-async function ItQueueTabs({ status, assigned }: { status: string; assigned: string }) {
+/** แท็บด่วนของคิวงาน IT (ทุกใบของฝ่าย): รอรับงาน / กำลังดำเนินการ / รอหัวหน้าปิด / รอยกเลิก / ทั้งหมด */
+async function ItQueueTabs({ status }: { status: string }) {
   const [{ t }, c] = await Promise.all([getI18n(), ticketCounts()]);
-  const is = (s: string, a = "") => status === s && assigned === a;
   return (
     <Tabs
       tabs={[
-        { href: `${BASE.it}?status=approved`, label: t("tickets.itTabs.waiting"), count: c.it_new, active: is("approved") },
-        { href: `${BASE.it}?status=in_progress&assigned=me`, label: t("tickets.itTabs.mine"), count: c.it_mine, active: is("in_progress", "me") },
-        { href: `${BASE.it}?status=pending_it_head`, label: t("tickets.itTabs.review"), count: c.it_review, active: is("pending_it_head") },
-        { href: `${BASE.it}?status=pending_cancel`, label: t("tickets.itTabs.cancel"), count: c.it_cancel, active: is("pending_cancel") },
-        { href: BASE.it, label: t("tickets.itTabs.all"), active: is("") },
+        { href: `${BASE.it}?status=approved`, label: t("tickets.itTabs.waiting"), count: c.it_new, active: status === "approved" },
+        { href: `${BASE.it}?status=in_progress`, label: t("tickets.itTabs.inProgress"), count: c.it_in_progress, active: status === "in_progress" },
+        { href: `${BASE.it}?status=pending_it_head`, label: t("tickets.itTabs.review"), count: c.it_review, active: status === "pending_it_head" },
+        { href: `${BASE.it}?status=pending_cancel`, label: t("tickets.itTabs.cancel"), count: c.it_cancel, active: status === "pending_cancel" },
+        { href: BASE.it, label: t("tickets.itTabs.all"), active: status === "" },
+      ]}
+    />
+  );
+}
+
+/** แท็บด่วนของคิวงานของฉัน (เฉพาะใบของตัวเอง) — ตัวเลขชุดเดียวกับตัวเลขเมนู */
+async function MyQueueTabs({ status }: { status: string }) {
+  const [{ t }, c] = await Promise.all([getI18n(), ticketCounts()]);
+  return (
+    <Tabs
+      tabs={[
+        { href: `${BASE.it_mine}?status=approved`, label: t("tickets.itTabs.waiting"), count: c.my_new, active: status === "approved" },
+        { href: `${BASE.it_mine}?status=in_progress`, label: t("tickets.itTabs.inProgress"), count: c.my_in_progress, active: status === "in_progress" },
+        ...(c.my_review ? [{ href: `${BASE.it_mine}?status=pending_it_head`, label: t("tickets.itTabs.review"), count: c.my_review, active: status === "pending_it_head" }] : []),
+        { href: `${BASE.it_mine}?status=pending_cancel`, label: t("tickets.itTabs.cancel"), count: c.my_cancel, active: status === "pending_cancel" },
+        { href: BASE.it_mine, label: t("tickets.itTabs.all"), active: status === "" },
       ]}
     />
   );
@@ -265,7 +276,7 @@ export async function DoneBanner({ done }: { done?: string }) {
   if (!done) return null;
   const { t } = await getI18n();
   const key = done === "created" ? "tickets.created" : `tickets.actions.done.${done}`;
-  const known = ["created", "approve", "reject", "accept", "progress", "result", "close", "return", "confirm_close", "edited", "deleted", "cancel_request", "cancel_confirm", "cancel_reject", "cancel_withdraw"].includes(done);
+  const known = ["created", "approve", "reject", "accept", "forward", "progress", "result", "close", "return", "confirm_close", "edited", "deleted", "cancel_request", "cancel_confirm", "cancel_reject", "cancel_withdraw"].includes(done);
   if (!known) return null;
   return (
     <div role="status" className={alert.success}>

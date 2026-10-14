@@ -11,13 +11,13 @@ import { person } from "../resources.js";
 import { getSetting } from "../services/settings.js";
 import { readStored, storeSignature, storeUpload, deleteTicketFiles } from "../services/ticket-files.js";
 import {
-  acceptors, actionsFor, canAccept, closers, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel,
+  acceptors, actionsFor, canAccept, canForward, isTakeOver, closers, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel,
 } from "../services/ticket-workflow.js";
 import { activeSignature, copySignatureTo, mimeOf, readSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
 import { markNoticesRead, notifyUsers, TICKET_ACTIVITY } from "../services/notifications.js";
 import { busyOf } from "../services/calendar.js";
-import { ACCEPTED_TICKET_STATUSES } from "../services/kpi.js";
+import { KPI_TICKET_STATUSES } from "../services/kpi.js";
 import { OWN_SQL } from "./assets.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
 import { unassignedVehicleBookings } from "./vehicles.js";
@@ -174,6 +174,10 @@ async function detail(t: TicketRow, viewer: UserRow) {
     can_edit_helpers: canEditOnsite(viewer, t),
     // ตอนรับงาน: ไม่รวมคนที่กำลังจะรับงาน / ภายหลัง: ไม่รวมผู้รับงาน
     helper_options: canAccept(viewer, t) ? await helperOptions(viewer.id) : canEditOnsite(viewer, t) ? await helperOptions(t.assignee_id) : [],
+    // โยนงาน (ยังไม่รับ): เจ้าหน้าที่ IT คนอื่นที่ไม่ใช่ผู้ถูกเลือกตอนนี้ + วันนี้ลา/ออกหน้างาน
+    forward_options: canForward(viewer, t) ? await helperOptions(t.assignee_id) : [],
+    // รับงานแทนผู้ที่ผู้แจ้งเลือกไว้ (คิวงาน IT) — ชื่อผู้ถูกเลือกเดิม ให้ปุ่มแสดง "รับงานแทน …"
+    take_over_from: canAccept(viewer, t) && isTakeOver(viewer, t) ? row.as_name : null,
   };
 }
 
@@ -317,6 +321,14 @@ const approvalsWhere = (u: UserRow) => {
   };
 };
 
+/**
+ * คิวงานของฉัน = เฉพาะใบที่ฉันเป็นผู้รับงาน (ผู้แจ้งเลือกไว้ / โยนมาให้ / รับแล้ว) — คิวงาน IT (scope it) = ทุกใบ
+ * ใบที่คนอื่นรับแทนหรือโยนต่อแล้ว (assignee เปลี่ยน) หลุดจากคิวของคนเดิมทันที
+ */
+async function itMineWhere(u: UserRow): Promise<{ sql: string; params: unknown[] }> {
+  return { sql: `t.status NOT IN (${PRE_APPROVAL.map((x) => `'${x}'`).join(", ")}) AND t.assignee_id = ?`, params: [u.id] };
+}
+
 async function counts(u: UserRow) {
   const count = async (sql: string, params: unknown[] = []) => Number(await scalar(`SELECT COUNT(*) FROM it_tickets t WHERE ${sql}`, params));
   const ap = approvalsWhere(u);
@@ -325,6 +337,12 @@ async function counts(u: UserRow) {
     approvals: await count(ap.sql, ap.params),
   };
   if (can(u, "it_tickets.queue")) {
+    // คิวงานของฉัน (แท็บ) — เงื่อนไขเดียวกับ itMineWhere / ตัวเลขเมนู /it/tickets
+    const mine = await itMineWhere(u);
+    out.my_new = await count(`t.status = 'approved' AND ${mine.sql}`, mine.params);
+    out.my_in_progress = await count(`t.status = 'in_progress' AND ${mine.sql}`, mine.params);
+    out.my_review = await count(`t.status = 'pending_it_head' AND ${mine.sql}`, mine.params);
+    out.my_cancel = await count(`t.status = 'pending_cancel' AND ${mine.sql}`, mine.params);
     out.it_new = await count("t.status = 'approved'");
     out.it_in_progress = await count("t.status = 'in_progress'");
     out.it_mine = await count("t.status = 'in_progress' AND t.assignee_id = ?", [u.id]);
@@ -338,8 +356,9 @@ async function counts(u: UserRow) {
  * GET /menu-badges — ตัวเลขบนเมนู = งานที่ "รอฉันทำ" (เงื่อนไขเดียวกับปุ่มใน ticket-workflow.ts)
  *   /tickets           ใบของฉันที่รอฉันกดรับงาน (รอปิดงาน)
  *   /tickets/approvals ใบที่รอฉันอนุมัติ
- *   /it/tickets        รอรับงาน (ที่ฉันรับได้) + งานของฉันที่กำลังทำ + รอหัวหน้า IT อนุมัติผล (ถ้ามีสิทธิ์) + รอยืนยันยกเลิก
- *   /kpi               ใบงานที่ฉันรับแล้วแต่ยังไม่กรอก Complexity ใน KPI
+ *   /it/tickets        คิวงานของฉัน: ใบที่ฉันเป็นผู้รับงาน — รอรับงาน + กำลังทำ + รอยืนยันยกเลิก (เงื่อนไขเดียวกับ itMineWhere)
+ *   /it/queue          คิวงาน IT: ใบที่ยังไม่มีผู้รับ (ถ้าเป็นเจ้าหน้าที่ IT ที่รับงานได้) + รอหัวหน้า IT อนุมัติผล (ถ้าเป็นหัวหน้า IT)
+ *   /kpi               ใบงานของฉันที่ผู้จัดการ IT อนุมัติผลแล้วแต่ยังไม่กรอก Complexity ใน KPI (KPI_TICKET_STATUSES)
  *   /vehicles/dispatch การจองรถที่ยังไม่ระบุรถ (ผู้จัดคิวรถ)
  */
 ticketRoutes.get("/menu-badges", async (req, res) => {
@@ -351,23 +370,19 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
     "/tickets/approvals": await count(ap.sql, ap.params),
   };
   if (can(u, "it_tickets.queue")) {
-    // เฉพาะผู้ที่เกี่ยวข้องโดยตรง = คนเดียวกับผู้รับแจ้งเตือนใน notify (acceptors / closers)
-    //   ของฉัน + ใบที่ยังไม่มีผู้รับ (ถ้าเป็นเจ้าหน้าที่ IT ที่รับงานได้), รออนุมัติผล (ถ้าเป็นหัวหน้า IT)
+    // เฉพาะผู้ที่เกี่ยวข้องโดยตรง = คนเดียวกับผู้รับแจ้งเตือนใน notify (ผู้รับงาน / acceptors / closers)
+    //   คิวงานของฉัน = ใบที่ฉันเป็นผู้รับงาน, คิวงาน IT = ใบที่ยังไม่มีผู้รับ (เจ้าหน้าที่ IT ที่รับงานได้) + รออนุมัติผล (หัวหน้า IT)
     const [direct, heads] = await Promise.all([acceptors(), closers()]);
-    const unassigned = direct.some((x) => x.id === u.id) ? "OR t.assignee_id IS NULL" : "";
-    const mineOrOpen = `(t.assignee_id = ? ${unassigned})`;
-    const p = [u.id];
-    data["/it/tickets"] =
-      (await count(`t.status = 'approved' AND ${mineOrOpen}`, p)) +
-      (await count("t.status = 'in_progress' AND t.assignee_id = ?", [u.id])) +
-      (heads.some((x) => x.id === u.id) ? await count("t.status = 'pending_it_head'") : 0) +
-      (await count(`t.status = 'pending_cancel' AND ${mineOrOpen}`, p));
+    data["/it/tickets"] = await count("t.status IN ('approved', 'in_progress', 'pending_cancel') AND t.assignee_id = ?", [u.id]);
+    data["/it/queue"] =
+      (direct.some((x) => x.id === u.id) ? await count("t.status IN ('approved', 'pending_cancel') AND t.assignee_id IS NULL") : 0) +
+      (heads.some((x) => x.id === u.id) ? await count("t.status = 'pending_it_head'") : 0);
   }
   if (can(u, "kpi.use")) {
     data["/kpi"] = await count(
       `(t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?)) AND t.status IN (?)
         AND NOT EXISTS (SELECT 1 FROM kpi_entries k WHERE k.ticket_id = t.id AND k.user_id = ? AND k.complexity > 0)`,
-      [u.id, u.id, ACCEPTED_TICKET_STATUSES, u.id],
+      [u.id, u.id, KPI_TICKET_STATUSES, u.id],
     );
   }
   // ใบลาที่รอฉันอนุมัติ
@@ -428,7 +443,7 @@ ticketRoutes.get("/tickets", async (req, res) => {
   const f = await validate(
     req.input,
     {
-      scope: ["nullable", "in:mine,approvals,it"],
+      scope: ["nullable", "in:mine,approvals,it,it_mine"],
       status: ["nullable", `in:${STATUSES.join(",")}`],
       type: ["nullable", `in:${TYPES.join(",")}`],
       assigned: ["nullable", "in:me"],
@@ -438,13 +453,19 @@ ticketRoutes.get("/tickets", async (req, res) => {
     { locale: req.locale },
   );
   const scope = (f.scope as string | null) ?? "mine";
-  authorize(scope !== "it" || can(u, "it_tickets.queue"));
+  authorize((scope !== "it" && scope !== "it_mine") || can(u, "it_tickets.queue"));
 
   const where: string[] = ["1 = 1"];
   const params: unknown[] = [];
   if (scope === "mine") (where.push("t.requester_id = ?"), params.push(u.id));
   // คิวงาน IT: เฉพาะใบที่หัวหน้าอนุมัติแล้ว
   if (scope === "it") where.push(`t.status NOT IN (${PRE_APPROVAL.map((s) => `'${s}'`).join(", ")})`);
+  // คิวงานของฉัน: เฉพาะใบที่เป็นของฉัน (ผู้รับงาน / ผู้ร่วม / รอรับที่ยังไม่มีผู้รับ / รออนุมัติผลของหัวหน้า IT)
+  if (scope === "it_mine") {
+    const mine = await itMineWhere(u);
+    where.push(mine.sql);
+    params.push(...mine.params);
+  }
   if (scope === "approvals") {
     const ap = approvalsWhere(u);
     where.push(ap.sql);
@@ -673,10 +694,12 @@ ticketRoutes.post("/tickets/:uuid/accept", async (req, res) => {
   // ผู้ร่วมดำเนินการ (ทำงานมากกว่า 1 คน) — ได้แถว KPI ของใบนี้ด้วย
   const helperIds = await helperInput(req, u.id);
 
+  // รับแทนผู้ที่ผู้แจ้งเลือกไว้ (คิวงาน IT) — บันทึกชื่อผู้ถูกเลือกเดิมไว้ในไทม์ไลน์
+  const original = isTakeOver(u, t) ? await scalar<string>("SELECT name FROM users WHERE id = ?", [t.assignee_id]) : null;
   let added: number[] = [];
   await transaction(async () => {
     await update("it_tickets", { status: "in_progress", assignee_id: u.id, accepted_at: nowDb(), updated_at: nowDb() }, "id = ?", [t.id]);
-    await log(t.id, u.id, "accepted");
+    await log(t.id, u.id, "accepted", original ? trans(req.locale, "eam.ticket.took_over_from", { name: original }) : null);
     if (onsite) await saveOnsite(t, u.id, u.id, onsite, req.locale);
     // ผู้รับงานต้องไม่ซ้ำกับผู้ร่วมเดิม (เช่น ผู้จัดการรับงานแทน)
     await exec("DELETE FROM it_ticket_helpers WHERE it_ticket_id = ? AND user_id = ?", [t.id, u.id]);
@@ -684,6 +707,31 @@ ticketRoutes.post("/tickets/:uuid/accept", async (req, res) => {
   });
   await notify({ ...t, status: "in_progress", assignee_id: u.id }, "accepted", u);
   await notifyHelpers(t, added, u);
+  await respondDetail(req, res, t.id);
+});
+
+/**
+ * โยนงาน (ยังไม่รับ) ให้เจ้าหน้าที่ IT คนอื่น — ผู้แจ้งเลือกคนไม่ตรงงาน { assignee_id, comment? }
+ * ผู้รับเดิมหลุดจากใบนี้ทันที (แจ้งเตือน "รอรับงาน" ของเดิมอ่านแล้ว) → แจ้งผู้รับคนใหม่ + ผู้แจ้ง
+ */
+ticketRoutes.post("/tickets/:uuid/forward", async (req, res) => {
+  const t = await findTicket(req.params.uuid);
+  const u = me(req);
+  authorize(canForward(u, t));
+  const data = await validate(
+    req.input,
+    { assignee_id: ["required", "integer", exists("users", "id", IT_STAFF_WHERE)], comment: ["nullable", "string", "max:2000"] },
+    { locale: req.locale },
+  );
+  const to = int(data.assignee_id)!;
+  if (to === t.assignee_id) throw ValidationError.withMessages({ assignee_id: trans(req.locale, "eam.ticket.forward_same") });
+  const name = (await scalar<string>("SELECT name FROM users WHERE id = ?", [to])) ?? "";
+  const comment = typeof data.comment === "string" && data.comment.trim() ? data.comment.trim() : null;
+  await transaction(async () => {
+    await update("it_tickets", { assignee_id: to, updated_at: nowDb() }, "id = ?", [t.id]);
+    await log(t.id, u.id, "forwarded", comment ? `${name} — ${comment}` : name);
+  });
+  await notify({ ...t, assignee_id: to }, "forwarded", u);
   await respondDetail(req, res, t.id);
 });
 

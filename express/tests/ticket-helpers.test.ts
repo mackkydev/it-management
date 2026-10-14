@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { insert, scalar } from "../src/db.js";
+import { insert, scalar, exec } from "../src/db.js";
 import { nowDb } from "../src/lib/time.js";
 import { as, makeUser } from "./helpers.js";
 
@@ -43,7 +43,11 @@ describe("ticket co-workers (helpers)", () => {
     expect((await h.get(`/api/v1/tickets/${uuid}`)).status).toBe(200);
     expect((await h.get("/api/v1/tickets?scope=it&assigned=me")).body.data.map((t: { ticket_no: string }) => t.ticket_no)).toContain("FM-T-HELP-1");
     const month = nowDb().slice(0, 7);
-    const row = (await h.get(`/api/v1/kpi/month?month=${month}`)).body.data.find((r: { ticket: { ticket_no: string } | null }) => r.ticket?.ticket_no === "FM-T-HELP-1");
+    const kpiRow = async () => (await h.get(`/api/v1/kpi/month?month=${month}`)).body.data.find((r: { ticket: { ticket_no: string } | null }) => r.ticket?.ticket_no === "FM-T-HELP-1");
+    // ยังไม่ผ่านการอนุมัติผลจากผู้จัดการ IT = ยังไม่ขึ้นใน KPI
+    expect(await kpiRow()).toBeUndefined();
+    await exec("UPDATE it_tickets SET status = 'pending_requester' WHERE uuid = ?", [uuid]);
+    const row = await kpiRow();
     expect(row).toMatchObject({ kind: "ticket", assignee: "ช่างผู้ช่วย", can_edit: true });
     expect((await h.put(`/api/v1/kpi/tickets/${uuid}`).send({ user_id: helper.id, service_type: "Computer Service", complexity: 2 })).status).toBe(200);
     expect((await lead.put(`/api/v1/kpi/tickets/${uuid}`).send({ complexity: 1 })).status).toBe(200);

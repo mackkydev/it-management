@@ -33,10 +33,11 @@ describe("menu badges", () => {
     const badges = async (u: typeof staff) => (await (await as(u)).get("/api/v1/menu-badges")).body.data;
     expect(await badges(requester)).toEqual({ "/tickets": 1, "/tickets/approvals": 0, "/leave/approvals": 0 });
     expect((await badges(approver))["/tickets/approvals"]).toBe(1);
-    // staff: รอรับงานที่ไม่มีผู้รับ 1 + งานของฉันกำลังทำ 1 / KPI: รับแล้ว 4 ใบ (pending_requester, in_progress, pending_it_head, completed) − กรอกแล้ว 1
-    expect(await badges(staff)).toMatchObject({ "/it/tickets": 2, "/kpi": 3 });
-    expect((await badges(otherStaff))["/it/tickets"]).toBe(2); // ใบที่ถูกเลือก + ใบที่ไม่มีผู้รับ
-    // หัวหน้า IT (manage_all): รอรับงานที่ยังไม่มีผู้รับ 1 + รออนุมัติผล 1 — ใบที่เลือกผู้รับไว้แล้วเป็นของคนนั้น (ตรงกับผู้รับแจ้งเตือน)
-    expect((await badges(head))["/it/tickets"]).toBe(2);
+    // คิวงานของฉัน = ใบที่ฉันเป็นผู้รับงาน / คิวงาน IT = ใบที่ยังไม่มีผู้รับ (เจ้าหน้าที่ที่รับงานได้) + รออนุมัติผล (หัวหน้า IT)
+    // staff: งานของฉันกำลังทำ 1, รอรับงานที่ไม่มีผู้รับ 1 / KPI: เฉพาะที่ผู้จัดการ IT อนุมัติผลแล้ว (pending_requester, completed) และยังไม่กรอก = 2
+    expect(await badges(staff)).toMatchObject({ "/it/tickets": 1, "/it/queue": 1, "/kpi": 2 });
+    expect(await badges(otherStaff)).toMatchObject({ "/it/tickets": 1, "/it/queue": 1 }); // ใบที่ถูกเลือก / ใบที่ไม่มีผู้รับ
+    // หัวหน้า IT (manage_all): ไม่มีใบของตัวเอง — คิวงาน IT: รอรับงานที่ยังไม่มีผู้รับ 1 + รออนุมัติผล 1
+    expect(await badges(head)).toMatchObject({ "/it/tickets": 0, "/it/queue": 2 });
   });
 });

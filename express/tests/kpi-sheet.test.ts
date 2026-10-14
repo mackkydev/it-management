@@ -28,13 +28,17 @@ describe("KPI mark formula", () => {
 });
 
 describe("KPI monthly sheet", () => {
-  it("pulls accepted tickets by request date (local time), merges manual / holiday rows and totals", async () => {
+  it("pulls tickets approved by the IT manager by request date (local time), merges manual / holiday rows and totals", async () => {
     const staff = await makeUser({ role: "viewer", is_it_staff: true, name: "สมชาย IT" });
     const requester = await makeUser({ name: "ผู้แจ้ง ก" });
     const branch = await makeBranch({ name: "ลำพูน" });
     const base = { requester_id: requester.id, branch_id: branch, assignee_id: staff.id, accepted_at: "2025-10-06 04:00:00" };
     const done = await ticket({ ...base, symptom: "เปิดไม่ติด", repair_details: "เปลี่ยน PSU", completed_on: "2025-10-07" });
-    await ticket({ ...base, type: "grant_access", status: "in_progress", details: "ขอสิทธิ์ ERP", requested_at: "2025-10-20 02:00:00" });
+    // ผู้จัดการ IT อนุมัติผลแล้ว (รอผู้แจ้งรับงาน) = ขึ้นในชีต
+    await ticket({ ...base, type: "grant_access", status: "pending_requester", details: "ขอสิทธิ์ ERP", requested_at: "2025-10-20 02:00:00" });
+    // ยังไม่ผ่านการอนุมัติผล = ยังไม่ขึ้น และบันทึกไม่ได้
+    const working = await ticket({ ...base, status: "in_progress" });
+    await ticket({ ...base, status: "pending_it_head" });
     // 31 ต.ค. 18:00 UTC = 1 พ.ย. เวลาไทย → ชีต พ.ย.
     await ticket({ ...base, requested_at: "2025-10-31 18:00:00" });
     await ticket({ ...base, status: "approved", assignee_id: null }); // ยังไม่มีคนรับงาน
@@ -42,6 +46,7 @@ describe("KPI monthly sheet", () => {
     await ticket({ ...base, assignee_id: (await makeUser({ is_it_staff: true })).id }); // คนอื่นรับงาน
 
     const api = await as(staff);
+    expect((await api.put(`/api/v1/kpi/tickets/${working.uuid}`).send({ complexity: 2 })).status).toBe(422);
     expect((await api.put(`/api/v1/kpi/tickets/${done.uuid}`).send({ service_type: "Network Service", complexity: 3 })).body.data).toEqual({
       service_type: "Network Service", complexity: 3, mark: 4.5,
     });

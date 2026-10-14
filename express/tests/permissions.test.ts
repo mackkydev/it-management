@@ -120,7 +120,7 @@ describe("permissions", () => {
 
   it("ticket workflow follows permissions: a non-IT user granted the IT queue sees approved tickets", async () => {
     const rows = await select("SELECT \"key\" FROM permissions WHERE \"key\" LIKE 'it_tickets.%' ORDER BY \"key\"");
-    expect(rows.map((r) => r.key)).toEqual(["it_tickets.accept", "it_tickets.close", "it_tickets.manage_all", "it_tickets.queue"]);
+    expect(rows.map((r) => r.key)).toEqual(["it_tickets.accept", "it_tickets.close", "it_tickets.manage_all", "it_tickets.queue", "it_tickets.take_over"]);
     const helper = await makeUser({ role: "manager" });
     expect((await (await as(helper)).get("/api/v1/tickets?scope=it")).status).toBe(403);
     await override(helper, "it_tickets.queue", "allow");

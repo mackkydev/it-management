@@ -86,6 +86,10 @@
 - ปุ่มส่งออก Excel ใช้ `<ConfirmDownload>` (`components/confirm-download.tsx` — ถามยืนยันก่อนดาวน์โหลด) และการนำเข้า Excel ต้องถาม `confirm(t("common.confirmImport", …))` ก่อนอัปโหลด — **ยกเว้นลิงก์ไฟล์ template ใช้ `<a>` ปกติ**
 - กล่องยืนยัน/แจ้งเตือนใช้ `useConfirm()` / `useAlert()` (`components/dialog-provider.tsx` — `if (!(await confirm(msg))) return;`) **ห้ามใช้ `window.confirm` / `alert` / `prompt`**; ช่องรหัสผ่านใช้ `<PasswordInput>` (`components/password-input.tsx` — มีปุ่มกดดูรหัส) **ห้ามใช้ `<input type="password">` ตรงๆ**
 - ใบแจ้งงาน: ฝ่าย IT (และเจ้าหน้าที่ที่ผู้แจ้งเลือก) เห็น/ได้แจ้งเตือนหลังหัวหน้าอนุมัติแล้วเท่านั้น (`PRE_APPROVAL` ใน `express/src/services/ticket-workflow.ts`)
+- เมนูงานฝ่าย IT: "คิวงานของฉัน" `/it/tickets` (scope `it_mine` = `itMineWhere()` ใน routes/tickets.ts: เฉพาะใบที่ฉันเป็นผู้รับงาน `assignee_id` — ผู้แจ้งเลือก/โยนมา/รับแล้ว) / "คิวงาน IT" `/it/queue` (scope `it` ทุกใบหลังอนุมัติ)
+  ตัวเลขเมนู: `/it/tickets` = ใบของฉันที่รอรับ/กำลังทำ/รอยืนยันยกเลิก, `/it/queue` = ใบที่ยังไม่มีผู้รับ (acceptors) + รออนุมัติผล (closers) — ตรงกับผู้รับแจ้งเตือน
+  โยนงาน (ยังไม่รับ) `POST /tickets/:uuid/forward { assignee_id, comment }` (`canForward` = `canAccept`) → event `forwarded` (แจ้งผู้รับคนใหม่ + ผู้แจ้ง, ปิด "approved" ของคนเดิม); รับงานแทนผู้ที่ถูกเลือก = สิทธิ์ `it_tickets.take_over` (ไทม์ไลน์ "รับงานแทน …", detail `take_over_from`) — ผู้ถูกเลือกเดิมหลุดจากเมนู/KPI เพราะนับตาม `assignee_id`
+- อนุมัติใบของตัวเอง = สิทธิ์ `tickets.approve_own` (ตั้งต้น ผู้จัดการขึ้นไป — `canApprove`) อนุมัติได้ทุกขั้น จากปุ่มในหน้าใบงาน — ไม่นับในรายการ/ตัวเลข "รอฉันอนุมัติ" (`approvalsWhere`)
 - ตัวเลขเมนู (`GET /menu-badges`) = งานที่รอฉันทำ ↔ กระดิ่ง = เหตุการณ์ใหม่: ทั้งสองฝั่งนับ/แจ้ง **เฉพาะผู้ที่เกี่ยวข้องโดยตรง** และใช้ฟังก์ชันเดียวกัน (`acceptors` = เจ้าหน้าที่ IT ตาม `IT_STAFF_WHERE` ที่รับงานได้, `closers` = หัวหน้า IT (`is_it_head`) ที่ปิดงานได้ — ไม่มีเลยใช้ผู้มีสิทธิ์ปิดงานทั้งหมด, `approvers` ใน ticket-workflow) — ผู้ดูแลระบบสูงสุดที่ไม่ได้อยู่ฝ่าย IT ไม่ได้ทั้งตัวเลขเมนูและกระดิ่ง (ยังเปิดดูคิวงานได้ตามสิทธิ์)
   เปิดดูใบงาน/ใบลา (`GET /tickets/:uuid`, `GET /leave/:uuid`) = แจ้งเตือนของเรื่องนั้นของผู้ดูอ่านแล้ว; เหตุการณ์ถัดไปปิดแจ้งเตือนที่จบแล้วของทุกคนตาม `RESOLVES` (`markNoticesRead`) — อ่านที่กระดิ่งไม่ลดตัวเลขเมนู (งานยังรออยู่); "งานของฉันที่กำลังทำ" และ KPI มีแค่ตัวเลขเมนู ไม่มีแจ้งเตือน
 - การติดตั้ง license (`license_installations`): นับ seat จากรายการที่ `uninstalled_at` เป็น null — บันทึกเกิน `asset_licenses.seats` ไม่ได้ และลด seats ต่ำกว่าที่ใช้อยู่ไม่ได้
@@ -112,7 +116,7 @@
 - IP ผู้ใช้: frontend ส่ง `X-Forwarded-For` ใน `apiFetch` — เชื่อถือได้เมื่อมี reverse proxy เขียนทับ header หน้า Next.js
 
 ## KPI ฝ่าย IT (หน้า /kpi — ตามไฟล์ Template-KPI-IT-2569-Part2-Details)
-- ชีตรายเดือนต่อเจ้าหน้าที่ 1 คน = ใบงานที่รับแล้ว (`ACCEPTED_TICKET_STATUSES`, เดือนตาม**วันที่แจ้ง**เวลาไทย) + แถวกรอกเอง + วันหยุด — `express/src/services/kpi.ts`
+- ชีตรายเดือนต่อเจ้าหน้าที่ 1 คน = ใบงานที่ผู้จัดการ IT อนุมัติผลแล้ว (`KPI_TICKET_STATUSES` = รอผู้แจ้งรับงาน/เสร็จสิ้น — กำลังทำ/รออนุมัติผล/ส่งกลับแก้ไข ยังไม่ขึ้น และ `PUT /kpi/tickets/:uuid` = 422 `not_approved`, ตัวเลขเมนู /kpi ใช้เงื่อนไขเดียวกัน; เดือนตาม**วันที่แจ้ง**เวลาไทย) + แถวกรอกเอง + วันหยุด — `express/src/services/kpi.ts`
 - แถวใบงาน: ข้อมูลอ่านจากใบงานจริงเสมอ, `kpi_entries` (ticket_id + user_id, unique คู่กัน) เก็บแค่ service_type + complexity **แยกต่อคน**; Mark = ตาราง `MARKS` (สูตร IF ของคอลัมน์ I ในไฟล์)
 - ผู้ร่วมดำเนินการ (`it_ticket_helpers`): ผู้รับงานเลือกเจ้าหน้าที่ IT (`IT_STAFF_WHERE`) ตอนรับงาน (`helper_ids`) หรือแก้ภายหลัง `PUT /tickets/:uuid/helpers` → แจ้งเตือนคนที่เพิ่มใหม่ (event `helper_added`), เห็นใบงาน (`canView`) และได้แถวใบงานในชีต KPI ของตัวเอง (`PUT /kpi/tickets/:uuid` ส่ง `user_id` = เจ้าของชีต)
 - Export `/kpi/export` (`services/kpi-export.ts`): ชีต ServiceType + ชีตละเดือน (`Oct68`), Cordia New 14, สูตร Mark/Total จริง, วันหยุดรวมเซลล์ B:G — เปลี่ยนรูปแบบต้องเทียบกับไฟล์ต้นฉบับ
