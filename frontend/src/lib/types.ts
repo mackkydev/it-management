@@ -266,7 +266,7 @@ export interface TicketDetail extends TicketSummary {
   can_edit_helpers?: boolean;
   /** ตัวเลือก (เจ้าหน้าที่ IT + วันนี้ลา/ออกหน้างาน) — ส่งมาเฉพาะผู้ที่รับงาน/แก้รายชื่อได้ */
   helper_options?: { id: number; name: string; busy: "leave" | "onsite" | null }[];
-  /** โยนงาน (ยังไม่รับ): เจ้าหน้าที่ IT ที่เลือกได้ */
+  /** โอนงาน (ยังไม่รับ): เจ้าหน้าที่ IT ที่เลือกได้ */
   forward_options?: { id: number; name: string; busy: "leave" | "onsite" | null }[];
   /** รับงานแทนผู้ที่ผู้แจ้งเลือกไว้ (ชื่อผู้ถูกเลือกเดิม) — null = รับงานของตัวเอง */
   take_over_from?: string | null;

@@ -4,7 +4,7 @@ import { nowDb } from "../src/lib/time.js";
 import { notifyUsers, TICKET_ACTIVITY } from "../src/services/notifications.js";
 import { as, makeUser } from "./helpers.js";
 
-/** คิวงานของฉัน / คิวงาน IT: โยนงาน, รับงานแทน — และผู้จัดการขึ้นไปอนุมัติใบของตัวเอง */
+/** คิวงานของฉัน / คิวงาน IT: โอนงาน, รับงานแทน — และผู้จัดการขึ้นไปอนุมัติใบของตัวเอง */
 
 let seq = 0;
 const ticket = async (attrs: Record<string, unknown>) => {
@@ -41,7 +41,7 @@ describe("IT queue: my queue, forwarding and taking over", () => {
     expect(detail.forward_options.map((o: { id: number }) => o.id)).toContain(somying.id);
     expect(detail.forward_options.map((o: { id: number }) => o.id)).not.toContain(somchai.id);
 
-    // โยนงานให้สมหญิง → สมชายหลุดจากใบนี้ (แจ้งเตือนเดิมอ่านแล้ว), สมหญิง + ผู้แจ้งได้แจ้งเตือน
+    // โอนงานให้สมหญิง → สมชายหลุดจากใบนี้ (แจ้งเตือนเดิมอ่านแล้ว), สมหญิง + ผู้แจ้งได้แจ้งเตือน
     expect((await v.post(`/api/v1/tickets/${uuid}/forward`).send({ assignee_id: somying.id })).status).toBe(403);
     expect((await a.post(`/api/v1/tickets/${uuid}/forward`).send({ assignee_id: somchai.id })).status).toBe(422);
     expect((await a.post(`/api/v1/tickets/${uuid}/forward`).send({ assignee_id: viewer.id })).status).toBe(422);
@@ -70,7 +70,7 @@ describe("IT queue: my queue, forwarding and taking over", () => {
     expect((await b.get("/api/v1/menu-badges")).body.data["/kpi"]).toBe(0);
     expect((await a.get("/api/v1/menu-badges")).body.data["/kpi"]).toBe(1);
     await exec("UPDATE it_tickets SET status = 'in_progress' WHERE uuid = ?", [uuid]);
-    // รับแล้วโยนต่อไม่ได้
+    // รับแล้วโอนต่อไม่ได้
     expect((await a.post(`/api/v1/tickets/${uuid}/forward`).send({ assignee_id: somying.id })).status).toBe(403);
   });
 });

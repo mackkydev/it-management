@@ -174,7 +174,7 @@ async function detail(t: TicketRow, viewer: UserRow) {
     can_edit_helpers: canEditOnsite(viewer, t),
     // ตอนรับงาน: ไม่รวมคนที่กำลังจะรับงาน / ภายหลัง: ไม่รวมผู้รับงาน
     helper_options: canAccept(viewer, t) ? await helperOptions(viewer.id) : canEditOnsite(viewer, t) ? await helperOptions(t.assignee_id) : [],
-    // โยนงาน (ยังไม่รับ): เจ้าหน้าที่ IT คนอื่นที่ไม่ใช่ผู้ถูกเลือกตอนนี้ + วันนี้ลา/ออกหน้างาน
+    // โอนงาน (ยังไม่รับ): เจ้าหน้าที่ IT คนอื่นที่ไม่ใช่ผู้ถูกเลือกตอนนี้ + วันนี้ลา/ออกหน้างาน
     forward_options: canForward(viewer, t) ? await helperOptions(t.assignee_id) : [],
     // รับงานแทนผู้ที่ผู้แจ้งเลือกไว้ (คิวงาน IT) — ชื่อผู้ถูกเลือกเดิม ให้ปุ่มแสดง "รับงานแทน …"
     take_over_from: canAccept(viewer, t) && isTakeOver(viewer, t) ? row.as_name : null,
@@ -322,8 +322,8 @@ const approvalsWhere = (u: UserRow) => {
 };
 
 /**
- * คิวงานของฉัน = เฉพาะใบที่ฉันเป็นผู้รับงาน (ผู้แจ้งเลือกไว้ / โยนมาให้ / รับแล้ว) — คิวงาน IT (scope it) = ทุกใบ
- * ใบที่คนอื่นรับแทนหรือโยนต่อแล้ว (assignee เปลี่ยน) หลุดจากคิวของคนเดิมทันที
+ * คิวงานของฉัน = เฉพาะใบที่ฉันเป็นผู้รับงาน (ผู้แจ้งเลือกไว้ / โอนมาให้ / รับแล้ว) — คิวงาน IT (scope it) = ทุกใบ
+ * ใบที่คนอื่นรับแทนหรือโอนต่อแล้ว (assignee เปลี่ยน) หลุดจากคิวของคนเดิมทันที
  */
 async function itMineWhere(u: UserRow): Promise<{ sql: string; params: unknown[] }> {
   return { sql: `t.status NOT IN (${PRE_APPROVAL.map((x) => `'${x}'`).join(", ")}) AND t.assignee_id = ?`, params: [u.id] };
@@ -711,7 +711,7 @@ ticketRoutes.post("/tickets/:uuid/accept", async (req, res) => {
 });
 
 /**
- * โยนงาน (ยังไม่รับ) ให้เจ้าหน้าที่ IT คนอื่น — ผู้แจ้งเลือกคนไม่ตรงงาน { assignee_id, comment? }
+ * โอนงาน (ยังไม่รับ) ให้เจ้าหน้าที่ IT คนอื่น — ผู้แจ้งเลือกคนไม่ตรงงาน { assignee_id, comment? }
  * ผู้รับเดิมหลุดจากใบนี้ทันที (แจ้งเตือน "รอรับงาน" ของเดิมอ่านแล้ว) → แจ้งผู้รับคนใหม่ + ผู้แจ้ง
  */
 ticketRoutes.post("/tickets/:uuid/forward", async (req, res) => {

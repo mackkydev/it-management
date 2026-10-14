@@ -108,7 +108,7 @@ export const canAccept = (u: UserRow, t: TicketRow) =>
 /** รับงานแทนผู้ที่ถูกเลือกไว้ (ไม่ใช่ตัวเอง และใบมีผู้ถูกเลือกแล้ว) */
 export const isTakeOver = (u: UserRow, t: TicketRow) => t.assignee_id !== null && t.assignee_id !== u.id;
 
-/** โยนงาน (ยังไม่รับ) ให้เจ้าหน้าที่ IT คนอื่น — ผู้ที่รับงานใบนี้ได้ (ผู้แจ้งเลือกคนไม่ตรงงาน) */
+/** โอนงาน (ยังไม่รับ) ให้เจ้าหน้าที่ IT คนอื่น — ผู้ที่รับงานใบนี้ได้ (ผู้แจ้งเลือกคนไม่ตรงงาน) */
 export const canForward = canAccept;
 
 export const canRecordResult = (u: UserRow, t: TicketRow) =>
@@ -215,7 +215,7 @@ const RESOLVES: Record<string, string[]> = {
   approved: APPROVAL,
   rejected: APPROVAL,
   accepted: ["approved", "forwarded"],
-  // โยนงาน → "รอรับงาน" ของผู้รับเดิมจบ (ผู้รับคนใหม่ได้ "forwarded" แทน)
+  // โอนงาน → "รอรับงาน" ของผู้รับเดิมจบ (ผู้รับคนใหม่ได้ "forwarded" แทน)
   forwarded: ["approved", "forwarded"],
   resulted: ["returned"],
   returned: ["resulted"],
@@ -255,7 +255,7 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
     case "approved":
       recipients = [requester, ...(assignee ? [assignee] : await acceptors())];
       break;
-    // โยนงาน → ผู้รับคนใหม่ (รอรับงาน) + ผู้แจ้ง (ทราบว่าใครดูแล)
+    // โอนงาน → ผู้รับคนใหม่ (รอรับงาน) + ผู้แจ้ง (ทราบว่าใครดูแล)
     case "forwarded":
       recipients = [assignee, requester];
       break;

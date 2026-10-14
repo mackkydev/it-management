@@ -9,7 +9,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("tickets.itMineTitle") };
 }
 
-/** คิวงานของฉัน: เฉพาะใบงานของตัวเอง (ผู้ถูกเลือก / ผู้รับงาน / ผู้ร่วม) — รับงาน / โยนงาน / บันทึกผล */
+/** คิวงานของฉัน: เฉพาะใบงานของตัวเอง (ผู้ถูกเลือก / ผู้รับงาน / ผู้ร่วม) — รับงาน / โอนงาน / บันทึกผล */
 export default async function ItTicketsPage({ searchParams }: PageProps<"/it/tickets">) {
   const user = await getCurrentUser();
   if (!has(user, "it_tickets.queue")) redirect("/tickets");

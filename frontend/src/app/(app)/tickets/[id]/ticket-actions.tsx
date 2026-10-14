@@ -126,7 +126,7 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
   // รับงาน: ผู้ร่วมดำเนินการ (ทำงานมากกว่า 1 คน)
   const [helpersOn, setHelpersOn] = useState(false);
   const [helperIds, setHelperIds] = useState<number[]>([]);
-  // โยนงาน: เจ้าหน้าที่ IT ที่รับงานต่อ
+  // โอนงาน: เจ้าหน้าที่ IT ที่รับงานต่อ
   const [forwardTo, setForwardTo] = useState("");
   const [error, setError] = useState("");
   const [pending, start] = useTransition();

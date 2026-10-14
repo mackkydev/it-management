@@ -50,7 +50,7 @@ export async function ticketAction(
         ...(action === "accept" && payload.calendar ? { calendar: { ...payload.calendar, note: payload.calendar.note?.trim() || undefined } } : {}),
         // รับงาน + ผู้ร่วมดำเนินการ
         ...(action === "accept" && payload.helper_ids?.length ? { helper_ids: payload.helper_ids } : {}),
-        // โยนงาน: เจ้าหน้าที่ IT ที่รับงานต่อ
+        // โอนงาน: เจ้าหน้าที่ IT ที่รับงานต่อ
         ...(action === "forward" ? { assignee_id: payload.assignee_id ?? null } : {}),
       }),
     });
