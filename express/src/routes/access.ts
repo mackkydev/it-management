@@ -1,4 +1,6 @@
+import ExcelJS from "exceljs";
 import { Router, type Request } from "express";
+import { config } from "../config.js";
 import { exec, first, likeEscape, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
@@ -458,42 +460,118 @@ accessRoutes.post("/api-users/:id/link", async (req, res) => {
 
 /* ---------------------------------------------------------------- audit log */
 
-accessRoutes.get("/audit-logs", async (req, res) => {
-  guard(req, "audit_logs.view");
+/** ตัวกรองบันทึกการเปลี่ยนแปลง — ใช้ร่วมกันระหว่างหน้ารายการและไฟล์ Excel */
+async function auditFilter(req: Request, input: Record<string, unknown>) {
   const f = await validate(
-    req.input,
+    input,
     {
       action: ["nullable", "string", "max:100"],
       subject_type: ["nullable", "string", "max:50"],
       subject_id: ["nullable", "string", "max:64"],
       actor_id: ["nullable", "integer"],
+      // ผู้ทำ: พิมพ์ชื่อ / ชื่อผู้ใช้ / อีเมล (บางส่วนได้)
+      actor: ["nullable", "string", "max:100"],
+      // สาขาของผู้ทำ
+      branch_id: ["nullable", "integer"],
       from: ["nullable", "date"],
       to: ["nullable", "date"],
-      per_page: ["nullable", "integer", "min:1", "max:100"],
     },
     { locale: req.locale },
   );
-  const perPage = int(f.per_page) ?? 25;
-  const page = pageParam(req);
   const where = ["1 = 1"];
   const params: unknown[] = [];
   if (f.action) (where.push("a.action LIKE ?"), params.push(`${likeEscape(String(f.action))}%`));
   if (f.subject_type) (where.push("a.subject_type = ?"), params.push(f.subject_type));
   if (f.subject_id) (where.push("a.subject_id = ?"), params.push(f.subject_id));
   if (f.actor_id) (where.push("a.actor_id = ?"), params.push(int(f.actor_id)));
+  const actor = String(f.actor ?? "").trim();
+  if (actor) {
+    const like = `%${likeEscape(actor)}%`;
+    where.push("(u.name LIKE ? OR u.username LIKE ? OR u.email LIKE ?)");
+    params.push(like, like, like);
+  }
+  if (f.branch_id) (where.push("u.branch_id = ?"), params.push(int(f.branch_id)));
   if (f.from) (where.push("a.created_at >= ?"), params.push(`${f.from} 00:00:00`));
   if (f.to) (where.push("a.created_at <= ?"), params.push(`${f.to} 23:59:59`));
-  const whereSql = where.join(" AND ");
-  const total = Number(await scalar(`SELECT COUNT(*) FROM audit_logs a WHERE ${whereSql}`, params));
-  const rows = await select<{ id: number; actor_id: number | null; actor_name: string | null; action: string; subject_type: string; subject_id: string | null; subject_name: string | null; before: unknown; after: unknown; ip: string | null; created_at: string }>(
-    `SELECT a.*, u.name AS actor_name,
+  return { sql: where.join(" AND "), params };
+}
+
+interface AuditRow {
+  id: number; actor_id: number | null; actor_name: string | null; branch_name: string | null; action: string; subject_type: string; subject_id: string | null;
+  subject_name: string | null; before: unknown; after: unknown; ip: string | null; created_at: string;
+}
+
+const AUDIT_SELECT = `SELECT a.*, u.name AS actor_name, b.name AS branch_name,
        CASE a.subject_type WHEN 'user' THEN (SELECT s.name FROM users s WHERE CAST(s.id AS CHAR) = a.subject_id)
                            WHEN 'api_connection' THEN (SELECT c.name FROM api_connections c WHERE CAST(c.id AS CHAR) = a.subject_id) END AS subject_name
-     FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id
-     WHERE ${whereSql} ORDER BY a.id DESC LIMIT ? OFFSET ?`,
-    [...params, perPage, (page - 1) * perPage],
-  );
+     FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id LEFT JOIN branches b ON b.id = u.branch_id`;
+
+accessRoutes.get("/audit-logs", async (req, res) => {
+  guard(req, "audit_logs.view");
+  const f = await validate(req.input, { per_page: ["nullable", "integer", "min:1", "max:100"] }, { locale: req.locale });
+  const w = await auditFilter(req, req.input);
+  const perPage = int(f.per_page) ?? 25;
+  const page = pageParam(req);
+  const total = Number(await scalar(`SELECT COUNT(*) FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id WHERE ${w.sql}`, w.params));
+  const rows = await select<AuditRow>(`${AUDIT_SELECT} WHERE ${w.sql} ORDER BY a.id DESC LIMIT ? OFFSET ?`, [...w.params, perPage, (page - 1) * perPage]);
   res.json(paginated(req, rows.map((r) => ({ ...r, created_at: iso(r.created_at) })), total, page, perPage));
+});
+
+const AUDIT_EXPORT_MAX = 20000;
+const auditValue = (v: unknown) => (v === null || v === undefined ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
+const asObject = (v: unknown): Record<string, unknown> | null => {
+  const o = typeof v === "string" ? (() => { try { return JSON.parse(v); } catch { return null; } })() : v;
+  return o && typeof o === "object" && !Array.isArray(o) ? (o as Record<string, unknown>) : null;
+};
+
+/**
+ * POST /audit-logs/export { ...ตัวกรอง, labels: { [action]: ชื่อที่แสดง } } → Excel (ล่าสุดก่อน สูงสุด 20,000 แถว)
+ * ชื่อการกระทำแปลที่หน้าเว็บ (พจนานุกรมอยู่ฝั่ง frontend) จึงส่งมาพร้อมคำขอ
+ */
+accessRoutes.post("/audit-logs/export", async (req, res) => {
+  guard(req, "audit_logs.view");
+  const w = await auditFilter(req, req.input);
+  const labels = asObject(req.input.labels) ?? {};
+  const head = asObject(req.input.headers) ?? {};
+  const rows = await select<AuditRow>(`${AUDIT_SELECT} WHERE ${w.sql} ORDER BY a.id DESC LIMIT ?`, [...w.params, AUDIT_EXPORT_MAX]);
+  const when = new Intl.DateTimeFormat(req.locale === "th" ? "th-TH" : "en-GB", {
+    timeZone: config.localTimezone, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  });
+  const h = (k: string, fallback: string) => (typeof head[k] === "string" ? String(head[k]) : fallback);
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(h("sheet", "Audit log"));
+  ws.columns = [
+    { header: h("time", "Time"), key: "time", width: 22 },
+    { header: h("actor", "By"), key: "actor", width: 26 },
+    { header: h("branch", "Branch"), key: "branch", width: 18 },
+    { header: h("action", "Action"), key: "action", width: 34 },
+    { header: h("subject", "Item"), key: "subject", width: 30 },
+    { header: h("changes", "Changes"), key: "changes", width: 70 },
+    { header: "IP", key: "ip", width: 16 },
+  ];
+  ws.getRow(1).font = { bold: true };
+  ws.views = [{ state: "frozen", ySplit: 1 }];
+  for (const r of rows) {
+    const before = asObject(r.before);
+    const after = asObject(r.after);
+    const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])].filter(
+      (k) => !before || !after || JSON.stringify(before[k]) !== JSON.stringify(after[k]),
+    );
+    const row = ws.addRow({
+      time: when.format(new Date(iso(r.created_at)!)),
+      actor: r.actor_name ?? h("system", "System"),
+      branch: r.branch_name ?? "",
+      action: typeof labels[r.action] === "string" ? labels[r.action] : r.action,
+      subject: `${r.subject_name ?? r.subject_type}${r.subject_id ? ` #${r.subject_id}` : ""}`,
+      changes: keys.map((k) => `${k}: ${auditValue(before?.[k])} → ${auditValue(after?.[k])}`).join("\n"),
+      ip: r.ip ?? "",
+    });
+    row.getCell("changes").alignment = { wrapText: true, vertical: "top" };
+    row.alignment = { vertical: "top" };
+  }
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="audit-log-${localToday()}.xlsx"`);
+  res.send(Buffer.from(await wb.xlsx.writeBuffer()));
 });
 
 /** การกระทำทั้งหมดที่มีใน log (ใช้ทำตัวกรอง) */

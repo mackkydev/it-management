@@ -10,9 +10,10 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { CREDENTIAL_CATEGORIES, isBuiltinCategory, type Branch, type Credential } from "@/lib/types";
 
-const NEW_CATEGORY = "__new__";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
+import { OptionPicker } from "@/components/option-picker";
+import { quickAddOption } from "@/app/actions/dropdowns";
 
 /** canDelete = มีสิทธิ์ vault.delete (API ตรวจซ้ำ) */
 export function CredentialForm({ credential, branches, customCategories = [], canDelete = false }: { credential?: Credential; branches: Branch[]; customCategories?: string[]; canDelete?: boolean }) {
@@ -33,8 +34,6 @@ export function CredentialForm({ credential, branches, customCategories = [], ca
   const [secret, setSecret] = useState("");
   // ต้องยืนยันตัวตน (รหัสผ่าน login / PIN กลาง) ก่อนเปิดดูรหัสของบัญชีนี้ — บัญชีใหม่ = เปิดไว้
   const [requireReauth, setRequireReauth] = useState(credential?.require_reauth ?? true);
-  // หมวดหมู่ใหม่ที่ยังไม่มีในรายการ — เลือก "+ เพิ่มหมวดหมู่ใหม่" แล้วพิมพ์ชื่อ (สร้างพร้อมบันทึกบัญชีนี้)
-  const [newCategory, setNewCategory] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [pending, start] = useTransition();
@@ -47,9 +46,8 @@ export function CredentialForm({ credential, branches, customCategories = [], ca
 
   const submit = () => {
     if (!v.title.trim()) return setErrors({ title: t("vault.validate.title") });
-    const adding = v.category === NEW_CATEGORY;
-    if (adding && !newCategory.trim()) return setErrors({ category: t("vault.form.categoryRequired") });
-    const payload: CredentialPayload = { ...v, category: adding ? newCategory.trim() : v.category, require_reauth: requireReauth };
+    if (!v.category) return setErrors({ category: t("vault.form.categoryRequired") });
+    const payload: CredentialPayload = { ...v, require_reauth: requireReauth };
     // แก้ไข: ไม่ส่ง = คงเดิม; ติ๊กลบ = ส่ง ""
     if (!isEdit || password) payload.password = password;
     if (isEdit && clearPassword && !password) payload.password = "";
@@ -84,15 +82,14 @@ export function CredentialForm({ credential, branches, customCategories = [], ca
     </div>
   );
   const cls = (k: string) => `${input} ${errors[k] ? inputError : ""}`;
-  // หมวดที่เพิ่มเอง (รวมหมวดของบัญชีนี้ แม้ไม่มีในรายการ)
-  const categoryOptions = [...new Set([...customCategories, ...(credential ? [credential.category] : [])])]
-    .filter((c) => !isBuiltinCategory(c))
-    .sort((a, b) => a.localeCompare(b, "th"));
-  const selectCategory = (value: string) => {
-    set("category", value);
-    // เลือก "+ เพิ่มหมวดหมู่ใหม่" → เด้งไปช่องพิมพ์ชื่อ
-    if (value === NEW_CATEGORY) setTimeout(() => document.getElementById("new-category")?.focus());
-  };
+  // หมวดตั้งต้น (แปลตามภาษา) + หมวดที่เพิ่มเอง (ข้อมูล Drop Down) — หมวดของบัญชีนี้ที่ไม่มีในรายการแล้วยังแสดงค่าเดิม
+  // "อื่นๆ" อยู่ท้ายสุด (หลังหมวดที่เพิ่มเอง)
+  const builtin = (c: (typeof CREDENTIAL_CATEGORIES)[number]) => ({ value: c, label: t(`vault.categories.${c}`) });
+  const categoryOptions = [
+    ...CREDENTIAL_CATEGORIES.filter((c) => c !== "other").map(builtin),
+    ...customCategories.filter((c) => !isBuiltinCategory(c)).map((c) => ({ value: c, label: c })),
+    builtin("other"),
+  ];
 
   return (
     <div className="space-y-5">
@@ -107,34 +104,16 @@ export function CredentialForm({ credential, branches, customCategories = [], ca
         {field(
           "category",
           t("vault.form.category"),
-          <div className="space-y-2">
-            <AppSelect id="category" value={v.category} onChange={(e) => selectCategory(e.target.value)} className={cls("category")}>
-              {CREDENTIAL_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {t(`vault.categories.${c}`)}
-                </option>
-              ))}
-              {categoryOptions.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-              <option value={NEW_CATEGORY}>{t("vault.form.addCategory")}</option>
-            </AppSelect>
-            {v.category === NEW_CATEGORY && (
-              <input
-                id="new-category"
-                value={newCategory}
-                maxLength={30}
-                placeholder={t("vault.form.newCategory")}
-                aria-label={t("vault.form.newCategory")}
-                onChange={(e) => (setNewCategory(e.target.value), setErrors((x) => ({ ...x, category: "" })))}
-                className={`${cls("category")} ${newCategory.trim() ? "" : "ring-2 ring-accent-400"}`}
-              />
-            )}
-          </div>,
+          <OptionPicker
+            id="category"
+            options={categoryOptions}
+            value={v.category}
+            onChange={(value) => set("category", value)}
+            onAdd={(name) => quickAddOption("vault_category", name)}
+            maxLength={30}
+            className={cls("category")}
+          />,
           true,
-          v.category === NEW_CATEGORY ? t("vault.form.newCategoryHint") : undefined,
         )}
         {field("url", t("vault.form.url"), <input id="url" value={v.url} maxLength={500} onChange={(e) => set("url", e.target.value)} className={`${cls("url")} font-mono`} />, false, t("vault.form.urlHint"), true)}
         {field("username", t("vault.form.username"), <input id="username" value={v.username} maxLength={255} autoComplete="off" onChange={(e) => set("username", e.target.value)} className={`${cls("username")} font-mono`} />)}

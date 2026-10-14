@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { first, scalar } from "../src/db.js";
 import { verifyHash } from "../src/lib/validator.js";
-import { as, guest, makeAsset, makeLocation, makeUser, tokenFor } from "./helpers.js";
+import { as, guest, makeAsset, makeBranch, makeLocation, makeUser, tokenFor } from "./helpers.js";
 
 /** ตรงกับ UserManagementTest / UserApiTest / LocationApiTest ของ Laravel */
 describe("user management", () => {
@@ -93,6 +93,16 @@ describe("user management", () => {
 });
 
 describe("locations", () => {
+  it("a location may belong to a branch (optional) and the lists show it", async () => {
+    const api = await as(await makeUser({ role: "manager" }));
+    const lpn = await makeBranch({ code: "LPN", name: "ลำพูน" });
+    const created = await api.post("/api/v1/locations").send({ code: "LPN-IT", name: "ห้อง IT ลำพูน", type: "room", branch_id: lpn });
+    expect(created.body.data.branch).toEqual({ id: lpn, name: "ลำพูน" });
+    expect((await api.get("/api/v1/locations")).body.data.find((l: { id: number }) => l.id === created.body.data.id).branch).toEqual({ id: lpn, name: "ลำพูน" });
+    expect((await api.patch(`/api/v1/locations/${created.body.data.id}`).send({ branch_id: null })).body.data.branch).toBeNull();
+    expect((await api.post("/api/v1/locations").send({ code: "X-1", name: "x", type: "room", branch_id: 999999 })).status).toBe(422);
+  });
+
   it("manager can create and update a location", async () => {
     const api = await as(await makeUser({ role: "manager" }));
     const site = await makeLocation({ type: "site" });

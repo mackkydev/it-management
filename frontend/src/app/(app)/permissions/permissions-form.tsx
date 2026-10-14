@@ -2,14 +2,14 @@
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { saveUiConfig } from "@/app/actions/it-data";
-import { AlertIcon, ArrowDownIcon, ArrowUpIcon, CheckCircleIcon, ResetIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
+import { AlertIcon, ArrowDownIcon, ArrowUpIcon, CheckCircleIcon, CheckIcon, PencilIcon, ResetIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { NAV, type NavItem } from "@/components/shell/nav";
 import { Tooltip } from "@/components/tooltip";
-import { alert, btn, card } from "@/components/ui";
+import { alert, btn, card, input } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import {
   ALWAYS_FOR_ADMIN, BUTTONS, sampleUser, sortByOrder,
-  type Audience, type MenuOrder, type UiConfig, type UiPermissions,
+  type Audience, type MenuLabels, type MenuOrder, type UiConfig, type UiPermissions,
 } from "@/lib/permissions";
 import type { PermissionGroupRow, User } from "@/lib/types";
 import { useConfirm } from "@/components/dialog-provider";
@@ -30,7 +30,16 @@ const ICON_BTN =
  * ตารางสิทธิ์: แถว = เมนู/ปุ่ม, คอลัมน์ = กลุ่มสิทธิ์ (ตามตำแหน่ง + กลุ่มที่สร้างเอง — ติ๊ก = เห็น)
  * ช่องที่ระบบไม่อนุญาตอยู่แล้ว (visible/system ของรายการ) กดไม่ได้ — หน้านี้ซ่อนเพิ่มได้อย่างเดียว
  */
-export function PermissionsForm({ initial, groups }: { initial: UiConfig; groups: PermissionGroupRow[] }) {
+export function PermissionsForm({
+  initial,
+  groups,
+  defaultNames,
+}: {
+  initial: UiConfig;
+  groups: PermissionGroupRow[];
+  /** ชื่อตั้งต้นของเมนูทั้งสองภาษา { "<group id | /href>": { th, en } } */
+  defaultNames: Record<string, { th: string; en: string }>;
+}) {
   const { t, locale } = useI18n();
   const AUDIENCES = useMemo(() => groups.map((g) => g.key), [groups]);
   const audienceName = (a: Audience) => {
@@ -43,6 +52,8 @@ export function PermissionsForm({ initial, groups }: { initial: UiConfig; groups
   const [itemOrder, setItemOrder] = useState<Record<string, string[]>>(() =>
     Object.fromEntries(NAV.map((g) => [g.id, sortByOrder(g.items, initial.menu_order.items?.[g.id], (i) => i.href).map((i) => i.href)])),
   );
+  // ชื่อเมนูที่แก้เอง (บันทึกพร้อมปุ่มบันทึกด้านล่าง)
+  const [labels, setLabels] = useState<MenuLabels>(initial.menu_labels);
   const [result, setResult] = useState<{ ok?: boolean; message?: string }>({});
   const [pending, start] = useTransition();
 
@@ -60,12 +71,13 @@ export function PermissionsForm({ initial, groups }: { initial: UiConfig; groups
 
   const save = () => {
     const menu_order: MenuOrder = { groups: groupOrder, items: itemOrder };
-    start(async () => setResult(await saveUiConfig({ ui_permissions: deny, menu_order })));
+    start(async () => setResult(await saveUiConfig({ ui_permissions: deny, menu_order, menu_labels: labels })));
   };
 
   const reset = async () => {
     if (!(await confirm(t("permissions.confirmReset")))) return;
     setDeny({});
+    setLabels({});
     setGroupOrder(NAV.map((g) => g.id));
     setItemOrder(Object.fromEntries(NAV.map((g) => [g.id, g.items.map((i) => i.href)])));
     setResult({});
@@ -163,7 +175,7 @@ export function PermissionsForm({ initial, groups }: { initial: UiConfig; groups
                         gi === groupOrder.length - 1,
                         <span className="flex items-center gap-2 font-semibold">
                           <group.icon width={15} height={15} className="text-accent-500 dark:text-accent-300" />
-                          {t(group.label)}
+                          <MenuName id={group.id} fallback={t(group.label)} defaults={defaultNames[group.id]} labels={labels} onChange={setLabels} />
                         </span>,
                       )}
                     </td>
@@ -178,7 +190,7 @@ export function PermissionsForm({ initial, groups }: { initial: UiConfig; groups
                           ii === items.length - 1,
                           <span className="flex items-center gap-2">
                             <item.icon width={14} height={14} className="text-faint" />
-                            {t(item.label)}
+                            <MenuName id={item.href} fallback={t(item.label)} defaults={defaultNames[item.href]} labels={labels} onChange={setLabels} />
                             <code className="text-xs text-faint">{item.href}</code>
                           </span>,
                         )}
@@ -202,14 +214,30 @@ export function PermissionsForm({ initial, groups }: { initial: UiConfig; groups
         <div className="overflow-x-auto">
           <table className="w-full min-w-[48rem] text-sm">
             {head(t("permissions.button"))}
-            <tbody>
-              {BUTTONS.map((b) => (
-                <tr key={b.key} className="border-t border-line/60">
-                  <td className="px-4 py-2.5">{t(b.label)}</td>
-                  {AUDIENCES.map((a) => cell(b.key, a, !b.system || b.system(samples[a])))}
+            {/* จัดกลุ่มตามหน้าที่ปุ่มอยู่ (ตามลำดับใน BUTTONS) */}
+            {BUTTONS.reduce<{ page: (typeof BUTTONS)[number]["page"]; items: typeof BUTTONS }[]>((groups, b) => {
+              const last = groups[groups.length - 1];
+              if (last?.page === b.page) last.items.push(b);
+              else groups.push({ page: b.page, items: [b] });
+              return groups;
+            }, []).map((g) => (
+              <tbody key={g.page} className="border-t border-line">
+                <tr className="bg-subtle/40">
+                  <td colSpan={AUDIENCES.length + 1} className="px-4 py-2 font-medium">
+                    {t(g.page)}
+                  </td>
                 </tr>
-              ))}
-            </tbody>
+                {g.items.map((b) => (
+                  <tr key={b.key} className="border-t border-line/60">
+                    <td className="py-2 pl-10 pr-4">
+                      {t(b.label)}
+                      <code className="ml-2 text-xs text-faint">{b.key}</code>
+                    </td>
+                    {AUDIENCES.map((a) => cell(b.key, a, !b.system || b.system(samples[a])))}
+                  </tr>
+                ))}
+              </tbody>
+            ))}
           </table>
         </div>
       </section>
@@ -225,5 +253,111 @@ export function PermissionsForm({ initial, groups }: { initial: UiConfig; groups
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * ชื่อเมนู + ปุ่มแก้ชื่อ (ไทย + อังกฤษ ต้องกรอกทั้งคู่ — กันชื่อสองภาษาไม่ตรงกัน)
+ * "คืนชื่อเดิม" = ลบชื่อที่แก้ กลับไปใช้ชื่อตั้งต้นจากไฟล์แปล
+ */
+function MenuName({
+  id,
+  fallback,
+  defaults,
+  labels,
+  onChange,
+}: {
+  id: string;
+  fallback: string;
+  defaults?: { th: string; en: string };
+  labels: MenuLabels;
+  onChange: (next: MenuLabels) => void;
+}) {
+  const { t, locale } = useI18n();
+  const custom = labels[id];
+  const [draft, setDraft] = useState<{ th: string; en: string } | null>(null);
+  const [error, setError] = useState("");
+  const shown = custom?.[locale === "en" ? "en" : "th"] || fallback;
+
+  if (!draft) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span className={custom ? "font-medium text-accent-700 dark:text-accent-300" : undefined}>{shown}</span>
+        {custom && (
+          <Tooltip label={t("permissions.menuNameDefault", { name: fallback })} side="top">
+            <span className="rounded-full bg-accent-50 px-1.5 py-0.5 text-[10px] text-accent-700 dark:bg-accent-400/15 dark:text-accent-300">{t("permissions.menuNameEdited")}</span>
+          </Tooltip>
+        )}
+        <Tooltip label={t("permissions.menuNameEdit")} side="top">
+          <button
+            type="button"
+            onClick={() => {
+              setDraft({ th: custom?.th ?? defaults?.th ?? fallback, en: custom?.en ?? defaults?.en ?? fallback });
+              setError("");
+            }}
+            aria-label={t("permissions.menuNameEdit")}
+            className={ICON_BTN}
+          >
+            <PencilIcon width={12} height={12} />
+          </button>
+        </Tooltip>
+      </span>
+    );
+  }
+
+  const apply = () => {
+    const th = draft.th.trim();
+    const en = draft.en.trim();
+    if (!th || !en) return setError(t("permissions.menuNameBoth"));
+    const next = { ...labels };
+    // ตรงกับชื่อตั้งต้นทั้งสองภาษา = ไม่ต้องเก็บ
+    if (defaults && th === defaults.th && en === defaults.en) delete next[id];
+    else next[id] = { th, en };
+    onChange(next);
+    setDraft(null);
+  };
+  const restore = () => {
+    const next = { ...labels };
+    delete next[id];
+    onChange(next);
+    setDraft(null);
+  };
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <input
+        value={draft.th}
+        maxLength={60}
+        onChange={(e) => setDraft({ ...draft, th: e.target.value })}
+        onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), apply())}
+        aria-label={t("permissions.menuNameTh")}
+        placeholder={t("permissions.menuNameTh")}
+        className={`${input} h-8 w-44 py-1 text-sm`}
+      />
+      <input
+        value={draft.en}
+        maxLength={60}
+        onChange={(e) => setDraft({ ...draft, en: e.target.value })}
+        onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), apply())}
+        aria-label={t("permissions.menuNameEn")}
+        placeholder={t("permissions.menuNameEn")}
+        className={`${input} h-8 w-44 py-1 text-sm`}
+      />
+      <Tooltip label={t("common.save")} side="top">
+        <button type="button" onClick={apply} aria-label={t("common.save")} className={ICON_BTN}>
+          <CheckIcon width={14} height={14} />
+        </button>
+      </Tooltip>
+      <Tooltip label={t("common.cancel")} side="top">
+        <button type="button" onClick={() => setDraft(null)} aria-label={t("common.cancel")} className={ICON_BTN}>
+          <XIcon width={14} height={14} />
+        </button>
+      </Tooltip>
+      {custom && (
+        <button type="button" onClick={restore} className="text-xs text-accent-600 hover:underline dark:text-accent-300">
+          {t("permissions.menuNameRestore")}
+        </button>
+      )}
+      {error && <span className="w-full text-xs font-medium text-red-500">{error}</span>}
+    </span>
   );
 }

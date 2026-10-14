@@ -16,16 +16,17 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function NewContractPage() {
   const user = await getCurrentUser();
   if (!has(user, "contracts.create")) redirect("/tickets");
-  const [{ data: branches }, { default_notify_days }, { t }] = await Promise.all([
+  const [{ data: branches }, { default_notify_days }, { t }, categories] = await Promise.all([
     apiFetch<{ data: Branch[] }>("/branches"),
     apiFetch<{ default_notify_days: number }>("/contracts?status=expired"),
     getI18n(),
+    apiFetch<{ data: { id: number; name: string; key: string | null }[] }>("/contract-categories").then((r) => r.data),
   ]);
 
   return (
     <div className="space-y-5">
       <PageHeader icon={FileTextIcon} title={t("contracts.newTitle")} />
-      <ContractForm branches={branches} defaultNotifyDays={default_notify_days} />
+      <ContractForm branches={branches} categories={categories} defaultNotifyDays={default_notify_days} />
     </div>
   );
 }

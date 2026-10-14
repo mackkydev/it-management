@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 
 export type ProfileResult = ActionResult<"name" | "email">;
 export type PasswordResult = ActionResult<"current_password" | "password" | "password_confirmation">;
@@ -72,4 +72,44 @@ export async function changePassword(_prev: PasswordResult, formData: FormData):
     return toActionResult(e);
   }
   return { ok: true, message: t("profile.passwordChanged") };
+}
+
+/* ---------------------------------------------------------------- ยืนยันตัวตน 2 ขั้น (2FA) */
+
+export interface TwoFactorStatus {
+  available: boolean;
+  enabled: boolean;
+  confirmed_at: string | null;
+  recovery_codes_left: number;
+  required: boolean;
+}
+
+type TwoFactorResult = { ok?: boolean; error?: string; field?: "password" | "code"; secret?: string; qr_svg?: string; recovery_codes?: string[] };
+
+/** เรียก API ของ 2FA แล้วแปลง error ของช่อง password / code เป็นข้อความ */
+async function twoFactorCall(path: string, method: string, body: Record<string, string>): Promise<TwoFactorResult> {
+  const { t } = await getI18n();
+  try {
+    const res = await apiFetch<{ data?: { secret?: string; qr_svg?: string; recovery_codes?: string[] } } | undefined>(path, { method, body: JSON.stringify(body) });
+    revalidatePath("/profile");
+    return { ok: true, ...(res?.data ?? {}) };
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e;
+    if (e.status === 429) return { error: t("auth.throttled") };
+    const field = e.body.errors?.password ? "password" : "code";
+    return { error: e.body.errors?.password?.[0] ?? e.body.errors?.code?.[0] ?? t("common.saveFailed"), field };
+  }
+}
+
+export async function startTwoFactor(password: string) {
+  return twoFactorCall("/auth/2fa/setup", "POST", { password: password.slice(0, 255) });
+}
+export async function confirmTwoFactor(code: string) {
+  return twoFactorCall("/auth/2fa/confirm", "POST", { code: code.slice(0, 20) });
+}
+export async function regenerateRecoveryCodes(code: string) {
+  return twoFactorCall("/auth/2fa/recovery-codes", "POST", { code: code.slice(0, 20) });
+}
+export async function disableTwoFactor(password: string, code: string) {
+  return twoFactorCall("/auth/2fa", "DELETE", { password: password.slice(0, 255), code: code.slice(0, 20) });
 }

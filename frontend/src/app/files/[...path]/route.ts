@@ -9,10 +9,13 @@ import { apiFile } from "@/lib/api";
  *   <a href="/files/assets/import-template">   (template Excel สำหรับนำเข้าทะเบียนคอมพิวเตอร์)
  *   <a href="/files/assets/export?status=active&branch_id=2">   (ทะเบียนคอมพิวเตอร์เป็น Excel ตามตัวกรองหน้าสินทรัพย์)
  *   <a href="/files/kpi/export?from=2025-10&to=2025-12&user_id=3">   (KPI ฝ่าย IT เป็น Excel — ส่งต่อเฉพาะ from/to/user_id ที่ผ่านรูปแบบ)
+ *   <a href="/files/leave/export?scope=all&year=2026">   (รายงานการลา Excel), /files/leave/{uuid}/files/{id} (ใบรับรองแพทย์), /files/leave/{uuid}/signature/requester|approver
+ *   <a href="/files/holidays/import-template">   (template วันหยุดบริษัท)
+ *   <img src="/files/meeting-rooms/{id}/images/{imageId}">   (รูปห้องประชุม), /files/vehicles/{id}/images/{imageId} (รูปรถ)
  * อนุญาตเฉพาะ path ของไฟล์ — กันไม่ให้ใช้เป็น proxy เรียก API อื่น
  */
 const ALLOWED =
-  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/export|kpi\/export|assets\/[0-9a-f-]{36}\/files\/\d+)$/i;
+  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/export|kpi\/export|assets\/[0-9a-f-]{36}\/files\/\d+|leave\/export|leave\/[0-9a-f-]{36}\/files\/\d+|leave\/[0-9a-f-]{36}\/signature\/(requester|approver)|holidays\/import-template|org-units\/import-template|meeting-rooms\/\d+\/images\/\d+|vehicles\/\d+\/images\/\d+)$/i;
 
 export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
   const { path } = await ctx.params;
@@ -24,6 +27,8 @@ export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
   // ส่งต่อเฉพาะ ?download=1 (ไม่ส่ง query อื่นไป API) — ยกเว้น KPI export: from/to (YYYY-MM) + user_id (ตัวเลข)
   const sp = new URL(req.url).searchParams;
   let query = sp.has("download") ? "?download=1" : "";
+  // template วันหยุด: ปี (เติมวันหยุดของปีนั้นไว้ในไฟล์)
+  if (joined === "holidays/import-template" && /^\d{4}$/.test(sp.get("year") ?? "")) query = `?year=${sp.get("year")}`;
   if (joined === "kpi/export") {
     const q = new URLSearchParams();
     for (const k of ["from", "to"]) if (/^\d{4}-\d{2}$/.test(sp.get(k) ?? "")) q.set(k, sp.get(k)!);
@@ -38,6 +43,13 @@ export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
     for (const k of ["branch_id", "location_id"]) if (/^\d+$/.test(sp.get(k) ?? "")) q.set(k, sp.get(k)!);
     query = `?${q}`;
   }
+  if (joined === "leave/export") {
+    const q = new URLSearchParams();
+    if (/^(mine|all)$/.test(sp.get("scope") ?? "")) q.set("scope", sp.get("scope")!);
+    if (/^(pending|approved|rejected|cancelled)$/.test(sp.get("status") ?? "")) q.set("status", sp.get("status")!);
+    for (const k of ["year", "user_id"]) if (/^\d+$/.test(sp.get(k) ?? "")) q.set(k, sp.get(k)!);
+    query = `?${q}`;
+  }
   const upstream = await apiFile(`/${joined}${query}`);
   if (!upstream.ok || !upstream.body) {
     return new Response(upstream.status === 403 ? "Forbidden" : "Not found", { status: upstream.status === 403 ? 403 : 404 });
@@ -46,7 +58,7 @@ export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
   const headers = new Headers({
     "Content-Type": upstream.headers.get("Content-Type") ?? "application/octet-stream",
     // KPI / ทะเบียนคอมพิวเตอร์ สร้างจากข้อมูลล่าสุดทุกครั้ง — ห้าม cache
-    "Cache-Control": joined === "kpi/export" || joined === "assets/export" ? "no-store" : "private, max-age=3600",
+    "Cache-Control": ["kpi/export", "assets/export", "leave/export"].includes(joined) || joined.includes("/signature/") ? "no-store" : "private, max-age=3600",
     "X-Content-Type-Options": "nosniff",
   });
   const disposition = upstream.headers.get("Content-Disposition");

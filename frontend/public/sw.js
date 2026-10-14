@@ -4,7 +4,7 @@
  * - ไม่ cache API / ไฟล์แนบ / server actions / หน้าที่ต้อง login เด็ดขาด
  * เปลี่ยน VERSION เมื่อแก้ไฟล์นี้หรือ offline.html เพื่อให้ cache เดิมถูกล้าง
  */
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL = `it-system-shell-${VERSION}`;
 const ASSETS = `it-system-assets-${VERSION}`;
 const OFFLINE_URL = "/offline.html";

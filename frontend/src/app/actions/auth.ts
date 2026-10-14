@@ -13,14 +13,25 @@ export interface LoginState {
   /** login ผ่านระบบต้นทาง (API User) */
   username?: string;
   connectionId?: string;
+  /** รหัสผ่านถูกแล้ว — ต้องยืนยันขั้นที่ 2: verify = กรอกรหัสจากแอป, setup = ผู้ดูแลระบบที่ถูกบังคับต้องตั้ง 2FA ก่อน */
+  twoFactor?: "verify" | "setup";
 }
 
-type LoginResult = { token: string; expires_at: string; user: User };
+/** ใบผ่านชั่วคราวระหว่าง login ขั้นที่ 1 → 2 (5 นาที) — เก็บใน httpOnly cookie ไม่ส่งให้ JavaScript ฝั่งเบราว์เซอร์ */
+const CHALLENGE_COOKIE = "eam_2fa";
 
-/** cookie ของ session: httpOnly + SameSite=Lax และ Secure เสมอ ยกเว้นเปิดผ่าน localhost (เครื่องพัฒนา) */
-async function startSession(result: LoginResult) {
+type LoginResult = { token: string; expires_at: string; user: User; recovery_codes?: string[] };
+type LoginResponse = LoginResult | { two_factor: "verify" | "setup"; challenge: string };
+
+/** cookie ต้องเป็น Secure เสมอ ยกเว้นเปิดผ่าน localhost (เครื่องพัฒนา) */
+async function secureCookie(): Promise<boolean> {
   const host = ((await headers()).get("host") ?? "").replace(/:\d+$/, "").replace(/^\[|\]$/g, "").toLowerCase();
-  const secure = !(host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost"));
+  return !(host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost"));
+}
+
+/** cookie ของ session: httpOnly + SameSite=Lax และ Secure (ยกเว้น localhost) */
+async function startSession(result: LoginResult) {
+  const secure = await secureCookie();
   const jar = await cookies();
   jar.set(TOKEN_COOKIE, result.token, { httpOnly: true, secure, sameSite: "lax", path: "/", expires: new Date(result.expires_at) });
   // ให้หน้าแรกหลัง login แสดงสรุปการแจ้งเตือนที่ยังไม่อ่าน / งานรออนุมัติ (ครั้งเดียว)
@@ -37,7 +48,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     return { error: t("auth.required"), email };
   }
 
-  let result: LoginResult;
+  let result: LoginResponse;
   try {
     result = await apiFetch("/auth/login", {
       method: "POST",
@@ -51,8 +62,61 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     return { error: t("auth.unreachable"), email };
   }
 
+  if ("two_factor" in result) {
+    const jar = await cookies();
+    jar.set(CHALLENGE_COOKIE, result.challenge, { httpOnly: true, secure: await secureCookie(), sameSite: "strict", path: "/login", maxAge: 300 });
+    return { twoFactor: result.two_factor, email };
+  }
   await startSession(result);
   redirect("/"); // หน้าแรกเลือกปลายทางตามผู้ใช้ (IT → คิวงาน IT, คนอื่น → ใบแจ้งงานของฉัน)
+}
+
+/** secret + QR ของแอปยืนยันตัวตน (ผู้ดูแลระบบที่ถูกบังคับ 2FA ตั้งระหว่าง login) */
+export async function startLoginTwoFactorSetup(): Promise<{ secret?: string; qr_svg?: string; error?: string }> {
+  const { t } = await getI18n();
+  const challenge = (await cookies()).get(CHALLENGE_COOKIE)?.value;
+  if (!challenge) return { error: t("auth.twoFactor.expired") };
+  try {
+    const res = await apiFetch<{ data: { secret: string; qr_svg: string } }>("/auth/login/2fa/setup", { method: "POST", body: JSON.stringify({ challenge }) });
+    return { secret: res.data.secret, qr_svg: res.data.qr_svg };
+  } catch (e) {
+    if (e instanceof ApiError) return { error: e.body.errors?.code?.[0] ?? t("auth.twoFactor.expired") };
+    return { error: t("auth.unreachable") };
+  }
+}
+
+export interface TwoFactorState {
+  error?: string;
+  /** ตั้ง 2FA ระหว่าง login สำเร็จ — แสดง recovery codes ครั้งเดียว (session เริ่มแล้ว) */
+  recoveryCodes?: string[];
+}
+
+/** login ขั้นที่ 2: รหัส 6 หลักจากแอป หรือ recovery code */
+export async function verifyLoginTwoFactor(_prev: TwoFactorState, formData: FormData): Promise<TwoFactorState> {
+  const { t } = await getI18n();
+  const jar = await cookies();
+  const challenge = jar.get(CHALLENGE_COOKIE)?.value;
+  if (!challenge) return { error: t("auth.twoFactor.expired") };
+  const code = String(formData.get("code") ?? "").replace(/\s/g, "");
+  const recovery = String(formData.get("recovery_code") ?? "").trim();
+  if (!code && !recovery) return { error: t("auth.twoFactor.codeRequired") };
+  let result: LoginResult;
+  try {
+    result = await apiFetch("/auth/login/2fa", {
+      method: "POST",
+      body: JSON.stringify({ challenge, device_name: "web", ...(recovery ? { recovery_code: recovery } : { code }) }),
+    });
+  } catch (e) {
+    if (e instanceof ApiError) {
+      if (e.status === 429) return { error: t("auth.throttled") };
+      return { error: e.body.errors?.code?.[0] ?? t("auth.twoFactor.invalid") };
+    }
+    return { error: t("auth.unreachable") };
+  }
+  jar.delete({ name: CHALLENGE_COOKIE, path: "/login" });
+  await startSession(result);
+  if (result.recovery_codes?.length) return { recoveryCodes: result.recovery_codes };
+  redirect("/");
 }
 
 export type ConnectionStatus = "online" | "offline" | "unknown";

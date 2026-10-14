@@ -8,6 +8,7 @@ import { limits } from "../lib/rate-limit.js";
 import { dateOnly, diffInDays, fromDbDate, iso, nowDb } from "../lib/time.js";
 import { bool, custom, exists, int, makeHash, regex, unique, validate } from "../lib/validator.js";
 import { audit } from "../services/audit.js";
+import { BUILTIN_CATEGORIES } from "../services/categories.js";
 import { notifyAccessChange } from "../services/access-control.js";
 import { me, shortMeta, pageParam } from "../http.js";
 import { can } from "../models/user.js";
@@ -174,8 +175,10 @@ itDataRoutes.get("/settings", async (req, res) => {
 
 itDataRoutes.put("/settings", async (req, res) => {
   settings(req);
-  // การมองเห็นเมนู/ปุ่ม = ส่วนหนึ่งของการจัดการสิทธิ์ (สงวนไว้ให้ผู้ดูแลระบบ)
-  if ("ui_permissions" in req.input) authorize(can(me(req), "access.manage"));
+  // การมองเห็นเมนู/ปุ่ม และชื่อเมนู = ส่วนหนึ่งของหน้าสิทธิ์การใช้งาน (สงวนไว้ให้ผู้ดูแลระบบ)
+  if ("ui_permissions" in req.input || "menu_labels" in req.input) authorize(can(me(req), "access.manage"));
+  // บังคับ 2FA ผู้ดูแลระบบ = นโยบายความปลอดภัยของการเข้าสู่ระบบ (สงวนไว้ให้ผู้ดูแลระบบสูงสุด)
+  if ("two_factor_required" in req.input) authorize(can(me(req), "access.manage"));
   const groupKeys = new Set((await select<{ key: string }>('SELECT "key" FROM permission_groups')).map((g) => g.key));
   const data = await validate(
     req.input,
@@ -198,6 +201,11 @@ itDataRoutes.put("/settings", async (req, res) => {
       "menu_order.items": ["sometimes", "array", "max:50"],
       "menu_order.items.*": ["array", "max:100"],
       "menu_order.items.*.*": ["string", "max:100"],
+      // ชื่อเมนูที่แก้เอง: { "<group id | /href>": { th, en } } — ต้องกรอกทั้งสองภาษา (กันชื่อสองภาษาไม่ตรงกัน)
+      menu_labels: ["sometimes", "array", "max:100"],
+      "menu_labels.*": ["array"],
+      "menu_labels.*.th": ["required", "string", "max:60"],
+      "menu_labels.*.en": ["required", "string", "max:60"],
       // การป้องกันตอนเปิดดูรหัสผ่าน / License key (services/secret-guard.ts) — เปิด-ปิดแยกกัน
       secret_guard: ["sometimes", "array"],
       "secret_guard.reauth": ["sometimes", "boolean"],
@@ -207,6 +215,7 @@ itDataRoutes.put("/settings", async (req, res) => {
       "secret_guard.allowed_ips": ["sometimes", "array", "max:50"],
       "secret_guard.allowed_ips.*": ["string", "max:50", custom((v) => typeof v === "string" && isValidIpEntry(v), trans(req.locale, "eam.secret_guard.invalid_ip"))],
       "secret_guard.notify_heads": ["sometimes", "boolean"],
+      two_factor_required: ["sometimes", "boolean"],
     },
     {
       locale: req.locale,
@@ -237,6 +246,18 @@ itDataRoutes.put("/settings", async (req, res) => {
   const emptyToList = (v: unknown) => (v && typeof v === "object" && Object.keys(v).length === 0 ? [] : v);
   if ("ui_permissions" in data) values.ui_permissions = emptyToList(data.ui_permissions);
   if ("menu_order" in data) values.menu_order = emptyToList(data.menu_order);
+  if ("menu_labels" in data) {
+    const raw = (data.menu_labels ?? {}) as Record<string, { th: string; en: string }>;
+    const clean: Record<string, { th: string; en: string }> = {};
+    for (const [key, v] of Object.entries(raw)) {
+      // key = id กลุ่มเมนู (a-z, -) หรือ path ของเมนู (/...)
+      if (!/^(\/[a-z0-9\-/]{1,99}|[a-z][a-z0-9-]{0,49})$/.test(key)) continue;
+      const th = String(v.th).trim();
+      const en = String(v.en).trim();
+      if (th && en) clean[key] = { th, en };
+    }
+    values.menu_labels = emptyToList(clean);
+  }
   if ("secret_guard" in data && data.secret_guard && typeof data.secret_guard === "object") {
     const g = data.secret_guard as Record<string, unknown>;
     const current = await secretGuard();
@@ -249,7 +270,10 @@ itDataRoutes.put("/settings", async (req, res) => {
       notify_heads: "notify_heads" in g ? bool(g.notify_heads) : current.notify_heads,
     };
   }
+  if ("two_factor_required" in data) values.two_factor_required = bool(data.two_factor_required);
   for (const [key, value] of Object.entries(values)) await putSetting(key, value, u.id);
+  if ("two_factor_required" in values) await audit(req, { action: "settings.two_factor_required", subjectType: "settings", subjectId: "two_factor_required", after: { required: values.two_factor_required } });
+  if ("menu_labels" in values) await audit(req, { action: "settings.menu_labels_updated", subjectType: "settings", subjectId: "menu_labels", after: { labels: values.menu_labels } });
   if ("secret_guard" in values) await audit(req, { action: "settings.secret_guard_updated", subjectType: "settings", subjectId: "secret_guard", after: values.secret_guard as Record<string, unknown> });
 
   res.json({ data: await settingsJson() });
@@ -261,7 +285,7 @@ itDataRoutes.get("/ui-config", async (_req, res) => {
   // role_permissions: สิทธิ์ของแต่ละกลุ่ม — หน้าตั้งค่าการมองเห็นใช้จำลองว่าแต่ละกลุ่มเข้าเมนูใดได้
   // logo_version: เปลี่ยนเมื่ออัปโหลดโลโก้ใหม่ (ใช้ต่อท้าย URL ให้ browser โหลดใหม่) — null = ไม่มีโลโก้
   res.json({
-    data: { ui_permissions: s.ui_permissions, menu_order: s.menu_order, role_permissions: await audiencePermissions(), logo_version: s.logo_version ?? null },
+    data: { ui_permissions: s.ui_permissions, menu_order: s.menu_order, menu_labels: s.menu_labels, role_permissions: await audiencePermissions(), logo_version: s.logo_version ?? null },
   });
 });
 
@@ -327,7 +351,7 @@ itDataRoutes.post("/notifications/:id/read", async (req, res) => {
 /* ================================================================ 4.1.1 คลังบัญชี/รหัสผ่าน */
 
 /** หมวดหมู่ตั้งต้น (แปลชื่อที่หน้าเว็บ) — เพิ่มหมวดใหม่เองได้จากฟอร์ม (เก็บเป็นชื่อที่พิมพ์ ไม่เกิน 30 ตัว) */
-const CATEGORIES = ["system", "server", "network", "email", "software", "cloud", "other"];
+const CATEGORIES: string[] = [...BUILTIN_CATEGORIES];
 const categoryRule = (req: Request) =>
   custom((v) => typeof v === "string" && v.trim().length > 0 && v.trim().length <= 30, trans(req.locale, "eam.vault.invalid_category"));
 
@@ -546,6 +570,7 @@ interface ContractRow {
   amount: string | null; contact_name: string | null; contact_email: string | null; contact_phone: string | null;
   notify_days_before: number | null; notify_enabled: number; notified_at: string | null; notes: string | null;
   branch_id: number | null; b_id?: number | null; b_name?: string | null;
+  category_id?: number | null; cat_name?: string | null; cat_key?: string | null;
 }
 
 /** จำนวนวันที่เหลือ / สถานะ — เหมือน Contract::daysLeft() / status() */
@@ -576,12 +601,14 @@ function contractJson(c: ContractRow, defaultDays: number, withBranch: boolean) 
     notes: c.notes,
     branch: withBranch && c.b_id ? { id: c.b_id, name: c.b_name } : null,
     branch_id: c.branch_id,
+    category: c.category_id ? { id: Number(c.category_id), name: c.cat_name ?? "", key: c.cat_key ?? null } : null,
     days_left: s.daysLeft,
     status: s.status,
   };
 }
 
-const CONTRACT_SELECT = "c.*, b.id AS b_id, b.name AS b_name FROM contracts c LEFT JOIN branches b ON b.id = c.branch_id AND b.deleted_at IS NULL";
+const CONTRACT_SELECT =
+  "c.*, b.id AS b_id, b.name AS b_name, cc.name AS cat_name, cc.builtin_key AS cat_key FROM contracts c LEFT JOIN branches b ON b.id = c.branch_id AND b.deleted_at IS NULL LEFT JOIN contract_categories cc ON cc.id = c.category_id";
 
 async function loadContract(id: number): Promise<ContractRow> {
   const c = await first<ContractRow>(`SELECT ${CONTRACT_SELECT} WHERE c.id = ? AND c.deleted_at IS NULL`, [id]);
@@ -607,6 +634,7 @@ async function contractInput(req: Request, partial: boolean) {
       notify_enabled: ["sometimes", "boolean"],
       notes: ["sometimes", "nullable", "string", "max:5000"],
       branch_id: ["sometimes", "nullable", "integer", exists("branches", "id", "deleted_at IS NULL")],
+      category_id: ["sometimes", "nullable", "integer", exists("contract_categories", "id")],
     },
     { locale: req.locale },
   );
@@ -617,10 +645,11 @@ async function contractInput(req: Request, partial: boolean) {
   if ("notify_days_before" in data) out.notify_days_before = int(data.notify_days_before);
   if ("notify_enabled" in data) out.notify_enabled = bool(data.notify_enabled);
   if ("branch_id" in data) out.branch_id = int(data.branch_id);
+  if ("category_id" in data) out.category_id = int(data.category_id);
   return out;
 }
 
-/** GET /contracts?status=active|expiring|expired&search= (+ summary, default_notify_days) */
+/** GET /contracts?status=active|expiring|expired&search=&branch_id=&category_id= (+ summary, default_notify_days) */
 itDataRoutes.get("/contracts", async (req, res) => {
   contracts(req, "view");
   const f = await validate(
@@ -628,16 +657,30 @@ itDataRoutes.get("/contracts", async (req, res) => {
     {
       search: ["nullable", "string", "max:100"],
       status: ["nullable", "in:active,expiring,expired"],
+      branch_id: ["nullable", "integer"],
+      category_id: ["nullable", "integer"],
       per_page: ["nullable", "integer", "min:1", "max:100"],
     },
     { locale: req.locale },
   );
   const defaultDays = Number(await getSetting("contract_notify_days"));
   const term = likeEscape(String(f.search ?? "").trim());
-  const rows = await select<ContractRow>(
-    `SELECT ${CONTRACT_SELECT} WHERE c.deleted_at IS NULL${term ? " AND (c.title LIKE ? OR c.vendor_name LIKE ? OR c.contract_no LIKE ?)" : ""} ORDER BY c.end_date`,
-    term ? [`%${term}%`, `%${term}%`, `${term}%`] : [],
-  );
+  const where = ["c.deleted_at IS NULL"];
+  const params: unknown[] = [];
+  if (term) {
+    where.push("(c.title LIKE ? OR c.vendor_name LIKE ? OR c.contract_no LIKE ?)");
+    params.push(`%${term}%`, `%${term}%`, `${term}%`);
+  }
+  // ตัวกรองสาขา / หมวดหมู่
+  if (f.branch_id) {
+    where.push("c.branch_id = ?");
+    params.push(int(f.branch_id));
+  }
+  if (f.category_id) {
+    where.push("c.category_id = ?");
+    params.push(int(f.category_id));
+  }
+  const rows = await select<ContractRow>(`SELECT ${CONTRACT_SELECT} WHERE ${where.join(" AND ")} ORDER BY c.end_date`, params);
   // สถานะขึ้นกับจำนวนวันแจ้งเตือนของแต่ละสัญญา จึงกรองหลังคำนวณ
   const list = rows.map((c) => contractJson(c, defaultDays, true)).filter((c) => !f.status || c.status === f.status);
 

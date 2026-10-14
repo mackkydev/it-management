@@ -1,3 +1,4 @@
+import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
 import { first, scalar } from "../src/db.js";
 import type { UserRow } from "../src/models/user.js";
@@ -33,6 +34,85 @@ describe("departments / divisions", () => {
     const d = await admin.post("/api/v1/divisions").send({ name: "ฝ่ายขาย" });
     expect(d.status).toBe(201);
     expect((await admin.delete(`/api/v1/divisions/${d.body.data.id}`)).status).toBe(204);
+  });
+
+  it("a department may belong to a division (optional); list can be filtered by division", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }));
+    const div = (await admin.post("/api/v1/divisions").send({ name: "ฝ่ายบัญชีการเงิน" })).body.data;
+    const linked = await admin.post("/api/v1/departments").send({ name: "บัญชีเจ้าหนี้", division_id: div.id });
+    expect(linked.status).toBe(201);
+    expect(linked.body.data.division).toEqual({ id: div.id, name: "ฝ่ายบัญชีการเงิน" });
+    const free = await admin.post("/api/v1/departments").send({ name: "แผนกอิสระ" });
+    expect(free.body.data.division).toBeNull();
+    expect((await admin.post("/api/v1/departments").send({ name: "x", division_id: 999999 })).status).toBe(422);
+
+    const inDiv = (await admin.get(`/api/v1/departments?division_id=${div.id}`)).body.data.map((d: { name: string }) => d.name);
+    expect(inDiv).toEqual(["บัญชีเจ้าหนี้"]);
+    // ย้ายออกจากฝ่าย / ลบฝ่าย = แผนกหลุดจากฝ่าย
+    expect((await admin.put(`/api/v1/departments/${linked.body.data.id}`).send({ division_id: null })).body.data.division).toBeNull();
+    await admin.put(`/api/v1/departments/${linked.body.data.id}`).send({ division_id: div.id });
+    await admin.delete(`/api/v1/divisions/${div.id}`);
+    const all = (await admin.get("/api/v1/departments?include_inactive=1")).body.data as { name: string; division: unknown }[];
+    expect(all.find((d) => d.name === "บัญชีเจ้าหนี้")?.division).toBeNull();
+  });
+});
+
+describe("division ↔ departments + Excel import", () => {
+  it("a division picks its departments (and the department side reflects it)", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }));
+    const a = (await admin.post("/api/v1/departments").send({ name: "บัญชี" })).body.data;
+    const b = (await admin.post("/api/v1/departments").send({ name: "การเงิน" })).body.data;
+    const div = await admin.post("/api/v1/divisions").send({ name: "ฝ่ายบัญชีการเงิน", department_ids: [a.id, b.id] });
+    expect(div.status).toBe(201);
+    expect(div.body.data.departments.map((d: { name: string }) => d.name).sort()).toEqual(["การเงิน", "บัญชี"]);
+    const deps = (await admin.get(`/api/v1/departments?division_id=${div.body.data.id}`)).body.data;
+    expect(deps).toHaveLength(2);
+    // เอาออก 1 แผนก → แผนกนั้นไม่สังกัดฝ่าย
+    const upd = await admin.put(`/api/v1/divisions/${div.body.data.id}`).send({ department_ids: [a.id] });
+    expect(upd.body.data.departments).toEqual([{ id: a.id, name: "บัญชี" }]);
+    expect((await admin.get("/api/v1/departments?include_inactive=1")).body.data.find((d: { id: number }) => d.id === b.id).division).toBeNull();
+    expect((await admin.put(`/api/v1/divisions/${div.body.data.id}`).send({ department_ids: [999999] })).status).toBe(422);
+  });
+
+  it("imports divisions + departments from one workbook (match by name, division picked by name); bad rows block", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }), "th");
+    await admin.post("/api/v1/departments").send({ name: "ขาย" });
+    const book = async (divs: unknown[][], deps: unknown[][]) => {
+      const wb = new ExcelJS.Workbook();
+      const d1 = wb.addWorksheet("ฝ่าย");
+      d1.addRow(["ชื่อ", "ลำดับ", "สถานะ"]);
+      for (const r of divs) d1.addRow(r);
+      const d2 = wb.addWorksheet("แผนก");
+      d2.addRow(["ชื่อ", "ฝ่าย", "ลำดับ", "สถานะ"]);
+      for (const r of deps) d2.addRow(r);
+      return Buffer.from(await wb.xlsx.writeBuffer());
+    };
+    const bad = await admin.post("/api/v1/org-units/import").attach("file", await book([["ฝ่ายขาย", 1, "ใช้งาน"]], [["ขาย", "ฝ่ายที่ไม่มี", 1, ""]]), "o.xlsx");
+    expect(bad.status).toBe(422);
+    expect(await scalar("SELECT COUNT(*) FROM divisions")).toBe(0);
+
+    const ok = await admin.post("/api/v1/org-units/import").attach(
+      "file",
+      await book([["ฝ่ายขาย", 1, "ใช้งาน"], ["ฝ่ายผลิต", 2, "ปิดใช้งาน"]], [["ขาย", "ฝ่ายขาย", 3, "ใช้งาน"], ["ผลิต 1", "ฝ่ายผลิต", "", ""], ["ธุรการ", "", "", ""]]),
+      "o.xlsx",
+    );
+    expect(ok.body.data).toEqual({ created: 4, updated: 1 });
+    const deps = (await admin.get("/api/v1/departments?include_inactive=1")).body.data as { name: string; sort_order: number; division: { name: string } | null }[];
+    expect(deps.find((d) => d.name === "ขาย")).toMatchObject({ sort_order: 3, division: { name: "ฝ่ายขาย" } });
+    expect(deps.find((d) => d.name === "ธุรการ")?.division).toBeNull();
+    expect((await admin.get("/api/v1/divisions?include_inactive=1")).body.data.find((d: { name: string }) => d.name === "ฝ่ายผลิต").is_active).toBe(false);
+
+    // template: 2 แผ่น เติมข้อมูลในระบบ + dropdown ฝ่าย
+    const tpl = await admin.get("/api/v1/org-units/import-template").buffer(true).parse((res, cb) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(tpl.body);
+    expect(wb.worksheets.slice(0, 2).map((w) => w.name)).toEqual(["ฝ่าย", "แผนก"]);
+    expect(wb.worksheets[1].getCell("B2").dataValidation?.type).toBe("list");
+    expect((await (await as(await makeUser())).post("/api/v1/org-units/import").attach("file", await book([], []), "o.xlsx")).status).toBe(403);
   });
 });
 

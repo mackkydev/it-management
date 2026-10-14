@@ -6,11 +6,13 @@ import { createPortal } from "react-dom";
 import { importAssets, type ImportResult } from "@/app/actions/assets";
 import { AlertIcon, CheckCircleIcon, DownloadIcon, SpinnerIcon, UploadIcon, XIcon } from "@/components/icons";
 import { alert, btn } from "@/components/ui";
+import { useConfirm } from "@/components/dialog-provider";
 import { useI18n } from "@/i18n/client";
 
 /** ปุ่ม "นำเข้า Excel" → modal: ดาวน์โหลด template / เลือกไฟล์ / ผลการนำเข้า (สำเร็จ + แถวที่ควรตรวจ หรือแถวที่ต้องแก้) */
 export function ImportAssets() {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -33,8 +35,10 @@ export function ImportAssets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, pending]);
 
-  const submit = () => {
+  const submit = async () => {
     if (!file) return setResult({ ok: false, message: t("assets.import.noFile"), rows: [] });
+    // ยืนยันก่อนอัปโหลด
+    if (!(await confirm(t("common.confirmImport", { name: file.name }), { title: t("common.confirmImportTitle"), confirmText: t("common.importConfirm"), danger: false }))) return;
     const form = new FormData();
     form.set("file", file);
     start(async () => {

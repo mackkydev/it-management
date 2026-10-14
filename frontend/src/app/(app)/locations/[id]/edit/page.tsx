@@ -29,10 +29,11 @@ export default async function EditLocationPage({ params }: PageProps<"/locations
   const user = await getCurrentUser();
   if (!has(user, "locations.manage")) redirect("/locations");
 
-  const [location, { data }, { t, fmt }] = await Promise.all([
+  const [location, { data }, { t, fmt }, branches] = await Promise.all([
     getLocation(id),
     apiFetch<{ data: Location[] }>("/locations?include_inactive=1"),
     getI18n(),
+    apiFetch<{ data: { id: number; name: string }[] }>("/branches").then((r) => r.data),
   ]);
 
   return (
@@ -46,7 +47,7 @@ export default async function EditLocationPage({ params }: PageProps<"/locations
         })}`}
       />
       {/* ลบได้เฉพาะ admin (สิทธิ์เดียวกับการลบสินทรัพย์) */}
-      <LocationForm locations={data} location={location} canDelete={canDeleteLocations(user)} />
+      <LocationForm locations={data} branches={branches} location={location} canDelete={canDeleteLocations(user)} />
     </div>
   );
 }

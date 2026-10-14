@@ -440,3 +440,50 @@ export const LockIcon = (p: P) => (
     <path d="M8 11V7a4 4 0 0 1 8 0v4" />
   </Icon>
 );
+
+/** ห้องประชุม (โต๊ะประชุม + เก้าอี้) */
+export const MeetingRoomIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="5" y="9" width="14" height="6" rx="1.5" />
+    <path d="M8 5h.01M12 5h.01M16 5h.01M8 19h.01M12 19h.01M16 19h.01" />
+  </Icon>
+);
+
+export const ClockIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </Icon>
+);
+
+export const StarIcon = ({ filled = false, ...p }: P & { filled?: boolean }) => (
+  <Icon fill={filled ? "currentColor" : "none"} {...p}>
+    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+  </Icon>
+);
+
+export const ImageIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <circle cx="9" cy="10" r="2" />
+    <path d="M21 16l-5-5-9 9" />
+  </Icon>
+);
+
+/** รถยนต์ */
+export const CarIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M5 16V11l2-5h10l2 5v5" />
+    <path d="M3 16h18v2a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-1H7v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+    <path d="M5 11h14M7.5 14h.01M16.5 14h.01" />
+  </Icon>
+);
+
+/** มาตรวัด (เลขไมล์) */
+export const GaugeIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 18a9 9 0 1 1 16 0" />
+    <path d="M12 14l4-5" />
+    <circle cx="12" cy="15" r="1.5" />
+  </Icon>
+);

@@ -16,6 +16,8 @@ import { headApprovedAt, TicketStatusBadge, ticketSubject } from "../ticket-ui";
 import { ProcessTimeline } from "./process-timeline";
 import { PrintModal } from "./print-modal";
 import { TicketActions } from "./ticket-actions";
+import { HelpersCard } from "./helpers-card";
+import { OnsiteCard } from "./onsite-card";
 import { TicketPaper } from "./ticket-paper";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -148,6 +150,8 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
       </div>
 
       {tk.actions.length > 0 && <TicketActions ticket={tk} />}
+      <OnsiteCard ticket={tk} />
+      <HelpersCard ticket={tk} />
 
       {/* ขั้นตอนที่กำลังดำเนินการ */}
       <ProcessTimeline tk={tk} t={t} fmt={fmt} />

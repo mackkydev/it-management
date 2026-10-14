@@ -86,6 +86,7 @@ export default async function LocationsPage({ searchParams }: PageProps<"/locati
               <th className={table.th}>{t("locations.col.name")}</th>
               <th className={table.th}>{t("locations.col.code")}</th>
               <th className={table.th}>{t("locations.col.type")}</th>
+              <th className={table.th}>{t("locations.col.branch")}</th>
               {canManage && <th className={table.th}>{t("locations.col.usage")}</th>}
               <th className={table.th} aria-label={t("common.manage")} />
             </tr>
@@ -114,6 +115,7 @@ export default async function LocationsPage({ searchParams }: PageProps<"/locati
                     {(LOCATION_TYPES as readonly string[]).includes(loc.type) ? t(`locations.types.${loc.type as LocationType}`) : loc.type}
                   </span>
                 </td>
+                <td className={`${table.td} whitespace-nowrap text-muted`}>{loc.branch?.name ?? "—"}</td>
                 {canManage && (
                   <td className={`${table.td} whitespace-nowrap text-xs text-muted`}>
                     {t("locations.counts", { assets: fmt.number(loc.assets_count ?? 0), children: fmt.number(loc.children_count ?? 0) })}

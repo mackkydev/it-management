@@ -1,0 +1,34 @@
+# IT-SYSTEM — reverse proxy หน้า Next.js (ตัวอย่าง Caddy 2)
+# Caddy ขอ/ต่ออายุใบรับรอง HTTPS (Let's Encrypt) ให้อัตโนมัติ — เปิดพอร์ต 80 + 443 ของเครื่องนี้เท่านั้น
+# แก้ it.example.co.th เป็นโดเมนจริง แล้วรัน: caddy run --config deploy/Caddyfile  (หรือวางที่ /etc/caddy/Caddyfile)
+
+it.example.co.th {
+	encode zstd gzip
+
+	reverse_proxy 127.0.0.1:3000 {
+		# สำคัญ: เขียนทับ X-Real-IP / X-Forwarded-For ด้วย IP จริงที่ต่อเข้ามา — กันผู้ใช้ปลอม IP
+		# (หน้าเว็บส่ง IP นี้ต่อให้ API ใช้กับการจำกัด IP ตอนเปิดดูข้อมูลลับ, rate limit และ audit log)
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up -X-Forwarded-Host
+	}
+
+	# ซ่อนชื่อ server; HSTS / CSP / X-Frame-Options มาจากแอปอยู่แล้ว
+	header -Server
+}
+
+# ---------------------------------------------------------------------------------------
+# แบบผ่าน Cloudflare Tunnel (cloudflared ต่อเข้า Caddy ที่ http://127.0.0.1:8080 บนเครื่องเดียวกัน)
+# ใช้บล็อกนี้แทนบล็อกด้านบน — IP จริงของผู้ใช้มาจาก header CF-Connecting-IP ที่ Cloudflare ใส่
+# (เชื่อถือได้เพราะมีแค่ cloudflared ในเครื่องนี้ที่ต่อเข้าพอร์ต 8080 ได้ — bind 127.0.0.1 เท่านั้น)
+#
+# http://127.0.0.1:8080 {
+# 	bind 127.0.0.1
+# 	reverse_proxy 127.0.0.1:3000 {
+# 		header_up X-Real-IP {http.request.header.CF-Connecting-IP}
+# 		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+# 		header_up X-Forwarded-Proto https
+# 		header_up -X-Forwarded-Host
+# 	}
+# 	header -Server
+# }

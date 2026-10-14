@@ -5,6 +5,8 @@ import { limits } from "./lib/rate-limit.js";
 import { accessRoutes } from "./routes/access.js";
 import { brandingRoutes, publicBrandingRoutes } from "./routes/branding.js";
 import { orgUnitRoutes } from "./routes/org-units.js";
+import { contractCategoryRoutes } from "./routes/contract-categories.js";
+import { dropdownOptionRoutes } from "./routes/dropdown-options.js";
 import { announcementRoutes, publicAnnouncementRoutes } from "./routes/announcements.js";
 import { apiConnectionRoutes } from "./routes/api-connections.js";
 import { approvalRouteRoutes } from "./routes/approval-routes.js";
@@ -14,6 +16,9 @@ import { itDataRoutes } from "./routes/it-data.js";
 import { kpiRoutes } from "./routes/kpi.js";
 import { licenseInstallationRoutes } from "./routes/license-installations.js";
 import { locationRoutes } from "./routes/locations.js";
+import { calendarRoutes, publicCalendarRoutes } from "./routes/calendar.js";
+import { meetingRoutes } from "./routes/meeting-rooms.js";
+import { vehicleRoutes } from "./routes/vehicles.js";
 import { syncRoutes } from "./routes/sync.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
@@ -35,10 +40,10 @@ export function createApp() {
   v1.use(securityHeaders, locale);
   v1.use(express.json({ limit: "1mb" }), express.urlencoded({ extended: false, limit: "1mb" }), parseInput);
 
-  v1.use(loginRoutes, publicAnnouncementRoutes, publicBrandingRoutes);
+  v1.use(loginRoutes, publicAnnouncementRoutes, publicBrandingRoutes, publicCalendarRoutes);
   // ทุก endpoint ต่อจากนี้ต้อง login (auth:sanctum) + จำกัด 120 ครั้ง/นาที
   v1.use(auth, limits.api);
-  v1.use(authRoutes, assetRoutes, locationRoutes, userRoutes, itDataRoutes, ticketRoutes, kpiRoutes, approvalRouteRoutes, licenseInstallationRoutes, announcementRoutes, syncRoutes, apiConnectionRoutes, accessRoutes, orgUnitRoutes, brandingRoutes);
+  v1.use(authRoutes, assetRoutes, locationRoutes, userRoutes, itDataRoutes, ticketRoutes, kpiRoutes, approvalRouteRoutes, licenseInstallationRoutes, announcementRoutes, syncRoutes, apiConnectionRoutes, accessRoutes, orgUnitRoutes, contractCategoryRoutes, dropdownOptionRoutes, brandingRoutes, calendarRoutes, meetingRoutes, vehicleRoutes);
 
   app.use("/api/v1", v1);
   app.use(notFoundHandler);

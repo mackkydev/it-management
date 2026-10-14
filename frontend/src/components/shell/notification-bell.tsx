@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { fetchNotifications, markAllNotificationsRead, markNotificationRead } from "@/app/actions/tickets";
 import { BellIcon, CheckIcon, ChevronRightIcon, ClipboardIcon, FileTextIcon, SpinnerIcon } from "@/components/icons";
@@ -16,10 +16,12 @@ const POLL_MS = 60_000;
 /**
  * กระดิ่งแจ้งเตือน: ดึงข้อมูลทุก 60 วินาที (และทุกครั้งที่กลับมาที่แท็บ), แสดงจำนวนที่ยังไม่อ่าน
  * คลิกรายการ → ทำเครื่องหมายว่าอ่านแล้ว และไปยังหน้าที่เกี่ยวข้อง
+ * เปลี่ยนหน้าแล้วโหลดใหม่ (เหมือนตัวเลขบนเมนู) — เปิดใบงาน/ใบลาจากเมนู API ทำเครื่องหมายอ่านแล้วให้ กระดิ่งจึงลดตามทันที
  */
 export function NotificationBell({ tooltipSide = "right", size = "md" }: { tooltipSide?: "right" | "bottom"; size?: "md" | "lg" }) {
   const { t, fmt } = useI18n();
   const router = useRouter();
+  const pathname = usePathname();
   const [items, setItems] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
@@ -49,6 +51,8 @@ export function NotificationBell({ tooltipSide = "right", size = "md" }: { toolt
       window.removeEventListener(DATA_CHANGED_EVENT, load);
     };
   }, [load]);
+
+  useEffect(load, [pathname, load]);
 
   // ปิดเมื่อคลิกนอก / Esc
   useEffect(() => {

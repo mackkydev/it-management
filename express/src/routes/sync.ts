@@ -17,6 +17,8 @@ export const SYNC_TABLES = [
   "announcements", "app_settings", "approval_route_steps", "approval_routes", "asset_files", "asset_licenses", "assets",
   "branches", "contracts", "credentials", "it_ticket_approval_steps", "it_ticket_attachments", "it_ticket_parts", "it_tickets",
   "kpi_entries", "license_installations", "locations", "users",
+  // ปฏิทิน/ลา + ผู้ร่วมดำเนินการ — ตัวเลขเมนู (รออนุมัติลา) และหน้าปฏิทินอัปเดตทันที
+  "leave_requests", "calendar_events", "company_holidays", "it_ticket_helpers",
 ];
 
 syncRoutes.get("/sync/version", async (req, res) => {

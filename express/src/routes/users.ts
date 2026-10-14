@@ -9,6 +9,7 @@ import { bool, exists, int, makeHash, notIn, password, unique, validate, regex }
 import { me, pageParam, paginated, simplePaginated } from "../http.js";
 import { can, findUser, hasHistory, isSuperAdmin, ROLES, type UserRow } from "../models/user.js";
 import { deactivateSignature } from "../services/signatures.js";
+import { disableTwoFactor } from "../services/two-factor.js";
 import { lastLocalSuperAdmin, notifyAccessChange, roleChangeError } from "../services/access-control.js";
 import { audit } from "../services/audit.js";
 import { userResource } from "../resources.js";
@@ -252,6 +253,20 @@ userRoutes.delete("/users/:id", async (req, res) => {
     await deleteUserTokens(target.id);
     await exec("DELETE FROM users WHERE id = ?", [target.id]);
   });
+  res.status(204).end();
+});
+
+/**
+ * DELETE /users/{id}/2fa — รีเซ็ตการยืนยันตัวตน 2 ขั้นให้ผู้ใช้ที่ทำโทรศัพท์หาย (ผู้ดูแลระบบสูงสุด: access.manage)
+ * ตัดทุก session ของผู้ใช้นั้นด้วย — ถ้าถูกบังคับ 2FA จะต้องตั้งใหม่ตอน login ครั้งถัดไป
+ */
+userRoutes.delete("/users/:id/2fa", async (req, res) => {
+  const target = await routeUser(req);
+  authorize(can(me(req), "access.manage"));
+  if (!target.two_factor_confirmed_at && !target.two_factor_secret) throw notFound();
+  await disableTwoFactor(target.id);
+  await deleteUserTokens(target.id);
+  await audit(req, { action: "two_factor.reset", subjectType: "user", subjectId: target.id });
   res.status(204).end();
 });
 

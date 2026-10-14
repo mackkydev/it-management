@@ -1,6 +1,7 @@
 import { first, select } from "../db.js";
 import { can, type UserRow } from "../models/user.js";
-import { notifyUsers, TICKET_ACTIVITY } from "./notifications.js";
+import { markNoticesRead, notifyUsers, TICKET_ACTIVITY } from "./notifications.js";
+import { usersWithPermissions } from "./permissions.js";
 
 /** กติกาของขั้นตอนใบแจ้งงาน (ใครทำอะไรได้ในสถานะไหน) + ผู้รับแจ้งเตือน — เหมือน App\Services\TicketWorkflow */
 
@@ -47,6 +48,8 @@ export interface TicketRow {
   step_approver_ids?: number[] | null;
   /** ผู้อนุมัติทุกขั้นของใบนี้ (ใช้ตรวจสิทธิ์ดู) — มาจาก TICKET_APPROVAL_COLUMNS */
   approval_user_ids?: number[] | null;
+  /** ผู้ร่วมดำเนินการ (it_ticket_helpers) — มาจาก TICKET_APPROVAL_COLUMNS */
+  helper_ids?: number[] | null;
   /** จำนวนขั้นที่อนุมัติไปแล้ว — มาจาก TICKET_APPROVAL_COLUMNS (> 0 = แก้ไข/ลบไม่ได้แล้ว) */
   approved_steps?: number | string | null;
   /** ขอยกเลิกหลังอนุมัติ */
@@ -60,7 +63,8 @@ export interface TicketRow {
 /** คอลัมน์เพิ่มเติมของ it_tickets t สำหรับกติกาสายอนุมัติ — ใส่ใน SELECT ทุกที่ที่โหลด TicketRow */
 export const TICKET_APPROVAL_COLUMNS = `(SELECT s.approver_ids FROM it_ticket_approval_steps s WHERE s.it_ticket_id = t.id AND s.step_no = t.current_step) AS step_approver_ids,
   (SELECT JSON_ARRAYAGG(x.v) FROM it_ticket_approval_steps s, JSON_TABLE(s.approver_ids, '$[*]' COLUMNS (v BIGINT PATH '$')) AS x WHERE s.it_ticket_id = t.id) AS approval_user_ids,
-  (SELECT COUNT(*) FROM it_ticket_approval_steps s WHERE s.it_ticket_id = t.id AND s.status = 'approved') AS approved_steps`;
+  (SELECT COUNT(*) FROM it_ticket_approval_steps s WHERE s.it_ticket_id = t.id AND s.status = 'approved') AS approved_steps,
+  (SELECT JSON_ARRAYAGG(h.user_id) FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id) AS helper_ids`;
 
 /** สถานะที่ผู้แจ้งขอยกเลิกได้ (อนุมัติแล้วแต่ยังไม่เสร็จ) */
 export const CANCELLABLE = ["approved", "in_progress", "pending_it_head"];
@@ -76,7 +80,7 @@ export const canView = (u: UserRow, t: TicketRow) =>
   can(u, "tickets.view_all") ||
   [t.requester_id, t.approver_id, t.it_head_id].includes(u.id) ||
   (t.approval_user_ids ?? []).map(Number).includes(u.id) ||
-  (!PRE_APPROVAL.includes(t.status) && (can(u, "it_tickets.queue") || u.id === t.assignee_id));
+  (!PRE_APPROVAL.includes(t.status) && (can(u, "it_tickets.queue") || u.id === t.assignee_id || (t.helper_ids ?? []).map(Number).includes(u.id)));
 
 /**
  * สายอนุมัติ: ผู้อนุมัติคนใดคนหนึ่งของขั้นปัจจุบัน
@@ -156,18 +160,54 @@ export const IT_STAFF_WHERE = `is_active = true AND (is_it_staff = true OR is_it
 export const itStaff = () =>
   select<Person & { is_it_head: number }>(`SELECT id, name, is_it_head FROM users WHERE ${IT_STAFF_WHERE} ORDER BY name, id`);
 
-async function itHeads(): Promise<Person[]> {
-  const heads = await select<Person>("SELECT id, name FROM users WHERE is_active = true AND is_it_head = true");
-  return heads.length ? heads : select<Person>("SELECT id, name FROM users WHERE is_active = true AND role IN ('super_admin', 'admin')");
+/*
+ * ผู้รับแจ้งเตือน "รอให้ทำ" = เฉพาะผู้ที่เกี่ยวข้องโดยตรง และต้องมีสิทธิ์ทำงานนั้นจริง
+ * — ตัวเลขบนเมนูนับกว้างกว่าได้ (เช่น ผู้ดูแลระบบสูงสุดเห็นงานรอรับ/รออนุมัติผลบนเมนู แต่ไม่ได้แจ้งเตือนที่กระดิ่ง)
+ */
+
+/** ใบที่ยังไม่มีผู้รับ → เจ้าหน้าที่ IT (ฝ่าย/แผนก IT หรือติ๊กช่อง) ที่รับงานได้ */
+export async function acceptors(): Promise<Person[]> {
+  const staff = new Set((await itStaff()).map((s) => Number(s.id)));
+  return (await usersWithPermissions(["it_tickets.queue"], ["it_tickets.accept", "it_tickets.manage_all"])).filter((p) => staff.has(p.id));
 }
 
+/** รอหัวหน้า IT อนุมัติผล → ผู้ที่ติ๊กเป็นหัวหน้า IT และปิดงานได้ (ไม่มีเลย = ผู้มีสิทธิ์ปิดงานทั้งหมด กันงานค้างโดยไม่มีใครรู้) */
+export async function closers(): Promise<Person[]> {
+  const all = await usersWithPermissions(["it_tickets.queue", "it_tickets.close"]);
+  const heads = new Set((await select<{ id: number }>("SELECT id FROM users WHERE is_active = true AND is_it_head = true")).map((r) => Number(r.id)));
+  const direct = all.filter((p) => heads.has(p.id));
+  return direct.length ? direct : all;
+}
+
+/** ระบบเดิม: หัวหน้าที่ระบุ — ไม่มี/ปิดใช้งาน = ผู้มีสิทธิ์อนุมัติแทน (tickets.approve_any) */
 async function approvers(t: TicketRow): Promise<Person[]> {
   if (t.approver_id) {
     const approver = await first<Person>("SELECT id, name FROM users WHERE id = ? AND is_active = true", [t.approver_id]);
     if (approver) return [approver];
   }
-  return select<Person>("SELECT id, name FROM users WHERE is_active = true AND role IN ('super_admin', 'admin')");
+  return usersWithPermissions(["tickets.approve_any"]);
 }
+
+/**
+ * เหตุการณ์ → แจ้งเตือน "รอให้ทำ" เดิมที่จบลงเพราะเหตุการณ์นี้ (ทำเครื่องหมายอ่านแล้วให้ทุกคน)
+ * เช่น มีคนรับงานแล้ว → "รอรับงาน" ของทุกคนหมดความหมาย; ขอยกเลิกยังไม่ล้าง "รอรับงาน" เพราะถ้าปฏิเสธการยกเลิกงานก็ยังรอรับอยู่
+ */
+const APPROVAL = ["submitted", "step_approved"];
+const RESOLVES: Record<string, string[]> = {
+  submitted: APPROVAL, // แก้ใบงาน/เปลี่ยนผู้อนุมัติ → ส่งใหม่
+  step_approved: APPROVAL,
+  approved: APPROVAL,
+  rejected: APPROVAL,
+  accepted: ["approved"],
+  resulted: ["returned"],
+  returned: ["resulted"],
+  head_approved: ["resulted"],
+  // confirmed: ผู้แจ้งเป็นคนกดเอง (ล้างของตัวเองอยู่แล้ว) — head_approved ของผู้รับงานเป็นแค่แจ้งให้ทราบ
+  closed: ["resulted"],
+  cancel_rejected: ["cancel_requested"],
+  cancel_withdrawn: ["cancel_requested"],
+  cancelled: [...APPROVAL, "approved", "returned", "resulted", "cancel_requested"],
+};
 
 async function stepApprovers(t: TicketRow): Promise<Person[]> {
   const ids = (t.step_approver_ids ?? []).map(Number);
@@ -179,6 +219,12 @@ const byId = (id: number | null) => (id ? first<Person>("SELECT id, name FROM us
 
 /** แจ้งเตือนผู้เกี่ยวข้องของแต่ละเหตุการณ์ (ไม่แจ้งผู้ที่เป็นคนกดเอง) */
 export async function notify(t: TicketRow, event: string, actor: UserRow | null): Promise<void> {
+  // งานที่รอในขั้นก่อนจบแล้ว → แจ้งเตือนนั้นของทุกคนอ่านแล้ว + ผู้กดเองได้จัดการใบนี้แล้ว (อ่านทั้งหมดของใบนี้)
+  // ผู้แจ้งได้ "approved" / "resulted" ฯลฯ เป็นแค่แจ้งให้ทราบ จึงไม่ล้างของผู้แจ้ง — งานรอของผู้แจ้งมีแค่ head_approved (รอกดรับงาน)
+  if (RESOLVES[event]) await markNoticesRead("ticket_id", t.uuid, { events: RESOLVES[event], exceptUserId: t.requester_id });
+  if (event === "closed" || event === "cancelled") await markNoticesRead("ticket_id", t.uuid, { events: ["head_approved"], userId: t.requester_id });
+  if (actor) await markNoticesRead("ticket_id", t.uuid, { userId: actor.id });
+
   const requester = await byId(t.requester_id);
   const assignee = await byId(t.assignee_id);
 
@@ -189,7 +235,7 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
       recipients = t.current_step !== null ? await stepApprovers(t) : await approvers(t);
       break;
     case "approved":
-      recipients = [requester, ...(assignee ? [assignee] : await itStaff())];
+      recipients = [requester, ...(assignee ? [assignee] : await acceptors())];
       break;
     case "rejected":
     case "accepted":
@@ -197,15 +243,15 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
       recipients = [requester];
       break;
     case "resulted":
-      recipients = await itHeads();
+      recipients = await closers();
       break;
     case "returned":
       recipients = [assignee];
       break;
-    // ขอยกเลิก / ถอนคำขอ → เจ้าหน้าที่ผู้รับงาน (ยังไม่มีผู้รับ = เจ้าหน้าที่ IT ทั้งหมด)
+    // ขอยกเลิก / ถอนคำขอ → เจ้าหน้าที่ผู้รับงาน (ยังไม่มีผู้รับ = ผู้ที่รับงานได้ทั้งหมด)
     case "cancel_requested":
     case "cancel_withdrawn":
-      recipients = assignee ? [assignee] : await itStaff();
+      recipients = assignee ? [assignee] : await acceptors();
       break;
     case "cancelled":
     case "cancel_rejected":

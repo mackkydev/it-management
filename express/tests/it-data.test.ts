@@ -66,6 +66,29 @@ describe("IT data", () => {
     expect((await outsider.post(`/api/v1/credentials/${id}/reveal`)).status).toBe(403);
   });
 
+  it("contract categories (master data): manage, pick on a contract, filter by category / branch; in-use cannot be deleted", async () => {
+    const admin = await as(await makeUser({ role: "admin" }));
+    expect((await (await as(await makeUser())).post("/api/v1/contract-categories").send({ name: "x" })).status).toBe(403);
+    const ma = (await admin.post("/api/v1/contract-categories").send({ name: "MA / บำรุงรักษา", sort_order: 1 })).body.data;
+    const net = (await admin.post("/api/v1/contract-categories").send({ name: "อินเทอร์เน็ต" })).body.data;
+    expect((await admin.post("/api/v1/contract-categories").send({ name: "อินเทอร์เน็ต" })).status).toBe(422);
+    const lpn = await makeBranch({ code: "LPN", name: "ลำพูน" });
+
+    const c1 = await admin.post("/api/v1/contracts").send({ title: "MA Server", vendor_name: "ABC", start_date: day(0), end_date: day(300), category_id: ma.id, branch_id: lpn });
+    expect(c1.body.data.category).toEqual({ id: ma.id, name: "MA / บำรุงรักษา", key: null });
+    await admin.post("/api/v1/contracts").send({ title: "Fiber", vendor_name: "ISP", start_date: day(0), end_date: day(300), category_id: net.id });
+    const titles = async (q: string) => (await admin.get(`/api/v1/contracts?${q}`)).body.data.map((c: { title: string }) => c.title);
+    expect(await titles(`category_id=${ma.id}`)).toEqual(["MA Server"]);
+    expect(await titles(`branch_id=${lpn}`)).toEqual(["MA Server"]);
+    expect(await titles(`category_id=${net.id}&branch_id=${lpn}`)).toEqual([]);
+
+    const all = (await admin.get("/api/v1/contract-categories?include_inactive=1")).body.data;
+    expect(all.find((c: { id: number }) => c.id === ma.id).contracts_count).toBe(1);
+    expect((await admin.delete(`/api/v1/contract-categories/${ma.id}`)).status).toBe(422);
+    expect((await admin.patch(`/api/v1/contract-categories/${ma.id}`).send({ is_active: false })).body.data.is_active).toBe(false);
+    expect((await admin.get("/api/v1/contract-categories")).body.data.map((c: { name: string }) => c.name)).toEqual(["อินเทอร์เน็ต"]);
+  });
+
   it("contract status and expiry notification are sent once", async () => {
     const itStaff = await makeUser({ is_it_staff: true });
     await putSetting("notify_emails", ["it@example.com", "boss@example.com"], null);

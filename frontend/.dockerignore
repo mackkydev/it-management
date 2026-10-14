@@ -1,0 +1,9 @@
+# ไม่ส่งเข้า docker build: dependency / ผล build เดิม / ค่า env ของเครื่อง (API_URL ตั้งใน docker-compose)
+node_modules
+.next
+.env*
+!.env.example
+*.log
+.git
+Dockerfile
+.dockerignore

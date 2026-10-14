@@ -10,9 +10,24 @@ import { useI18n } from "@/i18n/client";
 import type { Branch, Contract } from "@/lib/types";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
+import { OptionPicker } from "@/components/option-picker";
+import { quickAddContractCategory } from "@/app/actions/dropdowns";
 
 /** canDelete = มีสิทธิ์ contracts.delete (API ตรวจซ้ำ) */
-export function ContractForm({ contract, branches, defaultNotifyDays, canDelete = false }: { contract?: Contract; branches: Branch[]; defaultNotifyDays: number; canDelete?: boolean }) {
+export function ContractForm({
+  contract,
+  branches,
+  categories,
+  defaultNotifyDays,
+  canDelete = false,
+}: {
+  contract?: Contract;
+  branches: Branch[];
+  /** หมวดหมู่สัญญาที่เปิดใช้งาน (ข้อมูลหลัก) */
+  categories: { id: number; name: string; key?: string | null }[];
+  defaultNotifyDays: number;
+  canDelete?: boolean;
+}) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const isEdit = Boolean(contract);
@@ -30,7 +45,11 @@ export function ContractForm({ contract, branches, defaultNotifyDays, canDelete 
     notify_days_before: contract?.notify_days_before ? String(contract.notify_days_before) : "",
     notes: contract?.notes ?? "",
     branch_id: contract?.branch_id ? String(contract.branch_id) : "",
+    category_id: contract?.category ? String(contract.category.id) : "",
   });
+  // หมวดหมู่ที่ปิดใช้งานแล้วแต่สัญญานี้ยังใช้อยู่ — ยังแสดงให้เห็น/คงค่าเดิมได้
+  const categoryOptions =
+    contract?.category && !categories.some((c) => c.id === contract.category!.id) ? [...categories, contract.category] : categories;
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [pending, start] = useTransition();
@@ -126,6 +145,18 @@ export function ContractForm({ contract, branches, defaultNotifyDays, canDelete 
               "amount",
               t("contracts.form.amount"),
               <input id="amount" type="number" min={0} step="0.01" inputMode="decimal" value={v.amount} onChange={(e) => set("amount", e.target.value)} className={cls("amount")} />,
+            )}
+            {field(
+              "category_id",
+              t("contracts.form.category"),
+              <OptionPicker
+                id="category_id"
+                options={categoryOptions.map((c) => ({ value: String(c.id), label: c.key ? t(`vault.categories.${c.key as "other"}`) : c.name }))}
+                value={v.category_id}
+                onChange={(value) => set("category_id", value)}
+                onAdd={quickAddContractCategory}
+                className={cls("category_id")}
+              />,
             )}
             {field(
               "branch_id",

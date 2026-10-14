@@ -75,6 +75,19 @@ export async function deleteUser(id: number): Promise<UserResult> {
   done("deleted");
 }
 
+/** ผู้ดูแลระบบสูงสุดรีเซ็ต 2FA ของผู้ใช้ (ทำโทรศัพท์หาย) — API ตัด session ของผู้ใช้นั้น + audit */
+export async function resetUserTwoFactor(id: number): Promise<ActionResult> {
+  const { t } = await getI18n();
+  if (!Number.isInteger(id) || id <= 0) return { message: t("common.saveFailed") };
+  try {
+    await apiFetch(`/users/${id}/2fa`, { method: "DELETE" });
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath(`/users/${id}/edit`);
+  return { ok: true, message: t("users.twoFactor.resetDone") };
+}
+
 /** Local Admin ลบ (ปิดใช้งาน) ลายเซ็นของผู้ใช้ — API บันทึก audit */
 export async function deleteUserSignature(id: number): Promise<ActionResult> {
   const { t } = await getI18n();

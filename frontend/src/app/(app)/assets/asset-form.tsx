@@ -15,7 +15,6 @@ import {
   CATEGORIES,
   COMPUTER_DATE_FIELDS,
   COMPUTER_TEXT_FIELDS,
-  COMPUTER_TYPES,
   CATEGORY_FORM,
   EMPTY_SOFTWARE,
   LICENSE_BILLINGS,
@@ -34,6 +33,8 @@ import {
 import { SoftwareListPicker, SoftwareSlotPicker } from "./software-picker";
 import { CustodianPicker } from "./custodian-picker";
 import { LocationPicker } from "./location-picker";
+import { OptionPicker } from "@/components/option-picker";
+import { quickAddOption } from "@/app/actions/dropdowns";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
 import { PasswordInput } from "@/components/password-input";
@@ -109,6 +110,9 @@ function validate(v: AssetFormValues, t: TFunction): FieldErrors {
 interface Props {
   locations: Location[];
   branches: Branch[];
+  /** ข้อมูล Drop Down (ข้อมูลหลัก) */
+  computerTypes: string[];
+  brands: string[];
   /** ไม่ระบุ = โหมดเพิ่มใหม่ */
   assetId?: string;
   initial?: AssetFormValues;
@@ -120,7 +124,7 @@ interface Props {
   defaultCategory?: string;
 }
 
-export function AssetForm({ locations, branches, assetId, initial, initialCustodian = null, canDelete = false, hasLicenseKey = false, defaultCategory }: Props) {
+export function AssetForm({ locations, branches, computerTypes, brands, assetId, initial, initialCustodian = null, canDelete = false, hasLicenseKey = false, defaultCategory }: Props) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const [values, setValues] = useState<AssetFormValues>(initial ?? (defaultCategory ? { ...EMPTY, category: defaultCategory } : EMPTY));
@@ -361,7 +365,14 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
             {field(
               "brand",
               t("assets.form.brand"),
-              <SuggestInput id="brand" value={values.brand} onChange={(v) => setField("brand", v)} load={(q) => suggestAssetValues("brand", q)} className={cls("brand")} />,
+              <OptionPicker
+                id="brand"
+                options={brands.map((b) => ({ value: b, label: b }))}
+                value={values.brand}
+                onChange={(v) => setField("brand", v)}
+                onAdd={(name) => quickAddOption("brand", name)}
+                className={cls("brand")}
+              />,
             )}
             {field(
               "model",
@@ -438,15 +449,15 @@ export function AssetForm({ locations, branches, assetId, initial, initialCustod
               {field(
                 "computer_type",
                 t("assets.computer.computerType"),
-                <AppSelect id="computer_type" name="computer_type" value={values.computer_type} onChange={onChange} className={cls("computer_type")}>
-                  <option value="">{t("common.none")}</option>
-                  {/* ค่าจาก Excel ที่ไม่อยู่ในรายการยังแสดงได้ */}
-                  {[...COMPUTER_TYPES, ...(values.computer_type && !COMPUTER_TYPES.includes(values.computer_type) ? [values.computer_type] : [])].map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </AppSelect>,
+                <OptionPicker
+                  id="computer_type"
+                  options={computerTypes.map((c) => ({ value: c, label: c }))}
+                  value={values.computer_type}
+                  onChange={(v) => setField("computer_type", v)}
+                  onAdd={(name) => quickAddOption("computer_type", name)}
+                  maxLength={30}
+                  className={cls("computer_type")}
+                />,
               )}
               {field("received_date", t("assets.computer.receivedDate"), dateInput("received_date"))}
               {field("start_use_date", t("assets.computer.startUseDate"), dateInput("start_use_date"))}

@@ -22,7 +22,7 @@ export interface TicketFormOptions {
   divisions: string[];
   /** ผู้อนุมัติที่เลือกได้ (ตำแหน่งสูงกว่าผู้แจ้ง) — ฟอร์มกรองตามสาขาที่เลือก */
   approvers: { id: number; name: string; branch_id: number; role: string }[];
-  it_staff: { id: number; name: string }[];
+  it_staff: { id: number; name: string; busy?: "leave" | "onsite" | null }[];
   other_types: string[];
   /** สินทรัพย์ของผู้แจ้ง (ผู้ถือครอง / ชื่อผู้ใช้งานในทะเบียนคอมพิวเตอร์) — เลือกเครื่องที่ส่งซ่อม / ติดตั้ง */
   my_assets: { id: string; asset_tag: string; name: string; brand: string | null; model: string | null; category: string }[];
@@ -489,7 +489,8 @@ export function TicketForm({
                 <option value="">{t("tickets.form.chooseIt")}</option>
                 {options.it_staff.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}
+                    {/* วันนี้ลา / ออกหน้างาน — เตือนผู้แจ้งก่อนเลือก */}
+                    {s.busy ? `${s.name} (${t(s.busy === "leave" ? "calendar.busyLeave" : "calendar.busyOnsite")})` : s.name}
                   </option>
                 ))}
               </AppSelect>,

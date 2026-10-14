@@ -47,7 +47,7 @@ export async function saveKpiEntry(id: number | null, v: KpiEntryValues): Promis
 }
 
 /** ประเภทการแจ้ง / Complexity ของแถวใบแจ้งงาน */
-export async function saveKpiTicket(ticketId: string, v: { service_type?: string; complexity?: number }): Promise<KpiResult> {
+export async function saveKpiTicket(ticketId: string, v: { service_type?: string; complexity?: number; user_id?: number }): Promise<KpiResult> {
   const { t } = await getI18n();
   if (!/^[0-9a-f-]{36}$/i.test(ticketId)) return { message: t("common.saveFailed") };
   try {

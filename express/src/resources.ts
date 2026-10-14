@@ -50,6 +50,8 @@ export function userResource(
     approval_route_id: u.approval_route_id,
     ...(extra.custodian_assets_count !== undefined ? { custodian_assets_count: extra.custodian_assets_count } : {}),
     signature_url: viewerId === u.id ? ownSignatureUrl(extra.signature_id) : null,
+    /** เปิดการยืนยันตัวตน 2 ขั้นแล้ว (ไม่ส่ง secret / recovery codes ออกไป) */
+    two_factor_enabled: Boolean(u.two_factor_confirmed_at),
     ...(extra.signature_id !== undefined ? { has_signature: extra.signature_id !== null } : {}),
     created_at: iso(u.created_at),
   };
@@ -63,6 +65,9 @@ export interface LocationRow {
   parent_id: number | null;
   address?: string | null;
   is_active?: number;
+  /** สาขาที่สถานที่สังกัด (ไม่บังคับ) */
+  branch_id?: number | null;
+  branch_name?: string | null;
   assets_count?: number;
   children_count?: number;
 }
@@ -77,6 +82,7 @@ export function locationResource(l: LocationRow) {
     parent_id: l.parent_id,
     ...("address" in l ? { address: l.address } : {}),
     ...("is_active" in l ? { is_active: bool(l.is_active) } : {}),
+    ...("branch_id" in l ? { branch: l.branch_id ? { id: Number(l.branch_id), name: l.branch_name ?? "" } : null } : {}),
     ...("assets_count" in l ? { assets_count: Number(l.assets_count) } : {}),
     ...("children_count" in l ? { children_count: Number(l.children_count) } : {}),
   };

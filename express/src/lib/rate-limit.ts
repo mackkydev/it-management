@@ -78,5 +78,11 @@ export const limits = {
   reauth: throttle("reauth", { max: 10, windowSeconds: 60, key: (req) => (req.user ? `u${req.user.id}` : ip(req)) }),
   /** ตั้ง / เปลี่ยน PIN (ตรวจรหัสผ่าน login): 5 ครั้ง/นาที ต่อผู้ใช้ */
   pinSet: throttle("pin-set", { max: 5, windowSeconds: 60, key: (req) => (req.user ? `u${req.user.id}` : ip(req)) }),
+  /** login ขั้นที่ 2 / 2FA ของฉัน: 5 ครั้ง/นาที ต่อ challenge (หรือผู้ใช้)+IP และ 20 ครั้ง/นาที ต่อ IP */
+  twoFactor: throttle(
+    "two-factor",
+    { max: 5, windowSeconds: 60, key: (req) => `${String(req.body?.challenge ?? (req.user ? `u${req.user.id}` : "")).slice(0, 48)}|${ip(req)}` },
+    { max: 20, windowSeconds: 60, key: ip },
+  ),
   reveal: throttle("reveal", { max: 30, windowSeconds: 60, key: (req) => (req.user ? `u${req.user.id}` : ip(req)) }),
 };

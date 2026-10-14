@@ -15,13 +15,22 @@ export const DEFAULTS = {
   // หน้า "สิทธิ์การใช้งาน": key เมนู/ปุ่ม → กลุ่มที่ซ่อน, และลำดับเมนู ([] = ยังไม่ตั้งค่า — ตรงกับ PHP array ว่าง)
   ui_permissions: [] as unknown,
   menu_order: [] as unknown,
+  // ชื่อเมนูที่แก้เอง { "<group id | /href>": { th, en } } — ไม่มี = ใช้ชื่อตั้งต้นจากไฟล์แปลของหน้าเว็บ
+  menu_labels: [] as unknown,
   // โลโก้ระบบ (routes/branding.ts) — null = ใช้ icon เดิม
   logo_path: null as string | null,
   logo_version: null as string | null,
   // การป้องกันตอนเปิดดูรหัสผ่าน / License key (services/secret-guard.ts) — null = ค่าเริ่มต้น
   secret_guard: null as unknown,
+  // บังคับผู้ดูแลระบบ (super_admin / admin บัญชี LOCAL) ใช้ 2FA — services/two-factor.ts
+  two_factor_required: false as unknown,
   // PIN กลางสำหรับเปิดดูข้อมูลลับ { hash, set_at, set_by } — ห้ามส่ง hash ออกนอก API (routes/it-data.ts ตัดออก)
   secret_pin: null as unknown,
+  // ปฏิทิน: ขอบเขตการมองเห็นต่อกลุ่ม { group_key: "all" | "branch" | "department" } และตั้งค่าการลา (services/calendar.ts)
+  calendar_scope: null as unknown,
+  // ขอบเขตการมองเห็นวันลาของคนอื่นต่อกลุ่ม (ตั้งแยกจากปฏิทิน) { group_key: "self" | "department" | "branch" | "all" }
+  leave_scope: null as unknown,
+  leave_settings: null as unknown,
 };
 
 export type Settings = typeof DEFAULTS & Record<string, unknown>;

@@ -141,10 +141,11 @@ kpiRoutes.get("/kpi/month", async (req, res) => {
   const f = await validate(req.input, { user_id: ["nullable", "integer"], month: ["required", "string", regex(MONTH)] }, { locale: req.locale });
   const owner = await ownerFor(req, f.user_id);
   const month = String(f.month);
-  const rows = await kpiMonthRows(owner.id, month);
+  const rows = await kpiMonthRows(owner.id, month, req.locale);
   const editable = canEditFor(me(req), owner.id);
   res.json({
-    data: rows.map((r) => ({ ...r, can_edit: editable })),
+    // แถวจากปฏิทิน (วันลา / วันหยุดบริษัท) แก้ที่นี่ไม่ได้
+    data: rows.map((r) => ({ ...r, can_edit: editable && !(r.kind === "holiday" && r.entry_id === null) })),
     totals: kpiTotals(rows),
     user: { id: owner.id, name: owner.name },
     month,
@@ -163,17 +164,21 @@ kpiRoutes.put("/kpi/tickets/:uuid", async (req, res) => {
     [String(req.params.uuid)],
   );
   if (!ticket || ticket.assignee_id === null) throw notFound();
-  authorize(canEditFor(u, ticket.assignee_id));
+  // เจ้าของชีต (user_id) = ผู้รับงาน (ค่าตั้งต้น) หรือผู้ร่วมดำเนินการของใบนี้
+  const ownerId = req.input.user_id === undefined || req.input.user_id === null ? Number(ticket.assignee_id) : Number(req.input.user_id);
+  const isHelper = Boolean(await first("SELECT 1 AS x FROM it_ticket_helpers WHERE it_ticket_id = ? AND user_id = ?", [ticket.id, ownerId]));
+  if (ownerId !== Number(ticket.assignee_id) && !isHelper) throw notFound();
+  authorize(canEditFor(u, ownerId));
   const data = await validate(
     req.input,
     { service_type: ["sometimes", "nullable", "string", serviceTypeRule(req)], complexity: ["sometimes", "nullable", complexityRule(req)] },
     { locale: req.locale },
   );
-  const values: Record<string, unknown> = { user_id: ticket.assignee_id, updated_at: nowDb() };
+  const values: Record<string, unknown> = { user_id: ownerId, updated_at: nowDb() };
   if ("service_type" in data) values.service_type = data.service_type || null;
   if ("complexity" in data) values.complexity = data.complexity === null || data.complexity === "" ? null : Number(data.complexity);
 
-  const existing = await first<{ id: number }>("SELECT id FROM kpi_entries WHERE ticket_id = ?", [ticket.id]);
+  const existing = await first<{ id: number }>("SELECT id FROM kpi_entries WHERE ticket_id = ? AND user_id = ?", [ticket.id, ownerId]);
   if (existing) await update("kpi_entries", values, "id = ?", [existing.id]);
   else {
     await insert("kpi_entries", {
@@ -185,7 +190,7 @@ kpiRoutes.put("/kpi/tickets/:uuid", async (req, res) => {
       created_at: nowDb(),
     });
   }
-  const saved = (await first<{ service_type: string | null; complexity: string | null }>("SELECT service_type, complexity FROM kpi_entries WHERE ticket_id = ?", [ticket.id]))!;
+  const saved = (await first<{ service_type: string | null; complexity: string | null }>("SELECT service_type, complexity FROM kpi_entries WHERE ticket_id = ? AND user_id = ?", [ticket.id, ownerId]))!;
   const complexity = saved.complexity === null ? 0 : Number(saved.complexity);
   res.json({ data: { service_type: saved.service_type, complexity, mark: markOf(complexity) } });
 });

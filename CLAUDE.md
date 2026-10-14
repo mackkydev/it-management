@@ -3,6 +3,7 @@
 ระบบงานฝ่าย IT (ใบแจ้งงาน IT, คลังบัญชี/รหัสผ่าน, สัญญา vendor, สินทรัพย์ IT):
 **Next.js 16 (App Router) + Express.js 5 API + MySQL 8.4** — รันบน Docker (`docker compose up -d`)
 - Container: `it_express` (8020, API + scheduler), `it_mysql` (3308, db `it_system`, user `it_app`), `it_phpmyadmin` (8082), `it_adminer` (8081)
+- หน้าเว็บบนเครื่องจริง = container `it_frontend` (profile `web`: `docker compose --profile web up -d --build`, `frontend/Dockerfile` แบบ Next.js standalone เมื่อ `NEXT_OUTPUT=standalone`) — เครื่องพัฒนาใช้ `npm run dev` ตามเดิม
 - ฐานเดิมเก็บเป็นสำรอง ไม่ใช้งานแล้ว: PostgreSQL (profile `legacy-postgres`, volume `it-system_it_pg` — ย้ายมา MySQL 2026-10-05), MariaDB (profile `legacy-mariadb`, volume `it-system_it_db`)
 - ชื่อภายในเดิมที่ตั้งใจคงไว้: cookie `eam_*`, prefix ข้อความ `eam.*`, `EAM_TOKEN_TTL_MINUTES`
 - **ตั้งแต่ 2026-10-04 ใช้ Express อย่างเดียว** — ถอด Laravel (`backend/`, `it_api`) ออกแล้ว (ดูโค้ดเดิมจาก git history) ห้ามสร้างกลับมา
@@ -33,13 +34,21 @@
   สิทธิ์จริง = สิทธิ์ของกลุ่มตามตำแหน่ง + กลุ่มที่มอบเพิ่มรายคน (`user_groups`, หลายกลุ่ม) + allow − deny รายคน (`user_permissions`) — โค้ดกลาง `express/src/services/permissions.ts`
 - วันหมดอายุ: `user_groups.expires_on` / `user_permissions.expires_on` (ใช้ได้ถึงวันนั้น เวลาไทย) มีผลเมื่อเปิดสวิตช์ `app_settings.permission_expiry` เท่านั้น
 - ช่อง `is_it_staff` / `is_it_head` = **หน้าที่ในใบแจ้งงาน** (เลือกผู้รับงาน/ผู้ปิดงาน/ผู้รับแจ้งเตือน) ไม่ให้สิทธิ์ — สิทธิ์ฝ่าย IT มาจากตำแหน่ง/กลุ่ม; รายชื่อผู้ดำเนินการ (`IT_STAFF_WHERE`) = ฝ่าย/แผนก IT หรือ เทคโนโลยีสารสนเทศ + ผู้ที่ติ๊กช่อง
+- ข้อมูลหลักแผนก/ฝ่าย (`routes/org-units.ts`): แผนกผูกกับฝ่ายได้ (`departments.division_id`, ไม่บังคับ, ลบฝ่าย = แผนกหลุดเป็น NULL) — `GET /departments?division_id=` กรองตามฝ่าย; ฝ่ายส่ง `department_ids` (แผนกในฝ่าย) ได้ และ GET ฝ่ายคืน `departments`; นำเข้า/template Excel `/org-units/import(-template)` (แผ่นฝ่าย + แผ่นแผนก, จับคู่ด้วยชื่อ ไม่ลบ/ไม่เปลี่ยนชื่อ); `users.department` / `users.division` ยังเป็นข้อความอิสระเหมือนเดิม
+- สถานที่สังกัดสาขาได้ (`locations.branch_id`, ไม่บังคับ — resource คืน `branch`)
+- ชื่อเมนูแก้ได้ที่หน้า `/permissions` (ปุ่มดินสอ — ต้องกรอกทั้งไทยและอังกฤษ): `app_settings.menu_labels` `{ "<group id | /href>": { th, en } }` ผ่าน `PUT /settings` (access.manage) → `navFor` ใส่ `text` ให้ กลุ่ม/รายการ แสดงด้วย `navLabel()` (ไม่มี = ชื่อจากไฟล์แปล `nav.*`) — ไม่เปลี่ยนหัวข้อของหน้า และไม่เปลี่ยนชื่อระบบงานในตารางสิทธิ์ (`/role-permissions` ใช้ MODULES จาก API)
+- เมนู "ฝ่ายและแผนก" = หน้าเดียว `/org-units?tab=divisions|departments` (`/divisions`, `/departments` redirect มาที่แท็บ) ใช้ `components/org-unit-manager.tsx`
+- เมนู "ข้อมูล Drop Down" `/dropdowns?tab=` (แท็บตามสิทธิ์): หมวดหมู่สัญญา (`contracts.categories`) / หมวดหมู่คลังบัญชี / Computer Type / ยี่ห้อ (`dropdowns.manage` — ตาราง `dropdown_options` list = vault_category|computer_type|brand, ค่าที่เลือกเก็บเป็นข้อความใน credentials.category / assets.computer_type / assets.brand, เปลี่ยนชื่อ = อัปเดตข้อมูลเดิมตาม, `routes/dropdown-options.ts`) / ตัวเลือกเรื่อง "อื่นๆ" (`settings.manage`, app_settings.ticket_other_types) — `/contract-categories`, `/ticket-types` redirect มาที่แท็บ
+- ช่องเลือกจากข้อมูล Drop Down ในฟอร์มใช้ `<OptionPicker>` (`components/option-picker.tsx` — พิมพ์ค้นหา + "+ เพิ่ม" ทันทีผ่าน `app/actions/dropdowns.ts`); เพิ่มด่วนได้ด้วยสิทธิ์เพิ่ม/แก้ของระบบนั้น (assets.* / vault.* / contracts.*) แต่แก้/ลบต้องมีสิทธิ์จัดการ; ตารางใหม่ต้องใช้ `COLLATE utf8mb4_0900_as_ci` ตามฐาน
+- หมวดตั้งต้น (แก้/ลบไม่ได้) ใช้ร่วมกันระหว่างคลังบัญชีและสัญญา: `BUILTIN_CATEGORIES` ใน `express/src/services/categories.ts` (credentials.category เก็บ key, `contract_categories.builtin_key`) — ชื่อแสดงผลแปลที่ frontend `vault.categories.<key>`, หมวดที่เพิ่มเองตั้งชื่อซ้ำหมวดตั้งต้นไม่ได้ (`isBuiltinName`)
+- หมวดหมู่สัญญา (`contract_categories`, `contracts.category_id` ไม่บังคับ) — `routes/contract-categories.ts`, สิทธิ์ `contracts.categories` (from `contracts.update`), หน้า `/contract-categories` ใช้ `OrgUnitManager` (table `contract_categories`); `GET /contracts?branch_id=&category_id=`
 - ตรวจสิทธิ์ด้วย `can(user, "key")` (Express — middleware auth โหลด `user.perms` ทุก request) / `has(user, "key")` (frontend จาก `/auth/me.permissions`, กลุ่มจาก `/auth/me.groups`) **ห้ามเช็ค role/flag ตรงๆ เพื่อให้สิทธิ์**
 - super_admin ผ่านทุกสิทธิ์ (`isSuperAdmin`); หน้าการเชื่อมต่อ API = super_admin **บัญชี LOCAL** เท่านั้น (`isLocalSuperAdmin`) และต้องมี super_admin บัญชี LOCAL ที่ใช้งานอยู่อย่างน้อย 1 คนเสมอ (ทางสำรองเมื่อต้นทางล่ม)
 - กติกาการมอบ (`express/src/services/access-control.ts`): มอบ/ถอดได้เฉพาะสิทธิ์ที่ตัวเองมี (`access.assign`), สิทธิ์ `locked` เฉพาะ super_admin, แก้ของตัวเองไม่ได้, แตะบัญชี super_admin / ตั้ง super_admin ได้เฉพาะ super_admin; เปลี่ยนตำแหน่ง = มอบสิทธิ์ (หน้าผู้ใช้ก็ใช้กติกานี้)
   ตารางสิทธิ์ของกลุ่ม / สร้าง-ลบกลุ่ม / การมองเห็นเมนู / สวิตช์วันหมดอายุ = `access.manage` (locked)
 - ทุกการเปลี่ยนสิทธิ์ (ตำแหน่ง/กลุ่ม/รายข้อ/ตารางกลุ่ม) และ PIN กลาง → `audit_logs` + แจ้งเตือนในระบบไปยัง super_admin + admin ทุกคน (`notifyAccessChange`)
 - เพิ่มสิทธิ์ใหม่: เพิ่มใน `PERMISSIONS` พร้อม `module`/`action`/`defaults` — `ensurePermissions()` (ตอน start server / seed / เทสต์) สร้าง key ใหม่ + สิทธิ์ตั้งต้น **ไม่แตะ key เดิมและการกำหนดสิทธิ์ที่ admin ปรับไว้**; แยก key เดิม = ใส่ `from` (คัดลอกการกำหนดสิทธิ์ของ key เดิมทั้งกลุ่มและรายคน)
-- การเลือกผู้รับแจ้งเตือน (SQL ตาม role/flag ใน ticket-workflow, notify-expiring) ไม่ใช่การตรวจสิทธิ์ — คงไว้ตามเดิม (role `super_admin` + `admin` = ผู้ดูแลระบบ)
+- การเลือกผู้รับแจ้งเตือน (notify-expiring, `adminRecipients`) ไม่ใช่การตรวจสิทธิ์ — คงไว้ตามเดิม (role `super_admin` + `admin` = ผู้ดูแลระบบ); ยกเว้นใบแจ้งงาน: ผู้รับแจ้งเตือน "รอให้ทำ" = ผู้เกี่ยวข้องโดยตรงที่มีสิทธิ์จริง (`usersWithPermissions()` ใน services/permissions.ts ∩ เจ้าหน้าที่/หัวหน้า IT) เงื่อนไขเดียวกับตัวเลขเมนู
 
 ## API User (login ผ่าน REST API ต้นทาง)
 - โค้ดกลาง: `express/src/services/api-auth.ts` (login / JIT / session), `upstream-http.ts` (เรียกต้นทาง: https เท่านั้น, กัน SSRF + allowlist, จำกัด redirect/ขนาด), `audit.ts`
@@ -62,7 +71,7 @@
 ## สิทธิ์การมองเห็นเมนู/ปุ่ม (หน้า ตั้งค่าระบบ → สิทธิ์การใช้งาน `/permissions` — แยกจากสิทธิ์ตามกลุ่ม `/role-permissions`)
 - ตั้งค่าเก็บใน `app_settings`: `ui_permissions` (key → key กลุ่มสิทธิ์ที่ซ่อน — แก้ได้เฉพาะ `access.manage`) และ `menu_order` — โค้ดกลางอยู่ที่ `frontend/src/lib/permissions.ts`
 - key เมนู = `href` ของเมนูใน `components/shell/nav.ts`, key ปุ่ม = `btn:<หน้า>:<ปุ่ม>` (**ห้ามมีจุด** — validator ของ API ใช้จุดแยก path)
-- เพิ่มเมนูใหม่: ใส่ใน `NAV` พร้อม `visible` ตาม permission key แล้วจะขึ้นในหน้าสิทธิ์อัตโนมัติ; เพิ่มปุ่มใหม่: เพิ่มใน `BUTTONS` แล้วครอบปุ่มด้วย `(await getAccess())("btn:...")`
+- เพิ่มเมนูใหม่: ใส่ใน `NAV` พร้อม `visible` ตาม permission key แล้วจะขึ้นในหน้าสิทธิ์อัตโนมัติ; เพิ่มปุ่มใหม่: เพิ่มใน `BUTTONS` (ระบุ `page` = ชื่อเมนูของหน้า — หน้าสิทธิ์จัดกลุ่มตามนี้ เรียงตามลำดับในรายการ) แล้วครอบปุ่มด้วย `(await getAccess())("btn:...")` — ปุ่มใน client component ส่งเป็น prop (เช่น `canBook`, `canAddEvent`) ให้ซ่อนทางลัดที่ทำสิ่งเดียวกันด้วย (คลิกขวา / ดับเบิลคลิก / คลิกช่องว่าง)
 - เป็นการซ่อนเพิ่มจากสิทธิ์เดิมเท่านั้น — สิทธิ์จริงต้องตรวจที่ API เสมอ
 - ค่าซ่อนเดิมถูกแปลงเป็นการถอดสิทธิ์จริงครั้งเดียว (`convertHiddenMenus` ใน `services/permissions.ts`, flag `ui_permissions_v3`, สำเนา `ui_permissions_converted`) — ซ่อนใหม่หลังจากนั้นเป็นการซ่อนปกติ
 - เมนู "รอฉันอนุมัติ" แสดงตาม `can_approve` จาก `/auth/me`; ช่อง "ทุกคนทำได้เสมอ" ในตารางสิทธิ์ (แจ้ง/แก้/ลบใบแจ้งงานของตัวเอง) = ช่องติ๊กล็อก — `ALWAYS` ใน `components/permission-matrix.tsx` (ต้องตรงกับ `ticket-workflow.ts`)
@@ -74,8 +83,11 @@
 ## วันที่ / หมวดสินทรัพย์
 - วันที่แสดงและกรอกเป็น **dd/MM/yyyy** (ไทย = พ.ศ., อังกฤษ = ค.ศ.) — แสดงผลใช้ `fmt.date/dateTime`, ช่องกรอกใช้ `<DateInput>` (`components/date-input.tsx` — พิมพ์ได้ + ปฏิทินป๊อปอัปในตัว) **ห้ามใช้ `<input type="date">` หรือสร้าง date picker เอง**; API ยังรับส่ง `YYYY-MM-DD`
 - Dropdown ทุกที่ใช้ `<AppSelect>` (`components/app-select.tsx` — รายการลอย ตัวที่เลือกพื้นจาง + เครื่องหมายถูก, คีย์บอร์ด, ค้นหาเมื่อรายการ > 8) **ห้ามใช้ `<select>` ตรงๆ หรือสร้าง dropdown เอง**; ใส่ `<option>` เป็น children หรือส่ง `options` ได้, `onChange` รับ handler เดิมของ `<select>` ได้, ฟอร์ม GET ใช้ `name` + `defaultValue` (ส่งค่าผ่าน hidden input); กล่องลอยใหม่ใช้ `useFloating`/`useDismiss` จาก `components/floating.ts`
+- ปุ่มส่งออก Excel ใช้ `<ConfirmDownload>` (`components/confirm-download.tsx` — ถามยืนยันก่อนดาวน์โหลด) และการนำเข้า Excel ต้องถาม `confirm(t("common.confirmImport", …))` ก่อนอัปโหลด — **ยกเว้นลิงก์ไฟล์ template ใช้ `<a>` ปกติ**
 - กล่องยืนยัน/แจ้งเตือนใช้ `useConfirm()` / `useAlert()` (`components/dialog-provider.tsx` — `if (!(await confirm(msg))) return;`) **ห้ามใช้ `window.confirm` / `alert` / `prompt`**; ช่องรหัสผ่านใช้ `<PasswordInput>` (`components/password-input.tsx` — มีปุ่มกดดูรหัส) **ห้ามใช้ `<input type="password">` ตรงๆ**
 - ใบแจ้งงาน: ฝ่าย IT (และเจ้าหน้าที่ที่ผู้แจ้งเลือก) เห็น/ได้แจ้งเตือนหลังหัวหน้าอนุมัติแล้วเท่านั้น (`PRE_APPROVAL` ใน `express/src/services/ticket-workflow.ts`)
+- ตัวเลขเมนู (`GET /menu-badges`) = งานที่รอฉันทำ ↔ กระดิ่ง = เหตุการณ์ใหม่: ทั้งสองฝั่งนับ/แจ้ง **เฉพาะผู้ที่เกี่ยวข้องโดยตรง** และใช้ฟังก์ชันเดียวกัน (`acceptors` = เจ้าหน้าที่ IT ตาม `IT_STAFF_WHERE` ที่รับงานได้, `closers` = หัวหน้า IT (`is_it_head`) ที่ปิดงานได้ — ไม่มีเลยใช้ผู้มีสิทธิ์ปิดงานทั้งหมด, `approvers` ใน ticket-workflow) — ผู้ดูแลระบบสูงสุดที่ไม่ได้อยู่ฝ่าย IT ไม่ได้ทั้งตัวเลขเมนูและกระดิ่ง (ยังเปิดดูคิวงานได้ตามสิทธิ์)
+  เปิดดูใบงาน/ใบลา (`GET /tickets/:uuid`, `GET /leave/:uuid`) = แจ้งเตือนของเรื่องนั้นของผู้ดูอ่านแล้ว; เหตุการณ์ถัดไปปิดแจ้งเตือนที่จบแล้วของทุกคนตาม `RESOLVES` (`markNoticesRead`) — อ่านที่กระดิ่งไม่ลดตัวเลขเมนู (งานยังรออยู่); "งานของฉันที่กำลังทำ" และ KPI มีแค่ตัวเลขเมนู ไม่มีแจ้งเตือน
 - การติดตั้ง license (`license_installations`): นับ seat จากรายการที่ `uninstalled_at` เป็น null — บันทึกเกิน `asset_licenses.seats` ไม่ได้ และลด seats ต่ำกว่าที่ใช้อยู่ไม่ได้
 - หมวด `COMPUTER` = ทะเบียนคอมพิวเตอร์ตาม Excel ของฝ่าย IT: `asset_tag` = Host Name, ข้อมูลเครื่องอยู่ในคอลัมน์ของ `assets` (department, user_name, ip_address, os, office ฯลฯ)
   นำเข้า/template/ส่งออก ที่ `express/src/services/asset-import.ts` (Host Name เดิม = อัปเดต, ผิดแม้แถวเดียว = ไม่บันทึกเลย, คอลัมน์ที่ไม่มีในไฟล์ = ไม่แก้ข้อมูลเดิม)
@@ -83,6 +95,15 @@
   department / user_name / os / office เป็นข้อความชั่วคราว — ภายหลังผูกกับผู้ใช้จาก API และการติดตั้ง license
 - หมวดสินทรัพย์กำหนดฟอร์มเพิ่มเติมที่ `CATEGORY_FORM` (`frontend/src/lib/types.ts`) — `SOFTWARE` = ข้อมูล license (`asset_licenses`, key เข้ารหัส APP_KEY) + ไฟล์ (`asset_files`) และรวมในการแจ้งเตือนหมดอายุ
 - ประวัติผู้ใช้งาน (ชื่อ-สกุล/Department ของทะเบียนคอมพิวเตอร์) = `asset_user_logs` ผ่าน `recordUserChange()`; ประวัติการซ่อม = ใบงาน type repair ผูกด้วย asset_id หรือเลขครุภัณฑ์ (`services/asset-repairs.ts`)
+
+## ความปลอดภัยก่อนขึ้นระบบจริง (คู่มือ `deploy/README.md`)
+- `npm run security:check` (ใน `express/`, prod: `security:check:prod`) — ตรวจบัญชี `@example.com` / รหัสผ่าน seed / super_admin LOCAL จริง / 2FA ผู้ดูแลระบบ / รหัสผ่านฐานข้อมูลตั้งต้น / NODE_ENV ฯลฯ — มี FAIL = exit 1
+- **2FA (TOTP)** เฉพาะผู้ใช้ LOCAL: `express/src/services/two-factor.ts` (RFC 6238 เขียนเอง + QR ด้วย `qrcode`), คอลัมน์ `users.two_factor_*` (secret เข้ารหัส APP_KEY, recovery codes = SHA-256 ใช้ครั้งเดียว, `two_factor_last_step` กันใช้รหัสซ้ำ)
+  login: `POST /auth/login` คืน `{ two_factor: "verify"|"setup", challenge }` (ใบผ่าน 5 นาที ลงลายมือ APP_KEY) แทน token → `POST /auth/login/2fa(/setup)`; หน้าเว็บเก็บ challenge ใน httpOnly cookie `eam_2fa` (`app/actions/auth.ts`)
+  บังคับผู้ดูแลระบบ = `app_settings.two_factor_required` (แก้ด้วย `access.manage`), รีเซ็ตให้ผู้อื่น `DELETE /users/:id/2fa` (access.manage — ตัดทุก session), โปรไฟล์ `/auth/2fa*` — **userResource ห้ามส่ง two_factor_secret / recovery codes**
+- CSP แบบ nonce ต่อ request อยู่ที่ `frontend/src/proxy.ts` (style อนุญาต inline เพราะใช้ style attribute) — สคริปต์ inline ต้องใส่ `nonce` จาก header `x-nonce` (ดู `app/layout.tsx`); HSTS ใน `next.config.ts` (production)
+- reverse proxy ต้องเขียนทับ `X-Real-IP` / `X-Forwarded-For` (`deploy/Caddyfile`); สำรองข้อมูลแบบเข้ารหัส `deploy/backup.sh` (ค่าใน `deploy/backup.env` ไม่ขึ้น git)
+- library: express ใช้ `overrides` บังคับ mysql2 / deepmerge-ts / uuid เวอร์ชันที่ไม่มีช่องโหว่ (ติดมากับ prisma / exceljs) — ก่อน deploy `npm audit --omit=dev` ต้องไม่มี high
 
 ## เปิดดูข้อมูลลับ (รหัสผ่านคลังบัญชี / License key)
 - ทุก endpoint ที่ถอดรหัสส่งให้ผู้ใช้ต้องเรียก `assertCanReveal(req)` + `notifyReveal()` (`express/src/services/secret-guard.ts`) และบันทึกประวัติทุกครั้ง
@@ -92,12 +113,40 @@
 
 ## KPI ฝ่าย IT (หน้า /kpi — ตามไฟล์ Template-KPI-IT-2569-Part2-Details)
 - ชีตรายเดือนต่อเจ้าหน้าที่ 1 คน = ใบงานที่รับแล้ว (`ACCEPTED_TICKET_STATUSES`, เดือนตาม**วันที่แจ้ง**เวลาไทย) + แถวกรอกเอง + วันหยุด — `express/src/services/kpi.ts`
-- แถวใบงาน: ข้อมูลอ่านจากใบงานจริงเสมอ, `kpi_entries` (ticket_id) เก็บแค่ service_type + complexity; Mark = ตาราง `MARKS` (สูตร IF ของคอลัมน์ I ในไฟล์)
+- แถวใบงาน: ข้อมูลอ่านจากใบงานจริงเสมอ, `kpi_entries` (ticket_id + user_id, unique คู่กัน) เก็บแค่ service_type + complexity **แยกต่อคน**; Mark = ตาราง `MARKS` (สูตร IF ของคอลัมน์ I ในไฟล์)
+- ผู้ร่วมดำเนินการ (`it_ticket_helpers`): ผู้รับงานเลือกเจ้าหน้าที่ IT (`IT_STAFF_WHERE`) ตอนรับงาน (`helper_ids`) หรือแก้ภายหลัง `PUT /tickets/:uuid/helpers` → แจ้งเตือนคนที่เพิ่มใหม่ (event `helper_added`), เห็นใบงาน (`canView`) และได้แถวใบงานในชีต KPI ของตัวเอง (`PUT /kpi/tickets/:uuid` ส่ง `user_id` = เจ้าของชีต)
 - Export `/kpi/export` (`services/kpi-export.ts`): ชีต ServiceType + ชีตละเดือน (`Oct68`), Cordia New 14, สูตร Mark/Total จริง, วันหยุดรวมเซลล์ B:G — เปลี่ยนรูปแบบต้องเทียบกับไฟล์ต้นฉบับ
 
 ## ซอฟต์แวร์บนเครื่องคอมพิวเตอร์ (ฟอร์มสินทรัพย์)
 - OS / Office / Anti Virus / Software อื่นๆ เลือกจากสินทรัพย์ Software ที่มี license → `license_installations` ของเครื่อง (`slot` = os/office/antivirus, NULL = อื่นๆ) — `express/src/services/asset-software.ts`
 - ส่ง `software` มา = sync (ใหม่ติดตั้งวันนี้ + ตรวจ seat, เอาออก = uninstalled_at วันนี้); ไม่ส่ง = ไม่แตะ; ช่องที่ผูกแล้ว API เขียนชื่อ license ลง `assets.os/office/antivirus` (ค่าจาก Excel ที่ยังไม่ผูกคงไว้)
+
+## ปฏิทิน / การลา / วันหยุดบริษัท (เมนู "ปฏิทินและการลา")
+- API: `express/src/routes/calendar.ts` + `services/calendar.ts` — ตาราง `leave_requests`, `leave_files`, `leave_quota_overrides`, `calendar_events` (type `onsite` จากใบแจ้งงาน / `event` กิจกรรม), `company_holidays`, `users.calendar_token`
+- ปฏิทินวันหยุดแยกชุดตามประกาศ HR (`holiday_calendars` — ตอนนี้ "กรุงเทพ" = สำนักงานใหญ่ HR-040 / "สาขา" = สำนักงานโรงงาน HR-041 ชุดตั้งต้น): `company_holidays.calendar_id` (unique ชุด+วัน), สาขาเลือกชุดที่ `branches.holiday_calendar_id` (NULL = ชุดตั้งต้น) — `holidayCalendarFor(branchId)` ใช้ทุกที่ที่นับวันหยุด (วันลา, ปฏิทินตามสาขาผู้ดู/สาขาที่เลือก, KPI ตามสาขาเจ้าของชีต); ไฟล์นำเข้า/template = วันที่ | ชื่อ | ปฏิทินวันหยุด (dropdown) เติมวันหยุดของปีนั้นไว้แล้ว
+- หน้า `/holidays`: แท็บตามชุด เปิดที่ชุดของสาขาผู้ใช้; ทุกคนดูรายการวันหยุดได้ — เพิ่ม/แก้/นำเข้า, ตั้งค่าการลา, โควตา เฉพาะ `holidays.manage` (มอบให้กลุ่ม HR ได้); ปฏิทินเลือกซ่อน/แสดงแต่ละประเภท (เช่น วันหยุด) จำไว้ใน localStorage ของเครื่อง
+- กิจกรรม (`calendar_events` type event) ติ๊ก "ไม่รวมเสาร์-อาทิตย์" ได้เมื่อช่วงวันคร่อมสุดสัปดาห์ (`skip_weekends`) — `calendarItems` แตกเป็นแถบช่วงวันธรรมดา (`weekdayRuns`, id `event-<id>-<n>`, มี `range` = ช่วงเต็มไว้แก้ไข) iCal ก็แยกตาม; ใบลา: เหตุผลบังคับกรอก
+- งานหน้างานจากใบแจ้งงาน: ชื่อแถบ = ผู้รับงาน + ผู้ร่วมดำเนินการทุกคน, แสดงตามขอบเขตของผู้รับงานหรือผู้ร่วมคนใดคนหนึ่ง, `busyOf` นับผู้ร่วมว่าออกหน้างานด้วย
+- ขอบเขตการมองเห็นต่อกลุ่ม ตั้งแยก 2 ชุด: `app_settings.calendar_scope` (กิจกรรม/งานหน้างาน) และ `leave_scope` (วันลาของคนอื่น — ไม่เกินขอบเขตปฏิทินที่เลือกดู) — ค่า all > branch > department > self (ไม่ตั้ง = department, super_admin = all), `scopeSettings(kind)` / `maxScope(u, kind)` ใน services/calendar.ts — ตั้งที่ส่วนท้ายหน้า `/role-permissions` (access.manage); ในตารางสิทธิ์ "การลา" เป็นระบบงาน (module `leave`) แยกจาก "ปฏิทินและวันหยุด"
+- ใบลา: ผู้อนุมัติ (`approverOptions` ใน routes/calendar.ts) = ผู้ที่ตำแหน่งสูงกว่าในแผนกเดียวกันหรือฝ่ายเดียวกัน (`users.division` หรือฝ่ายที่แผนกสังกัด) ไม่มี → ตามสายอนุมัติ (`planFor`: ขั้นแรกที่มีผู้อนุมัติ / หัวหน้าตามสาย); จำนวนวัน = วันทำงานตาม `leave_settings.work_days` ไม่นับวันหยุดบริษัท; โควตา `leave_settings.quotas` + รายคน; ลาป่วย ≥ `sick_cert_days` ต้องแนบไฟล์
+- ลาที่อนุมัติแล้ว + วันหยุดบริษัท = แถววันหยุดอ่านอย่างเดียวในชีต KPI (`calendarRows` ใน `services/kpi.ts`)
+- ใบแจ้งงาน: รับงานส่ง `calendar: {start_on,end_on,note}` ได้, `PUT/DELETE /tickets/:uuid/calendar` (ผู้รับงาน); iCal ส่วนตัว = `/ical/{token}.ics` (frontend route สาธารณะ → `GET /calendar/feed/:token`)
+- พิมพ์ใบลา A4 = `/leave-print/{uuid}` (นอก app shell)
+
+## ห้องประชุม (เมนู "ห้องประชุม")
+- API: `express/src/routes/meeting-rooms.ts` — ตาราง `meeting_rooms` (`seats` JSON `[{label,count}]`), `meeting_room_images` (≤ 4 รูป ≤ 1MB, sharp → WebP ไม่มี metadata, `is_primary`), `meeting_bookings` (วันเดียว: `booking_date` + `start_time`/`end_time` "HH:MM", status confirmed|cancelled, ลบ = `deleted_at`), `meeting_booking_equipment`
+- ห้อง + ช่วงเวลาซ้อนกัน = 422 (ตรวจใน transaction + `lockNamed` ต่อห้อง/วัน; ต่อกันพอดีขอบเวลาได้); ผู้จอง + แผนก = ผู้ที่ login (แผนกเก็บตามตอนจอง); จบเวลาแล้วแก้/ยกเลิก/ลบไม่ได้ (เก็บเป็นประวัติ)
+- ทุกคนดูปฏิทินห้อง / จอง / แก้-ยกเลิก-ลบของตัวเอง (`ALWAYS` ในตารางสิทธิ์) — `meeting.manage_any` = จัดการของคนอื่น (แจ้งเตือนเจ้าของ kind `meeting`), `meeting.rooms` = จัดการห้อง + ตัวเลือก
+- ประเภทการใช้งาน / อุปกรณ์ = `dropdown_options` list `meeting_purpose` / `meeting_equipment` (แท็บในหน้า `/dropdowns`, สิทธิ์ต่อรายการผ่าน `manage` ใน `LISTS` ของ `routes/dropdown-options.ts`)
+- หน้า: `/meeting-rooms` (ปฏิทินเดือน) → `/meeting-rooms/day/{date}` (ไทม์ไลน์แถวละห้อง) / `/meeting-rooms/book?date=&room=&start=&end=` / `/meeting-rooms/bookings/{uuid}/edit` / `/meeting-rooms/mine` / `/meeting-rooms/rooms` — รูปห้องผ่าน `/files/meeting-rooms/{id}/images/{imageId}`
+
+## จองรถ (เมนู "จองรถ")
+- API: `express/src/routes/vehicles.ts` — ตาราง `vehicles` (`mileage` = เลขไมล์ล่าสุด), `vehicle_images` (≤ 4 รูป ผ่าน `services/photos.ts` เดียวกับห้องประชุม), `vehicle_bookings` (หลายวันได้: `start_on`+`start_time` ถึง `end_on`+`end_time` "HH:MM" เวลาไทย, `vehicle_id` NULL = รอผู้จัดคิวรถเลือกรถ, `start_mileage`/`end_mileage`), `vehicle_booking_extras`
+- รถคันเดียวกันช่วงเวลาซ้อน = 422 (transaction + `lockNamed` ต่อคัน) — ไม่ระบุรถไม่ตรวจชน; ไม่กรอกเลขไมล์เริ่มต้น = เลขไมล์ล่าสุดของคัน (ตอนจอง/เปลี่ยนรถ/ผู้จัดคิวเลือกรถ); บันทึกเลขไมล์ที่มากกว่าเดิม → `vehicles.mileage` ขยับตาม (`bumpMileage`); บันทึกเลขไมล์ได้แม้ใช้งานจบแล้ว (`PUT /vehicle-bookings/:uuid/mileage`)
+- สิทธิ์: ทุกคนดู / จอง / แก้-ยกเลิก-ลบ / บันทึกเลขไมล์ของตัวเอง (`ALWAYS`), `vehicle.dispatch` = ผู้จัดคิวรถ (เลือกรถ `PUT /vehicle-bookings/:uuid/vehicle` + จัดการการจองของคนอื่น), `vehicle.manage` = จัดการรถ + ตัวเลือก
+- แจ้งเตือน kind `vehicle`: จองโดยไม่ระบุรถ → `requested` ถึงผู้มี `vehicle.dispatch` (`usersWithPermissions`) = เงื่อนไขเดียวกับตัวเลขเมนู `/vehicles/dispatch` (`unassignedVehicleBookings`); มีรถแล้ว/ยกเลิก/ลบ → `markNoticesRead("vehicle_booking_id", …, { events: ["requested"] })`; ผู้จัดคิวทำกับการจองของคนอื่น → แจ้งเจ้าของ (assigned/updated/cancelled/deleted)
+- ประเภทการใช้งาน / รายการเพิ่มเติม = `dropdown_options` list `vehicle_purpose` / `vehicle_extra` (แท็บ `/dropdowns`, สิทธิ์ `vehicle.manage`)
+- หน้า: `/vehicles` (ปฏิทินเดือน) → `/vehicles/day/{date}` (ไทม์ไลน์ 00–24 แถวละคัน + แถวรอจัดรถ) / `/vehicles/book?date=&vehicle=&start=&end=` / `/vehicles/bookings/{uuid}/edit` / `/vehicles/mine` / `/vehicles/dispatch` / `/vehicles/manage` (+ ประวัติเลขไมล์ในหน้าแก้ไขรถ) — ส่วนกลางของระบบจองที่ `frontend/src/lib/booking.ts`
 
 ## เวอร์ชันโปรแกรม (หน้า /about)
 - แหล่งเดียว: `frontend/src/lib/changelog.ts` — ระหว่างพัฒนาคงไว้ที่ **1.0.0** ห้ามเพิ่ม release/รายการทุกครั้งที่แก้; ออกเวอร์ชันจริงครั้งถัดไป (เมื่อผู้ใช้สั่ง) = เพิ่ม release ไว้บนสุดของ `CHANGELOG` (th/en ทุกบรรทัด) แล้ว `APP_VERSION` เปลี่ยนตาม

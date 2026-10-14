@@ -14,7 +14,7 @@ import { useConfirm } from "@/components/dialog-provider";
 type Field = keyof LocationFormValues;
 type Errors = Partial<Record<Field, string>>;
 
-const EMPTY: LocationFormValues = { code: "", name: "", type: "", parent_id: "", address: "", is_active: true };
+const EMPTY: LocationFormValues = { code: "", name: "", type: "", parent_id: "", branch_id: "", address: "", is_active: true };
 
 function validate(v: LocationFormValues, t: TFunction): Errors {
   const e: Errors = {};
@@ -43,12 +43,14 @@ function selfAndDescendants(all: Location[], id: number): Set<number> {
 
 interface Props {
   locations: Location[];
+  /** สาขาให้เลือกว่าสถานที่สังกัดสาขาไหน */
+  branches: { id: number; name: string }[];
   /** ไม่ระบุ = เพิ่มใหม่ */
   location?: Location;
   canDelete?: boolean;
 }
 
-export function LocationForm({ locations, location, canDelete = false }: Props) {
+export function LocationForm({ locations, branches, location, canDelete = false }: Props) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const [values, setValues] = useState<LocationFormValues>(
@@ -58,6 +60,7 @@ export function LocationForm({ locations, location, canDelete = false }: Props) 
           name: location.name,
           type: location.type,
           parent_id: location.parent_id ? String(location.parent_id) : "",
+          branch_id: location.branch ? String(location.branch.id) : "",
           address: location.address ?? "",
           is_active: location.is_active ?? true,
         }
@@ -151,6 +154,18 @@ export function LocationForm({ locations, location, canDelete = false }: Props) 
             true,
           )}
           {field(
+            "branch_id",
+            t("locations.form.branch"),
+            <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
+              <option value="">{t("locations.form.noBranch")}</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </AppSelect>,
+          )}
+          {field(
             "parent_id",
             t("locations.form.parent"),
             <AppSelect id="parent_id" name="parent_id" value={values.parent_id} onChange={onChange} className={cls("parent_id")}>
@@ -158,6 +173,7 @@ export function LocationForm({ locations, location, canDelete = false }: Props) 
               {parents.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.code} — {l.name}
+                  {l.branch ? ` · ${l.branch.name}` : ""}
                   {l.is_active === false ? ` (${t("locations.inactive")})` : ""}
                 </option>
               ))}

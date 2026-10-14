@@ -13,6 +13,7 @@ import { localToday } from "@/lib/date";
 import type { KpiMonth, KpiSheetRow } from "@/lib/types";
 import { RequesterPicker } from "./requester-picker";
 import { useConfirm } from "@/components/dialog-provider";
+import { ConfirmDownload } from "@/components/confirm-download";
 
 const cell = "px-3 py-2 align-top";
 const small = `${input} px-2 py-1.5 text-sm`;
@@ -50,10 +51,10 @@ export function KpiExport({ months, defaultMonth, userId }: { months: { value: s
         <AppSelect value={to} onValueChange={setTo} className={input} aria-label={t("kpi.exportTo")}>
           {options}
         </AppSelect>
-        <a href={href} className={`${btn.soft} whitespace-nowrap`}>
+        <ConfirmDownload href={href} className={`${btn.soft} whitespace-nowrap`}>
           <DownloadIcon />
           {t("kpi.exportButton")}
-        </a>
+        </ConfirmDownload>
       </div>
       <p className="text-xs text-muted">{t("kpi.exportHint")}</p>
     </div>
@@ -211,7 +212,8 @@ function TicketRow({ row, sheet, own }: { row: KpiSheetRow; sheet: KpiMonth; own
 
   const save = () =>
     start(async () => {
-      const res = await saveKpiTicket(row.ticket!.id, { service_type: serviceType || undefined, complexity: Number(complexity) });
+      // user_id = เจ้าของชีต (ผู้รับงาน หรือผู้ร่วมดำเนินการ — แยกแถว KPI ต่อคน)
+      const res = await saveKpiTicket(row.ticket!.id, { service_type: serviceType || undefined, complexity: Number(complexity), user_id: sheet.user.id });
       if (res.ok) {
         setError("");
         setEditing(false);

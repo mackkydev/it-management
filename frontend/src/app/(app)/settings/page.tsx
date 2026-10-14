@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { BellIcon } from "@/components/icons";
+import { SettingsIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
@@ -9,6 +9,7 @@ import type { AppSettings } from "@/lib/types";
 import { LogoCard } from "./logo-card";
 import { SecurityForm } from "./security-form";
 import { SettingsForm } from "./settings-form";
+import { TwoFactorPolicy } from "./two-factor-policy";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -23,10 +24,12 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader icon={BellIcon} title={t("settingsPage.title")} subtitle={t("settingsPage.subtitle")} />
+      <PageHeader icon={SettingsIcon} title={t("settingsPage.title")} subtitle={t("settingsPage.subtitle")} />
       <LogoCard version={ui.logo_version} />
       <SettingsForm initial={data} />
       <SecurityForm initial={data.secret_guard} pinStatus={data.secret_pin_status} canManagePin={has(user, "secrets.pin_manage")} />
+      {/* บังคับ 2FA ผู้ดูแลระบบ — นโยบายการเข้าสู่ระบบ (access.manage) */}
+      {has(user, "access.manage") && <TwoFactorPolicy initial={Boolean(data.two_factor_required)} />}
     </div>
   );
 }

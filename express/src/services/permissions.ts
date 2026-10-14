@@ -218,3 +218,32 @@ export async function adminRecipients(exceptId?: number): Promise<number[]> {
   const rows = await select<{ id: number }>("SELECT id FROM users WHERE is_active = true AND role IN ('super_admin', 'admin') AND id <> ?", [exceptId ?? 0]);
   return rows.map((r) => Number(r.id));
 }
+
+/**
+ * ผู้ใช้ที่ใช้งานอยู่และมีสิทธิ์ครบทุกข้อใน `all` และอย่างน้อย 1 ข้อใน `any` (ว่าง = ไม่ตรวจ)
+ * — ใช้เลือกผู้รับแจ้งเตือนให้ตรงกับตัวเลขบนเมนู (เงื่อนไขสิทธิ์เดียวกัน)
+ */
+export async function usersWithPermissions(all: string[], any: string[] = []): Promise<{ id: number; name: string }[]> {
+  const ug = await activeClause("ug");
+  const up = await activeClause("up");
+  const has = `(EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.permission_id = p.id
+                  AND (rp.role = u.role OR rp.role IN (SELECT ug.group_key FROM user_groups ug WHERE ug.user_id = u.id AND ${ug.sql})))
+               OR EXISTS (SELECT 1 FROM user_permissions up WHERE up.permission_id = p.id AND up.user_id = u.id AND up.effect = 'allow' AND ${up.sql}))
+              AND NOT EXISTS (SELECT 1 FROM user_permissions up WHERE up.permission_id = p.id AND up.user_id = u.id AND up.effect = 'deny' AND ${up.sql})`;
+  const hasParams = [...ug.params, ...up.params, ...up.params];
+  const where: string[] = [];
+  const params: unknown[] = [];
+  for (const key of all) {
+    where.push(`EXISTS (SELECT 1 FROM permissions p WHERE p."key" = ? AND ${has})`);
+    params.push(key, ...hasParams);
+  }
+  if (any.length) {
+    where.push(`(${any.map(() => `EXISTS (SELECT 1 FROM permissions p WHERE p."key" = ? AND ${has})`).join(" OR ")})`);
+    for (const key of any) params.push(key, ...hasParams);
+  }
+  const rows = await select<{ id: number; name: string }>(
+    `SELECT u.id, u.name FROM users u WHERE u.is_active = true AND (u.role = ? OR (${where.length ? where.join(" AND ") : "1 = 1"})) ORDER BY u.name, u.id`,
+    [SUPER_ADMIN_GROUP, ...params],
+  );
+  return rows.map((r) => ({ id: Number(r.id), name: r.name }));
+}

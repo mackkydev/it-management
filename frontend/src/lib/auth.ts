@@ -13,7 +13,7 @@ export const getCurrentUser = cache(async () => {
 
 /** การตั้งค่าการมองเห็นเมนู/ปุ่ม + ลำดับเมนู (GET /ui-config) — cache ต่อ request */
 export const getUiConfig = cache(async (): Promise<UiConfig> => {
-  const { data } = await apiFetch<{ data: { ui_permissions: unknown; menu_order: unknown; role_permissions: unknown; logo_version: unknown } }>("/ui-config");
+  const { data } = await apiFetch<{ data: { ui_permissions: unknown; menu_order: unknown; menu_labels: unknown; role_permissions: unknown; logo_version: unknown } }>("/ui-config");
   return normalizeUiConfig(data);
 });
 

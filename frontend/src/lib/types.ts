@@ -11,6 +11,8 @@ export interface Location {
   parent_id: number | null;
   address?: string | null;
   is_active?: boolean;
+  /** สาขาที่สถานที่สังกัด (null = ไม่ระบุ) */
+  branch?: { id: number; name: string } | null;
   /** มีเฉพาะ GET /locations?include_inactive=1 และ GET /locations/{id} */
   assets_count?: number;
   children_count?: number;
@@ -21,6 +23,7 @@ export interface LocationFormValues {
   name: string;
   type: string;
   parent_id: string;
+  branch_id: string;
   address: string;
   is_active: boolean;
 }
@@ -113,6 +116,8 @@ export interface User {
   is_it_head?: boolean;
   /** URL ลายเซ็นในโปรไฟล์ (เฉพาะข้อมูลของตัวเอง) — เช่น /auth/me/signature?v=... */
   signature_url?: string | null;
+  /** เปิดการยืนยันตัวตน 2 ขั้นแล้ว */
+  two_factor_enabled?: boolean;
   is_active?: boolean;
   /** สายอนุมัติที่กำหนดรายบุคคล (null = จับคู่อัตโนมัติตามสาขา+แผนก) */
   approval_route_id?: number | null;
@@ -134,6 +139,8 @@ export interface Branch {
 }
 
 export interface AppSettings {
+  /** บังคับผู้ดูแลระบบใช้ 2FA (แก้ได้เฉพาะ access.manage) */
+  two_factor_required?: boolean;
   contract_notify_days: number;
   credential_notify_days: number;
   license_notify_days: number;
@@ -170,7 +177,8 @@ export interface SecretGuard {
   notify_heads: boolean;
 }
 
-export const CREDENTIAL_CATEGORIES = ["system", "server", "network", "email", "software", "cloud", "other"] as const;
+/** หมวดตั้งต้น (แก้ไม่ได้) — คลังบัญชีและหมวดหมู่สัญญาใช้ชุดเดียวกัน ("other" ท้ายสุด) */
+export const CREDENTIAL_CATEGORIES = ["system", "server", "network", "email", "software", "cloud", "computer", "hosting", "hostname", "other"] as const;
 export type CredentialCategory = (typeof CREDENTIAL_CATEGORIES)[number];
 /** หมวดตั้งต้น (แปลชื่อได้) หรือหมวดที่ผู้ใช้เพิ่มเอง (แสดงตามที่พิมพ์) */
 export const isBuiltinCategory = (c: string): c is CredentialCategory => (CREDENTIAL_CATEGORIES as readonly string[]).includes(c);
@@ -217,6 +225,9 @@ export interface Contract {
   notes: string | null;
   branch: { id: number; name: string } | null;
   branch_id: number | null;
+  /** หมวดหมู่สัญญา (ข้อมูลหลัก) */
+  /** key = หมวดตั้งต้น (แปลชื่อตามภาษา), null = หมวดที่เพิ่มเอง */
+  category?: { id: number; name: string; key?: string | null } | null;
   days_left: number;
   status: "active" | "expiring" | "expired";
 }
@@ -247,6 +258,14 @@ export interface TicketSummary {
 }
 
 export interface TicketDetail extends TicketSummary {
+  /** ช่วงวันไปทำงานหน้างาน (ปฏิทิน) */
+  calendar_event?: TicketOnsite | null;
+  can_edit_calendar?: boolean;
+  /** ผู้ร่วมดำเนินการ (แต่ละคนได้แถว KPI ของตัวเอง) */
+  helpers?: { id: number; name: string }[];
+  can_edit_helpers?: boolean;
+  /** ตัวเลือก (เจ้าหน้าที่ IT + วันนี้ลา/ออกหน้างาน) — ส่งมาเฉพาะผู้ที่รับงาน/แก้รายชื่อได้ */
+  helper_options?: { id: number; name: string; busy: "leave" | "onsite" | null }[];
   department: string | null;
   division: string | null;
   requester: { id: number; name: string; email: string } | null;
@@ -340,6 +359,40 @@ export interface AppNotification {
         subject_id: string | number | null;
         subject: string;
         actor: string;
+      }
+    | {
+        kind: "leave";
+        event: "submitted" | "approved" | "rejected" | "cancelled";
+        leave_id: string;
+        actor: string;
+        owner?: string;
+        leave_type: LeaveType;
+        start_on: string;
+        end_on: string;
+      }
+    | {
+        // จองรถ: requested = มีการจองที่ยังไม่ระบุรถ (ถึงผู้จัดคิวรถ), assigned/updated/cancelled/deleted = ผู้จัดคิวทำกับการจองของเรา
+        kind: "vehicle";
+        event: "requested" | "assigned" | "updated" | "cancelled" | "deleted";
+        vehicle_booking_id: string;
+        actor: string;
+        vehicle: string | null;
+        start_on: string;
+        start_time: string;
+        end_on: string;
+        end_time: string;
+      }
+    | {
+        // ผู้จัดการแก้ / ยกเลิก / ลบการจองห้องประชุมของเรา
+        kind: "meeting";
+        event: "updated" | "cancelled" | "deleted";
+        booking_id: string;
+        actor: string;
+        title: string;
+        room: string;
+        date: string;
+        start_time: string;
+        end_time: string;
       };
   read_at: string | null;
   created_at: string;
@@ -494,6 +547,16 @@ export interface OrgUnit {
   is_active: boolean;
   sort_order: number;
   users_count?: number;
+  /** เฉพาะแผนก: ฝ่ายที่สังกัด (null = ไม่อยู่ใต้ฝ่ายใด) */
+  division?: { id: number; name: string } | null;
+  /** เฉพาะฝ่าย: แผนกในฝ่ายนี้ */
+  departments?: { id: number; name: string }[];
+  /** เฉพาะหมวดหมู่สัญญา: จำนวนสัญญาที่ใช้ */
+  contracts_count?: number;
+  /** เฉพาะข้อมูล Drop Down: จำนวนข้อมูลที่ใช้ค่านี้ */
+  usage_count?: number;
+  /** เฉพาะหมวดหมู่สัญญา: หมวดตั้งต้น (แก้/ลบไม่ได้) */
+  key?: string | null;
 }
 
 /** ช่องทาง login ผ่านระบบต้นทางที่เปิดอยู่ (GET /auth/connections — ไม่ต้อง login) */
@@ -811,6 +874,8 @@ export type ApiConnectionTest =
 
 /** GET /audit-logs */
 export interface AuditLog {
+  /** สาขาของผู้ทำ */
+  branch_name?: string | null;
   id: number;
   actor_id: number | null;
   actor_name: string | null;
@@ -851,4 +916,223 @@ export interface KpiMonth {
   service_types: { name: string; description: string }[];
   service_type_note: string;
   complexity_values: { value: number; mark: number }[];
+}
+
+/* ---------------------------------------------------------------- ปฏิทิน / การลา / วันหยุดบริษัท */
+
+export const LEAVE_TYPES = ["sick", "personal", "vacation", "other"] as const;
+export type LeaveType = (typeof LEAVE_TYPES)[number];
+export const LEAVE_UNITS = ["full", "half_am", "half_pm", "hours"] as const;
+export type LeaveUnit = (typeof LEAVE_UNITS)[number];
+export const LEAVE_STATUSES = ["pending", "approved", "rejected", "cancelled"] as const;
+export type LeaveStatus = (typeof LEAVE_STATUSES)[number];
+/** แคบ → กว้าง: เฉพาะตัวเอง / แผนก / สาขา / ทั้งหมด */
+export const CALENDAR_SCOPES = ["self", "department", "branch", "all"] as const;
+export type CalendarScope = (typeof CALENDAR_SCOPES)[number];
+
+export interface CalendarItem {
+  id: string;
+  kind: "leave" | "onsite" | "event" | "holiday";
+  title: string;
+  start: string;
+  end: string;
+  user: { id: number; name: string } | null;
+  status?: LeaveStatus;
+  leave?: { id: string; type: LeaveType; unit: LeaveUnit; start_time: string | null; end_time: string | null; days: number };
+  ticket?: { id: string; ticket_no: string } | null;
+  /** กิจกรรมที่ไม่รวมเสาร์-อาทิตย์: แถบนี้เป็นช่วงหนึ่ง — range = ช่วงวันเต็มของกิจกรรม */
+  skip_weekends?: boolean;
+  range?: { start: string; end: string };
+  note?: string | null;
+  all_company?: boolean;
+  event_id?: number;
+  can_edit?: boolean;
+}
+
+export interface CalendarMeta {
+  max_scope: CalendarScope;
+  scopes: CalendarScope[];
+  can_manage: boolean;
+  feed_token: string | null;
+}
+
+export interface LeaveBalance {
+  type: LeaveType;
+  quota: number | null;
+  approved: number;
+  pending: number;
+  remaining: number | null;
+}
+
+export interface LeaveRequest {
+  id: string;
+  user: { id: number; name: string; department: string | null; branch: string | null };
+  leave_type: LeaveType;
+  unit: LeaveUnit;
+  start_on: string;
+  end_on: string;
+  start_time: string | null;
+  end_time: string | null;
+  days: number;
+  reason: string | null;
+  approver: { id: number; name: string } | null;
+  status: LeaveStatus;
+  decided_at: string | null;
+  decision_note: string | null;
+  created_at: string | null;
+  files: { id: number; name: string; mime: string | null; size: number | null }[];
+  can_decide: boolean;
+  can_cancel: boolean;
+}
+
+export interface LeaveOptions {
+  types: LeaveType[];
+  units: LeaveUnit[];
+  approvers: { id: number; name: string }[];
+  default_approver_id: number | null;
+  /** org = ตำแหน่งสูงกว่าในแผนก/ฝ่ายเดียวกัน, route = ตามสายอนุมัติ */
+  approver_source: "org" | "route";
+  sick_cert_days: number;
+  work_days: number[];
+  balance: LeaveBalance[];
+}
+
+export interface LeaveSettings {
+  quotas: Record<LeaveType, number | null>;
+  sick_cert_days: number;
+  work_days: number[];
+}
+
+export interface CompanyHoliday {
+  id: number;
+  date: string;
+  name: string;
+  calendar_id: number | null;
+}
+
+/** ปฏิทินวันหยุดแต่ละชุด (เช่น กรุงเทพ / สาขา) — สาขาเลือกใช้ 1 ชุด, ไม่เลือก = ชุดตั้งต้น */
+export interface HolidayCalendar {
+  id: number;
+  name: string;
+  is_default: boolean;
+  branches: { id: number; code: string; name: string }[];
+}
+
+/** ช่วงวันไปทำงานหน้างานของใบแจ้งงาน */
+export interface TicketOnsite {
+  id: number;
+  start_on: string;
+  end_on: string;
+  note: string | null;
+}
+
+/* ---------------------------------------------------------------- ห้องประชุม */
+
+/** แถวจำนวนที่นั่ง (เช่น ที่นั่งหลัก / ที่นั่งสำรอง) */
+export interface MeetingSeat {
+  label: string;
+  count: number;
+}
+
+/** GET /meeting-rooms — รูป ≤ 4 รูป (is_primary = รูปหลัก) เปิดผ่าน /files/meeting-rooms/{id}/images/{imageId} */
+export interface MeetingRoom {
+  id: number;
+  name: string;
+  branch: { id: number; name: string } | null;
+  location: string | null;
+  room_no: string | null;
+  description: string | null;
+  seats: MeetingSeat[];
+  capacity: number;
+  is_active: boolean;
+  sort_order: number;
+  images: { id: number; is_primary: boolean }[];
+  bookings_count?: number;
+}
+
+/** GET /meeting-bookings — วันเดียว + ช่วงเวลา "HH:MM" */
+export interface MeetingBooking {
+  id: string;
+  room: { id: number; name: string };
+  user: { id: number; name: string };
+  department: string | null;
+  title: string;
+  attendees: number;
+  purpose: string | null;
+  equipment: string[];
+  note: string | null;
+  date: string;
+  start_time: string;
+  end_time: string;
+  status: "confirmed" | "cancelled";
+  is_over: boolean;
+  cancelled_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  can_edit: boolean;
+  can_cancel: boolean;
+  can_delete: boolean;
+}
+
+/* ---------------------------------------------------------------- จองรถ */
+
+/** GET /vehicles — mileage = เลขไมล์ล่าสุด, รูปเปิดผ่าน /files/vehicles/{id}/images/{imageId} */
+export interface Vehicle {
+  id: number;
+  name: string;
+  plate_no: string | null;
+  branch: { id: number; name: string } | null;
+  seats: number;
+  parking: string | null;
+  description: string | null;
+  mileage: number | null;
+  is_active: boolean;
+  sort_order: number;
+  images: { id: number; is_primary: boolean }[];
+  bookings_count?: number;
+}
+
+/** GET /vehicle-bookings — หลายวันได้ (start_on + start_time ถึง end_on + end_time), vehicle = null คือรอผู้จัดคิวรถเลือกรถ */
+export interface VehicleBooking {
+  id: string;
+  vehicle: { id: number; name: string; plate_no: string | null } | null;
+  user: { id: number; name: string };
+  department: string | null;
+  details: string;
+  passengers: number;
+  purpose: string | null;
+  extras: string[];
+  note: string | null;
+  start_on: string;
+  start_time: string;
+  end_on: string;
+  end_time: string;
+  start_mileage: number | null;
+  end_mileage: number | null;
+  status: "confirmed" | "cancelled";
+  is_over: boolean;
+  assigned_by: string | null;
+  assigned_at: string | null;
+  cancelled_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  can_edit: boolean;
+  can_cancel: boolean;
+  can_delete: boolean;
+  can_mileage: boolean;
+  can_assign: boolean;
+}
+
+/** GET /vehicles/{id}/mileage — ประวัติเลขไมล์จากการจอง */
+export interface VehicleMileageEntry {
+  booking_id: string;
+  start_on: string;
+  start_time: string;
+  end_on: string;
+  end_time: string;
+  start_mileage: number | null;
+  end_mileage: number | null;
+  distance: number | null;
+  user_name: string;
+  details: string;
 }

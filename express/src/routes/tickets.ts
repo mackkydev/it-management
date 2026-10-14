@@ -11,13 +11,16 @@ import { person } from "../resources.js";
 import { getSetting } from "../services/settings.js";
 import { readStored, storeSignature, storeUpload, deleteTicketFiles } from "../services/ticket-files.js";
 import {
-  actionsFor, canAccept, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel,
+  acceptors, actionsFor, canAccept, closers, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel,
 } from "../services/ticket-workflow.js";
 import { activeSignature, copySignatureTo, mimeOf, readSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
+import { markNoticesRead, notifyUsers, TICKET_ACTIVITY } from "../services/notifications.js";
+import { busyOf } from "../services/calendar.js";
 import { ACCEPTED_TICKET_STATUSES } from "../services/kpi.js";
 import { OWN_SQL } from "./assets.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
+import { unassignedVehicleBookings } from "./vehicles.js";
 import { trans } from "../lib/i18n.js";
 
 /**
@@ -163,7 +166,107 @@ async function detail(t: TicketRow, viewer: UserRow) {
     attachments: attachments.map((a) => ({ id: a.id, kind: a.kind, name: a.original_name, mime: a.mime, size: Number(a.size), url: file("attachment", a.id) })),
     parts: parts.map((p) => ({ id: p.id, name: p.name, quantity: Number(p.quantity), photo_url: p.photo_path ? file("part", p.id) : null })),
     events: events.map((e) => ({ id: e.id, action: e.action, comment: e.comment, user: person(e.u_id, e.u_name), created_at: iso(e.created_at) })),
+    // ช่วงวันไปทำงานหน้างาน (ปฏิทิน) — ผู้รับงานเพิ่ม/แก้ได้
+    calendar_event: await onsiteOf(t.id),
+    can_edit_calendar: canEditOnsite(viewer, t),
+    // ผู้ร่วมดำเนินการ — ผู้รับงานเลือกเพิ่มตอนรับงาน / แก้ภายหลัง (ตัวเลือก = เจ้าหน้าที่ IT)
+    helpers: await helpersOf(t.id),
+    can_edit_helpers: canEditOnsite(viewer, t),
+    // ตอนรับงาน: ไม่รวมคนที่กำลังจะรับงาน / ภายหลัง: ไม่รวมผู้รับงาน
+    helper_options: canAccept(viewer, t) ? await helperOptions(viewer.id) : canEditOnsite(viewer, t) ? await helperOptions(t.assignee_id) : [],
   };
+}
+
+/* ---------------------------------------------------------------- ผู้ร่วมดำเนินการ */
+
+const helpersOf = (ticketId: number) =>
+  select<{ id: number; name: string }>(
+    "SELECT u.id, u.name FROM it_ticket_helpers h JOIN users u ON u.id = h.user_id WHERE h.it_ticket_id = ? ORDER BY h.id",
+    [ticketId],
+  ).then((rows) => rows.map((r) => ({ id: Number(r.id), name: r.name })));
+
+/** เจ้าหน้าที่ IT ที่เลือกเป็นผู้ร่วมได้ + วันนี้ลา/ออกหน้างาน */
+async function helperOptions(excludeId: number | null) {
+  const staff = (await itStaff()).filter((s) => Number(s.id) !== excludeId);
+  const busy = await busyOf(staff.map((s) => Number(s.id)), localToday(), localToday());
+  return staff.map((s) => ({ id: Number(s.id), name: s.name, busy: busy.get(Number(s.id))?.[0]?.kind ?? null }));
+}
+
+/** ตรวจ helper_ids (ไม่ส่งมา = undefined) — ต้องเป็นเจ้าหน้าที่ IT และไม่ใช่ผู้รับงานเอง */
+async function helperInput(req: Request, assigneeId: number): Promise<number[] | undefined> {
+  const raw = req.input.helper_ids;
+  if (raw === undefined) return undefined;
+  const list = Array.isArray(raw) ? raw : raw === null || raw === "" ? [] : [raw];
+  const ids = [...new Set(list.map((v) => Number(v)))];
+  const fail = () => {
+    throw new ValidationError({ helper_ids: [trans(req.locale, "eam.ticket.helpers_invalid")] });
+  };
+  if (ids.some((id) => !Number.isInteger(id) || id <= 0) || ids.includes(assigneeId) || ids.length > 20) fail();
+  if (ids.length) {
+    const found = await select<{ id: number }>(`SELECT id FROM users WHERE id IN (?) AND ${IT_STAFF_WHERE}`, [ids]);
+    if (found.length !== ids.length) fail();
+  }
+  return ids;
+}
+
+/** บันทึกรายชื่อผู้ร่วม (แทนที่ทั้งชุด) → คืนรายชื่อที่เพิ่มใหม่ */
+async function saveHelpers(t: TicketRow, ids: number[], actorId: number): Promise<number[]> {
+  const before = (await select<{ user_id: number }>("SELECT user_id FROM it_ticket_helpers WHERE it_ticket_id = ?", [t.id])).map((r) => Number(r.user_id));
+  const added = ids.filter((id) => !before.includes(id));
+  const removed = before.filter((id) => !ids.includes(id));
+  if (removed.length) await exec("DELETE FROM it_ticket_helpers WHERE it_ticket_id = ? AND user_id IN (?)", [t.id, removed]);
+  const now = nowDb();
+  for (const id of added) await insert("it_ticket_helpers", { it_ticket_id: t.id, user_id: id, added_by: actorId, created_at: now, updated_at: now });
+  if (added.length || removed.length) {
+    const names = (await select<{ name: string }>("SELECT name FROM users WHERE id IN (?) ORDER BY name", [ids.length ? ids : [0]])).map((r) => r.name);
+    await update("it_tickets", { updated_at: now }, "id = ?", [t.id]);
+    await log(t.id, actorId, "helpers_updated", names.join(", ") || null);
+  }
+  return added;
+}
+
+/** แจ้งเตือนผู้ที่ถูกเพิ่มเป็นผู้ร่วมดำเนินการ */
+const notifyHelpers = (t: TicketRow, ids: number[], actor: UserRow) =>
+  ids.length
+    ? notifyUsers(ids, TICKET_ACTIVITY, { kind: "ticket", event: "helper_added", ticket_id: t.uuid, ticket_no: t.ticket_no, ticket_type: t.type, actor: actor.name })
+    : Promise.resolve();
+
+/* ---------------------------------------------------------------- ไปทำงานหน้างาน (ปฏิทิน) */
+
+async function onsiteOf(ticketId: number) {
+  const e = await first<{ id: number; start_on: string; end_on: string; note: string | null }>(
+    "SELECT id, start_on, end_on, note FROM calendar_events WHERE ticket_id = ? AND type = 'onsite'",
+    [ticketId],
+  );
+  return e ? { id: Number(e.id), start_on: dateOnly(e.start_on), end_on: dateOnly(e.end_on), note: e.note } : null;
+}
+
+/** ผู้รับงาน (หรือผู้จัดการงานแทนผู้อื่น) ระหว่างงานยังไม่ปิด */
+const canEditOnsite = (u: UserRow, t: TicketRow) =>
+  t.assignee_id !== null && ["in_progress", "pending_it_head", "pending_requester", "pending_cancel"].includes(t.status) && (t.assignee_id === u.id || can(u, "it_tickets.manage_all"));
+
+/** ตรวจ calendar { start_on, end_on, note } ของคำขอ — ไม่ส่งมา = null */
+async function onsiteInput(req: Request): Promise<{ start_on: string; end_on: string; note: string | null } | null> {
+  const raw = req.input.calendar;
+  if (!raw || typeof raw !== "object") return null;
+  const data = await validate(
+    raw as Record<string, unknown>,
+    { start_on: ["required", "date"], end_on: ["required", "date", "after_or_equal:start_on"], note: ["nullable", "string", "max:1000"] },
+    { locale: req.locale },
+  );
+  return {
+    start_on: String(data.start_on).slice(0, 10),
+    end_on: String(data.end_on).slice(0, 10),
+    note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : null,
+  };
+}
+
+async function saveOnsite(t: TicketRow, userId: number, actorId: number, v: { start_on: string; end_on: string; note: string | null }, locale: Request["locale"]) {
+  const now = nowDb();
+  const title = trans(locale, "eam.calendar.onsite_title", { no: t.ticket_no });
+  const existing = await first<{ id: number }>("SELECT id FROM calendar_events WHERE ticket_id = ?", [t.id]);
+  if (existing) await update("calendar_events", { ...v, user_id: userId, title, updated_at: now }, "id = ?", [existing.id]);
+  else await insert("calendar_events", { type: "onsite", user_id: userId, ticket_id: t.id, title, ...v, created_by: actorId, created_at: now, updated_at: now });
 }
 
 async function respondDetail(req: Request, res: Response, ticketId: number, status = 200) {
@@ -201,7 +304,10 @@ async function nextTicketNo(): Promise<string> {
  * - ระบบเดิม: approver_id = ผู้ใช้ (admin เห็นใบที่ไม่มีผู้อนุมัติด้วย)
  */
 const approvalsWhere = (u: UserRow) => {
-  const legacy = can(u, "tickets.approve_any") ? "(t.approver_id = ? OR t.approver_id IS NULL)" : "t.approver_id = ?";
+  // อนุมัติแทน (approve_any): ใบที่ไม่มีหัวหน้า หรือหัวหน้าปิดใช้งาน — ตรงกับผู้รับแจ้งเตือนใน notify
+  const legacy = can(u, "tickets.approve_any")
+    ? "(t.approver_id = ? OR t.approver_id IS NULL OR NOT EXISTS (SELECT 1 FROM users a WHERE a.id = t.approver_id AND a.is_active = true))"
+    : "t.approver_id = ?";
   return {
     sql: `t.status = 'pending_supervisor' AND (
       (t.current_step IS NULL AND ${legacy})
@@ -234,6 +340,7 @@ async function counts(u: UserRow) {
  *   /tickets/approvals ใบที่รอฉันอนุมัติ
  *   /it/tickets        รอรับงาน (ที่ฉันรับได้) + งานของฉันที่กำลังทำ + รอหัวหน้า IT อนุมัติผล (ถ้ามีสิทธิ์) + รอยืนยันยกเลิก
  *   /kpi               ใบงานที่ฉันรับแล้วแต่ยังไม่กรอก Complexity ใน KPI
+ *   /vehicles/dispatch การจองรถที่ยังไม่ระบุรถ (ผู้จัดคิวรถ)
  */
 ticketRoutes.get("/menu-badges", async (req, res) => {
   const u = me(req);
@@ -244,23 +351,75 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
     "/tickets/approvals": await count(ap.sql, ap.params),
   };
   if (can(u, "it_tickets.queue")) {
-    const all = can(u, "it_tickets.manage_all");
-    const unassigned = can(u, "it_tickets.accept") ? "OR t.assignee_id IS NULL" : "";
-    const mineOrOpen = all ? "1 = 1" : `(t.assignee_id = ? ${unassigned})`;
-    const p = all ? [] : [u.id];
+    // เฉพาะผู้ที่เกี่ยวข้องโดยตรง = คนเดียวกับผู้รับแจ้งเตือนใน notify (acceptors / closers)
+    //   ของฉัน + ใบที่ยังไม่มีผู้รับ (ถ้าเป็นเจ้าหน้าที่ IT ที่รับงานได้), รออนุมัติผล (ถ้าเป็นหัวหน้า IT)
+    const [direct, heads] = await Promise.all([acceptors(), closers()]);
+    const unassigned = direct.some((x) => x.id === u.id) ? "OR t.assignee_id IS NULL" : "";
+    const mineOrOpen = `(t.assignee_id = ? ${unassigned})`;
+    const p = [u.id];
     data["/it/tickets"] =
       (await count(`t.status = 'approved' AND ${mineOrOpen}`, p)) +
       (await count("t.status = 'in_progress' AND t.assignee_id = ?", [u.id])) +
-      (can(u, "it_tickets.close") ? await count("t.status = 'pending_it_head'") : 0) +
+      (heads.some((x) => x.id === u.id) ? await count("t.status = 'pending_it_head'") : 0) +
       (await count(`t.status = 'pending_cancel' AND ${mineOrOpen}`, p));
   }
   if (can(u, "kpi.use")) {
     data["/kpi"] = await count(
-      `t.assignee_id = ? AND t.status IN (?) AND NOT EXISTS (SELECT 1 FROM kpi_entries k WHERE k.ticket_id = t.id AND k.complexity > 0)`,
-      [u.id, ACCEPTED_TICKET_STATUSES],
+      `(t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?)) AND t.status IN (?)
+        AND NOT EXISTS (SELECT 1 FROM kpi_entries k WHERE k.ticket_id = t.id AND k.user_id = ? AND k.complexity > 0)`,
+      [u.id, u.id, ACCEPTED_TICKET_STATUSES, u.id],
     );
   }
+  // ใบลาที่รอฉันอนุมัติ
+  data["/leave/approvals"] = Number(
+    await scalar(
+      // ผู้อนุมัติที่ระบุ (= ผู้รับแจ้งเตือน) — approve_any นับเพิ่มเฉพาะใบที่ผู้อนุมัติไม่มี/ปิดใช้งาน (หน้ารออนุมัติยังแสดงทุกใบ)
+      `SELECT COUNT(*) FROM leave_requests l WHERE l.status = 'pending' AND l.user_id <> ? AND (l.approver_id = ?${
+        can(u, "leave.approve_any") ? " OR l.approver_id IS NULL OR NOT EXISTS (SELECT 1 FROM users a WHERE a.id = l.approver_id AND a.is_active = true)" : ""
+      })`,
+      [u.id, u.id],
+    ),
+  );
+  // การจองรถที่ยังไม่ระบุรถ (ผู้จัดคิวรถ) — ผู้รับแจ้งเตือน "รอจัดรถ" = ผู้มีสิทธิ์ vehicle.dispatch เหมือนกัน
+  if (can(u, "vehicle.dispatch")) data["/vehicles/dispatch"] = await unassignedVehicleBookings();
   res.json({ data });
+});
+
+/** ผู้รับงานแก้รายชื่อผู้ร่วมดำเนินการภายหลัง (ระหว่างงานยังไม่ปิด) — แจ้งเตือนเฉพาะคนที่เพิ่มใหม่ */
+ticketRoutes.put("/tickets/:uuid/helpers", async (req, res) => {
+  const t = await findTicket(req.params.uuid);
+  const u = me(req);
+  authorize(canEditOnsite(u, t));
+  req.input.helper_ids = req.input.helper_ids ?? [];
+  const ids = (await helperInput(req, Number(t.assignee_id)))!;
+  let added: number[] = [];
+  await transaction(async () => {
+    added = await saveHelpers(t, ids, u.id);
+  });
+  await notifyHelpers(t, added, u);
+  await respondDetail(req, res, t.id);
+});
+
+/** PUT /tickets/{uuid}/calendar { start_on, end_on, note } — เพิ่ม/แก้ช่วงวันไปทำงานหน้างาน, DELETE = เอาออกจากปฏิทิน */
+ticketRoutes.put("/tickets/:uuid/calendar", async (req, res) => {
+  const t = await findTicket(req.params.uuid);
+  const u = me(req);
+  authorize(canEditOnsite(u, t));
+  req.input.calendar = req.input.calendar ?? Object.fromEntries(["start_on", "end_on", "note"].filter((k) => req.input[k] !== undefined).map((k) => [k, req.input[k]]));
+  const v = await onsiteInput(req);
+  if (!v) throw notFound();
+  await saveOnsite(t, t.assignee_id!, u.id, v, req.locale);
+  await log(t.id, u.id, "calendar_updated", `${v.start_on} – ${v.end_on}`);
+  await respondDetail(req, res, t.id);
+});
+
+ticketRoutes.delete("/tickets/:uuid/calendar", async (req, res) => {
+  const t = await findTicket(req.params.uuid);
+  const u = me(req);
+  authorize(canEditOnsite(u, t));
+  await exec("DELETE FROM calendar_events WHERE ticket_id = ?", [t.id]);
+  await log(t.id, u.id, "calendar_removed");
+  await respondDetail(req, res, t.id);
 });
 
 /** GET /tickets?scope=mine|approvals|it&status=&type=&assigned=me&search= */
@@ -291,7 +450,11 @@ ticketRoutes.get("/tickets", async (req, res) => {
     where.push(ap.sql);
     params.push(...ap.params);
   }
-  if (f.assigned === "me") (where.push("t.assignee_id = ?"), params.push(u.id));
+  if (f.assigned === "me") {
+    // ผู้รับงาน หรือผู้ร่วมดำเนินการ
+    where.push("(t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?))");
+    params.push(u.id, u.id);
+  }
   if (f.status) (where.push("t.status = ?"), params.push(f.status));
   if (f.type) (where.push("t.type = ?"), params.push(f.type));
   const term = likeEscape(String(f.search ?? "").trim());
@@ -327,13 +490,15 @@ ticketRoutes.get("/tickets/form-options", async (req, res) => {
   const [staff, otherTypes, departments, divisions, approvers, assets] = await Promise.all([
     itStaff(), getSetting("ticket_other_types"), units("departments"), units("divisions"), approverCandidates(u), myAssets,
   ]);
+  const busyToday = await busyOf(staff.map((s) => Number(s.id)), localToday(), localToday());
   res.json({
     data: {
       branches: branches.map((b) => ({ id: b.id, code: b.code, name: b.name })),
       departments,
       divisions,
       approvers: approvers.map((a) => ({ id: a.id, name: a.name, branch_id: Number(a.branch_id), role: a.role })),
-      it_staff: staff.map((s) => ({ id: s.id, name: s.name })),
+      // วันนี้ลา / ออกหน้างาน — เตือนตอนผู้แจ้งเลือกเจ้าหน้าที่
+      it_staff: staff.map((s) => ({ id: s.id, name: s.name, busy: busyToday.get(Number(s.id))?.[0]?.kind ?? null })),
       other_types: Array.isArray(otherTypes) ? otherTypes : Object.values(otherTypes ?? {}),
       my_assets: assets.map((a) => ({ id: a.uuid, asset_tag: a.asset_tag, name: a.name, brand: a.brand, model: a.model, category: a.category })),
     },
@@ -446,6 +611,8 @@ ticketRoutes.post("/tickets", async (req, res) => {
 ticketRoutes.get("/tickets/:uuid", async (req, res) => {
   const t = await findTicket(req.params.uuid);
   authorize(canView(me(req), t));
+  // เปิดดูใบนี้แล้ว = แจ้งเตือนของใบนี้ในกระดิ่ง (ของผู้ดู) อ่านแล้ว
+  await markNoticesRead("ticket_id", t.uuid, { userId: me(req).id });
   await respondDetail(req, res, t.id);
 });
 
@@ -501,12 +668,22 @@ ticketRoutes.post("/tickets/:uuid/accept", async (req, res) => {
   const t = await findTicket(req.params.uuid);
   const u = me(req);
   authorize(canAccept(u, t));
+  // ติ๊ก "บันทึกลงปฏิทิน" = ช่วงวันไปทำงานหน้างาน
+  const onsite = await onsiteInput(req);
+  // ผู้ร่วมดำเนินการ (ทำงานมากกว่า 1 คน) — ได้แถว KPI ของใบนี้ด้วย
+  const helperIds = await helperInput(req, u.id);
 
+  let added: number[] = [];
   await transaction(async () => {
     await update("it_tickets", { status: "in_progress", assignee_id: u.id, accepted_at: nowDb(), updated_at: nowDb() }, "id = ?", [t.id]);
     await log(t.id, u.id, "accepted");
+    if (onsite) await saveOnsite(t, u.id, u.id, onsite, req.locale);
+    // ผู้รับงานต้องไม่ซ้ำกับผู้ร่วมเดิม (เช่น ผู้จัดการรับงานแทน)
+    await exec("DELETE FROM it_ticket_helpers WHERE it_ticket_id = ? AND user_id = ?", [t.id, u.id]);
+    if (helperIds) added = await saveHelpers(t, helperIds, u.id);
   });
   await notify({ ...t, status: "in_progress", assignee_id: u.id }, "accepted", u);
+  await notifyHelpers(t, added, u);
   await respondDetail(req, res, t.id);
 });
 

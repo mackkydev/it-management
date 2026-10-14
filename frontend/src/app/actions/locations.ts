@@ -23,6 +23,7 @@ function toPayload(v: LocationFormValues) {
     name: v.name.trim(),
     type: v.type,
     parent_id: v.parent_id ? Number(v.parent_id) : null,
+    branch_id: v.branch_id ? Number(v.branch_id) : null,
     address: v.address.trim() || null,
     is_active: v.is_active,
   };

@@ -9,7 +9,7 @@ import { Bone } from "@/components/skeletons";
 import { alert, btn, card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { has, getCurrentUser } from "@/lib/auth";
+import { getAccess, has, getCurrentUser } from "@/lib/auth";
 import type { ApprovalRoute } from "@/lib/types";
 import { PlanTester } from "./plan-tester";
 
@@ -23,7 +23,7 @@ const SAVED = ["created", "updated", "deleted"] as const;
 /** ตั้งค่าระบบ → สายอนุมัติใบแจ้งงาน (admin) */
 export default async function ApprovalRoutesPage({ searchParams }: PageProps<"/approval-routes">) {
   if (!has(await getCurrentUser(), "approval_routes.manage")) redirect("/tickets");
-  const [{ t }, params] = await Promise.all([getI18n(), searchParams]);
+  const [{ t }, params, can] = await Promise.all([getI18n(), searchParams, getAccess()]);
   const saved = SAVED.find((s) => s === params.saved);
 
   return (
@@ -33,10 +33,12 @@ export default async function ApprovalRoutesPage({ searchParams }: PageProps<"/a
         title={t("approvalRoutes.title")}
         subtitle={t("approvalRoutes.subtitle")}
         actions={
-          <Link href="/approval-routes/new" className={btn.primary}>
-            <LinkPendingIcon icon={<PlusIcon />} />
-            {t("approvalRoutes.add")}
-          </Link>
+          can("btn:approval-routes:create") && (
+            <Link href="/approval-routes/new" className={btn.primary}>
+              <LinkPendingIcon icon={<PlusIcon />} />
+              {t("approvalRoutes.add")}
+            </Link>
+          )
         }
       />
       {saved && (

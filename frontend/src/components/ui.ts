@@ -75,6 +75,6 @@ export const statusStyle: Record<string, [string, string]> = {
 export const alert = {
   success: "flex items-center gap-2 rounded-xl bg-success-50 px-4 py-3 text-sm text-success-800 ring-1 ring-success-100 dark:bg-success-400/10 dark:text-success-300 dark:ring-success-400/20",
   error: "flex items-center gap-2 rounded-xl bg-danger-50 px-4 py-3 text-sm text-danger-700 ring-1 ring-danger-100 dark:bg-danger-400/10 dark:text-danger-300 dark:ring-danger-400/20",
-  warning: "rounded-xl bg-warning-50 px-3 py-2 text-sm text-warning-800 dark:bg-warning-400/10 dark:text-warning-300",
+  warning: "flex items-center gap-2 rounded-xl bg-warning-50 px-3 py-2 text-sm text-warning-800 dark:bg-warning-400/10 dark:text-warning-300",
   info: "rounded-xl bg-accent-50 p-3 ring-1 ring-accent-100 dark:bg-accent-400/10 dark:ring-accent-400/20",
 };

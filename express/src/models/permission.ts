@@ -35,6 +35,10 @@ export const MODULES = [
   { key: "audit", group: "system", name_th: "บันทึกการเปลี่ยนแปลง", name_en: "Audit log" },
   { key: "access", group: "system", name_th: "สิทธิ์การใช้งาน", name_en: "Access control" },
   { key: "security", group: "system", name_th: "ความปลอดภัย", name_en: "Security" },
+  { key: "calendar", group: "users", name_th: "ปฏิทินและวันหยุด", name_en: "Calendar and holidays" },
+  { key: "leave", group: "users", name_th: "การลา", name_en: "Leave" },
+  { key: "meeting", group: "users", name_th: "ห้องประชุม", name_en: "Meeting rooms" },
+  { key: "vehicle", group: "users", name_th: "จองรถ", name_en: "Vehicle booking" },
 ] as const;
 export type ModuleKey = (typeof MODULES)[number]["key"];
 
@@ -77,6 +81,8 @@ const DEFS: Def[] = [
   { key: "contracts.create", module: "contracts", action: "create", name_th: "เพิ่มสัญญา vendor", name_en: "Add vendor contracts", defaults: IT, from: "contracts.manage" },
   { key: "contracts.update", module: "contracts", action: "update", name_th: "แก้ไขสัญญา vendor", name_en: "Edit vendor contracts", defaults: IT, from: "contracts.manage" },
   { key: "contracts.delete", module: "contracts", action: "delete", name_th: "ลบสัญญา vendor", name_en: "Delete vendor contracts", defaults: IT, from: "contracts.manage" },
+  // ผู้ที่แก้สัญญาได้อยู่แล้ว ได้สิทธิ์จัดการหมวดหมู่ตั้งแต่แรก (from)
+  { key: "contracts.categories", module: "contracts", action: "manage", name_th: "จัดการหมวดหมู่สัญญา (ข้อมูลหลัก)", name_en: "Manage contract categories (master data)", defaults: IT, from: "contracts.update" },
   { key: "announcements.manage", module: "announcements", action: "manage", name_th: "จัดการประกาศหน้า login", name_en: "Manage login announcements", defaults: IT },
 
   // สินทรัพย์ — ไม่มี assets.view_all (และไม่มี assets.create/update) = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง
@@ -105,12 +111,24 @@ const DEFS: Def[] = [
 
   // ตั้งค่าระบบ
   { key: "settings.manage", module: "settings", action: "manage", name_th: "ตั้งค่าระบบ (แจ้งเตือน, ประเภทงาน, โลโก้, ลำดับเมนู)", name_en: "System settings (notifications, ticket types, logo, menu order)", defaults: ["admin"] },
+  // หน้า ข้อมูล Drop Down: Computer Type / ยี่ห้อ / หมวดหมู่คลังบัญชี — ผู้ที่ตั้งค่าระบบได้อยู่แล้วได้ตั้งแต่แรก (from)
+  { key: "dropdowns.manage", module: "settings", action: "other", name_th: "จัดการข้อมูล Drop Down (Computer Type, ยี่ห้อ, หมวดหมู่คลังบัญชี)", name_en: "Manage drop-down data (computer type, brand, vault category)", defaults: ["admin"], from: "settings.manage" },
   { key: "approval_routes.manage", module: "approval_routes", action: "manage", name_th: "จัดการสายอนุมัติ", name_en: "Manage approval routes", defaults: ["admin"] },
   { key: "audit_logs.view", module: "audit", action: "view", name_th: "ดูบันทึกการเปลี่ยนแปลง (audit log)", name_en: "View the audit log", defaults: ["admin"] },
   { key: "access.assign", module: "access", action: "other", name_th: "มอบตำแหน่ง/กลุ่ม/สิทธิ์ให้ผู้ใช้ (เฉพาะสิทธิ์ที่ตัวเองมี)", name_en: "Assign roles / groups / permissions to users (only ones held)", defaults: ["admin"] },
   { key: "access.manage", module: "access", action: "manage", name_th: "กำหนดสิทธิ์ของกลุ่ม / สร้างกลุ่ม / การมองเห็นเมนู / วันหมดอายุของสิทธิ์", name_en: "Edit group permissions / groups / menu visibility / permission expiry", defaults: [], locked: true },
   // PIN กลาง: ผู้ดูแลระบบ (admin)แก้ได้ — ทุกครั้งแจ้งเตือนผู้ดูแลระบบสูงสุด + ผู้ดูแลระบบทุกคน (routes/it-data.ts)
   { key: "secrets.pin_manage", module: "security", action: "update", name_th: "ตั้ง/เปลี่ยน PIN กลางสำหรับเปิดดูรหัสผ่าน / License key (แจ้งเตือนผู้ดูแลระบบทุกคน)", name_en: "Set / change the shared PIN for viewing secrets (notifies all admins)", defaults: ["admin"] },
+  // ปฏิทิน: ทุกคนดูปฏิทิน (ตามขอบเขตของกลุ่ม) / ขอลา / สร้างกิจกรรมของตัวเองได้เสมอ — ผู้อนุมัติลา = หัวหน้าที่ผู้ลาระบุ
+  { key: "leave.view_all", module: "leave", action: "view", name_th: "ดูใบลาของทุกคน / ส่งออกรายงานการลา", name_en: "View everyone's leave / export the leave report", defaults: ["admin"] },
+  { key: "leave.approve_any", module: "leave", action: "approve", name_th: "อนุมัติใบลาแทนผู้อนุมัติที่ระบุ", name_en: "Approve leave on behalf of the chosen approver", defaults: ["admin"] },
+  { key: "holidays.manage", module: "calendar", action: "manage", name_th: "จัดการวันหยุดบริษัท / ตั้งค่าการลา / กิจกรรมทั้งบริษัท", name_en: "Manage company holidays / leave settings / company-wide events", defaults: ["admin"] },
+  // ห้องประชุม: ทุกคนดูปฏิทินห้อง / จอง / แก้-ยกเลิก-ลบการจองของตัวเองได้เสมอ
+  { key: "meeting.manage_any", module: "meeting", action: "update", name_th: "แก้ไข / ยกเลิก / ลบการจองห้องประชุมของผู้อื่น", name_en: "Edit / cancel / delete other people's room bookings", defaults: ["admin"] },
+  { key: "meeting.rooms", module: "meeting", action: "manage", name_th: "จัดการห้องประชุม (รายละเอียด / ที่นั่ง / รูป) และตัวเลือกประเภทการใช้งาน / อุปกรณ์", name_en: "Manage meeting rooms (details / seats / photos) and the usage-type / equipment options", defaults: ["admin"] },
+  // จองรถ: ทุกคนดูปฏิทินรถ / จอง (ไม่ระบุรถได้) / แก้-ยกเลิก-ลบ / บันทึกเลขไมล์ของการจองตัวเองได้เสมอ
+  { key: "vehicle.dispatch", module: "vehicle", action: "update", name_th: "จัดคิวรถ: เลือกรถให้การจอง และแก้ไข / ยกเลิก / ลบการจองของผู้อื่น", name_en: "Dispatch: assign vehicles and edit / cancel / delete other people's bookings", defaults: ["admin"] },
+  { key: "vehicle.manage", module: "vehicle", action: "manage", name_th: "จัดการรถ (รายละเอียด / ที่นั่ง / รูป / เลขไมล์) และตัวเลือกประเภทการใช้งาน / รายการเพิ่มเติม", name_en: "Manage vehicles (details / seats / photos / mileage) and the usage-type / extra options", defaults: ["admin"] },
 ];
 
 const GROUP_OF = Object.fromEntries(MODULES.map((m) => [m.key, m.group])) as Record<ModuleKey, PermissionDef["group"]>;

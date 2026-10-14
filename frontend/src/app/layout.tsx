@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Thai } from "next/font/google";
+import { headers } from "next/headers";
 import { DialogProvider } from "@/components/dialog-provider";
 import { PrefsProvider } from "@/components/prefs-provider";
 import { PwaRegister } from "@/components/pwa-register";
@@ -43,6 +44,8 @@ const MODE_SCRIPT = `(function(){try{var d=document.documentElement;if(d.dataset
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const prefs = await getPrefs();
   const { dict } = await getI18n();
+  // nonce จาก proxy.ts (CSP) — สคริปต์ inline ของเราต้องมี nonce ไม่งั้นเบราว์เซอร์บล็อก
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
     <html
@@ -55,7 +58,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning // class .dark อาจถูกเพิ่มโดย MODE_SCRIPT ก่อน hydrate
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: MODE_SCRIPT }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: MODE_SCRIPT }} />
       </head>
       <body className="min-h-full bg-canvas text-ink">
         <I18nProvider locale={prefs.locale} dict={dict}>

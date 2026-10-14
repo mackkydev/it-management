@@ -17,12 +17,16 @@ export default async function NewLocationPage() {
   const user = await getCurrentUser();
   if (!has(user, "locations.manage")) redirect("/locations");
 
-  const [{ data }, { t }] = await Promise.all([apiFetch<{ data: Location[] }>("/locations?include_inactive=1"), getI18n()]);
+  const [{ data }, { t }, branches] = await Promise.all([
+    apiFetch<{ data: Location[] }>("/locations?include_inactive=1"),
+    getI18n(),
+    apiFetch<{ data: { id: number; name: string }[] }>("/branches").then((r) => r.data),
+  ]);
 
   return (
     <div className="space-y-5">
       <PageHeader icon={MapPinIcon} title={t("locations.newTitle")} />
-      <LocationForm locations={data} />
+      <LocationForm locations={data} branches={branches} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { config } from "../src/config.js";
+import { scalar } from "../src/db.js";
 import { localToday } from "../src/lib/time.js";
 import { as, day, guest, localDay, makeUser } from "./helpers.js";
 
@@ -90,6 +91,25 @@ describe("UI permissions (ui-config)", () => {
     // คืนค่าเริ่มต้น: object ว่างเก็บเป็น [] (เหมือน Laravel)
     await admin.put("/api/v1/settings").send({ ui_permissions: {}, menu_order: {} });
     expect((await viewer.get("/api/v1/ui-config")).body.data).toMatchObject({ ui_permissions: [], menu_order: [] });
+  });
+
+  it("menu names can be renamed in both languages (both required); only access.manage; audited", async () => {
+    const viewer = await as(await makeUser());
+    const admin = await as(await makeUser({ role: "super_admin" }));
+    expect((await viewer.get("/api/v1/ui-config")).body.data.menu_labels).toEqual([]);
+    expect((await viewer.put("/api/v1/settings").send({ menu_labels: {} })).status).toBe(403);
+    // ภาษาเดียว = ไม่ผ่าน (กันชื่อสองภาษาไม่ตรงกัน)
+    expect((await admin.put("/api/v1/settings").send({ menu_labels: { "/tickets": { th: "กำแพง" } } })).status).toBe(422);
+
+    const labels = { "/tickets": { th: "ใบงานของฉัน", en: "My requests" }, requests: { th: "งานแจ้ง", en: "Requests" }, "bad key!": { th: "x", en: "y" } };
+    expect((await admin.put("/api/v1/settings").send({ menu_labels: labels })).status).toBe(200);
+    expect((await viewer.get("/api/v1/ui-config")).body.data.menu_labels).toEqual({
+      "/tickets": { th: "ใบงานของฉัน", en: "My requests" },
+      requests: { th: "งานแจ้ง", en: "Requests" },
+    });
+    expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'settings.menu_labels_updated'")).toBe(1);
+    await admin.put("/api/v1/settings").send({ menu_labels: {} });
+    expect((await viewer.get("/api/v1/ui-config")).body.data.menu_labels).toEqual([]);
   });
 });
 

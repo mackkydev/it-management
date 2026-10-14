@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
 import { alert, btn, card, input, table, tone } from "@/components/ui";
+import { AppSelect } from "@/components/app-select";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { has, getAccess, getCurrentUser } from "@/lib/auth";
@@ -27,7 +28,12 @@ export default async function ContractsPage({ searchParams }: PageProps<"/contra
   const user = await getCurrentUser();
   if (!has(user, "contracts.view")) redirect("/tickets");
   const params = await searchParams;
-  const [{ t }, can] = await Promise.all([getI18n(), getAccess()]);
+  const [{ t }, can, branches, categories] = await Promise.all([
+    getI18n(),
+    getAccess(),
+    apiFetch<{ data: { id: number; name: string }[] }>("/branches").then((r) => r.data),
+    apiFetch<{ data: { id: number; name: string; key: string | null }[] }>("/contract-categories").then((r) => r.data),
+  ]);
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string).slice(0, 100) : "");
   const saved = SAVED.find((s) => s === params.saved);
   const status = STATUSES.find((s) => s === params.status);
@@ -35,6 +41,9 @@ export default async function ContractsPage({ searchParams }: PageProps<"/contra
   const q = new URLSearchParams();
   if (str("search")) q.set("search", str("search"));
   if (status) q.set("status", status);
+  // ตัวกรองสาขา / หมวดหมู่
+  if (/^\d+$/.test(str("branch_id"))) q.set("branch_id", str("branch_id"));
+  if (/^\d+$/.test(str("category_id"))) q.set("category_id", str("category_id"));
 
   return (
     <div className="space-y-5">
@@ -57,12 +66,28 @@ export default async function ContractsPage({ searchParams }: PageProps<"/contra
           {t(`contracts.saved.${saved}`)}
         </div>
       )}
-      <Form action="/contracts" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_auto] ${card}`}>
+      <Form action="/contracts" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_13rem_13rem_auto] ${card}`}>
         {status && <input type="hidden" name="status" value={status} />}
         <div className="relative">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
           <input name="search" defaultValue={str("search")} placeholder={t("contracts.searchPlaceholder")} maxLength={100} className={`${input} pl-9`} />
         </div>
+        <AppSelect name="category_id" defaultValue={str("category_id")} className={input} aria-label={t("contracts.form.category")}>
+          <option value="">{t("contracts.allCategories")}</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.key ? t(`vault.categories.${c.key as "other"}`) : c.name}
+            </option>
+          ))}
+        </AppSelect>
+        <AppSelect name="branch_id" defaultValue={str("branch_id")} className={input} aria-label={t("contracts.form.branch")}>
+          <option value="">{t("contracts.allBranches")}</option>
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </AppSelect>
         <div className="flex gap-2">
           <Link href="/contracts" className={`${btn.secondary} px-3`} aria-label={t("common.clearFilters")}>
             <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
@@ -132,7 +157,10 @@ async function ContractResults({ query, status, search, canEdit }: { query: URLS
               {res.data.map((c) => (
                 <tr key={c.id} className={`${table.row} align-top`}>
                   <td className={table.td}>
-                    <div className="font-medium">{c.title}</div>
+                    <div className="flex flex-wrap items-center gap-2 font-medium">
+                      {c.title}
+                      {c.category && <span className="rounded-full bg-accent-50 px-2 py-0.5 text-xs font-normal text-accent-700 dark:bg-accent-400/15 dark:text-accent-300">{c.category.key ? t(`vault.categories.${c.category.key as "other"}`) : c.category.name}</span>}
+                    </div>
                     <div className="text-xs text-muted">
                       {c.contract_no && <span className="font-mono">{c.contract_no}</span>}
                       {c.contract_no && c.branch && " · "}

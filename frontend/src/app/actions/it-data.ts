@@ -79,13 +79,13 @@ export async function saveTicketOtherTypes(items: string[]): Promise<ItResult> {
 
 /* ---------------- สิทธิ์การใช้งาน (admin) ---------------- */
 
-/** บันทึกการมองเห็นเมนู/ปุ่ม + ลำดับเมนู (PUT /settings เฉพาะ 2 คีย์นี้) */
-export async function saveUiConfig(values: Pick<UiConfig, "ui_permissions" | "menu_order">): Promise<ItResult> {
+/** บันทึกการมองเห็นเมนู/ปุ่ม + ลำดับเมนู + ชื่อเมนูที่แก้เอง (PUT /settings เฉพาะ 3 คีย์นี้) */
+export async function saveUiConfig(values: Pick<UiConfig, "ui_permissions" | "menu_order" | "menu_labels">): Promise<ItResult> {
   const { t } = await getI18n();
   // ไม่บันทึกรายการที่ไม่ได้ซ่อนกลุ่มไหนเลย
   const ui_permissions = Object.fromEntries(Object.entries(values.ui_permissions).filter(([, denied]) => denied.length > 0));
   try {
-    await apiFetch("/settings", { method: "PUT", body: JSON.stringify({ ui_permissions, menu_order: values.menu_order }) });
+    await apiFetch("/settings", { method: "PUT", body: JSON.stringify({ ui_permissions, menu_order: values.menu_order, menu_labels: values.menu_labels }) });
   } catch (e) {
     return toActionResult(e);
   }
@@ -184,6 +184,7 @@ export interface ContractPayload {
   notify_days_before: string;
   notes: string;
   branch_id: string;
+  category_id: string;
 }
 
 export async function saveContract(id: number | null, v: ContractPayload): Promise<ItResult> {
@@ -202,6 +203,7 @@ export async function saveContract(id: number | null, v: ContractPayload): Promi
     notify_days_before: v.notify_days_before ? Number(v.notify_days_before) : null,
     notes: text(v.notes),
     branch_id: v.branch_id ? Number(v.branch_id) : null,
+    category_id: v.category_id ? Number(v.category_id) : null,
   };
   try {
     await apiFetch(id ? `/contracts/${id}` : "/contracts", { method: id ? "PATCH" : "POST", body: JSON.stringify(body) });

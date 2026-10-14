@@ -5,8 +5,11 @@ import { PageHeader } from "@/components/page-header";
 import { PrefsControls } from "@/components/shell/prefs-controls";
 import { card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
+import { apiFetch } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
+import type { TwoFactorStatus } from "@/app/actions/profile";
 import { PasswordForm, ProfileForm, SignatureCard } from "./profile-forms";
+import { TwoFactorCard } from "./two-factor-card";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -15,7 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function ProfilePage() {
   // getCurrentUser = GET /auth/me (ข้อมูลผู้ใช้ทั้งหมดจาก API รวมสังกัด/หัวหน้า/สิทธิ์ IT/ลายเซ็น)
-  const [user, { t, fmt }] = await Promise.all([getCurrentUser(), getI18n()]);
+  const [user, { t, fmt }, twoFactor] = await Promise.all([getCurrentUser(), getI18n(), apiFetch<{ data: TwoFactorStatus }>("/auth/2fa").then((r) => r.data)]);
   const yes = (v?: boolean) => (v ? t("profile.yes") : t("profile.no"));
 
   const rows: { label: string; value: ReactNode }[] = [
@@ -71,7 +74,11 @@ export default async function ProfilePage() {
               )}
             </section>
           ) : (
-            <PasswordForm />
+            <>
+              <PasswordForm />
+              {/* 2FA เฉพาะบัญชี LOCAL (API User ยืนยันตัวตนที่ระบบต้นทาง) */}
+              {twoFactor.available && <TwoFactorCard status={twoFactor} />}
+            </>
           )}
         </div>
         <section className={`h-fit p-4 sm:p-6 ${card}`}>

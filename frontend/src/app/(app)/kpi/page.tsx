@@ -86,7 +86,7 @@ export default async function KpiPage({ searchParams }: PageProps<"/kpi">) {
             {t("kpi.show")}
           </SubmitButton>
         </Form>
-        <KpiExport months={months} defaultMonth={month} userId={userId} />
+        {can("btn:kpi:export") && <KpiExport months={months} defaultMonth={month} userId={userId} />}
       </div>
 
       <Suspense key={`${month}-${userId}`} fallback={<TableSkeleton cols={10} />}>

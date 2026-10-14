@@ -170,7 +170,7 @@ export function SoftwareSlotPicker({ id, options, value, legacy, exclude, instal
           <span className="truncate">{value.name}</span>
           <span className="shrink-0 font-mono text-[11px] text-muted">{value.asset_tag}</span>
         </span>
-        <button type="button" onClick={() => onChange(null)} className={`${btn.danger} ${btn.sm} shrink-0 px-2 py-1`} aria-label={t("common.clear")}>
+        <button type="button" onClick={() => onChange(null)} className={`${btn.danger} -my-1 h-6! shrink-0 gap-1! px-2! py-0! text-xs!`} aria-label={t("common.clear")}>
           <XIcon width={12} height={12} />
         </button>
       </div>

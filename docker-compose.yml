@@ -81,6 +81,23 @@ services:
       mysql:
         condition: service_healthy
 
+  # หน้าเว็บ (Next.js standalone) สำหรับเครื่องจริง — profile web: docker compose --profile web up -d --build
+  # เครื่องพัฒนาใช้ npm run dev ตามเดิม (service นี้ไม่ขึ้นเองกับ docker compose up -d)
+  # เปิดที่ 127.0.0.1 เท่านั้น — Caddy / Cloudflare Tunnel อยู่ด้านหน้า (deploy/Caddyfile) และต้องเขียนทับ X-Real-IP
+  frontend:
+    build: ./frontend
+    container_name: it_frontend
+    restart: unless-stopped
+    profiles: ["web"]
+    environment:
+      # เรียก API ผ่าน docker network (ไม่ออกนอกเครื่อง)
+      API_URL: http://express:8020/api/v1
+    ports:
+      - "127.0.0.1:${IT_WEB_PORT:-3000}:3000"
+    depends_on:
+      express:
+        condition: service_healthy
+
   # phpMyAdmin ของ IT-SYSTEM (ต่อ it_mysql) — คนละตัวกับ system_phpmyadmin :8080 ของระบบอื่น
   # login: ผู้ใช้ it_app (หรือ root) + รหัสผ่านใน express/.env (DB_PASSWORD) / IT_DB_ROOT_PASSWORD
   phpmyadmin:

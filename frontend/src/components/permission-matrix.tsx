@@ -10,17 +10,55 @@ import type { PermissionDef, PermissionModule } from "@/lib/types";
 /** คอลัมน์ของตาราง — "manage" (เพิ่ม/แก้ไข/ลบ รวมกัน) วางคร่อม 3 คอลัมน์ เพิ่ม–ลบ */
 const COLUMNS = ["view", "create", "update", "delete", "approve", "other"] as const;
 type Column = (typeof COLUMNS)[number];
+/** ช่องสิทธิ์แต่ละคอลัมน์: เส้นแบ่งแนวตั้ง + ระยะห่าง ให้อ่านตามคอลัมน์ง่าย */
+const CELL = "border-l border-line px-4";
 
 /**
- * สิ่งที่ทุกคนทำได้เสมอ (ไม่มี permission key — ระบบอนุญาตตามเจ้าของเอกสาร) — แสดงเป็นช่องติ๊กที่ล็อกไว้ในช่องที่ว่าง
- * ต้องตรงกับกฎใน express/src/services/ticket-workflow.ts (canEdit / canDelete)
+ * สิ่งที่ทุกคนทำได้เสมอกับเอกสารของตัวเอง (ไม่มี permission key — ระบบอนุญาตตามบทบาทในเอกสาร) — ช่องติ๊กที่ล็อกไว้ + คำสั้นใต้ช่อง
+ * ถ้าคอลัมน์นั้นมีสิทธิ์ให้ติ๊กด้วย (เช่น ดูทั้งหมด) จะแสดงคู่กัน: "ของตัวเอง" (ล็อก) + "ทั้งหมด" (ติ๊กได้)
+ * ต้องตรงกับกฎใน express/src/services/ticket-workflow.ts (canView / canApprove / canEdit / canDelete), routes/calendar.ts, routes/assets.ts
  */
-const ALWAYS: Partial<Record<string, Partial<Record<Column, MessageKey>>>> = {
+type Always = { label: MessageKey; short: MessageKey };
+const ALWAYS: Partial<Record<string, Partial<Record<Column, Always>>>> = {
   tickets: {
-    create: "rolePermissions.always.ticketCreate",
-    update: "rolePermissions.always.ticketUpdate",
-    delete: "rolePermissions.always.ticketDelete",
+    view: { label: "rolePermissions.always.ticketView", short: "rolePermissions.short.own" },
+    create: { label: "rolePermissions.always.ticketCreate", short: "rolePermissions.short.everyone" },
+    update: { label: "rolePermissions.always.ticketUpdate", short: "rolePermissions.short.own" },
+    delete: { label: "rolePermissions.always.ticketDelete", short: "rolePermissions.short.own" },
+    approve: { label: "rolePermissions.always.ticketApprove", short: "rolePermissions.short.byRoute" },
   },
+  assets: {
+    view: { label: "rolePermissions.always.assetView", short: "rolePermissions.short.held" },
+  },
+  calendar: {
+    view: { label: "rolePermissions.always.calendarView", short: "rolePermissions.short.byScope" },
+  },
+  leave: {
+    view: { label: "rolePermissions.always.leaveView", short: "rolePermissions.short.own" },
+    approve: { label: "rolePermissions.always.leaveApprove", short: "rolePermissions.short.asApprover" },
+  },
+  // ห้องประชุม: ทุกคนดูปฏิทินห้อง / จอง / แก้-ยกเลิก-ลบการจองของตัวเอง (routes/meeting-rooms.ts)
+  meeting: {
+    view: { label: "rolePermissions.always.meetingView", short: "rolePermissions.short.everyone" },
+    create: { label: "rolePermissions.always.meetingCreate", short: "rolePermissions.short.everyone" },
+  },
+  // จองรถ: ทุกคนดูปฏิทินรถ / จอง / แก้-ยกเลิก-ลบ / บันทึกเลขไมล์ของตัวเอง (routes/vehicles.ts)
+  vehicle: {
+    view: { label: "rolePermissions.always.vehicleView", short: "rolePermissions.short.everyone" },
+    create: { label: "rolePermissions.always.vehicleCreate", short: "rolePermissions.short.everyone" },
+  },
+};
+
+/** คำสั้นใต้ช่องติ๊กของสิทธิ์ที่ชื่อคอลัมน์อย่างเดียวไม่พอ (เช่น "ดู" ของใบแจ้งงาน = ดูของทุกคน ไม่ใช่ของตัวเอง) */
+const SHORT: Partial<Record<string, MessageKey>> = {
+  "tickets.view_all": "rolePermissions.short.all",
+  "tickets.approve_any": "rolePermissions.short.onBehalfAll",
+  "assets.view_all": "rolePermissions.short.all",
+  "kpi.view_all": "rolePermissions.short.everyone",
+  "leave.view_all": "rolePermissions.short.everyone",
+  "leave.approve_any": "rolePermissions.short.onBehalf",
+  "meeting.manage_any": "rolePermissions.short.others",
+  "vehicle.dispatch": "rolePermissions.short.dispatch",
 };
 
 /**
@@ -38,30 +76,56 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
         <LockIcon width={12} height={12} className="shrink-0 text-warning-500" aria-label={t("rolePermissions.locked")} />
       </Tooltip>
     );
-  // ช่อง "ทำได้เสมอ": ติ๊กไว้และล็อก แก้ไม่ได้
+  const caption = (key: MessageKey | undefined) => key && <span className="whitespace-nowrap text-[11px] leading-none text-muted">{t(key)}</span>;
+  // ช่อง "ทำได้เสมอ": ติ๊กไว้และล็อก แก้ไม่ได้ (+ คำสั้น เช่น "ของตัวเอง")
   const always = (moduleKey: string, c: Column) => {
-    const label = ALWAYS[moduleKey]?.[c];
-    if (!label) return null;
+    const a = ALWAYS[moduleKey]?.[c];
+    if (!a) return null;
     return (
-      <Tooltip label={t(label)} side="top">
-        <span className="inline-flex items-center gap-1">
-          <input type="checkbox" checked readOnly disabled aria-label={t(label)} className="h-4 w-4 cursor-not-allowed accent-[var(--accent-500)] opacity-60" />
-          <LockIcon width={11} height={11} className="shrink-0 text-faint" />
+      <Tooltip label={t(a.label)} side="top">
+        <span className="inline-flex flex-col items-center gap-1">
+          <span className="inline-flex items-center gap-1">
+            <input type="checkbox" checked readOnly disabled aria-label={t(a.label)} className="h-4 w-4 cursor-not-allowed accent-[var(--accent-500)] opacity-60" />
+            <LockIcon width={11} height={11} className="shrink-0 text-faint" />
+          </span>
+          {caption(a.short)}
         </span>
       </Tooltip>
     );
   };
   const control = (p: PermissionDef) => (
     <Tooltip label={name(p)} side="top">
-      <span className="inline-flex items-center gap-1">
-        {cell(p)}
-        {lockBadge(p)}
+      <span className="inline-flex flex-col items-center gap-1">
+        <span className="inline-flex items-center gap-1">
+          {cell(p)}
+          {lockBadge(p)}
+        </span>
+        {caption(SHORT[p.key])}
       </span>
     </Tooltip>
+  );
+  /** ช่องของคอลัมน์: "ทำได้เสมอ" (ถ้ามี) + สิทธิ์ที่ติ๊กได้ เรียงแนวนอน */
+  const slot = (moduleKey: string, c: Column, perms: PermissionDef[]) => (
+    <span className="inline-flex items-start justify-center gap-4">
+      {always(moduleKey, c)}
+      {perms.map((p) => (
+        <span key={p.key}>{control(p)}</span>
+      ))}
+    </span>
   );
 
   return (
     <>
+      {/* วิธีอ่านตาราง */}
+      <ul className="mb-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+        <li className="flex items-center gap-1.5">
+          <input type="checkbox" checked readOnly disabled tabIndex={-1} aria-hidden="true" className="h-3.5 w-3.5 accent-[var(--accent-500)] opacity-60" />
+          <LockIcon width={11} height={11} className="text-faint" />
+          {t("rolePermissions.legend.always")}
+        </li>
+        <li>{t("rolePermissions.legend.blank")}</li>
+        <li>{t("rolePermissions.legend.hover")}</li>
+      </ul>
       {/* จอใหญ่: ตาราง */}
       <div className="hidden overflow-x-auto rounded-xl ring-1 ring-line md:block">
         <table className="w-full text-sm">
@@ -70,7 +134,7 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
               {/* คอลัมน์ระบบงานกินพื้นที่ที่เหลือ → ช่องสิทธิ์ทั้งหมดชิดขวา */}
               <th className="w-full px-4 py-2.5 text-left font-medium">{t("rolePermissions.module")}</th>
               {COLUMNS.map((c) => (
-                <th key={c} className={`px-3 py-2.5 font-medium whitespace-nowrap ${c === "other" ? "min-w-72 pl-6 text-left" : "w-32 text-center"}`}>
+                <th key={c} className={`${CELL} py-2.5 font-medium whitespace-nowrap ${c === "other" ? "min-w-72 pl-6 text-left" : "min-w-40 text-center"}`}>
                   {t(`rolePermissions.actions.${c}` as MessageKey)}
                 </th>
               ))}
@@ -83,11 +147,11 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
               return (
                 <tr key={m.key} className="hover:bg-subtle/40">
                   <td className="whitespace-nowrap px-4 py-2.5 font-medium text-ink">{name(m)}</td>
-                  <td className="px-3 py-2.5 text-center">{at("view").map((p) => <span key={p.key}>{control(p)}</span>)}</td>
+                  <td className={`${CELL} py-3 text-center`}>{slot(m.key, "view", at("view"))}</td>
                   {manage.length > 0 && at("create").length + at("update").length === 0 ? (
                     <>
                       {/* "จัดการ" คร่อมคอลัมน์ เพิ่ม–แก้ไข (–ลบ ถ้าไม่มีสิทธิ์ลบแยก) */}
-                      <td colSpan={at("delete").length ? 2 : 3} className="px-3 py-2.5 text-center">
+                      <td colSpan={at("delete").length ? 2 : 3} className={`${CELL} py-3 text-center`}>
                         {manage.map((p) => (
                           <span key={p.key} className="inline-flex items-center gap-1.5">
                             {control(p)}
@@ -95,20 +159,17 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
                           </span>
                         ))}
                       </td>
-                      {at("delete").length > 0 && <td className="px-3 py-2.5 text-center">{at("delete").map((p) => <span key={p.key}>{control(p)}</span>)}</td>}
+                      {at("delete").length > 0 && <td className={`${CELL} py-3 text-center`}>{at("delete").map((p) => <span key={p.key}>{control(p)}</span>)}</td>}
                     </>
                   ) : (
                     (["create", "update", "delete"] as const).map((c) => (
-                      <td key={c} className="px-3 py-2.5 text-center">
-                        {[...at(c), ...(c === "create" ? manage : [])].map((p) => (
-                          <span key={p.key}>{control(p)}</span>
-                        ))}
-                        {at(c).length === 0 && !(c === "create" && manage.length) && always(m.key, c)}
+                      <td key={c} className={`${CELL} py-3 text-center`}>
+                        {slot(m.key, c, [...at(c), ...(c === "create" ? manage : [])])}
                       </td>
                     ))
                   )}
-                  <td className="px-3 py-2.5 text-center">{at("approve").map((p) => <span key={p.key}>{control(p)}</span>)}</td>
-                  <td className="py-2.5 pl-6 pr-3">
+                  <td className={`${CELL} py-3 text-center`}>{slot(m.key, "approve", at("approve"))}</td>
+                  <td className={`${CELL} py-3 pl-6`}>
                     <div className="flex flex-col gap-1.5">
                       {at("other").map((p) => (
                         <span key={p.key} className="flex items-center gap-2">
@@ -132,10 +193,10 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
           <div key={m.key} className="rounded-xl ring-1 ring-line">
             <p className="border-b border-line bg-subtle px-3 py-2 text-sm font-semibold">{name(m)}</p>
             <ul className="divide-y divide-line">
-              {Object.entries(ALWAYS[m.key] ?? {}).map(([c, label]) => (
+              {Object.entries(ALWAYS[m.key] ?? {}).map(([c, a]) => (
                 <li key={c} className="flex items-center gap-3 px-3 py-2 text-muted">
                   <input type="checkbox" checked readOnly disabled className="h-4 w-4 accent-[var(--accent-500)] opacity-60" />
-                  <span className="min-w-0 flex-1 text-sm">{t(label!)}</span>
+                  <span className="min-w-0 flex-1 text-sm">{t(a!.label)}</span>
                   <LockIcon width={12} height={12} className="shrink-0 text-faint" />
                 </li>
               ))}

@@ -17,6 +17,10 @@ import { groupsOf } from "../services/permissions.js";
 import { checkCentralPin, secretGuard, verifyLoginPassword } from "../services/secret-guard.js";
 import { activeSignature, deactivateSignature, mimeOf, readSignature, saveSignature, SignatureError } from "../services/signatures.js";
 import type { Locale } from "../lib/i18n.js";
+import {
+  challengeValid, confirmSetup, consumeRecoveryCode, disableTwoFactor, issueRecoveryCodes, readChallenge, recoveryCodesLeft, signChallenge, startSetup,
+  twoFactorEnabled, twoFactorRequiredFor, verifyUserTotp,
+} from "../services/two-factor.js";
 
 /** Bearer token แบบ Sanctum — AuthController + ProfileController */
 export const loginRoutes = Router();
@@ -49,15 +53,74 @@ loginRoutes.post("/auth/login", limits.login, async (req, res) => {
     throw ValidationError.withMessages({ email: trans(req.locale, "eam.auth.failed") });
   }
 
-  const expiresAt = addMinutes(new Date(), config.tokenTtlMinutes);
-  const token = await createToken(user.id, String(data.device_name), expiresAt);
+  // 2FA: รหัสผ่านถูกแล้ว → ขอรหัสจากแอป (verify) หรือบังคับตั้ง 2FA ก่อน (setup) — ยังไม่ออก token
+  if (twoFactorEnabled(user)) return void res.json({ two_factor: "verify", challenge: signChallenge(user, "verify") });
+  if (await twoFactorRequiredFor(user)) return void res.json({ two_factor: "setup", challenge: signChallenge(user, "setup") });
 
-  res.json({
-    token: token.plainText,
-    token_type: "Bearer",
-    expires_at: iso(toDbDateTime(expiresAt)),
-    user: userResource(user),
-  });
+  res.json(await issueLogin(user, String(data.device_name)));
+});
+
+/** ออก token ของเรา (รูปแบบ response เดียวกับ /auth/login เดิม) */
+async function issueLogin(user: UserRow, deviceName: string) {
+  const expiresAt = addMinutes(new Date(), config.tokenTtlMinutes);
+  const token = await createToken(user.id, deviceName, expiresAt);
+  return { token: token.plainText, token_type: "Bearer", expires_at: iso(toDbDateTime(expiresAt)), user: userResource((await findUser(user.id))!) };
+}
+
+/* ---------------------------------------------------------------- login ขั้นที่ 2 (2FA — services/two-factor.ts) */
+
+/** ใบผ่านชั่วคราวจาก /auth/login → ผู้ใช้ (หมดอายุ / ลายมือไม่ตรง / ผิดขั้นตอน = 422 ให้ login ใหม่) */
+async function challengeUser(req: import("express").Request, purpose: "verify" | "setup"): Promise<UserRow> {
+  const token = typeof req.input.challenge === "string" ? req.input.challenge : "";
+  const c = token ? readChallenge(token) : null;
+  const user = c && c.purpose === purpose ? await findUser(c.userId) : null;
+  if (!c || !user || !isLocal(user) || !user.is_active || !challengeValid(token, user)) {
+    throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.challenge_expired") });
+  }
+  return user;
+}
+
+const actorOf = (req: import("express").Request, user: UserRow) => ({ user, ip: req.ip });
+
+/** POST /auth/login/2fa/setup { challenge } — ผู้ดูแลระบบที่ถูกบังคับ 2FA: secret + QR สำหรับสแกน */
+loginRoutes.post("/auth/login/2fa/setup", limits.twoFactor, async (req, res) => {
+  const user = await challengeUser(req, "setup");
+  if (twoFactorEnabled(user)) throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.already_enabled") });
+  res.json({ data: await startSetup(user) });
+});
+
+/**
+ * POST /auth/login/2fa { challenge, code | recovery_code, device_name }
+ *   verify = รหัสจากแอป หรือ recovery code (ใช้ได้ครั้งเดียว) → token
+ *   setup  = รหัสแรกจากแอปที่เพิ่งสแกน → เปิด 2FA + recovery codes (แสดงครั้งเดียว) → token
+ */
+loginRoutes.post("/auth/login/2fa", limits.twoFactor, async (req, res) => {
+  const data = await validate(
+    req.input,
+    { challenge: ["required", "string", "max:500"], code: ["nullable", "string", "max:20"], recovery_code: ["nullable", "string", "max:30"], device_name: ["required", "string", "max:100"] },
+    { locale: req.locale },
+  );
+  const purpose = readChallenge(String(data.challenge))?.purpose ?? "verify";
+  const user = await challengeUser(req, purpose);
+  const fail = async (): Promise<never> => {
+    await audit(actorOf(req, user), { action: "auth.2fa_failed", subjectType: "user", subjectId: user.id });
+    throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.invalid") });
+  };
+
+  if (purpose === "setup") {
+    if (twoFactorEnabled(user) || !data.code) return fail();
+    const codes = await confirmSetup(user, String(data.code));
+    if (!codes) return fail();
+    await audit(actorOf(req, user), { action: "two_factor.enabled", subjectType: "user", subjectId: user.id });
+    return void res.json({ ...(await issueLogin(user, String(data.device_name))), recovery_codes: codes });
+  }
+
+  if (!twoFactorEnabled(user)) return fail();
+  if (data.recovery_code) {
+    if (!(await consumeRecoveryCode(user, String(data.recovery_code)))) return fail();
+    await audit(actorOf(req, user), { action: "two_factor.recovery_used", subjectType: "user", subjectId: user.id, after: { left: recoveryCodesLeft((await findUser(user.id))!) } });
+  } else if (!data.code || !(await verifyUserTotp(user, String(data.code)))) return fail();
+  res.json(await issueLogin(user, String(data.device_name)));
 });
 
 /* ---------------------------------------------------------------- API User (login ผ่านระบบต้นทาง) */
@@ -181,6 +244,66 @@ authRoutes.get("/auth/me", async (req, res) => {
       ...(external ? { external_connection: external } : {}),
     },
   });
+});
+
+/* ---------------------------------------------------------------- 2FA ของฉัน (หน้าโปรไฟล์) */
+
+authRoutes.get("/auth/2fa", async (req, res) => {
+  const u = me(req);
+  res.json({
+    data: {
+      available: isLocal(u),
+      enabled: twoFactorEnabled(u),
+      confirmed_at: iso(u.two_factor_confirmed_at ?? null),
+      recovery_codes_left: recoveryCodesLeft(u),
+      required: await twoFactorRequiredFor(u),
+    },
+  });
+});
+
+/** POST /auth/2fa/setup { password } — secret ใหม่ + QR (ยังไม่มีผลจนยืนยันรหัสแรก) */
+authRoutes.post("/auth/2fa/setup", limits.twoFactor, async (req, res) => {
+  const u = me(req);
+  if (!isLocal(u)) throw ValidationError.withMessages({ password: trans(req.locale, "eam.two_factor.local_only") });
+  if (twoFactorEnabled(u)) throw ValidationError.withMessages({ password: trans(req.locale, "eam.two_factor.already_enabled") });
+  const data = await validate(req.input, { password: ["required", "string", "max:255"] }, { locale: req.locale });
+  if (!u.password || !verifyHash(String(data.password), u.password)) throw ValidationError.withMessages({ password: trans(req.locale, "eam.secret_guard.wrong_password") });
+  res.json({ data: await startSetup(u) });
+});
+
+/** POST /auth/2fa/confirm { code } — เปิดใช้ + recovery codes (แสดงครั้งเดียว) */
+authRoutes.post("/auth/2fa/confirm", limits.twoFactor, async (req, res) => {
+  const u = me(req);
+  if (twoFactorEnabled(u) || !u.two_factor_secret) throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.already_enabled") });
+  const data = await validate(req.input, { code: ["required", "string", "max:20"] }, { locale: req.locale });
+  const codes = await confirmSetup(u, String(data.code));
+  if (!codes) throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.invalid") });
+  await audit(req, { action: "two_factor.enabled", subjectType: "user", subjectId: u.id });
+  res.json({ data: { recovery_codes: codes } });
+});
+
+/** POST /auth/2fa/recovery-codes { code } — สร้างชุดใหม่ (ชุดเดิมใช้ไม่ได้) */
+authRoutes.post("/auth/2fa/recovery-codes", limits.twoFactor, async (req, res) => {
+  const u = me(req);
+  if (!twoFactorEnabled(u)) throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.not_enabled") });
+  const data = await validate(req.input, { code: ["required", "string", "max:20"] }, { locale: req.locale });
+  if (!(await verifyUserTotp(u, String(data.code)))) throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.invalid") });
+  const codes = await issueRecoveryCodes(u.id);
+  await audit(req, { action: "two_factor.recovery_regenerated", subjectType: "user", subjectId: u.id });
+  res.json({ data: { recovery_codes: codes } });
+});
+
+/** DELETE /auth/2fa { password, code } — ปิด 2FA (ถูกบังคับใช้อยู่ = ปิดไม่ได้) */
+authRoutes.delete("/auth/2fa", limits.twoFactor, async (req, res) => {
+  const u = me(req);
+  if (!twoFactorEnabled(u)) throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.not_enabled") });
+  if (await twoFactorRequiredFor(u)) throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.required") });
+  const data = await validate(req.input, { password: ["required", "string", "max:255"], code: ["required", "string", "max:20"] }, { locale: req.locale });
+  if (!u.password || !verifyHash(String(data.password), u.password)) throw ValidationError.withMessages({ password: trans(req.locale, "eam.secret_guard.wrong_password") });
+  if (!(await verifyUserTotp(u, String(data.code)))) throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.invalid") });
+  await disableTwoFactor(u.id);
+  await audit(req, { action: "two_factor.disabled", subjectType: "user", subjectId: u.id });
+  res.status(204).end();
 });
 
 /** เพิกถอนเฉพาะ token ของอุปกรณ์ที่เรียก (API User: แจ้ง logout ที่ต้นทางด้วยถ้ามี endpoint) */

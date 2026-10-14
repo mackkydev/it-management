@@ -11,6 +11,7 @@ import { getCurrentUser, has, isSuperAdmin } from "@/lib/auth";
 import type { ApprovalRoute, Branch, ManagedUser, OrgUnit } from "@/lib/types";
 import { UserForm } from "../../user-form";
 import { SignatureStatus } from "./signature-status";
+import { TwoFactorStatus } from "./two-factor-status";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -58,6 +59,7 @@ export default async function EditUserPage({ params }: PageProps<"/users/[id]/ed
         }
       />
       {has(me, "users.update") && <SignatureStatus userId={user.id} hasSignature={Boolean(user.has_signature)} />}
+      {has(me, "access.manage") && user.type === "LOCAL" && <TwoFactorStatus userId={user.id} enabled={Boolean(user.two_factor_enabled)} />}
       <UserForm
         user={user}
         isSelf={user.id === me.id}

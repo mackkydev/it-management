@@ -28,7 +28,18 @@
         background: rgb(255 255 255 / 0.04);
         box-shadow: 0 0 0 1px rgb(148 163 255 / 0.15) inset;
       }
-      img { width: 72px; height: 72px; border-radius: 18px; }
+      /* ไอคอนฝังในหน้า (SVG) — ตอน offline โหลดไฟล์รูปจากเซิร์ฟเวอร์ไม่ได้ */
+      .icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 72px;
+        height: 72px;
+        border-radius: 20px;
+        color: #c4b5fd;
+        background: rgb(139 92 246 / 0.15);
+        box-shadow: 0 0 0 1px rgb(139 92 246 / 0.3) inset;
+      }
       h1 { margin: 20px 0 8px; font-size: 1.25rem; font-weight: 600; }
       p { margin: 0; color: #9aa6c8; font-size: 0.95rem; line-height: 1.6; }
       button {
@@ -46,7 +57,18 @@
   </head>
   <body>
     <main class="card">
-      <img src="/icons/icon-192.png" alt="" />
+      <span class="icon" aria-hidden="true">
+        <!-- wifi ขีดฆ่า = offline -->
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 8.8a15 15 0 0 1 4.2-2.6" />
+          <path d="M10.7 5.1A15 15 0 0 1 22 8.8" />
+          <path d="M5 12.5a10 10 0 0 1 5.2-2.4" />
+          <path d="M16.9 10.9A10 10 0 0 1 19 12.5" />
+          <path d="M8.5 16a5 5 0 0 1 7 0" />
+          <path d="M12 20h.01" />
+          <path d="M3 3l18 18" />
+        </svg>
+      </span>
       <h1>ไม่มีการเชื่อมต่ออินเทอร์เน็ต</h1>
       <p>IT-SYSTEM ต้องเชื่อมต่อเครือข่ายเพื่อแสดงข้อมูลล่าสุด<br />ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง</p>
       <button type="button" onclick="location.reload()">ลองอีกครั้ง</button>

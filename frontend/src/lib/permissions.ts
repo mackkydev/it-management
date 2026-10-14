@@ -18,9 +18,13 @@ export interface MenuOrder {
   items?: Record<string, string[]>;
 }
 
+/** ชื่อเมนูที่แก้เอง { "<group id | /href>": { th, en } } — ไม่มี = ชื่อตั้งต้นจากไฟล์แปล */
+export type MenuLabels = Record<string, { th: string; en: string }>;
+
 export interface UiConfig {
   ui_permissions: UiPermissions;
   menu_order: MenuOrder;
+  menu_labels: MenuLabels;
   /** สิทธิ์ (permission key) ของแต่ละกลุ่มจาก API — ใช้จำลองว่าแต่ละกลุ่มเข้าเมนู/ปุ่มใดได้ */
   role_permissions: Record<Audience, string[]>;
   /** เวอร์ชันโลโก้ระบบ (null = ไม่มีโลโก้ → แสดง icon เดิม) */
@@ -28,17 +32,20 @@ export interface UiConfig {
 }
 
 /** PHP ส่ง object ว่างเป็น [] — แปลงให้เป็น object เสมอ */
-export function normalizeUiConfig(raw: { ui_permissions?: unknown; menu_order?: unknown; role_permissions?: unknown; logo_version?: unknown } | null | undefined): UiConfig {
+export function normalizeUiConfig(
+  raw: { ui_permissions?: unknown; menu_order?: unknown; menu_labels?: unknown; role_permissions?: unknown; logo_version?: unknown } | null | undefined,
+): UiConfig {
   const obj = <T,>(v: unknown): T => (v && typeof v === "object" && !Array.isArray(v) ? (v as T) : ({} as T));
   return {
     ui_permissions: obj<UiPermissions>(raw?.ui_permissions),
     menu_order: obj<MenuOrder>(raw?.menu_order),
+    menu_labels: obj<MenuLabels>(raw?.menu_labels),
     role_permissions: obj<Record<Audience, string[]>>(raw?.role_permissions),
     logo_version: typeof raw?.logo_version === "string" && raw.logo_version ? raw.logo_version : null,
   };
 }
 
-export const EMPTY_UI_CONFIG: UiConfig = { ui_permissions: {}, menu_order: {}, role_permissions: {}, logo_version: null };
+export const EMPTY_UI_CONFIG: UiConfig = { ui_permissions: {}, menu_order: {}, menu_labels: {}, role_permissions: {}, logo_version: null };
 
 /**
  * ผู้ใช้มีสิทธิ์ (permission key) นี้ไหม — ค่าจาก GET /auth/me (permissions) ซึ่ง API คำนวณจาก
@@ -73,19 +80,34 @@ export function isAllowed(config: UiConfig, user: User, key: string): boolean {
 /** ปุ่มที่ตั้งค่าการมองเห็นได้ (key "btn:<หน้า>:<ปุ่ม>" — ห้ามมีจุด เพราะ validator ของ API ใช้จุดแยก path) */
 const perm = (key: string) => (u: User) => has(u, key);
 
-/** system = สิทธิ์เดิมของระบบ (ไม่ระบุ = ทุกคน) — ใช้แสดงช่องที่ตั้งไม่ได้ในหน้าสิทธิ์ */
-export const BUTTONS: { key: string; label: MessageKey; system?: (u: User) => boolean }[] = [
-  { key: "btn:tickets:create", label: "permissions.buttons.ticketCreate" },
-  { key: "btn:tickets:print", label: "permissions.buttons.ticketPrint" },
-  { key: "btn:kpi:create", label: "permissions.buttons.kpiCreate" },
-  { key: "btn:assets:create", label: "permissions.buttons.assetCreate", system: perm("assets.create") },
-  { key: "btn:assets:edit", label: "permissions.buttons.assetEdit", system: perm("assets.update") },
-  { key: "btn:assets:export", label: "permissions.buttons.assetExport", system: (u) => has(u, "assets.view_all") || has(u, "assets.create") || has(u, "assets.update") },
-  { key: "btn:vault:create", label: "permissions.buttons.vaultCreate", system: perm("vault.create") },
-  { key: "btn:vault:reveal", label: "permissions.buttons.vaultReveal", system: perm("vault.view") },
-  { key: "btn:contracts:create", label: "permissions.buttons.contractCreate", system: perm("contracts.create") },
-  { key: "btn:locations:create", label: "permissions.buttons.locationCreate", system: perm("locations.manage") },
-  { key: "btn:users:create", label: "permissions.buttons.userCreate", system: perm("users.create") },
+/**
+ * page = หน้าที่ปุ่มอยู่ (ชื่อเมนูจากไฟล์แปล — หน้าสิทธิ์จัดกลุ่มตามนี้ เรียงตามลำดับในรายการ)
+ * system = สิทธิ์เดิมของระบบ (ไม่ระบุ = ทุกคน) — ใช้แสดงช่องที่ตั้งไม่ได้ในหน้าสิทธิ์
+ */
+export const BUTTONS: { key: string; page: MessageKey; label: MessageKey; system?: (u: User) => boolean }[] = [
+  { key: "btn:tickets:create", page: "nav.ticketMine", label: "permissions.buttons.ticketCreate" },
+  { key: "btn:tickets:print", page: "nav.ticketMine", label: "permissions.buttons.ticketPrint" },
+  { key: "btn:calendar:event", page: "nav.calendar", label: "permissions.buttons.calendarEvent" },
+  { key: "btn:calendar:ical", page: "nav.calendar", label: "permissions.buttons.calendarIcal" },
+  { key: "btn:leave:create", page: "nav.leaveMine", label: "permissions.buttons.leaveCreate" },
+  { key: "btn:leave:export", page: "nav.leaveMine", label: "permissions.buttons.leaveExport" },
+  { key: "btn:meeting:book", page: "nav.meetingGroup", label: "permissions.buttons.meetingBook" },
+  { key: "btn:meeting:room-create", page: "nav.meetingGroup", label: "permissions.buttons.meetingRoomCreate", system: perm("meeting.rooms") },
+  { key: "btn:vehicles:book", page: "nav.vehicleGroup", label: "permissions.buttons.vehicleBook" },
+  { key: "btn:vehicles:create", page: "nav.vehicleGroup", label: "permissions.buttons.vehicleCreate", system: perm("vehicle.manage") },
+  { key: "btn:kpi:create", page: "nav.kpi", label: "permissions.buttons.kpiCreate", system: perm("kpi.use") },
+  { key: "btn:kpi:export", page: "nav.kpi", label: "permissions.buttons.kpiExport", system: perm("kpi.use") },
+  { key: "btn:vault:create", page: "nav.vault", label: "permissions.buttons.vaultCreate", system: perm("vault.create") },
+  { key: "btn:vault:reveal", page: "nav.vault", label: "permissions.buttons.vaultReveal", system: perm("vault.view") },
+  { key: "btn:contracts:create", page: "nav.contracts", label: "permissions.buttons.contractCreate", system: perm("contracts.create") },
+  { key: "btn:assets:create", page: "nav.assets", label: "permissions.buttons.assetCreate", system: perm("assets.create") },
+  { key: "btn:assets:import", page: "nav.assets", label: "permissions.buttons.assetImport", system: perm("assets.create") },
+  { key: "btn:assets:edit", page: "nav.assets", label: "permissions.buttons.assetEdit", system: perm("assets.update") },
+  { key: "btn:assets:export", page: "nav.assets", label: "permissions.buttons.assetExport", system: (u) => has(u, "assets.view_all") || has(u, "assets.create") || has(u, "assets.update") },
+  { key: "btn:locations:create", page: "nav.locations", label: "permissions.buttons.locationCreate", system: perm("locations.manage") },
+  { key: "btn:users:create", page: "nav.users", label: "permissions.buttons.userCreate", system: perm("users.create") },
+  { key: "btn:approval-routes:create", page: "nav.approvalRoutes", label: "permissions.buttons.approvalRouteCreate", system: perm("approval_routes.manage") },
+  { key: "btn:audit-logs:export", page: "nav.auditLogs", label: "permissions.buttons.auditExport", system: perm("audit_logs.view") },
 ];
 
 /**

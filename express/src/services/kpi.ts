@@ -1,6 +1,8 @@
 import { config } from "../config.js";
 import { select } from "../db.js";
 import { dateOnly, localToday } from "../lib/time.js";
+import { trans, type Locale } from "../lib/i18n.js";
+import { datesBetween, holidayCalendarFor, leaveSettings } from "./calendar.js";
 
 /**
  * KPI ฝ่าย IT ตามไฟล์ Template-KPI-IT-2569-Part2-Details (ชีต ServiceType + ชีตรายเดือน)
@@ -66,8 +68,8 @@ const localDateOf = (dbDateTime: string) => localToday(config.localTimezone, new
 
 const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
 
-/** แถว KPI ของเจ้าหน้าที่ 1 คนในเดือนนั้น เรียงตามวันที่แจ้ง */
-export async function kpiMonthRows(userId: number, month: string): Promise<KpiRow[]> {
+/** แถว KPI ของเจ้าหน้าที่ 1 คนในเดือนนั้น เรียงตามวันที่แจ้ง — ใบงานที่เป็นผู้รับงานหรือผู้ร่วมดำเนินการ (ประเภท/Complexity แยกต่อคน) */
+export async function kpiMonthRows(userId: number, month: string, locale: Locale = "th"): Promise<KpiRow[]> {
   const { first, last } = monthRange(month);
   // ช่วง UTC กว้างกว่าเดือนเล็กน้อย แล้วกรองด้วยวันที่ท้องถิ่น (requested_at เก็บเป็น UTC)
   const tickets = await select<{
@@ -77,13 +79,14 @@ export async function kpiMonthRows(userId: number, month: string): Promise<KpiRo
     k_id: number | null; k_service_type: string | null; k_complexity: string | null;
   }>(
     `SELECT t.id, t.uuid, t.ticket_no, t.type, t.status, t.requested_at, t.details, t.symptom, t.repair_details, t.cannot_reason, t.completed_on,
-            r.name AS requester, b.name AS branch, s.name AS assignee, k.id AS k_id, k.service_type AS k_service_type, k.complexity AS k_complexity
+            r.name AS requester, b.name AS branch, o.name AS assignee, k.id AS k_id, k.service_type AS k_service_type, k.complexity AS k_complexity
        FROM it_tickets t
+       JOIN users o ON o.id = ?
        LEFT JOIN users r ON r.id = t.requester_id
-       LEFT JOIN users s ON s.id = t.assignee_id
        LEFT JOIN branches b ON b.id = t.branch_id
-       LEFT JOIN kpi_entries k ON k.ticket_id = t.id
-      WHERE t.assignee_id = ? AND t.status IN (?)
+       LEFT JOIN kpi_entries k ON k.ticket_id = t.id AND k.user_id = o.id
+      WHERE (t.assignee_id = o.id OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = o.id))
+        AND t.status IN (?)
         AND t.requested_at >= DATE_SUB(?, INTERVAL 1 DAY) AND t.requested_at < DATE_ADD(?, INTERVAL 2 DAY)`,
     [userId, ACCEPTED_TICKET_STATUSES, first, last],
   );
@@ -140,6 +143,7 @@ export async function kpiMonthRows(userId: number, month: string): Promise<KpiRo
       completed_date: dateOnly(e.completed_date),
     });
   }
+  rows.push(...(await calendarRows(userId, first, last, locale)));
   // เรียงตามวันที่แจ้ง → วันเดียวกัน: วันหยุด, ใบงาน (ตามเลขที่), แถวกรอกเอง (ตามลำดับที่เพิ่ม)
   const rank: Record<KpiRowKind, number> = { holiday: 0, ticket: 1, work: 2 };
   return rows.sort(
@@ -155,3 +159,37 @@ export const kpiTotals = (rows: KpiRow[]) => ({
   mark: rows.reduce((s, r) => s + r.mark, 0),
   rows: rows.length,
 });
+
+/**
+ * แถววันหยุดจากปฏิทิน (อ่านอย่างเดียว — entry_id = null): วันหยุดบริษัท + ใบลาที่อนุมัติแล้วของเจ้าของชีต
+ * ใบลาหลายวัน = 1 แถวต่อวันทำงาน (ไม่นับวันหยุดสุดสัปดาห์ / วันหยุดบริษัท ซึ่งมีแถวของตัวเองอยู่แล้ว)
+ */
+async function calendarRows(userId: number, first: string, last: string, locale: Locale): Promise<KpiRow[]> {
+  // วันหยุดบริษัทตามชุดวันหยุดของสาขาเจ้าของชีต
+  const owner = await select<{ branch_id: number | null }>("SELECT branch_id FROM users WHERE id = ?", [userId]);
+  const cal = await holidayCalendarFor(owner[0]?.branch_id ? Number(owner[0].branch_id) : null);
+  const holidays = await select<{ id: number; date: string; name: string }>(
+    "SELECT id, date, name FROM company_holidays WHERE calendar_id = ? AND date BETWEEN ? AND ?",
+    [cal ?? 0, first, last],
+  );
+  const holidaySet = new Set(holidays.map((h) => dateOnly(h.date)!));
+  const leaves = await select<{ id: number; leave_type: string; unit: string; start_on: string; end_on: string; start_time: string | null; end_time: string | null }>(
+    "SELECT id, leave_type, unit, start_on, end_on, start_time, end_time FROM leave_requests WHERE user_id = ? AND status = 'approved' AND start_on <= ? AND end_on >= ?",
+    [userId, last, first],
+  );
+  const { work_days } = await leaveSettings();
+  const row = (key: string, date: string, details: string): KpiRow => ({
+    key, kind: "holiday", entry_id: null, ticket: null, work_date: date, requester: null, branch: null, service_type: null,
+    details, assignee: null, solution: null, complexity: 0, mark: 0, completed_date: null,
+  });
+  const out = holidays.map((h) => row(`ch:${h.id}`, dateOnly(h.date)!, trans(locale, "eam.holiday.kpi_row", { name: h.name })));
+  for (const l of leaves) {
+    const unit = trans(locale, `eam.leave.units.${l.unit}`) + (l.unit === "hours" && l.start_time ? ` ${l.start_time}–${l.end_time}` : "");
+    const text = trans(locale, "eam.leave.kpi_row", { type: trans(locale, `eam.leave.types.${l.leave_type}`), unit });
+    for (const d of datesBetween(dateOnly(l.start_on)! < first ? first : dateOnly(l.start_on)!, dateOnly(l.end_on)! > last ? last : dateOnly(l.end_on)!)) {
+      if (!work_days.includes(new Date(`${d}T00:00:00Z`).getUTCDay()) || holidaySet.has(d)) continue;
+      out.push(row(`lv:${l.id}:${d}`, d, text));
+    }
+  }
+  return out;
+}

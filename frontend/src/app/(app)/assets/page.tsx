@@ -18,6 +18,7 @@ import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Branch, type 
 import { ImportAssets } from "./import-assets";
 import { ClickableRow } from "@/components/clickable-row";
 import { AppSelect } from "@/components/app-select";
+import { ConfirmDownload } from "@/components/confirm-download";
 
 /** วันหมดอายุ license ในรายการ: หมดแล้ว = แดง, เหลือ ≤ 30 วัน = เหลือง */
 function LicenseExpiry({ license: l, t, fmt }: { license: AssetLicense; t: TFunction; fmt: Formatters }) {
@@ -104,16 +105,16 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
               {canExport && (
                 <Tooltip label={t("assets.import.exportHint")} side="bottom">
                   {/* ดาวน์โหลดไฟล์จาก route handler (ไม่ใช่หน้าเว็บ) */}
-                  <a href={`/files/assets/export?${exportQuery}`} className={btn.secondary}>
+                  <ConfirmDownload href={`/files/assets/export?${exportQuery}`} className={btn.secondary}>
                     <DownloadIcon className="text-accent-500" />
                     {t("assets.import.export")}
-                  </a>
+                  </ConfirmDownload>
                 </Tooltip>
               )}
               {canCreate && (
                 <>
                   {/* นำเข้าทะเบียนคอมพิวเตอร์จาก Excel (มีปุ่มดาวน์โหลด template ใน modal) */}
-                  <ImportAssets />
+                  {can("btn:assets:import") && <ImportAssets />}
                   <Link href="/assets/new" className={btn.primary}>
                     <LinkPendingIcon icon={<PlusIcon />} />
                     {t("assets.add")}

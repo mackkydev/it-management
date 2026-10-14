@@ -1,9 +1,10 @@
+import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
 import { exec, first, insert, scalar } from "../src/db.js";
 import { nowDb } from "../src/lib/time.js";
 import { createToken } from "../src/lib/tokens.js";
 import type { UserRow } from "../src/models/user.js";
-import { as, makeAsset, makeUser } from "./helpers.js";
+import { as, makeAsset, makeBranch, makeUser } from "./helpers.js";
 
 /** จัดการสิทธิ์รายคน / รายการ API User / ผูกบัญชี / audit log — ผู้มีสิทธิ์ access.assign / audit_logs.view (super_admin ผ่านทุกสิทธิ์) */
 
@@ -125,6 +126,37 @@ describe("access management (local admin)", () => {
     expect(JSON.stringify(res.body)).not.toContain("top-secret");
     expect((await admin.get("/api/v1/audit-logs?action=api_connection")).body.meta.total).toBe(1);
     expect((await admin.get("/api/v1/audit-logs/actions")).body.data).toEqual(["api_connection.created", "user.permissions_updated"]);
+  });
+
+  it("audit log filters by the actor's branch / typed name and exports to Excel with the given labels", async () => {
+    const lpn = await makeBranch({ code: "LPN", name: "ลำพูน" });
+    const a = await makeUser({ role: "super_admin", name: "สมชาย ลำพูน", branch_id: lpn });
+    const b = await makeUser({ role: "super_admin", name: "สมหญิง กรุงเทพ" });
+    await (await as(a)).post("/api/v1/api-connections").send({ name: "HR", base_url: "https://hr.example.com", login_path: "/login", auth_type: "bearer", auth_secret: "top-secret" });
+    await (await as(b)).post("/api/v1/api-connections").send({ name: "ERP", base_url: "https://erp.example.com", login_path: "/login", auth_type: "bearer", auth_secret: "x" });
+    const admin = await as(b);
+    expect((await admin.get(`/api/v1/audit-logs?branch_id=${lpn}`)).body.data.map((l: { actor_name: string; branch_name: string }) => [l.actor_name, l.branch_name])).toEqual([["สมชาย ลำพูน", "ลำพูน"]]);
+    expect((await admin.get(`/api/v1/audit-logs?actor=${encodeURIComponent("หญิง")}`)).body.meta.total).toBe(1);
+
+    const file = await admin
+      .post("/api/v1/audit-logs/export")
+      .send({ branch_id: lpn, labels: { "api_connection.created": "สร้างการเชื่อมต่อ API" }, headers: { action: "การกระทำ" } })
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => cb(null, Buffer.concat(chunks)));
+      });
+    expect(file.status).toBe(200);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(file.body);
+    const ws = wb.worksheets[0];
+    expect(ws.getCell("D1").value).toBe("การกระทำ");
+    expect(ws.getCell("D2").value).toBe("สร้างการเชื่อมต่อ API");
+    expect(ws.getCell("C2").value).toBe("ลำพูน");
+    expect(ws.getCell("A3").value).toBeNull(); // เฉพาะสาขาลำพูน 1 แถว
+    expect(JSON.stringify(ws.getSheetValues())).not.toContain("top-secret");
+    expect((await (await as(await makeUser())).post("/api/v1/audit-logs/export").send({})).status).toBe(403);
   });
 
   it("the user form: API users cannot get a password; role/status changes are audited", async () => {

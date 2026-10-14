@@ -27,6 +27,13 @@ export interface UserRow {
   department: string | null;
   division: string | null;
   supervisor_id: number | null;
+  /** ลิงก์ iCal ส่วนตัว (GET /calendar/feed/{token}) */
+  calendar_token?: string | null;
+  /** 2FA (services/two-factor.ts) — secret เข้ารหัส, recovery codes = JSON SHA-256 — ห้ามส่งออก API */
+  two_factor_secret?: string | null;
+  two_factor_confirmed_at?: string | null;
+  two_factor_recovery_codes?: string | null;
+  two_factor_last_step?: number | string | null;
   is_it_staff: boolean;
   is_it_head: boolean;
   /** hash รหัสผ่าน — เฉพาะ LOCAL; API User = null เสมอ (ระบบต้นทางเป็นเจ้าของ credential) */

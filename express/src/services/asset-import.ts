@@ -152,7 +152,7 @@ async function buildWorkbook(locale: Locale, rows: Record<string, unknown>[]): P
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** ค่าในเซลล์ → ข้อความ (Date คืนเป็น Date) — "-" / ว่าง = null */
-function cellValue(v: ExcelJS.CellValue): string | Date | null {
+export function cellValue(v: ExcelJS.CellValue): string | Date | null {
   if (v === null || v === undefined) return null;
   if (v instanceof Date) return v;
   if (typeof v === "object") {
@@ -166,7 +166,7 @@ function cellValue(v: ExcelJS.CellValue): string | Date | null {
 }
 
 /** วันที่จากเซลล์ → "YYYY-MM-DD" (ปี > 2400 = พ.ศ.) — ค่าไม่ถูกต้อง = undefined */
-function toIsoDate(v: string | Date): string | undefined {
+export function toIsoDate(v: string | Date): string | undefined {
   let y: number, m: number, d: number;
   if (v instanceof Date) {
     if (Number.isNaN(v.getTime())) return undefined;

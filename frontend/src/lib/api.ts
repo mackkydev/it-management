@@ -73,12 +73,18 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return body as T;
 }
 
-/** ดึงไฟล์ (รูป/เอกสาร/ลายเซ็น) จาก API แบบ binary — ใช้ใน route handler ที่ส่งต่อให้ browser */
-export async function apiFile(path: string): Promise<Response> {
+/** ดึงไฟล์ (รูป/เอกสาร/ลายเซ็น/Excel) จาก API แบบ binary — ใช้ใน route handler ที่ส่งต่อให้ browser (init = เช่น POST พร้อม body) */
+export async function apiFile(path: string, init: RequestInit = {}): Promise<Response> {
   const token = (await cookies()).get(TOKEN_COOKIE)?.value;
   const ip = await clientIp();
   return fetch(`${API_URL}${path}`, {
-    headers: { Accept: "*/*", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(ip ? { "X-Forwarded-For": ip } : {}) },
+    ...init,
+    headers: {
+      Accept: "*/*",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(ip ? { "X-Forwarded-For": ip } : {}),
+      ...init.headers,
+    },
     cache: "no-store",
   });
 }

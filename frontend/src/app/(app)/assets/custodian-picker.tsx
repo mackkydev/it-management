@@ -70,7 +70,7 @@ export function CustodianPicker({ id, value, onChange, className }: Props) {
         <button
           type="button"
           onClick={() => onChange(null)}
-          className={`${btn.danger} ${btn.sm} shrink-0 px-2 py-1`}
+          className={`${btn.danger} -my-1 h-6! shrink-0 gap-1! px-2! py-0! text-xs!`}
           aria-label={t("assets.form.custodianClear")}
         >
           <XIcon width={12} height={12} />

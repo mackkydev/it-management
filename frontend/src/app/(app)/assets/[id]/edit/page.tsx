@@ -77,11 +77,13 @@ export default async function EditAssetPage({ params }: PageProps<"/assets/[id]/
   const user = await getCurrentUser();
   if (!canEditAssets(user)) redirect("/assets");
 
-  const [asset, { data: locations }, { data: branches }, { t }] = await Promise.all([
+  const [asset, { data: locations }, { data: branches }, { t }, computerTypes, brands] = await Promise.all([
     getAsset(id),
     apiFetch<{ data: Location[] }>("/locations"),
     apiFetch<{ data: Branch[] }>("/branches"),
     getI18n(),
+    apiFetch<{ data: { name: string }[] }>("/dropdown-options/computer_type").then((r) => r.data.map((o) => o.name)),
+    apiFetch<{ data: { name: string }[] }>("/dropdown-options/brand").then((r) => r.data.map((o) => o.name)),
   ]);
 
   return (
@@ -93,6 +95,8 @@ export default async function EditAssetPage({ params }: PageProps<"/assets/[id]/
       <AssetForm
         locations={locations}
         branches={branches}
+        computerTypes={computerTypes}
+        brands={brands}
         assetId={asset.id}
         initial={toFormValues(asset)}
         initialCustodian={asset.custodian}

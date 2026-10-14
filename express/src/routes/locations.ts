@@ -17,7 +17,7 @@ const TYPES = ["site", "building", "floor", "room", "warehouse"];
 const CODE = /^[A-Za-z0-9\-_/]+$/;
 
 /** นับสินทรัพย์/สถานที่ย่อยที่ยังไม่ถูกลบ (withCount ใช้ SoftDeletes scope) */
-const WITH_COUNTS = `l.*,
+const WITH_COUNTS = `l.*, (SELECT b.name FROM branches b WHERE b.id = l.branch_id) AS branch_name,
   (SELECT COUNT(*) FROM assets a WHERE a.location_id = l.id AND a.deleted_at IS NULL) AS assets_count,
   (SELECT COUNT(*) FROM locations c WHERE c.parent_id = l.id AND c.deleted_at IS NULL) AS children_count`;
 
@@ -39,6 +39,7 @@ async function validated(req: Request, current: LocationRow | null) {
       name: [...s, "required", "string", "max:255"],
       type: [...s, "required", `in:${TYPES.join(",")}`],
       parent_id: ["sometimes", "nullable", "integer", exists("locations", "id", "deleted_at IS NULL")],
+      branch_id: ["sometimes", "nullable", "integer", exists("branches", "id", "deleted_at IS NULL")],
       address: ["sometimes", "nullable", "string", "max:2000"],
       is_active: ["sometimes", "boolean"],
     },
@@ -64,10 +65,10 @@ async function validated(req: Request, current: LocationRow | null) {
 
 function columns(data: Record<string, unknown>) {
   const out: Record<string, unknown> = {};
-  for (const key of ["code", "name", "type", "parent_id", "address", "is_active"]) {
+  for (const key of ["code", "name", "type", "parent_id", "branch_id", "address", "is_active"]) {
     if (!(key in data)) continue;
     const v = data[key];
-    out[key] = key === "parent_id" ? int(v) : key === "is_active" ? bool(v) : v;
+    out[key] = key === "parent_id" || key === "branch_id" ? int(v) : key === "is_active" ? bool(v) : v;
   }
   return out;
 }
@@ -83,7 +84,8 @@ locationRoutes.get("/locations", async (req, res) => {
     return res.json({ data: all.map(locationResource) });
   }
   const active = await select<LocationRow>(
-    "SELECT id, code, name, type, parent_id, address, is_active FROM locations WHERE is_active = true AND deleted_at IS NULL ORDER BY name",
+    `SELECT l.id, l.code, l.name, l.type, l.parent_id, l.address, l.is_active, l.branch_id, b.name AS branch_name
+       FROM locations l LEFT JOIN branches b ON b.id = l.branch_id WHERE l.is_active = true AND l.deleted_at IS NULL ORDER BY l.name`,
   );
   res.json({ data: active.map(locationResource) });
 });

@@ -23,6 +23,8 @@ import {
 import { SignaturePad } from "@/components/signature-pad";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
+import { HelperPicker } from "./helpers-card";
+import { OnsiteFields, type OnsiteValue } from "./onsite-card";
 import { localToday } from "@/lib/date";
 import type { TicketAction, TicketDetail } from "@/lib/types";
 import { useConfirm } from "@/components/dialog-provider";
@@ -113,6 +115,12 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
   const { t } = useI18n();
   const [comment, setComment] = useState("");
   const [signature, setSignature] = useState<string | null>(null);
+  // รับงาน: ติ๊กบันทึกลงปฏิทิน = ช่วงวันไปทำงานหน้างาน
+  const [onsiteOn, setOnsiteOn] = useState(false);
+  const [onsite, setOnsite] = useState<OnsiteValue>({ start_on: localToday(), end_on: localToday(), note: "" });
+  // รับงาน: ผู้ร่วมดำเนินการ (ทำงานมากกว่า 1 คน)
+  const [helpersOn, setHelpersOn] = useState(false);
+  const [helperIds, setHelperIds] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
   const commentRequired = action === "reject" || action === "return" || action === "progress" || action === "cancel_request" || action === "cancel_reject";
@@ -121,10 +129,13 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
   const submit = () => {
     if (commentRequired && !comment.trim()) return setError(t("tickets.actions.commentRequired"));
     if (needsSignature && !signature) return setError(t("signature.required"));
+    if (action === "accept" && onsiteOn && (!onsite.start_on || !onsite.end_on)) return setError(t("calendar.onsiteRequired"));
     setError("");
     start(async () => {
       const res: TicketResult | undefined =
-        action === "cancel_request" ? await requestCancel(ticket.id, comment) : await ticketAction(ticket.id, action, { comment, signature });
+        action === "cancel_request"
+          ? await requestCancel(ticket.id, comment)
+          : await ticketAction(ticket.id, action, { comment, signature, calendar: action === "accept" && onsiteOn ? onsite : null, helper_ids: action === "accept" && helpersOn ? helperIds : [] });
       if (res) setError(res.errors ? Object.values(res.errors)[0] ?? res.message ?? "" : (res.message ?? ""));
     });
   };
@@ -160,6 +171,25 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
             }}
             className={`${input} ${error && commentRequired && !comment.trim() ? inputError : ""}`}
           />
+        </div>
+      )}
+      {action === "accept" && (
+        <div className="space-y-2 rounded-xl p-3 ring-1 ring-line">
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={onsiteOn} onChange={(e) => setOnsiteOn(e.target.checked)} className="h-4 w-4 accent-[var(--accent-500)]" />
+            {t("calendar.onsiteAccept")}
+          </label>
+          {onsiteOn ? <OnsiteFields value={onsite} onChange={setOnsite} /> : <p className="text-xs text-muted">{t("calendar.onsiteHint")}</p>}
+        </div>
+      )}
+      {action === "accept" && (ticket.helper_options?.length ?? 0) > 0 && (
+        <div className="space-y-2 rounded-xl p-3 ring-1 ring-line">
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={helpersOn} onChange={(e) => setHelpersOn(e.target.checked)} className="h-4 w-4 accent-[var(--accent-500)]" />
+            {t("ticketHelpers.label")}
+          </label>
+          {helpersOn && <HelperPicker options={ticket.helper_options ?? []} value={helperIds} onChange={setHelperIds} />}
+          <p className="text-xs text-muted">{t("ticketHelpers.hint")}</p>
         </div>
       )}
       {needsSignature && (

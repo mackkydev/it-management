@@ -14,7 +14,7 @@ import type { UiConfig } from "@/lib/permissions";
 import type { Layout } from "@/lib/prefs";
 import type { User } from "@/lib/types";
 import { APP_VERSION, compareVersions, initSeenVersion, readSeenVersion, subscribeSeenVersion } from "@/lib/changelog";
-import { activeHref, navFor, type NavGroup } from "./nav";
+import { activeHref, navFor, navLabel, type NavGroup } from "./nav";
 import { NotificationBell } from "./notification-bell";
 import { GroupBadge, ItemBadge, MenuBadgesProvider } from "./menu-badges";
 import { PrefsControls } from "./prefs-controls";
@@ -50,9 +50,9 @@ const LogoVersionContext = createContext<string | null>(null);
 function LogoMark() {
   const version = useContext(LogoVersionContext);
   if (version) {
-    // พื้นขาว + เงา → โลโก้สีใดก็เห็นชัดทั้งโหมดสว่างและโหมดมืด
+    // เงาอย่างเดียว (ไม่มีกรอบ/พื้นขาว) — โหมดมืดใช้เงาสว่างจางๆ ให้ขอบโลโก้ยังเห็น
     return (
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white p-0.5 shadow-md ring-1 ring-black/5 dark:shadow-black/40 dark:ring-white/15">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-md shadow-black/25 dark:shadow-white/10">
         {/* eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน /files (ไม่ผ่าน next/image) */}
         <img src={`/files/branding/logo?v=${encodeURIComponent(version)}`} alt="" className="h-full w-full rounded-lg object-contain" />
       </span>
@@ -306,7 +306,7 @@ const ICON_BTN =
 
 /** เมนูแบบ icon: ทุกเมนูย่อยแสดงเป็น icon เรียงตามกลุ่ม (คั่นด้วยเส้น) ชี้แล้วแสดงชื่อเมนู */
 function CollapsedNav({ groups }: { groups: NavGroup[] }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const pathname = usePathname();
   const active = activeHref(groups, pathname);
 
@@ -318,10 +318,10 @@ function CollapsedNav({ groups }: { groups: NavGroup[] }) {
           {group.items.map((item) => {
             const current = item.href === active;
             return (
-              <Tooltip key={item.href} label={`${t(group.label)} · ${t(item.label)}`}>
+              <Tooltip key={item.href} label={`${navLabel(group, t, locale)} · ${navLabel(item, t, locale)}`}>
                 <Link
                   href={item.href}
-                  aria-label={t(item.label)}
+                  aria-label={navLabel(item, t, locale)}
                   aria-current={current ? "page" : undefined}
                   className={`${ICON_BTN} relative ${
                     current
@@ -488,7 +488,7 @@ function MobileBar({ onOpen, user }: { onOpen: () => void; user: User }) {
 
 /** เมนูหลักแบบ dropdown (เปิดได้ทีละเมนู) */
 function TopNav({ groups }: { groups: NavGroup[] }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const pathname = usePathname();
   const active = activeHref(groups, pathname);
   const [open, setOpen] = useState<string | null>(null);
@@ -512,7 +512,7 @@ function TopNav({ groups }: { groups: NavGroup[] }) {
               }`}
             >
               <group.icon width={16} height={16} className={hasActive || isOpen ? "" : "text-accent-500 dark:text-accent-300"} />
-              {t(group.label)}
+              {navLabel(group, t, locale)}
               <GroupBadge hrefs={group.items.map((i) => i.href)} />
               <ChevronDownIcon width={14} height={14} className={`text-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />
             </button>
@@ -534,7 +534,7 @@ function TopNav({ groups }: { groups: NavGroup[] }) {
                       <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-50 text-accent-600 dark:bg-accent-400/10 dark:text-accent-300">
                         <LinkPendingIcon icon={<item.icon width={15} height={15} />} size={15} />
                       </span>
-                      <span className="flex-1">{t(item.label)}</span>
+                      <span className="flex-1">{navLabel(item, t, locale)}</span>
                       <ItemBadge href={item.href} />
                     </Link>
                   );

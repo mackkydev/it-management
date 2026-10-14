@@ -31,12 +31,12 @@ describe("menu badges", () => {
     await insert("kpi_entries", { ticket_id: mine, user_id: staff.id, work_date: "2026-01-01", details: "", complexity: 2, created_at: nowDb() });
 
     const badges = async (u: typeof staff) => (await (await as(u)).get("/api/v1/menu-badges")).body.data;
-    expect(await badges(requester)).toEqual({ "/tickets": 1, "/tickets/approvals": 0 });
+    expect(await badges(requester)).toEqual({ "/tickets": 1, "/tickets/approvals": 0, "/leave/approvals": 0 });
     expect((await badges(approver))["/tickets/approvals"]).toBe(1);
     // staff: รอรับงานที่ไม่มีผู้รับ 1 + งานของฉันกำลังทำ 1 / KPI: รับแล้ว 4 ใบ (pending_requester, in_progress, pending_it_head, completed) − กรอกแล้ว 1
     expect(await badges(staff)).toMatchObject({ "/it/tickets": 2, "/kpi": 3 });
     expect((await badges(otherStaff))["/it/tickets"]).toBe(2); // ใบที่ถูกเลือก + ใบที่ไม่มีผู้รับ
-    // หัวหน้า IT (it_tickets.manage_all) รับได้ทุกใบ: รอรับงาน 2 + รออนุมัติผล 1
-    expect((await badges(head))["/it/tickets"]).toBe(3);
+    // หัวหน้า IT (manage_all): รอรับงานที่ยังไม่มีผู้รับ 1 + รออนุมัติผล 1 — ใบที่เลือกผู้รับไว้แล้วเป็นของคนนั้น (ตรงกับผู้รับแจ้งเตือน)
+    expect((await badges(head))["/it/tickets"]).toBe(2);
   });
 });

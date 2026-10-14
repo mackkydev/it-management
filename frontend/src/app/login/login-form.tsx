@@ -7,6 +7,7 @@ import { alert, btn, input, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { LoginConnection } from "@/lib/types";
 import { PasswordInput } from "@/components/password-input";
+import { TwoFactorStep } from "./two-factor-step";
 
 /** ตรวจสถานะการเชื่อมต่อต้นทางซ้ำทุก 1 นาทีขณะเปิดหน้า login (API cache ไว้ 1 นาทีอยู่แล้ว) */
 const STATUS_REFRESH_MS = 60_000;
@@ -54,6 +55,9 @@ export function LoginForm({ connections = [] }: { connections?: LoginConnection[
   // รวมเป็นสถานะเดียว: มีอย่างน้อย 1 การเชื่อมต่อที่ต่อได้ = online / ต่อไม่ได้ = offline / ไม่มีการเชื่อมต่อ หรือตรวจไม่ได้ = none
   const all = connections.map((c) => statusOf(c.id));
   const server: ServerStatus = all.includes("online") ? "online" : all.includes("offline") ? "offline" : all.includes("checking") ? "checking" : "none";
+
+  // รหัสผ่านถูกแล้ว แต่ต้องยืนยันตัวตนขั้นที่ 2 (2FA)
+  if (!conn && localState.twoFactor) return <TwoFactorStep mode={localState.twoFactor} />;
 
   const tab = (active: boolean) =>
     `flex-1 cursor-pointer rounded-lg px-3 py-2 text-sm font-medium transition-colors ${active ? "bg-accent-500/20 text-ink ring-1 ring-accent-400/40" : "text-muted hover:text-ink"}`;

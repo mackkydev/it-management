@@ -7,7 +7,7 @@ import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
 import { has, getCurrentUser } from "@/lib/auth";
-import type { Branch, Credential, CredentialCategories } from "@/lib/types";
+import type { Branch, Credential } from "@/lib/types";
 import { CredentialForm } from "../../credential-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -33,7 +33,8 @@ export default async function EditCredentialPage({ params }: PageProps<"/vault/[
   const [{ data: credential }, { data: branches }, { data: categories }, { data: logs }, { t, fmt }] = await Promise.all([
     load<Credential>(`/credentials/${id}`),
     apiFetch<{ data: Branch[] }>("/branches"),
-    apiFetch<{ data: CredentialCategories }>("/credentials/categories"),
+    // หมวดที่เพิ่มเอง = ข้อมูล Drop Down (vault_category)
+    apiFetch<{ data: { name: string }[] }>("/dropdown-options/vault_category").then((r) => ({ data: { custom: r.data.map((o) => o.name) } })),
     load<{ id: number; action: string; user: { name: string } | null; ip: string | null; created_at: string }[]>(`/credentials/${id}/logs`),
     getI18n(),
   ]);

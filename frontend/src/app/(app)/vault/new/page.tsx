@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { has, getCurrentUser } from "@/lib/auth";
-import type { Branch, CredentialCategories } from "@/lib/types";
+import type { Branch } from "@/lib/types";
 import { CredentialForm } from "../credential-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -18,7 +18,8 @@ export default async function NewCredentialPage() {
   if (!has(user, "vault.create")) redirect("/tickets");
   const [{ data: branches }, { data: categories }, { t }] = await Promise.all([
     apiFetch<{ data: Branch[] }>("/branches"),
-    apiFetch<{ data: CredentialCategories }>("/credentials/categories"),
+    // หมวดที่เพิ่มเอง = ข้อมูล Drop Down (vault_category)
+    apiFetch<{ data: { name: string }[] }>("/dropdown-options/vault_category").then((r) => ({ data: { custom: r.data.map((o) => o.name) } })),
     getI18n(),
   ]);
 

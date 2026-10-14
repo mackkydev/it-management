@@ -288,15 +288,22 @@ model branches {
   deleted_at            DateTime?               @db.DateTime(0)
   /// ชื่อ Work Group ของ Windows ที่สาขานี้ใช้ (เช่น LAMPHUN) — import ทะเบียนคอมพิวเตอร์จับคู่สาขาจากค่านี้ (ไม่ซ้ำ ไม่สนตัวพิมพ์)
   work_group            String?                 @unique(map: "branches_work_group_unique") @db.VarChar(50)
+  /// ปฏิทินวันหยุดที่สาขานี้ใช้ (NULL = ชุดตั้งต้น)
+  holiday_calendar_id   BigInt?
+  holiday_calendars     holiday_calendars?      @relation(fields: [holiday_calendar_id], references: [id], onUpdate: Restrict, map: "branches_holiday_calendar_id_foreign")
   approval_routes       approval_routes[]
+  locations             locations[]
   assets                assets[]
   license_installations license_installations[]
   contracts             contracts[]
   credentials           credentials[]
   it_tickets            it_tickets[]
   users                 users[]
+  meeting_rooms         meeting_rooms[]
+  vehicles              vehicles[]
 
   @@index([is_active, sort_order], map: "branches_is_active_sort_order_index")
+  @@index([holiday_calendar_id], map: "branches_holiday_calendar_id_index")
 }
 
 model cache {
@@ -315,31 +322,61 @@ model cache_locks {
   @@index([expiration], map: "cache_locks_expiration_index")
 }
 
+/// หมวดหมู่สัญญา vendor (ข้อมูลหลัก — เมนู ข้อมูลหลัก → หมวดหมู่สัญญา)
+model contract_categories {
+  id          BigInt      @id @default(autoincrement())
+  name        String      @unique(map: "contract_categories_name_unique") @db.VarChar(100)
+  /// หมวดตั้งต้น (key เดียวกับคลังบัญชี — แก้/ลบไม่ได้, ชื่อที่แสดงแปลตามภาษา); NULL = หมวดที่เพิ่มเอง
+  builtin_key String?     @unique(map: "contract_categories_builtin_key_unique") @db.VarChar(30)
+  is_active   Boolean     @default(true)
+  sort_order  Int         @default(0) @db.SmallInt
+  created_at  DateTime?   @db.DateTime(0)
+  updated_at  DateTime?   @db.DateTime(0)
+  contracts   contracts[]
+}
+
+/// ข้อมูล Drop Down ที่แก้ได้ (list = computer_type | brand | vault_category) — ค่าที่เลือกเก็บเป็นข้อความในตารางเดิม
+model dropdown_options {
+  id         BigInt    @id @default(autoincrement())
+  list       String    @db.VarChar(30)
+  name       String    @db.VarChar(100)
+  is_active  Boolean   @default(true)
+  sort_order Int       @default(0) @db.SmallInt
+  created_at DateTime? @db.DateTime(0)
+  updated_at DateTime? @db.DateTime(0)
+
+  @@unique([list, name], map: "dropdown_options_list_name_unique")
+}
+
 model contracts {
-  id                    BigInt    @id @default(autoincrement())
-  title                 String    @db.VarChar(255)
-  vendor_name           String    @db.VarChar(255)
-  contract_no           String?   @db.VarChar(100)
-  start_date            DateTime  @db.Date
-  end_date              DateTime  @db.Date
-  amount                Decimal?  @db.Decimal(15, 2)
-  contact_name          String?   @db.VarChar(255)
-  contact_email         String?   @db.VarChar(255)
-  contact_phone         String?   @db.VarChar(50)
-  notify_days_before    Int?      @db.SmallInt
-  notify_enabled        Boolean   @default(true)
-  notified_for_end_date DateTime? @db.Date
-  notified_at           DateTime? @db.DateTime(0)
-  notes                 String?   @db.Text
+  id                    BigInt               @id @default(autoincrement())
+  title                 String               @db.VarChar(255)
+  vendor_name           String               @db.VarChar(255)
+  contract_no           String?              @db.VarChar(100)
+  start_date            DateTime             @db.Date
+  end_date              DateTime             @db.Date
+  amount                Decimal?             @db.Decimal(15, 2)
+  contact_name          String?              @db.VarChar(255)
+  contact_email         String?              @db.VarChar(255)
+  contact_phone         String?              @db.VarChar(50)
+  notify_days_before    Int?                 @db.SmallInt
+  notify_enabled        Boolean              @default(true)
+  notified_for_end_date DateTime?            @db.Date
+  notified_at           DateTime?            @db.DateTime(0)
+  notes                 String?              @db.Text
   branch_id             BigInt?
+  /// หมวดหมู่สัญญา (ไม่บังคับ)
+  category_id           BigInt?
   created_by            BigInt?
-  created_at            DateTime? @db.DateTime(0)
-  updated_at            DateTime? @db.DateTime(0)
-  deleted_at            DateTime? @db.DateTime(0)
-  branches              branches? @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "contracts_branch_id_foreign")
-  users                 users?    @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "contracts_created_by_foreign")
+  created_at            DateTime?            @db.DateTime(0)
+  updated_at            DateTime?            @db.DateTime(0)
+  deleted_at            DateTime?            @db.DateTime(0)
+  branches              branches?            @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "contracts_branch_id_foreign")
+  contract_categories   contract_categories? @relation(fields: [category_id], references: [id], onUpdate: Restrict, map: "contracts_category_id_foreign")
+  users                 users?               @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "contracts_created_by_foreign")
 
   @@index([branch_id], map: "contracts_branch_id_index")
+  @@index([category_id], map: "contracts_category_id_index")
   @@index([created_by], map: "contracts_created_by_index")
   @@index([end_date, notify_enabled], map: "contracts_end_date_notify_enabled_index")
 }
@@ -436,6 +473,23 @@ model it_ticket_events {
   @@index([user_id], map: "it_ticket_events_user_id_index")
 }
 
+/// ผู้ร่วมดำเนินการในใบแจ้งงาน — แต่ละคนมีแถว KPI ของตัวเอง
+model it_ticket_helpers {
+  id           BigInt     @id @default(autoincrement())
+  it_ticket_id BigInt
+  user_id      BigInt
+  added_by     BigInt?
+  created_at   DateTime?  @db.DateTime(0)
+  updated_at   DateTime?  @db.DateTime(0)
+  it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_helpers_it_ticket_id_foreign")
+  user         users      @relation("it_ticket_helpers_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_helpers_user_id_foreign")
+  adder        users?     @relation("it_ticket_helpers_added_byTousers", fields: [added_by], references: [id], onUpdate: Restrict, map: "it_ticket_helpers_added_by_foreign")
+
+  @@unique([it_ticket_id, user_id], map: "it_ticket_helpers_ticket_user_unique")
+  @@index([user_id], map: "it_ticket_helpers_user_id_index")
+  @@index([added_by], map: "it_ticket_helpers_added_by_index")
+}
+
 model it_ticket_parts {
   id           BigInt     @id @default(autoincrement())
   it_ticket_id BigInt
@@ -500,6 +554,7 @@ model it_tickets {
   it_ticket_attachments                it_ticket_attachments[]
   it_ticket_events                     it_ticket_events[]
   it_ticket_parts                      it_ticket_parts[]
+  it_ticket_helpers                    it_ticket_helpers[]
   kpi_entries                          kpi_entries[]
   users_it_tickets_approver_idTousers  users?                     @relation("it_tickets_approver_idTousers", fields: [approver_id], references: [id], onUpdate: Restrict, map: "it_tickets_approver_id_foreign")
   assets                               assets?                    @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "it_tickets_asset_id_foreign")
@@ -507,6 +562,7 @@ model it_tickets {
   branches                             branches?                  @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "it_tickets_branch_id_foreign")
   users_it_tickets_it_head_idTousers   users?                     @relation("it_tickets_it_head_idTousers", fields: [it_head_id], references: [id], onUpdate: Restrict, map: "it_tickets_it_head_id_foreign")
   users_it_tickets_requester_idTousers users                      @relation("it_tickets_requester_idTousers", fields: [requester_id], references: [id], onUpdate: Restrict, map: "it_tickets_requester_id_foreign")
+  calendar_events                      calendar_events?
 
   @@index([approver_id, status], map: "it_tickets_approver_id_status_index")
   @@index([asset_id], map: "it_tickets_asset_id_index")
@@ -552,7 +608,7 @@ model kpi_entries {
   created_at     DateTime?   @db.DateTime(0)
   updated_at     DateTime?   @db.DateTime(0)
   entry_type     String      @default("work") @db.VarChar(10)
-  ticket_id      BigInt?     @unique(map: "kpi_entries_ticket_id_unique")
+  ticket_id      BigInt?
   requester_name String?     @db.VarChar(255)
   branch_name    String?     @db.VarChar(100)
   service_type   String?     @db.VarChar(40)
@@ -562,6 +618,7 @@ model kpi_entries {
   users          users       @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "kpi_entries_user_id_foreign")
   it_tickets     it_tickets? @relation(fields: [ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "kpi_entries_ticket_id_foreign")
 
+  @@unique([ticket_id, user_id], map: "kpi_entries_ticket_user_unique")
   @@index([user_id, work_date], map: "kpi_entries_user_id_work_date_index")
   @@index([work_date], map: "kpi_entries_work_date_index")
 }
@@ -572,6 +629,8 @@ model locations {
   name                                                        String            @db.VarChar(255)
   type                                                        String            @default("room") @db.VarChar(20)
   parent_id                                                   BigInt?
+  /// สาขาที่สถานที่สังกัด (ไม่บังคับ)
+  branch_id                                                   BigInt?
   address                                                     String?           @db.Text
   is_active                                                   Boolean           @default(true)
   created_at                                                  DateTime?         @db.DateTime(0)
@@ -582,7 +641,9 @@ model locations {
   assets                                                      assets[]
   locations                                                   locations?        @relation("locationsTolocations", fields: [parent_id], references: [id], onUpdate: Restrict, map: "locations_parent_id_foreign")
   other_locations                                             locations[]       @relation("locationsTolocations")
+  branches                                                    branches?         @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "locations_branch_id_foreign")
 
+  @@index([branch_id], map: "locations_branch_id_index")
   @@index([is_active, name], map: "locations_is_active_name_index")
   @@index([parent_id], map: "locations_parent_id_index")
 }
@@ -704,6 +765,8 @@ model users {
   credentials_credentials_updated_byTousers                credentials[]              @relation("credentials_updated_byTousers")
   it_ticket_attachments                                    it_ticket_attachments[]
   it_ticket_events                                         it_ticket_events[]
+  it_ticket_helpers_user                                   it_ticket_helpers[]        @relation("it_ticket_helpers_user_idTousers")
+  it_ticket_helpers_added_by                               it_ticket_helpers[]        @relation("it_ticket_helpers_added_byTousers")
   it_tickets_it_tickets_approver_idTousers                 it_tickets[]               @relation("it_tickets_approver_idTousers")
   it_tickets_it_tickets_assignee_idTousers                 it_tickets[]               @relation("it_tickets_assignee_idTousers")
   it_tickets_it_tickets_it_head_idTousers                  it_tickets[]               @relation("it_tickets_it_head_idTousers")
@@ -722,6 +785,23 @@ model users {
   audit_logs                                               audit_logs[]
   user_signatures                                          user_signatures[]          @relation("user_signatures_user")
   user_signatures_created                                  user_signatures[]          @relation("user_signatures_created_by")
+
+  leave_requests_leave_requests_user_idTousers      leave_requests[]        @relation("leave_requests_user_idTousers")
+  leave_requests_leave_requests_approver_idTousers  leave_requests[]        @relation("leave_requests_approver_idTousers")
+  calendar_events_calendar_events_user_idTousers    calendar_events[]       @relation("calendar_events_user_idTousers")
+  calendar_events_calendar_events_created_byTousers calendar_events[]       @relation("calendar_events_created_byTousers")
+  meeting_bookings                                  meeting_bookings[]
+  vehicle_bookings                                  vehicle_bookings[]
+  company_holidays                                  company_holidays[]
+  leave_quota_overrides                             leave_quota_overrides[]
+  /// ลิงก์ iCal ส่วนตัว (GET /calendar/feed/{token}.ics)
+  calendar_token                                    String?                 @unique(map: "users_calendar_token_unique") @db.VarChar(64)
+  /// 2FA (TOTP) — secret เข้ารหัส APP_KEY; ยืนยันแล้ว = confirmed_at ไม่ว่าง; recovery codes = JSON ของ SHA-256 (ใช้ได้ครั้งเดียว)
+  two_factor_secret                                 String?                 @db.Text
+  two_factor_confirmed_at                           DateTime?               @db.DateTime(0)
+  two_factor_recovery_codes                         String?                 @db.Text
+  /// ช่วงเวลา (30 วินาที) ของรหัสที่ใช้ล่าสุด — กันใช้รหัสเดิมซ้ำ
+  two_factor_last_step                              BigInt?
 
   @@unique([connection_id, external_id], map: "users_connection_id_external_id_unique")
   @@index([type], map: "users_type_index")
@@ -914,22 +994,28 @@ model audit_logs {
 
 /// แผนก (ข้อมูลหลัก) — users.department / approval_routes.department เก็บเป็นชื่อ (ข้อความ) เหมือนเดิม; เปลี่ยนชื่อที่นี่ = อัปเดตชื่อในผู้ใช้/สายอนุมัติด้วย
 model departments {
-  id         BigInt    @id @default(autoincrement())
-  name       String    @unique(map: "departments_name_unique") @db.VarChar(100)
-  is_active  Boolean   @default(true)
-  sort_order Int       @default(0) @db.SmallInt
-  created_at DateTime? @db.DateTime(0)
-  updated_at DateTime? @db.DateTime(0)
+  id          BigInt     @id @default(autoincrement())
+  name        String     @unique(map: "departments_name_unique") @db.VarChar(100)
+  is_active   Boolean    @default(true)
+  sort_order  Int        @default(0) @db.SmallInt
+  /// ฝ่ายที่สังกัด (ไม่บังคับ)
+  division_id BigInt?
+  created_at  DateTime?  @db.DateTime(0)
+  updated_at  DateTime?  @db.DateTime(0)
+  divisions   divisions? @relation(fields: [division_id], references: [id], onUpdate: Restrict, map: "departments_division_id_foreign")
+
+  @@index([division_id], map: "departments_division_id_index")
 }
 
 /// ฝ่าย (ข้อมูลหลัก) — users.division เก็บเป็นชื่อ (ข้อความ) เหมือนเดิม
 model divisions {
-  id         BigInt    @id @default(autoincrement())
-  name       String    @unique(map: "divisions_name_unique") @db.VarChar(100)
-  is_active  Boolean   @default(true)
-  sort_order Int       @default(0) @db.SmallInt
-  created_at DateTime? @db.DateTime(0)
-  updated_at DateTime? @db.DateTime(0)
+  id          BigInt        @id @default(autoincrement())
+  name        String        @unique(map: "divisions_name_unique") @db.VarChar(100)
+  is_active   Boolean       @default(true)
+  sort_order  Int           @default(0) @db.SmallInt
+  created_at  DateTime?     @db.DateTime(0)
+  updated_at  DateTime?     @db.DateTime(0)
+  departments departments[]
 }
 
 /// ลายเซ็นของผู้ใช้ (เก็บในระบบเรา ไม่เกี่ยวกับระบบต้นทาง) — ลายเซ็นใหม่ทำให้อันเดิม is_active = false (ห้ามลบแถว = เก็บประวัติ)
@@ -951,4 +1037,265 @@ model user_signatures {
   creator      users?   @relation("user_signatures_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "user_signatures_created_by_foreign")
 
   @@index([user_id, is_active], map: "user_signatures_user_id_is_active_index")
+}
+
+/// ใบลา — อนุมัติโดยหัวหน้าที่ผู้ลาระบุ (ตั้งต้น = หัวหน้าตามสาย) แล้วจึงขึ้นปฏิทิน + แถว KPI
+/// unit: full | half_am | half_pm | hours (start_time/end_time) — days = วันทำงานจริง (ไม่นับ ส-อา / วันหยุดบริษัท)
+model leave_requests {
+  id                                      BigInt        @id @default(autoincrement())
+  uuid                                    String        @unique(map: "leave_requests_uuid_unique") @db.Char(36)
+  user_id                                 BigInt
+  leave_type                              String        @db.VarChar(20)
+  unit                                    String        @default("full") @db.VarChar(10)
+  start_on                                DateTime      @db.Date
+  end_on                                  DateTime      @db.Date
+  start_time                              String?       @db.VarChar(5)
+  end_time                                String?       @db.VarChar(5)
+  days                                    Decimal       @default(0) @db.Decimal(5, 2)
+  reason                                  String?       @db.Text
+  approver_id                             BigInt?
+  status                                  String        @default("pending") @db.VarChar(20)
+  decided_at                              DateTime?     @db.DateTime(0)
+  decision_note                           String?       @db.Text
+  cancelled_by                            BigInt?
+  created_at                              DateTime?     @db.DateTime(0)
+  updated_at                              DateTime?     @db.DateTime(0)
+  users_leave_requests_user_idTousers     users         @relation("leave_requests_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "leave_requests_user_id_foreign")
+  users_leave_requests_approver_idTousers users?        @relation("leave_requests_approver_idTousers", fields: [approver_id], references: [id], onUpdate: Restrict, map: "leave_requests_approver_id_foreign")
+  leave_files                             leave_files[]
+
+  @@index([user_id, status], map: "leave_requests_user_id_status_index")
+  @@index([approver_id, status], map: "leave_requests_approver_id_status_index")
+  @@index([start_on, end_on], map: "leave_requests_start_on_end_on_index")
+}
+
+/// เหตุการณ์ในปฏิทิน — onsite = ช่วงวันไปทำงานหน้างานจากใบแจ้งงาน (1 ใบ = 1 ช่วง)
+model calendar_events {
+  id                                      BigInt      @id @default(autoincrement())
+  type                                    String      @default("onsite") @db.VarChar(20)
+  user_id                                 BigInt
+  ticket_id                               BigInt?     @unique(map: "calendar_events_ticket_id_unique")
+  title                                   String      @db.VarChar(255)
+  start_on                                DateTime    @db.Date
+  end_on                                  DateTime    @db.Date
+  note                                    String?     @db.Text
+  /// type event: แสดงทั้งบริษัท (ไม่กรองตามขอบเขต)
+  all_company                             Boolean     @default(false)
+  /// type event: ไม่รวมเสาร์-อาทิตย์ (แสดงเฉพาะวันธรรมดาในช่วงวัน)
+  skip_weekends                           Boolean     @default(false)
+  created_by                              BigInt?
+  created_at                              DateTime?   @db.DateTime(0)
+  updated_at                              DateTime?   @db.DateTime(0)
+  users_calendar_events_user_idTousers    users       @relation("calendar_events_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "calendar_events_user_id_foreign")
+  it_tickets                              it_tickets? @relation(fields: [ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "calendar_events_ticket_id_foreign")
+  users_calendar_events_created_byTousers users?      @relation("calendar_events_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "calendar_events_created_by_foreign")
+
+  @@index([user_id], map: "calendar_events_user_id_index")
+  @@index([start_on, end_on], map: "calendar_events_start_on_end_on_index")
+}
+
+/// วันหยุดประจำปีของบริษัท — ผู้ดูแลระบบเพิ่มเอง / นำเข้า Excel; ขึ้นปฏิทินทุกคน + แถววันหยุดใน KPI
+model company_holidays {
+  id                BigInt            @id @default(autoincrement())
+  calendar_id       BigInt
+  date              DateTime          @db.Date
+  name              String            @db.VarChar(255)
+  created_by        BigInt?
+  created_at        DateTime?         @db.DateTime(0)
+  updated_at        DateTime?         @db.DateTime(0)
+  users             users?            @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "company_holidays_created_by_foreign")
+  holiday_calendars holiday_calendars @relation(fields: [calendar_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "company_holidays_calendar_id_foreign")
+
+  @@unique([calendar_id, date], map: "company_holidays_calendar_date_unique")
+}
+
+/// ปฏิทินวันหยุดแต่ละชุด (เช่น สำนักงานใหญ่ / สำนักงานโรงงาน) — สาขาเลือกใช้ 1 ชุด, ไม่เลือก = ชุดตั้งต้น (is_default)
+model holiday_calendars {
+  id               BigInt             @id @default(autoincrement())
+  name             String             @unique(map: "holiday_calendars_name_unique") @db.VarChar(100)
+  is_default       Boolean            @default(false)
+  sort_order       Int                @default(0) @db.SmallInt
+  created_at       DateTime?          @db.DateTime(0)
+  updated_at       DateTime?          @db.DateTime(0)
+  company_holidays company_holidays[]
+  branches         branches[]
+}
+
+/// โควตาวันลารายคนต่อปี (ไม่มี = ค่าตั้งต้นใน app_settings.leave_settings.quotas)
+model leave_quota_overrides {
+  user_id    BigInt
+  year       Int       @db.SmallInt
+  leave_type String    @db.VarChar(20)
+  days       Decimal   @db.Decimal(5, 2)
+  updated_by BigInt?
+  updated_at DateTime? @db.DateTime(0)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "leave_quota_overrides_user_id_foreign")
+
+  @@id([user_id, year, leave_type])
+}
+
+/// ไฟล์แนบใบลา (ใบรับรองแพทย์) — private disk
+model leave_files {
+  id             BigInt         @id @default(autoincrement())
+  leave_id       BigInt
+  path           String         @db.VarChar(500)
+  original_name  String         @db.VarChar(255)
+  mime           String?        @db.VarChar(100)
+  size           Int?
+  created_at     DateTime?      @db.DateTime(0)
+  leave_requests leave_requests @relation(fields: [leave_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "leave_files_leave_id_foreign")
+
+  @@index([leave_id], map: "leave_files_leave_id_index")
+}
+
+/// ห้องประชุม — seats = แถวจำนวนที่นั่ง [{ label, count }] (เช่น ที่นั่งหลัก / ที่นั่งสำรอง)
+model meeting_rooms {
+  id                  BigInt                @id @default(autoincrement())
+  name                String                @unique(map: "meeting_rooms_name_unique") @db.VarChar(100)
+  branch_id           BigInt?
+  location            String?               @db.VarChar(255)
+  room_no             String?               @db.VarChar(50)
+  description         String?               @db.Text
+  seats               Json
+  is_active           Boolean               @default(true)
+  sort_order          Int                   @default(0) @db.SmallInt
+  created_at          DateTime?             @db.DateTime(0)
+  updated_at          DateTime?             @db.DateTime(0)
+  branches            branches?             @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "meeting_rooms_branch_id_foreign")
+  meeting_room_images meeting_room_images[]
+  meeting_bookings    meeting_bookings[]
+
+  @@index([branch_id], map: "meeting_rooms_branch_id_index")
+}
+
+/// รูปห้องประชุม (≤ 4 รูปต่อห้อง, is_primary = รูปหลักที่แสดง) — ไฟล์ WebP ที่ประมวลผลใหม่ใน storage/private/meeting-rooms/{room}/
+model meeting_room_images {
+  id            BigInt        @id @default(autoincrement())
+  room_id       BigInt
+  path          String        @db.VarChar(500)
+  size          Int?
+  is_primary    Boolean       @default(false)
+  sort_order    Int           @default(0) @db.SmallInt
+  created_at    DateTime?     @db.DateTime(0)
+  meeting_rooms meeting_rooms @relation(fields: [room_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "meeting_room_images_room_id_foreign")
+
+  @@index([room_id], map: "meeting_room_images_room_id_index")
+}
+
+/// การจองห้องประชุม (วันเดียว: booking_date + start_time/end_time "HH:MM") — status: confirmed | cancelled; ลบ = deleted_at
+/// purpose = ข้อความจาก dropdown_options (list meeting_purpose); department = แผนกของผู้จองตอนจอง
+model meeting_bookings {
+  id                        BigInt                      @id @default(autoincrement())
+  uuid                      String                      @unique(map: "meeting_bookings_uuid_unique") @db.Char(36)
+  room_id                   BigInt
+  user_id                   BigInt
+  department                String?                     @db.VarChar(255)
+  title                     String                      @db.VarChar(255)
+  attendees                 Int                         @db.SmallInt
+  purpose                   String?                     @db.VarChar(100)
+  note                      String?                     @db.Text
+  booking_date              DateTime                    @db.Date
+  start_time                String                      @db.VarChar(5)
+  end_time                  String                      @db.VarChar(5)
+  status                    String                      @default("confirmed") @db.VarChar(20)
+  cancelled_at              DateTime?                   @db.DateTime(0)
+  cancelled_by              BigInt?
+  created_at                DateTime?                   @db.DateTime(0)
+  updated_at                DateTime?                   @db.DateTime(0)
+  deleted_at                DateTime?                   @db.DateTime(0)
+  meeting_rooms             meeting_rooms               @relation(fields: [room_id], references: [id], onUpdate: Restrict, map: "meeting_bookings_room_id_foreign")
+  users                     users                       @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "meeting_bookings_user_id_foreign")
+  meeting_booking_equipment meeting_booking_equipment[]
+
+  @@index([room_id, booking_date], map: "meeting_bookings_room_id_booking_date_index")
+  @@index([booking_date], map: "meeting_bookings_booking_date_index")
+  @@index([user_id], map: "meeting_bookings_user_id_index")
+}
+
+/// อุปกรณ์ที่ขอใช้ในการจอง (ชื่อจาก dropdown_options list meeting_equipment)
+model meeting_booking_equipment {
+  booking_id       BigInt
+  name             String           @db.VarChar(100)
+  meeting_bookings meeting_bookings @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "meeting_booking_equipment_booking_id_foreign")
+
+  @@id([booking_id, name])
+}
+
+/// รถส่วนกลาง — mileage = เลขไมล์ล่าสุด (อัปเดตจากเลขไมล์ที่บันทึกในการจอง หรือผู้จัดการแก้เอง)
+model vehicles {
+  id               BigInt             @id @default(autoincrement())
+  name             String             @unique(map: "vehicles_name_unique") @db.VarChar(100)
+  plate_no         String?            @unique(map: "vehicles_plate_no_unique") @db.VarChar(30)
+  branch_id        BigInt?
+  seats            Int                @db.SmallInt
+  parking          String?            @db.VarChar(255)
+  description      String?            @db.Text
+  mileage          Int?
+  is_active        Boolean            @default(true)
+  sort_order       Int                @default(0) @db.SmallInt
+  created_at       DateTime?          @db.DateTime(0)
+  updated_at       DateTime?          @db.DateTime(0)
+  branches         branches?          @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "vehicles_branch_id_foreign")
+  vehicle_images   vehicle_images[]
+  vehicle_bookings vehicle_bookings[]
+
+  @@index([branch_id], map: "vehicles_branch_id_index")
+}
+
+/// รูปรถ (≤ 4 รูปต่อคัน, is_primary = รูปหลัก) — ไฟล์ WebP ใน storage/private/vehicles/{vehicle}/
+model vehicle_images {
+  id         BigInt    @id @default(autoincrement())
+  vehicle_id BigInt
+  path       String    @db.VarChar(500)
+  size       Int?
+  is_primary Boolean   @default(false)
+  sort_order Int       @default(0) @db.SmallInt
+  created_at DateTime? @db.DateTime(0)
+  vehicles   vehicles  @relation(fields: [vehicle_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "vehicle_images_vehicle_id_foreign")
+
+  @@index([vehicle_id], map: "vehicle_images_vehicle_id_index")
+}
+
+/// การจองรถ (หลายวันได้: start_on + start_time ถึง end_on + end_time "HH:MM" เวลาไทย) — vehicle_id NULL = รอผู้จัดคิวรถเลือกรถ
+/// status: confirmed | cancelled; ลบ = deleted_at; purpose = dropdown_options list vehicle_purpose; เลขไมล์เริ่มต้น/สิ้นสุดของการใช้งาน
+model vehicle_bookings {
+  id                     BigInt                   @id @default(autoincrement())
+  uuid                   String                   @unique(map: "vehicle_bookings_uuid_unique") @db.Char(36)
+  vehicle_id             BigInt?
+  user_id                BigInt
+  department             String?                  @db.VarChar(255)
+  details                String                   @db.Text
+  passengers             Int                      @db.SmallInt
+  purpose                String?                  @db.VarChar(100)
+  note                   String?                  @db.Text
+  start_on               DateTime                 @db.Date
+  start_time             String                   @db.VarChar(5)
+  end_on                 DateTime                 @db.Date
+  end_time               String                   @db.VarChar(5)
+  start_mileage          Int?
+  end_mileage            Int?
+  status                 String                   @default("confirmed") @db.VarChar(20)
+  assigned_by            BigInt?
+  assigned_at            DateTime?                @db.DateTime(0)
+  cancelled_at           DateTime?                @db.DateTime(0)
+  cancelled_by           BigInt?
+  created_at             DateTime?                @db.DateTime(0)
+  updated_at             DateTime?                @db.DateTime(0)
+  deleted_at             DateTime?                @db.DateTime(0)
+  vehicles               vehicles?                @relation(fields: [vehicle_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_vehicle_id_foreign")
+  users                  users                    @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_user_id_foreign")
+  vehicle_booking_extras vehicle_booking_extras[]
+
+  @@index([vehicle_id, start_on, end_on], map: "vehicle_bookings_vehicle_id_start_on_end_on_index")
+  @@index([start_on, end_on], map: "vehicle_bookings_start_on_end_on_index")
+  @@index([user_id], map: "vehicle_bookings_user_id_index")
+}
+
+/// รายการเพิ่มเติมที่ขอ (ชื่อจาก dropdown_options list vehicle_extra เช่น น้ำมันเต็มถัง / Easy Pass)
+model vehicle_booking_extras {
+  booking_id       BigInt
+  name             String           @db.VarChar(100)
+  vehicle_bookings vehicle_bookings @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "vehicle_booking_extras_booking_id_foreign")
+
+  @@id([booking_id, name])
 }

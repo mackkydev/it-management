@@ -28,3 +28,6 @@ storage/private/*
 Thumbs.db
 .idea/
 .vscode/
+
+# ค่าของ deploy/backup.sh (path ไฟล์รหัสผ่านสำรองข้อมูล) — ไม่ขึ้น git
+deploy/backup.env

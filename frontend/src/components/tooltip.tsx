@@ -19,11 +19,14 @@ export function Tooltip({
   label,
   side = "right",
   disabled = false,
+  className = "",
   children,
 }: {
   label: ReactNode;
   side?: Side;
   disabled?: boolean;
+  /** class เพิ่มของกล่องที่ครอบ (เช่น flex-1 ให้ครอบทั้งช่อง) */
+  className?: string;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -59,7 +62,7 @@ export function Tooltip({
   return (
     <span
       ref={ref}
-      className="inline-flex"
+      className={`inline-flex ${className}`}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}

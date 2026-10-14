@@ -23,17 +23,18 @@ export default async function EditContractPage({ params }: PageProps<"/contracts
     if (e instanceof ApiError && e.status === 404) notFound();
     throw e;
   });
-  const [{ data: contract }, { data: branches }, { default_notify_days }, { t }] = await Promise.all([
+  const [{ data: contract }, { data: branches }, { default_notify_days }, { t }, categories] = await Promise.all([
     contractReq,
     apiFetch<{ data: Branch[] }>("/branches"),
     apiFetch<{ default_notify_days: number }>("/contracts?status=expired"),
     getI18n(),
+    apiFetch<{ data: { id: number; name: string; key: string | null }[] }>("/contract-categories").then((r) => r.data),
   ]);
 
   return (
     <div className="space-y-5">
       <PageHeader icon={FileTextIcon} title={t("contracts.editTitle")} subtitle={`${contract.title} · ${contract.vendor_name}`} />
-      <ContractForm contract={contract} branches={branches} defaultNotifyDays={default_notify_days} canDelete={has(user, "contracts.delete")} />
+      <ContractForm contract={contract} branches={branches} categories={categories} defaultNotifyDays={default_notify_days} canDelete={has(user, "contracts.delete")} />
     </div>
   );
 }

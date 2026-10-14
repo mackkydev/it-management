@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 import { config } from "../config.js";
 
 /**
@@ -15,7 +15,7 @@ export interface MailMessage {
 /** ใช้ในเทสต์เพื่อตรวจอีเมลที่ถูกส่ง (แทน Notification::fake) */
 export const sentMail: MailMessage[] = [];
 
-let transport: nodemailer.Transporter | null = null;
+let transport: Transporter | null = null;
 
 export async function sendMail(msg: MailMessage): Promise<void> {
   if (process.env.NODE_ENV === "test" || config.mail.mailer === "array") {

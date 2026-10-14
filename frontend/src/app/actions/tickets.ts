@@ -37,13 +37,20 @@ export async function createTicket(form: FormData): Promise<TicketResult> {
 export async function ticketAction(
   id: string,
   action: SimpleAction,
-  payload: { comment?: string; signature?: string | null } = {},
+  payload: { comment?: string; signature?: string | null; calendar?: { start_on: string; end_on: string; note?: string } | null; helper_ids?: number[] } = {},
 ): Promise<TicketResult> {
   if (!UUID_RE.test(id) || !(ACTIONS as readonly string[]).includes(action)) return invalid();
   try {
     await apiFetch(`/tickets/${id}/${ENDPOINT[action] ?? action}`, {
       method: "POST",
-      body: JSON.stringify({ comment: payload.comment?.trim() || null, signature: payload.signature ?? undefined }),
+      body: JSON.stringify({
+        comment: payload.comment?.trim() || null,
+        signature: payload.signature ?? undefined,
+        // รับงาน + บันทึกลงปฏิทิน (ช่วงวันไปทำงานหน้างาน)
+        ...(action === "accept" && payload.calendar ? { calendar: { ...payload.calendar, note: payload.calendar.note?.trim() || undefined } } : {}),
+        // รับงาน + ผู้ร่วมดำเนินการ
+        ...(action === "accept" && payload.helper_ids?.length ? { helper_ids: payload.helper_ids } : {}),
+      }),
     });
   } catch (e) {
     return toActionResult(e);
@@ -142,5 +149,17 @@ export async function fetchMenuBadges(): Promise<Record<string, number>> {
     return (await apiFetch<{ data: Record<string, number> }>("/menu-badges")).data;
   } catch {
     return {};
+  }
+}
+
+/** ผู้รับงานแก้รายชื่อผู้ร่วมดำเนินการ (แทนที่ทั้งชุด) */
+export async function saveTicketHelpers(id: string, helperIds: number[]): Promise<TicketResult & { ticket?: TicketDetail }> {
+  if (!UUID_RE.test(id)) return invalid();
+  try {
+    const res = await apiFetch<{ data: TicketDetail }>(`/tickets/${id}/helpers`, { method: "PUT", body: JSON.stringify({ helper_ids: helperIds }) });
+    revalidatePath(`/tickets/${id}`);
+    return { ok: true, ticket: res.data };
+  } catch (e) {
+    return toActionResult(e);
   }
 }

@@ -12,6 +12,19 @@ export function notificationText(n: AppNotification, t: TFunction): string {
   if (n.data.kind === "access_changed") {
     return t(`notifications.access.${n.data.change}` as MessageKey, { actor: n.data.actor, subject: n.data.subject });
   }
+  if (n.data.kind === "leave") {
+    const period = n.data.start_on === n.data.end_on ? n.data.start_on : `${n.data.start_on} – ${n.data.end_on}`;
+    return t(`notifications.leave.${n.data.event}` as MessageKey, { actor: n.data.actor, type: t(`leave.types.${n.data.leave_type}` as MessageKey), period, owner: n.data.owner ?? "" });
+  }
+  if (n.data.kind === "vehicle") {
+    const d = n.data;
+    const period = d.start_on === d.end_on ? `${d.start_on} ${d.start_time}–${d.end_time}` : `${d.start_on} ${d.start_time} – ${d.end_on} ${d.end_time}`;
+    return t(`notifications.vehicle.${d.event}` as MessageKey, { actor: d.actor, vehicle: d.vehicle ?? "", period });
+  }
+  if (n.data.kind === "meeting") {
+    const d = n.data;
+    return t(`notifications.meeting.${d.event}` as MessageKey, { actor: d.actor, room: d.room, title: d.title, date: d.date, start: d.start_time, end: d.end_time });
+  }
   return t("notifications.expiring", { count: n.data.count });
 }
 
@@ -24,5 +37,14 @@ export function notificationHref(n: AppNotification): string {
     if (n.data.change === "user") return `/users/${n.data.subject_id}/permissions`;
     return n.data.change === "pin" ? "/vault" : "/role-permissions";
   }
+  // ใบลา: ส่งมาให้อนุมัติ → หน้ารออนุมัติลา, ผลการอนุมัติ → ใบลาของฉัน
+  if (n.data.kind === "leave") return n.data.event === "submitted" ? "/leave/approvals" : `/leave?open=${n.data.leave_id}`;
+  // จองรถ: รอจัดรถ → หน้าจัดคิวรถ, อื่นๆ → การจองรถของฉัน
+  if (n.data.kind === "vehicle") {
+    if (n.data.event === "requested") return "/vehicles/dispatch";
+    return n.data.event === "cancelled" ? "/vehicles/mine?status=cancelled" : "/vehicles/mine";
+  }
+  // การจองห้องประชุมที่ผู้จัดการแก้/ยกเลิก/ลบ → การจองของฉัน (ยกเลิก = แท็บยกเลิกแล้ว)
+  if (n.data.kind === "meeting") return n.data.event === "cancelled" ? "/meeting-rooms/mine?status=cancelled" : "/meeting-rooms/mine";
   return "/contracts";
 }

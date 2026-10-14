@@ -7,14 +7,14 @@ import { ChevronDownIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
 import { useI18n } from "@/i18n/client";
 import { GroupBadge, ItemBadge } from "./menu-badges";
-import { activeHref, type NavGroup } from "./nav";
+import { activeHref, navLabel, type NavGroup } from "./nav";
 
 /**
  * เมนูแบบ accordion: เปิดได้ทีละกลุ่ม — คลิกกลุ่มใหม่ กลุ่มเดิมจะย่อลงอัตโนมัติ
  * กลุ่มที่มีหน้าปัจจุบันจะเปิดไว้ตั้งแต่แรก
  */
 export function SidebarNav({ groups, onNavigate }: { groups: NavGroup[]; onNavigate?: () => void }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const pathname = usePathname();
   const active = activeHref(groups, pathname);
   const [open, setOpen] = useState<string | null>(
@@ -47,7 +47,7 @@ export function SidebarNav({ groups, onNavigate }: { groups: NavGroup[]; onNavig
               >
                 <group.icon width={16} height={16} />
               </span>
-              <span className="flex-1 text-left">{t(group.label)}</span>
+              <span className="flex-1 text-left">{navLabel(group, t, locale)}</span>
               {!isOpen && <GroupBadge hrefs={group.items.map((i) => i.href)} />}
               <ChevronDownIcon
                 width={15}
@@ -81,7 +81,7 @@ export function SidebarNav({ groups, onNavigate }: { groups: NavGroup[]; onNavig
                             icon={<item.icon width={15} height={15} className={current ? "" : "text-accent-400"} />}
                             size={15}
                           />
-                          <span className="flex-1">{t(item.label)}</span>
+                          <span className="flex-1">{navLabel(item, t, locale)}</span>
                           <ItemBadge href={item.href} />
                         </Link>
                       </li>
