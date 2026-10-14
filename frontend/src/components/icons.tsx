@@ -520,3 +520,10 @@ export const MoreVerticalIcon = (p: P) => (
     <circle cx="12" cy="19" r="1" />
   </Icon>
 );
+
+/** ลูกศรขวา (ย้ายสาขา: จาก → ไป) */
+export const ArrowRightIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </Icon>
+);

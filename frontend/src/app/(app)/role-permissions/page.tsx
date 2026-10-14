@@ -7,8 +7,9 @@ import { apiFetch } from "@/lib/api";
 import { getCurrentUser, has, isSuperAdmin } from "@/lib/auth";
 import type { PermissionCatalog } from "@/lib/types";
 import { RoleMatrix } from "./role-matrix";
+import { BookingScopeForm } from "./booking-scope-form";
 import { CalendarScopeForm } from "./calendar-scope-form";
-import type { CalendarScope } from "@/lib/types";
+import type { BookingKind, BookingScope, CalendarScope } from "@/lib/types";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -20,13 +21,15 @@ export default async function RolePermissionsPage() {
   const user = await getCurrentUser();
   const canManage = has(user, "access.manage");
   if (!canManage && !has(user, "access.assign")) redirect("/tickets");
-  const [{ t }, catalog, scopes] = await Promise.all([
+  const [{ t }, catalog, scopes, bookingScopes] = await Promise.all([
     getI18n(),
     apiFetch<PermissionCatalog>("/permissions"),
     // ขอบเขตปฏิทินต่อกลุ่ม — แก้ได้เฉพาะผู้ดูแลระบบสูงสุด (access.manage)
     canManage
       ? apiFetch<{ data: { calendar: Record<string, CalendarScope>; leave: Record<string, CalendarScope> } }>("/calendar/scope").then((r) => r.data)
       : Promise.resolve(null),
+    // ห้องประชุม / รถ ตามสาขา ต่อกลุ่ม
+    canManage ? apiFetch<{ data: Record<BookingKind, Record<string, BookingScope>> }>("/booking-scope").then((r) => r.data) : Promise.resolve(null),
   ]);
   return (
     <div className="space-y-5">
@@ -35,6 +38,7 @@ export default async function RolePermissionsPage() {
       {/* ขอบเขตปฏิทิน (กิจกรรม/หน้างาน) และขอบเขตการลา ตั้งแยกกัน */}
       {scopes && <CalendarScopeForm groups={catalog.groups} initial={scopes.calendar} kind="calendar" />}
       {scopes && <CalendarScopeForm groups={catalog.groups} initial={scopes.leave} kind="leave" />}
+      {bookingScopes && <BookingScopeForm groups={catalog.groups} initial={bookingScopes} />}
     </div>
   );
 }

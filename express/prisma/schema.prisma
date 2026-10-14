@@ -278,29 +278,32 @@ model assets {
 }
 
 model branches {
-  id                    BigInt                  @id @default(autoincrement())
-  code                  String                  @unique(map: "branches_code_unique") @db.VarChar(30)
-  name                  String                  @db.VarChar(255)
-  sort_order            Int                     @default(0) @db.SmallInt
-  is_active             Boolean                 @default(true)
-  created_at            DateTime?               @db.DateTime(0)
-  updated_at            DateTime?               @db.DateTime(0)
-  deleted_at            DateTime?               @db.DateTime(0)
+  id                     BigInt                  @id @default(autoincrement())
+  code                   String                  @unique(map: "branches_code_unique") @db.VarChar(30)
+  name                   String                  @db.VarChar(255)
+  sort_order             Int                     @default(0) @db.SmallInt
+  is_active              Boolean                 @default(true)
+  created_at             DateTime?               @db.DateTime(0)
+  updated_at             DateTime?               @db.DateTime(0)
+  deleted_at             DateTime?               @db.DateTime(0)
   /// ชื่อ Work Group ของ Windows ที่สาขานี้ใช้ (เช่น LAMPHUN) — import ทะเบียนคอมพิวเตอร์จับคู่สาขาจากค่านี้ (ไม่ซ้ำ ไม่สนตัวพิมพ์)
-  work_group            String?                 @unique(map: "branches_work_group_unique") @db.VarChar(50)
+  work_group             String?                 @unique(map: "branches_work_group_unique") @db.VarChar(50)
   /// ปฏิทินวันหยุดที่สาขานี้ใช้ (NULL = ชุดตั้งต้น)
-  holiday_calendar_id   BigInt?
-  holiday_calendars     holiday_calendars?      @relation(fields: [holiday_calendar_id], references: [id], onUpdate: Restrict, map: "branches_holiday_calendar_id_foreign")
-  approval_routes       approval_routes[]
-  locations             locations[]
-  assets                assets[]
-  license_installations license_installations[]
-  contracts             contracts[]
-  credentials           credentials[]
-  it_tickets            it_tickets[]
-  users                 users[]
-  meeting_rooms         meeting_rooms[]
-  vehicles              vehicles[]
+  holiday_calendar_id    BigInt?
+  holiday_calendars      holiday_calendars?      @relation(fields: [holiday_calendar_id], references: [id], onUpdate: Restrict, map: "branches_holiday_calendar_id_foreign")
+  approval_routes        approval_routes[]
+  locations              locations[]
+  assets                 assets[]
+  license_installations  license_installations[]
+  contracts              contracts[]
+  credentials            credentials[]
+  it_tickets             it_tickets[]
+  users                  users[]
+  meeting_rooms          meeting_rooms[]
+  vehicles               vehicles[]
+  vehicle_bookings       vehicle_bookings[]
+  vehicle_transfers_from vehicle_transfers[]     @relation("vehicle_transfer_from")
+  vehicle_transfers_to   vehicle_transfers[]     @relation("vehicle_transfer_to")
 
   @@index([is_active, sort_order], map: "branches_is_active_sort_order_index")
   @@index([holiday_calendar_id], map: "branches_holiday_calendar_id_index")
@@ -792,6 +795,7 @@ model users {
   calendar_events_calendar_events_created_byTousers calendar_events[]       @relation("calendar_events_created_byTousers")
   meeting_bookings                                  meeting_bookings[]
   vehicle_bookings                                  vehicle_bookings[]
+  vehicle_transfers                                 vehicle_transfers[]
   company_holidays                                  company_holidays[]
   leave_quota_overrides                             leave_quota_overrides[]
   /// ลิงก์ iCal ส่วนตัว (GET /calendar/feed/{token}.ics)
@@ -1223,23 +1227,47 @@ model meeting_booking_equipment {
 
 /// รถส่วนกลาง — mileage = เลขไมล์ล่าสุด (อัปเดตจากเลขไมล์ที่บันทึกในการจอง หรือผู้จัดการแก้เอง)
 model vehicles {
-  id               BigInt             @id @default(autoincrement())
-  name             String             @unique(map: "vehicles_name_unique") @db.VarChar(100)
-  plate_no         String?            @unique(map: "vehicles_plate_no_unique") @db.VarChar(30)
-  branch_id        BigInt?
-  seats            Int                @db.SmallInt
-  parking          String?            @db.VarChar(255)
-  description      String?            @db.Text
-  mileage          Int?
-  is_active        Boolean            @default(true)
-  sort_order       Int                @default(0) @db.SmallInt
-  created_at       DateTime?          @db.DateTime(0)
-  updated_at       DateTime?          @db.DateTime(0)
-  branches         branches?          @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "vehicles_branch_id_foreign")
-  vehicle_images   vehicle_images[]
-  vehicle_bookings vehicle_bookings[]
+  id                BigInt              @id @default(autoincrement())
+  name              String              @unique(map: "vehicles_name_unique") @db.VarChar(100)
+  plate_no          String?             @unique(map: "vehicles_plate_no_unique") @db.VarChar(30)
+  branch_id         BigInt?
+  seats             Int                 @db.SmallInt
+  parking           String?             @db.VarChar(255)
+  description       String?             @db.Text
+  mileage           Int?
+  /// ประเภทรถ / เชื้อเพลิง — ข้อความจาก dropdown_options list vehicle_type / vehicle_fuel
+  vehicle_type      String?             @db.VarChar(50)
+  fuel_type         String?             @db.VarChar(50)
+  is_active         Boolean             @default(true)
+  sort_order        Int                 @default(0) @db.SmallInt
+  created_at        DateTime?           @db.DateTime(0)
+  updated_at        DateTime?           @db.DateTime(0)
+  branches          branches?           @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "vehicles_branch_id_foreign")
+  vehicle_images    vehicle_images[]
+  vehicle_bookings  vehicle_bookings[]
+  vehicle_transfers vehicle_transfers[]
 
   @@index([branch_id], map: "vehicles_branch_id_index")
+}
+
+/// ประวัติการย้ายรถไปสาขาอื่น (NULL = ใช้ร่วมกันทุกสาขา) — เพิ่มอย่างเดียว ห้ามแก้/ลบ
+model vehicle_transfers {
+  id             BigInt    @id @default(autoincrement())
+  vehicle_id     BigInt
+  from_branch_id BigInt?
+  to_branch_id   BigInt?
+  note           String?   @db.Text
+  created_by     BigInt?
+  created_at     DateTime? @db.DateTime(0)
+  vehicles       vehicles  @relation(fields: [vehicle_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "vehicle_transfers_vehicle_id_foreign")
+  from_branch    branches? @relation("vehicle_transfer_from", fields: [from_branch_id], references: [id], onUpdate: Restrict, map: "vehicle_transfers_from_branch_id_foreign")
+  to_branch      branches? @relation("vehicle_transfer_to", fields: [to_branch_id], references: [id], onUpdate: Restrict, map: "vehicle_transfers_to_branch_id_foreign")
+  users          users?    @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "vehicle_transfers_created_by_foreign")
+
+  @@index([vehicle_id, created_at], map: "vehicle_transfers_vehicle_id_created_at_index")
+  @@index([from_branch_id], map: "vehicle_transfers_from_branch_id_index")
+  @@index([to_branch_id], map: "vehicle_transfers_to_branch_id_index")
+  @@index([created_by], map: "vehicle_transfers_created_by_index")
 }
 
 /// รูปรถ (≤ 4 รูปต่อคัน, is_primary = รูปหลัก) — ไฟล์ WebP ใน storage/private/vehicles/{vehicle}/
@@ -1282,6 +1310,9 @@ model vehicle_bookings {
   created_at             DateTime?                @db.DateTime(0)
   updated_at             DateTime?                @db.DateTime(0)
   deleted_at             DateTime?                @db.DateTime(0)
+  /// สาขาที่ขอใช้รถ (ยังไม่ระบุรถ = ผู้จัดคิวของสาขานี้เลือกรถ) — ตั้งตอนจอง: รถที่เลือก → สาขาของรถ, ไม่เลือก → สาขาที่ผู้จองเลือก
+  branch_id              BigInt?
+  branches               branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_branch_id_foreign")
   vehicles               vehicles?                @relation(fields: [vehicle_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_vehicle_id_foreign")
   users                  users                    @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_user_id_foreign")
   vehicle_booking_extras vehicle_booking_extras[]
@@ -1289,6 +1320,7 @@ model vehicle_bookings {
   @@index([vehicle_id, start_on, end_on], map: "vehicle_bookings_vehicle_id_start_on_end_on_index")
   @@index([start_on, end_on], map: "vehicle_bookings_start_on_end_on_index")
   @@index([user_id], map: "vehicle_bookings_user_id_index")
+  @@index([branch_id], map: "vehicle_bookings_branch_id_index")
 }
 
 /// รายการเพิ่มเติมที่ขอ (ชื่อจาก dropdown_options list vehicle_extra เช่น น้ำมันเต็มถัง / Easy Pass)

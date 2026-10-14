@@ -197,7 +197,7 @@ export function VehicleBookingForm({
                     {on && <CheckIcon width={12} height={12} className="absolute right-1.5 top-1.5" />}
                     <CarIcon width={16} height={16} />
                     <span className="line-clamp-2 w-full break-words pr-3 text-xs font-semibold leading-4">{o ? o.name : t("vehicle.form.noneShort")}</span>
-                    <span className="w-full truncate text-[11px] leading-4 opacity-80">{o ? o.plate_no || "-" : t("vehicle.form.noneHint")}</span>
+                    <span className="w-full truncate text-[11px] leading-4 opacity-80">{o ? [o.plate_no, o.vehicle_type].filter(Boolean).join(" · ") || "-" : t("vehicle.form.noneHint")}</span>
                     {o && timesOk && (
                       <span className={`inline-flex rounded-full px-1.5 text-[10px] font-medium leading-4 ${busy ? tone.danger.badge : tone.success.badge}`}>
                         {busy ? t("vehicle.form.statusBusy") : t("vehicle.form.statusReady")}

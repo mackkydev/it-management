@@ -27,6 +27,8 @@ const TABS = [
   { key: "meeting_equipment", perm: "meeting.rooms" },
   { key: "vehicle_purpose", perm: "vehicle.manage" },
   { key: "vehicle_extra", perm: "vehicle.manage" },
+  { key: "vehicle_type", perm: "vehicle.manage" },
+  { key: "vehicle_fuel", perm: "vehicle.manage" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 

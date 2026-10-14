@@ -81,6 +81,7 @@ export default async function MeetingRoomsManagePage({ searchParams }: PageProps
                     {r.seats.map((s) => `${s.label} ${fmt.number(s.count)}`).join(" · ")}
                   </p>
                   <p className="text-xs text-faint">{t("meeting.rooms.bookingsCount", { n: fmt.number(r.bookings_count ?? 0) })}</p>
+                  {r.can_manage !== false && (
                   <div className="mt-auto flex justify-end gap-2 pt-2">
                     <Link href={`/meeting-rooms/rooms/${r.id}/edit`} className={`${btn.soft} ${btn.sm}`}>
                       <PencilIcon width={14} height={14} />
@@ -88,6 +89,7 @@ export default async function MeetingRoomsManagePage({ searchParams }: PageProps
                     </Link>
                     {(r.bookings_count ?? 0) === 0 && <DeleteRoomButton id={r.id} name={r.name} />}
                   </div>
+                  )}
                 </div>
               </article>
             );

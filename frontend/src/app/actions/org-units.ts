@@ -6,10 +6,10 @@ import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
 
 /** แผนก / ฝ่าย (ข้อมูลหลัก) — สิทธิ์ org.manage (API ตรวจซ้ำ) */
-export type OrgTable = "departments" | "divisions" | "contract_categories" | "computer_type" | "brand" | "vault_category" | "meeting_purpose" | "meeting_equipment" | "vehicle_purpose" | "vehicle_extra";
+export type OrgTable = "departments" | "divisions" | "contract_categories" | "computer_type" | "brand" | "vault_category" | "meeting_purpose" | "meeting_equipment" | "vehicle_purpose" | "vehicle_extra" | "vehicle_type" | "vehicle_fuel";
 export type OrgResult = ActionResult<"name" | "sort_order">;
 
-const TABLES: OrgTable[] = ["departments", "divisions", "contract_categories", "computer_type", "brand", "vault_category", "meeting_purpose", "meeting_equipment", "vehicle_purpose", "vehicle_extra"];
+const TABLES: OrgTable[] = ["departments", "divisions", "contract_categories", "computer_type", "brand", "vault_category", "meeting_purpose", "meeting_equipment", "vehicle_purpose", "vehicle_extra", "vehicle_type", "vehicle_fuel"];
 /** path ของ API และหน้าเว็บ (หมวดหมู่สัญญาใช้ขีดกลาง) */
 const PATH: Record<OrgTable, string> = {
   departments: "/departments",
@@ -22,6 +22,8 @@ const PATH: Record<OrgTable, string> = {
   meeting_equipment: "/dropdown-options/meeting_equipment",
   vehicle_purpose: "/dropdown-options/vehicle_purpose",
   vehicle_extra: "/dropdown-options/vehicle_extra",
+  vehicle_type: "/dropdown-options/vehicle_type",
+  vehicle_fuel: "/dropdown-options/vehicle_fuel",
 };
 /** ฝ่าย/แผนก = หน้า ฝ่ายและแผนก, ที่เหลือ = หน้า ข้อมูล Drop Down */
 const PAGE = (table: OrgTable) => (table === "departments" || table === "divisions" ? "/org-units" : "/dropdowns");

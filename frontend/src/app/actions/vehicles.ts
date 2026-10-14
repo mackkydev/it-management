@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
+import { branchQuery, selectedBranch } from "@/lib/booking-scope";
 import type { Vehicle, VehicleBooking } from "@/lib/types";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -21,7 +22,8 @@ const refresh = () => {
 export async function loadVehicleBookings(from: string, to: string): Promise<VehicleBooking[]> {
   if (!DATE_RE.test(from) || !DATE_RE.test(to)) return [];
   try {
-    return (await apiFetch<{ data: VehicleBooking[] }>(`/vehicle-bookings?${new URLSearchParams({ from, to })}`)).data;
+    const branch = await selectedBranch("vehicle");
+    return (await apiFetch<{ data: VehicleBooking[] }>(`/vehicle-bookings?${new URLSearchParams({ from, to, ...branchQuery(branch) })}`)).data;
   } catch (e) {
     if (e instanceof ApiError) return [];
     throw e;
@@ -48,10 +50,13 @@ export async function saveVehicleBooking(id: string | null, v: VehicleBookingVal
   const { t } = await getI18n();
   if (id !== null && !UUID_RE.test(id)) return { message: t("common.saveFailed") };
   try {
+    // จองใหม่: สาขาที่ขอใช้ = สาขาที่เลือกดูอยู่ (ไม่เลือก = สาขาของผู้จอง) — แก้ไข = คงสาขาเดิม
+    const branch = id ? null : await selectedBranch("vehicle");
     const res = await apiFetch<{ data: VehicleBooking }>(id ? `/vehicle-bookings/${id}` : "/vehicle-bookings", {
       method: id ? "PUT" : "POST",
       body: JSON.stringify({
         vehicle_id: Number(v.vehicle_id) || null,
+        ...(branch ? { branch_id: branch } : {}),
         details: v.details.trim(),
         passengers: Number(v.passengers) || null,
         purpose: v.purpose,
@@ -134,6 +139,8 @@ export interface VehicleValues {
   parking: string;
   description: string;
   mileage: string;
+  vehicle_type: string;
+  fuel_type: string;
   is_active: boolean;
   sort_order: string;
 }
@@ -147,7 +154,10 @@ export async function saveVehicle(id: number | null, v: VehicleValues): Promise<
       body: JSON.stringify({
         name: v.name.trim(),
         plate_no: v.plate_no.trim() || null,
-        branch_id: Number(v.branch_id) || null,
+        // สาขาเปลี่ยนได้ตอนเพิ่มเท่านั้น — รถที่มีอยู่แล้วใช้ "ย้ายสาขา" (transferVehicle)
+        ...(id ? {} : { branch_id: Number(v.branch_id) || null }),
+        vehicle_type: v.vehicle_type || null,
+        fuel_type: v.fuel_type || null,
         seats: Number(v.seats) || null,
         parking: v.parking.trim() || null,
         description: v.description.trim() || null,
@@ -198,6 +208,20 @@ export async function updateVehicleImage(id: number, imageId: number, action: "p
     const res = await apiFetch<{ data: Vehicle }>(`/vehicles/${id}/images/${imageId}`, { method: action === "primary" ? "PUT" : "DELETE" });
     refresh();
     return { ok: true, vehicle: res.data };
+  } catch (e) {
+    return toActionResult(e);
+  }
+}
+
+/** ย้ายรถไปสาขาอื่น (branchId = null → ใช้ร่วมกันทุกสาขา) — เก็บประวัติการย้าย */
+export async function transferVehicle(id: number, branchId: number | null, note: string): Promise<ActionResult<"branch_id" | "note"> & { vehicle?: Vehicle }> {
+  const { t } = await getI18n();
+  if (!validId(id) || (branchId !== null && !validId(branchId))) return { message: t("common.saveFailed") };
+  try {
+    const res = await apiFetch<{ data: Vehicle }>(`/vehicles/${id}/transfer`, { method: "POST", body: JSON.stringify({ branch_id: branchId, note: note.trim() || null }) });
+    refresh();
+    revalidatePath(`/vehicles/manage/${id}/edit`);
+    return { ok: true, vehicle: res.data, message: t("vehicle.transfer.done") };
   } catch (e) {
     return toActionResult(e);
   }

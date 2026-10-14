@@ -83,6 +83,12 @@ export default async function VehicleManagePage({ searchParams }: PageProps<"/ve
                       {[v.branch?.name, v.parking].filter(Boolean).join(" · ")}
                     </p>
                   )}
+                  {(v.vehicle_type || v.fuel_type) && (
+                    <p className="flex items-center gap-1.5 text-sm text-muted">
+                      <CarIcon width={14} height={14} className="shrink-0" />
+                      {[v.vehicle_type, v.fuel_type].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
                   {v.mileage !== null && (
                     <p className="flex items-center gap-1.5 text-sm text-muted">
                       <GaugeIcon width={14} height={14} className="shrink-0" />
@@ -90,6 +96,7 @@ export default async function VehicleManagePage({ searchParams }: PageProps<"/ve
                     </p>
                   )}
                   <p className="text-xs text-faint">{t("meeting.rooms.bookingsCount", { n: fmt.number(v.bookings_count ?? 0) })}</p>
+                  {v.can_manage !== false && (
                   <div className="mt-auto flex justify-end gap-2 pt-2">
                     <Link href={`/vehicles/manage/${v.id}/edit`} className={`${btn.soft} ${btn.sm}`}>
                       <PencilIcon width={14} height={14} />
@@ -97,6 +104,7 @@ export default async function VehicleManagePage({ searchParams }: PageProps<"/ve
                     </Link>
                     {(v.bookings_count ?? 0) === 0 && <DeleteVehicleButton id={v.id} name={v.name} />}
                   </div>
+                  )}
                 </div>
               </article>
             );

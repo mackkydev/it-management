@@ -10,6 +10,7 @@ import { bool, custom, int, regex, validate } from "../lib/validator.js";
 import { me } from "../http.js";
 import { can, type UserRow } from "../models/user.js";
 import { audit } from "../services/audit.js";
+import { branchWhere, canManageBranch, canSeeBranch, scopeOf, type ScopeOf } from "../services/booking-scope.js";
 import { notifyUsers } from "../services/notifications.js";
 import { MAX_PHOTOS, processPhoto } from "../services/photos.js";
 import { deleteStored, randomString, readStored, writeStored } from "../services/ticket-files.js";
@@ -23,6 +24,8 @@ import { deleteStored, randomString, readStored, writeStored } from "../services
  *     GET|PUT|DELETE /meeting-bookings/:uuid, POST /meeting-bookings, POST /meeting-bookings/:uuid/cancel
  *     ห้อง + ช่วงเวลาซ้อนกัน = 422 (ตรวจใน transaction + lock ต่อห้อง/วัน) — ชนกันพอดีขอบเวลา (09:00–10:00 กับ 10:00–11:00) ได้
  *     แก้/ยกเลิก/ลบของผู้อื่น = meeting.manage_any (แจ้งเตือนเจ้าของการจอง)
+ *   ขอบเขตตามสาขาต่อกลุ่ม (services/booking-scope.ts): branch = เห็น/จองห้องสาขาตัวเอง + ห้องใช้ร่วมกัน, จัดการได้เฉพาะห้องสาขาตัวเอง
+ *     ขอบเขต all เลือกดูเฉพาะสาขาได้ด้วย ?branch_id= (GET /meeting-rooms, GET /meeting-bookings)
  * ประเภทการใช้งาน / อุปกรณ์ = dropdown_options (meeting_purpose / meeting_equipment) — routes/dropdown-options.ts
  */
 export const meetingRoutes = Router();
@@ -33,6 +36,8 @@ const MAX_IMAGES = MAX_PHOTOS;
 const t = (req: Request, key: string, replace: Record<string, string | number> = {}) => trans(req.locale, key, replace);
 const managesRooms = (u: UserRow) => can(u, "meeting.rooms");
 const managesAny = (u: UserRow) => can(u, "meeting.manage_any");
+const scope = (u: UserRow) => scopeOf(u, "meeting");
+const branchOf = (v: number | string | null) => (v === null ? null : Number(v));
 const idParam = (v: unknown) => (/^\d+$/.test(String(v)) ? Number(v) : 0);
 
 /** เวลาปัจจุบัน "HH:MM" ตามเขตเวลาของผู้ใช้ */
@@ -81,7 +86,7 @@ const seatsOf = (raw: unknown): Seat[] => {
   return Array.isArray(v) ? v.map((s: Seat) => ({ label: String(s.label ?? ""), count: Number(s.count) || 0 })) : [];
 };
 
-async function roomJson(r: RoomRow, images?: ImageRow[]) {
+async function roomJson(r: RoomRow, images?: ImageRow[], canManage?: boolean) {
   const imgs = images ?? (await select<ImageRow>("SELECT * FROM meeting_room_images WHERE room_id = ? ORDER BY sort_order, id", [r.id]));
   const seats = seatsOf(r.seats);
   return {
@@ -97,6 +102,7 @@ async function roomJson(r: RoomRow, images?: ImageRow[]) {
     sort_order: Number(r.sort_order),
     images: imgs.map((i) => ({ id: Number(i.id), is_primary: Boolean(i.is_primary) })),
     ...(r.bookings_count !== undefined ? { bookings_count: Number(r.bookings_count) } : {}),
+    ...(canManage !== undefined ? { can_manage: canManage } : {}),
   };
 }
 
@@ -107,18 +113,43 @@ async function findRoom(id: number): Promise<RoomRow> {
 }
 
 meetingRoutes.get("/meeting-rooms", async (req, res) => {
+  const u = me(req);
   const all = bool(req.query.include_inactive);
-  if (all) authorize(managesRooms(me(req)));
+  if (all) authorize(managesRooms(u));
+  const s = await scope(u);
+  const w = branchWhere("r.branch_id", s, int(req.query.branch_id));
   const rows = await select<RoomRow>(
     `SELECT r.*, b.name AS branch_name, (SELECT COUNT(*) FROM meeting_bookings x WHERE x.room_id = r.id AND x.deleted_at IS NULL) AS bookings_count
-       FROM meeting_rooms r LEFT JOIN branches b ON b.id = r.branch_id ${all ? "" : "WHERE r.is_active = true"} ORDER BY r.sort_order, r.name`,
+       FROM meeting_rooms r LEFT JOIN branches b ON b.id = r.branch_id WHERE ${w.sql}${all ? "" : " AND r.is_active = true"} ORDER BY r.sort_order, r.name`,
+    w.params,
   );
   const images = rows.length ? await select<ImageRow>("SELECT * FROM meeting_room_images WHERE room_id IN (?) ORDER BY sort_order, id", [rows.map((r) => r.id)]) : [];
-  res.json({ data: await Promise.all(rows.map((r) => roomJson(r, images.filter((i) => Number(i.room_id) === Number(r.id))))) });
+  const manages = managesRooms(u);
+  res.json({
+    data: await Promise.all(rows.map((r) => roomJson(r, images.filter((i) => Number(i.room_id) === Number(r.id)), manages && canManageBranch(s, branchOf(r.branch_id))))),
+  });
 });
 
+/** ห้องที่ผู้ใช้เห็นได้ตามขอบเขตสาขา — นอกขอบเขต = 404 */
+async function visibleRoom(u: UserRow, id: number): Promise<{ room: RoomRow; s: ScopeOf }> {
+  const room = await findRoom(id);
+  const s = await scope(u);
+  if (!canSeeBranch(s, branchOf(room.branch_id))) throw notFound();
+  return { room, s };
+}
+
+/** ห้องที่ผู้ใช้จัดการได้ (meeting.rooms + สาขาในขอบเขตที่จัดการได้) */
+async function managedRoom(u: UserRow, id: number): Promise<RoomRow> {
+  authorize(managesRooms(u));
+  const { room, s } = await visibleRoom(u, id);
+  authorize(canManageBranch(s, branchOf(room.branch_id)));
+  return room;
+}
+
 meetingRoutes.get("/meeting-rooms/:id", async (req, res) => {
-  res.json({ data: await roomJson(await findRoom(idParam(req.params.id))) });
+  const u = me(req);
+  const { room, s } = await visibleRoom(u, idParam(req.params.id));
+  res.json({ data: await roomJson(room, undefined, managesRooms(u) && canManageBranch(s, branchOf(room.branch_id))) });
 });
 
 async function roomInput(req: Request, current: RoomRow | null) {
@@ -152,10 +183,14 @@ async function roomInput(req: Request, current: RoomRow | null) {
     seats.push({ label, count });
   }
   if (!seats.length) throw ValidationError.withMessages({ seats: t(req, "eam.meeting.seats_invalid") });
+  // ขอบเขตสาขาตัวเอง: ห้องต้องอยู่สาขาของผู้จัดการ (ห้องใช้ร่วมกันทุกสาขา = ขอบเขต all เท่านั้น)
+  const s = await scope(me(req));
+  const branchId = int(data.branch_id);
+  if (!canManageBranch(s, branchId)) throw ValidationError.withMessages({ branch_id: t(req, s.branchId === null ? "eam.meeting.no_branch" : "eam.meeting.branch_scope") });
   const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
   return {
     name: String(data.name).trim(),
-    branch_id: int(data.branch_id),
+    branch_id: branchId,
     location: text(data.location),
     room_no: text(data.room_no),
     description: text(data.description),
@@ -171,26 +206,24 @@ meetingRoutes.post("/meeting-rooms", async (req, res) => {
   const now = nowDb();
   const id = await insert("meeting_rooms", { ...v, created_at: now, updated_at: now });
   const row = await findRoom(id);
-  const json = await roomJson(row);
+  const json = await roomJson(row, undefined, true);
   await audit(req, { action: "meeting_room.created", subjectType: "meeting_room", subjectId: id, after: { ...json, images: undefined } });
   res.status(201).json({ data: json });
 });
 
 meetingRoutes.put("/meeting-rooms/:id", async (req, res) => {
-  authorize(managesRooms(me(req)));
-  const current = await findRoom(idParam(req.params.id));
+  const current = await managedRoom(me(req), idParam(req.params.id));
   const v = await roomInput(req, current);
   await update("meeting_rooms", { ...v, updated_at: nowDb() }, "id = ?", [current.id]);
   const before = await roomJson(current);
-  const after = await roomJson(await findRoom(current.id));
+  const after = await roomJson(await findRoom(current.id), undefined, true);
   await audit(req, { action: "meeting_room.updated", subjectType: "meeting_room", subjectId: current.id, before: { ...before, images: undefined }, after: { ...after, images: undefined } });
   res.json({ data: after });
 });
 
 /** ลบได้เมื่อไม่เคยมีการจอง — มีประวัติแล้วให้ปิดใช้งานแทน */
 meetingRoutes.delete("/meeting-rooms/:id", async (req, res) => {
-  authorize(managesRooms(me(req)));
-  const current = await findRoom(idParam(req.params.id));
+  const current = await managedRoom(me(req), idParam(req.params.id));
   const used = Number(await scalar("SELECT COUNT(*) FROM meeting_bookings WHERE room_id = ?", [current.id]));
   if (used > 0) throw ValidationError.withMessages({ name: t(req, "eam.meeting.room_in_use", { count: used }) });
   const images = await select<ImageRow>("SELECT * FROM meeting_room_images WHERE room_id = ?", [current.id]);
@@ -203,8 +236,7 @@ meetingRoutes.delete("/meeting-rooms/:id", async (req, res) => {
 /* ---------------------------------------------------------------- รูปห้อง */
 
 meetingRoutes.post("/meeting-rooms/:id/images", async (req, res) => {
-  authorize(managesRooms(me(req)));
-  const room = await findRoom(idParam(req.params.id));
+  const room = await managedRoom(me(req), idParam(req.params.id));
   const data = await validate(
     req.input,
     { images: ["required", "array", `max:${MAX_IMAGES}`], "images.*": ["file", "image", "mimes:jpg,jpeg,png,webp", "max:1024"] },
@@ -254,8 +286,8 @@ meetingRoutes.get("/meeting-rooms/:id/images/:imageId", async (req, res) => {
 
 /** ตั้งเป็นรูปหลัก */
 meetingRoutes.put("/meeting-rooms/:id/images/:imageId", async (req, res) => {
-  authorize(managesRooms(me(req)));
   const { room, img } = await findImage(req);
+  await managedRoom(me(req), Number(room.id));
   await transaction(async () => {
     await exec("UPDATE meeting_room_images SET is_primary = false WHERE room_id = ?", [room.id]);
     await exec("UPDATE meeting_room_images SET is_primary = true WHERE id = ?", [img.id]);
@@ -265,8 +297,8 @@ meetingRoutes.put("/meeting-rooms/:id/images/:imageId", async (req, res) => {
 });
 
 meetingRoutes.delete("/meeting-rooms/:id/images/:imageId", async (req, res) => {
-  authorize(managesRooms(me(req)));
   const { room, img } = await findImage(req);
+  await managedRoom(me(req), Number(room.id));
   await exec("DELETE FROM meeting_room_images WHERE id = ?", [img.id]);
   // ลบรูปหลัก — รูปถัดไปเป็นรูปหลักแทน
   if (img.is_primary) await exec("UPDATE meeting_room_images SET is_primary = true WHERE room_id = ? ORDER BY sort_order, id LIMIT 1", [room.id]);
@@ -282,6 +314,7 @@ interface BookingRow {
   uuid: string;
   room_id: number;
   room_name: string;
+  room_branch_id: number | null;
   user_id: number;
   user_name: string | null;
   department: string | null;
@@ -298,10 +331,14 @@ interface BookingRow {
   updated_at: string | null;
 }
 
-const BOOKING_SELECT = `SELECT m.*, r.name AS room_name, u.name AS user_name
+const BOOKING_SELECT = `SELECT m.*, r.name AS room_name, r.branch_id AS room_branch_id, u.name AS user_name
   FROM meeting_bookings m JOIN meeting_rooms r ON r.id = m.room_id LEFT JOIN users u ON u.id = m.user_id`;
 
+/** จัดการการจองของคนอื่นได้ (meeting.manage_any + ห้องอยู่ในสาขาที่จัดการได้) */
+const managesBooking = (u: UserRow, s: ScopeOf, b: BookingRow) => managesAny(u) && canManageBranch(s, branchOf(b.room_branch_id));
+
 async function bookingsJson(rows: BookingRow[], u: UserRow) {
+  const s = await scope(u);
   const equipment = rows.length
     ? await select<{ booking_id: number; name: string }>("SELECT booking_id, name FROM meeting_booking_equipment WHERE booking_id IN (?) ORDER BY name", [rows.map((r) => r.id)])
     : [];
@@ -310,7 +347,7 @@ async function bookingsJson(rows: BookingRow[], u: UserRow) {
     const mine = Number(r.user_id) === u.id;
     const over = isOver(date, r.end_time);
     const active = r.status === "confirmed";
-    const allowed = mine || managesAny(u);
+    const allowed = mine || managesBooking(u, s, r);
     return {
       id: r.uuid,
       room: { id: Number(r.room_id), name: r.room_name },
@@ -337,23 +374,31 @@ async function bookingsJson(rows: BookingRow[], u: UserRow) {
   });
 }
 
+/** การจองที่ผู้ใช้เห็นได้: ของตัวเอง หรือห้องอยู่ในขอบเขตสาขา */
 async function findBooking(req: Request): Promise<BookingRow> {
   const uuid = String(req.params.uuid);
   const row = isUuid(uuid) ? await first<BookingRow>(`${BOOKING_SELECT} WHERE m.uuid = ? AND m.deleted_at IS NULL`, [uuid]) : null;
   if (!row) throw notFound();
+  const u = me(req);
+  if (Number(row.user_id) !== u.id && !canSeeBranch(await scope(u), branchOf(row.room_branch_id))) throw notFound();
   return row;
 }
 
 meetingRoutes.get("/meeting-bookings", async (req, res) => {
-  const f = await validate(req.input, { from: ["required", regex(DATE)], to: ["required", regex(DATE)], room_id: ["nullable", "integer"] }, { locale: req.locale });
+  const u = me(req);
+  const f = await validate(req.input, { from: ["required", regex(DATE)], to: ["required", regex(DATE)], room_id: ["nullable", "integer"], branch_id: ["nullable", "integer"] }, { locale: req.locale });
   const from = String(f.from);
   const to = String(f.to) < from ? from : String(f.to);
   if ((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000 > 62) throw ValidationError.withMessages({ to: t(req, "eam.calendar.range_too_long") });
   const where = ["m.deleted_at IS NULL", "m.status = 'confirmed'", "m.booking_date BETWEEN ? AND ?"];
   const params: unknown[] = [from, to];
   if (int(f.room_id)) (where.push("m.room_id = ?"), params.push(int(f.room_id)));
+  // ห้องในขอบเขตสาขา (ของตัวเองเห็นเสมอเมื่อไม่ได้เลือกกรองสาขา)
+  const w = branchWhere("r.branch_id", await scope(u), int(f.branch_id));
+  where.push(int(f.branch_id) ? w.sql : `(${w.sql} OR m.user_id = ?)`);
+  params.push(...w.params, ...(int(f.branch_id) ? [] : [u.id]));
   const rows = await select<BookingRow>(`${BOOKING_SELECT} WHERE ${where.join(" AND ")} ORDER BY m.booking_date, m.start_time, r.sort_order, r.name`, params);
-  res.json({ data: await bookingsJson(rows, me(req)) });
+  res.json({ data: await bookingsJson(rows, u) });
 });
 
 /** การจองของฉัน: upcoming = ยังไม่จบ (ยืนยันแล้ว), past = จบแล้ว, cancelled = ยกเลิกแล้ว */
@@ -404,9 +449,10 @@ async function bookingInput(req: Request, current: BookingRow | null, currentEqu
   );
   const errors: Record<string, string> = {};
   const roomId = int(data.room_id)!;
-  const room = await first<{ id: number; is_active: boolean | number }>("SELECT id, is_active FROM meeting_rooms WHERE id = ?", [roomId]);
-  // ห้องที่ปิดใช้งาน: จองใหม่ไม่ได้ (การจองเดิมของห้องนั้นแก้รายละเอียดอื่นได้)
-  if (!room || (!room.is_active && Number(current?.room_id) !== roomId)) errors.room_id = t(req, "eam.meeting.room_invalid");
+  const room = await first<{ id: number; is_active: boolean | number; branch_id: number | null }>("SELECT id, is_active, branch_id FROM meeting_rooms WHERE id = ?", [roomId]);
+  // ห้องที่ปิดใช้งาน / นอกขอบเขตสาขา: จองใหม่ไม่ได้ (การจองเดิมของห้องนั้นแก้รายละเอียดอื่นได้)
+  const sameRoom = Number(current?.room_id) === roomId;
+  if (!room || (!sameRoom && (!room.is_active || !canSeeBranch(await scope(me(req)), branchOf(room.branch_id))))) errors.room_id = t(req, "eam.meeting.room_invalid");
   const date = String(data.date);
   const start = String(data.start_time);
   const end = String(data.end_time);
@@ -478,9 +524,9 @@ meetingRoutes.post("/meeting-bookings", async (req, res) => {
   res.status(201).json({ data: json });
 });
 
-/** เจ้าของการจอง หรือผู้มีสิทธิ์จัดการการจองของผู้อื่น */
-function assertOwner(u: UserRow, b: BookingRow) {
-  authorize(Number(b.user_id) === u.id || managesAny(u));
+/** เจ้าของการจอง หรือผู้มีสิทธิ์จัดการการจองของผู้อื่น (ห้องในสาขาที่จัดการได้) */
+async function assertOwner(u: UserRow, b: BookingRow) {
+  authorize(Number(b.user_id) === u.id || managesBooking(u, await scope(u), b));
 }
 
 /** ผู้จัดการแก้/ยกเลิก/ลบการจองของคนอื่น → แจ้งเจ้าของ */
@@ -502,7 +548,7 @@ async function notifyOwner(u: UserRow, b: BookingRow, event: "updated" | "cancel
 meetingRoutes.put("/meeting-bookings/:uuid", async (req, res) => {
   const u = me(req);
   const b = await findBooking(req);
-  assertOwner(u, b);
+  await assertOwner(u, b);
   if (b.status !== "confirmed" || isOver(dateOnly(b.booking_date)!, b.end_time)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_editable") });
   const currentEquipment = (await select<{ name: string }>("SELECT name FROM meeting_booking_equipment WHERE booking_id = ?", [b.id])).map((e) => e.name);
   const v = await bookingInput(req, b, currentEquipment);
@@ -528,7 +574,7 @@ meetingRoutes.put("/meeting-bookings/:uuid", async (req, res) => {
 meetingRoutes.post("/meeting-bookings/:uuid/cancel", async (req, res) => {
   const u = me(req);
   const b = await findBooking(req);
-  assertOwner(u, b);
+  await assertOwner(u, b);
   if (b.status !== "confirmed" || isOver(dateOnly(b.booking_date)!, b.end_time)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_editable") });
   const now = nowDb();
   await update("meeting_bookings", { status: "cancelled", cancelled_at: now, cancelled_by: u.id, updated_at: now }, "id = ?", [b.id]);
@@ -542,7 +588,7 @@ meetingRoutes.post("/meeting-bookings/:uuid/cancel", async (req, res) => {
 meetingRoutes.delete("/meeting-bookings/:uuid", async (req, res) => {
   const u = me(req);
   const b = await findBooking(req);
-  assertOwner(u, b);
+  await assertOwner(u, b);
   if (b.status === "confirmed" && isOver(dateOnly(b.booking_date)!, b.end_time)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_deletable") });
   await update("meeting_bookings", { deleted_at: nowDb() }, "id = ?", [b.id]);
   await audit(req, { action: "meeting_booking.deleted", subjectType: "meeting_booking", subjectId: b.id, before: { title: b.title, booking_date: dateOnly(b.booking_date), start_time: b.start_time, end_time: b.end_time, status: b.status } });

@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, MeetingRoomIcon, PlusIcon } from "@/components/icons";
+import { BranchFilter } from "@/components/branch-filter";
 import { PageHeader } from "@/components/page-header";
 import { alert, btn, card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
+import { branchQuery, getBookingScope, selectedBranch } from "@/lib/booking-scope";
 import { getAccess } from "@/lib/auth";
 import { localToday } from "@/lib/date";
 import type { MeetingBooking, MeetingRoom } from "@/lib/types";
@@ -24,10 +26,13 @@ const DONE = ["created", "updated"] as const;
 export default async function MeetingDayPage({ params, searchParams }: PageProps<"/meeting-rooms/day/[date]">) {
   const [{ date }, sp] = await Promise.all([params, searchParams]);
   if (!DATE_RE.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) notFound();
+  // ขอบเขตตามสาขา (ตั้งต่อกลุ่มสิทธิ์) + สาขาที่เลือกดู — API กรองให้
+  const scope = await getBookingScope("meeting");
+  const branch = await selectedBranch("meeting", scope);
   const [{ t, fmt }, rooms, bookings, can] = await Promise.all([
     getI18n(),
-    apiFetch<{ data: MeetingRoom[] }>("/meeting-rooms").then((r) => r.data),
-    apiFetch<{ data: MeetingBooking[] }>(`/meeting-bookings?${new URLSearchParams({ from: date, to: date })}`).then((r) => r.data),
+    apiFetch<{ data: MeetingRoom[] }>(`/meeting-rooms?${new URLSearchParams(branchQuery(branch))}`).then((r) => r.data),
+    apiFetch<{ data: MeetingBooking[] }>(`/meeting-bookings?${new URLSearchParams({ from: date, to: date, ...branchQuery(branch) })}`).then((r) => r.data),
     getAccess(),
   ]);
   const canBook = can("btn:meeting:book");
@@ -45,6 +50,7 @@ export default async function MeetingDayPage({ params, searchParams }: PageProps
           canBook && (
             <Link href={`/meeting-rooms/book?date=${date}`} className={btn.primary}>
               <PlusIcon />
+      <BranchFilter kind="meeting" meta={scope} value={branch} />
               {t("meeting.book")}
             </Link>
           )

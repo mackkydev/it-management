@@ -4,8 +4,9 @@ import { MeetingRoomIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
+import { branchChoices } from "@/lib/booking-scope";
 import { getCurrentUser, has } from "@/lib/auth";
-import type { Branch, MeetingRoom } from "@/lib/types";
+import type { MeetingRoom } from "@/lib/types";
 import { RoomForm } from "../../room-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -26,12 +27,14 @@ export default async function EditMeetingRoomPage({ params }: PageProps<"/meetin
         if (e instanceof ApiError && e.status === 404) notFound();
         throw e;
       }),
-    apiFetch<{ data: Branch[] }>("/branches").then((r) => r.data),
+    branchChoices("meeting"),
   ]);
+  // ห้องของสาขาที่อยู่นอกขอบเขตที่จัดการได้ (เช่น ห้องใช้ร่วมกัน สำหรับผู้ดูแลเฉพาะสาขา) — ดูได้แต่แก้ไม่ได้
+  if (room.can_manage === false) redirect("/meeting-rooms/rooms");
   return (
     <div className="space-y-5">
       <PageHeader icon={MeetingRoomIcon} title={t("meeting.rooms.editTitle")} subtitle={room.name} />
-      <RoomForm room={room} branches={branches.map((b) => ({ id: b.id, name: b.name }))} />
+      <RoomForm room={room} choices={branches} />
     </div>
   );
 }

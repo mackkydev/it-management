@@ -9,7 +9,7 @@ import { AlertIcon, ImageIcon, PlusIcon, SaveIcon, SpinnerIcon, StarIcon, TrashI
 import { Tooltip } from "@/components/tooltip";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import type { MeetingRoom } from "@/lib/types";
+import type { BranchChoices, MeetingRoom } from "@/lib/types";
 import { imageUrl } from "../meeting-utils";
 
 const MAX_IMAGES = 4;
@@ -23,7 +23,7 @@ interface Pending {
 }
 
 /** เพิ่ม / แก้ไขห้องประชุม — แถวที่นั่ง (เพิ่มแถวได้) + รูป ≤ 4 รูป ≤ 1MB (เลือกรูปหลักได้) */
-export function RoomForm({ room: initialRoom, branches }: { room: MeetingRoom | null; branches: { id: number; name: string }[] }) {
+export function RoomForm({ room: initialRoom, choices }: { room: MeetingRoom | null; choices: BranchChoices }) {
   const { t } = useI18n();
   const router = useRouter();
   const confirm = useConfirm();
@@ -32,7 +32,8 @@ export function RoomForm({ room: initialRoom, branches }: { room: MeetingRoom | 
   const [room, setRoom] = useState(initialRoom);
   const [v, setV] = useState<RoomValues>({
     name: initialRoom?.name ?? "",
-    branch_id: initialRoom?.branch ? String(initialRoom.branch.id) : "",
+    // เพิ่มใหม่ = สาขาของผู้เพิ่ม (ขอบเขตสาขาตัวเองเลือกได้เฉพาะสาขาตัวเอง)
+    branch_id: initialRoom ? (initialRoom.branch ? String(initialRoom.branch.id) : "") : choices.defaultId ? String(choices.defaultId) : "",
     location: initialRoom?.location ?? "",
     room_no: initialRoom?.room_no ?? "",
     description: initialRoom?.description ?? "",
@@ -134,8 +135,8 @@ export function RoomForm({ room: initialRoom, branches }: { room: MeetingRoom | 
         <div>
           {label("branch_id", t("meeting.rooms.branch"))}
           <AppSelect id="branch_id" value={v.branch_id} onValueChange={(x) => set("branch_id", x)} className={cls("branch_id")}>
-            <option value="">{t("meeting.rooms.noBranch")}</option>
-            {branches.map((b) => (
+            {choices.allowShared && <option value="">{t("meeting.rooms.noBranch")}</option>}
+            {choices.branches.map((b) => (
               <option key={b.id} value={String(b.id)}>
                 {b.name}
               </option>

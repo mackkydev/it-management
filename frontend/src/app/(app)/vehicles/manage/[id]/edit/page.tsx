@@ -7,22 +7,26 @@ import { card, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
 import { getCurrentUser, has } from "@/lib/auth";
-import type { Branch, Vehicle, VehicleMileageEntry } from "@/lib/types";
+import { getBookingScope } from "@/lib/booking-scope";
+import type { Branch, BranchChoices, Vehicle, VehicleMileageEntry, VehicleTransfer } from "@/lib/types";
 import { periodText } from "../../../vehicle-utils";
 import { VehicleForm } from "../../vehicle-form";
+import { VehicleTransferPanel } from "../../vehicle-transfer";
+
+const vehicleOptions = (list: string) => apiFetch<{ data: { name: string }[] }>(`/dropdown-options/${list}`).then((r) => r.data.map((o) => o.name));
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
   return { title: t("vehicle.manage.editTitle") };
 }
 
-/** แก้ไขรถ + ประวัติเลขไมล์จากการจอง */
+/** แก้ไขรถ + ย้ายสาขา (ประวัติการย้าย) + ประวัติเลขไมล์จากการจอง */
 export default async function EditVehiclePage({ params }: PageProps<"/vehicles/manage/[id]/edit">) {
   const user = await getCurrentUser();
   if (!has(user, "vehicle.manage")) redirect("/vehicles");
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
-  const [{ t, fmt }, vehicle, branches, history] = await Promise.all([
+  const [{ t, fmt }, vehicle, branches, history, transfers, scope, types, fuels] = await Promise.all([
     getI18n(),
     apiFetch<{ data: Vehicle }>(`/vehicles/${id}`)
       .then((r) => r.data)
@@ -32,13 +36,23 @@ export default async function EditVehiclePage({ params }: PageProps<"/vehicles/m
       }),
     apiFetch<{ data: Branch[] }>("/branches").then((r) => r.data),
     apiFetch<{ data: VehicleMileageEntry[] }>(`/vehicles/${id}/mileage`).then((r) => r.data),
+    apiFetch<{ data: VehicleTransfer[] }>(`/vehicles/${id}/transfers`).then((r) => r.data),
+    getBookingScope("vehicle"),
+    vehicleOptions("vehicle_type"),
+    vehicleOptions("vehicle_fuel"),
   ]);
+  // รถของสาขาที่อยู่นอกขอบเขตที่จัดการได้ — กลับไปหน้ารายการ
+  if (vehicle.can_manage === false) redirect("/vehicles/manage");
+  const all = branches.map((b) => ({ id: b.id, name: b.name }));
+  // แก้ไขไม่ใช้ตัวเลือกสาขา (ย้ายสาขาแยกด้านล่าง) — ส่งไว้ตาม props ของฟอร์ม
+  const choices: BranchChoices = { branches: all, allowShared: scope.scope === "all", defaultId: null };
   const km = (n: number | null) => (n === null ? "-" : fmt.number(n));
 
   return (
     <div className="space-y-5">
       <PageHeader icon={CarIcon} title={t("vehicle.manage.editTitle")} subtitle={vehicle.name} />
-      <VehicleForm vehicle={vehicle} branches={branches.map((b) => ({ id: b.id, name: b.name }))} />
+      <VehicleForm vehicle={vehicle} choices={choices} types={types} fuels={fuels} />
+      <VehicleTransferPanel vehicle={vehicle} branches={all} allowShared={scope.scope === "all"} history={transfers} />
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 font-semibold">
           <GaugeIcon className="text-accent-500" />

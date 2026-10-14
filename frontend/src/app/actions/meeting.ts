@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
+import { branchQuery, selectedBranch } from "@/lib/booking-scope";
 import type { MeetingBooking, MeetingRoom, MeetingSeat } from "@/lib/types";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -16,11 +17,12 @@ const refresh = () => {
 
 /* ---------------------------------------------------------------- การจอง */
 
-/** การจองที่ยืนยันแล้วของช่วงวัน (เปลี่ยนเดือน / ตรวจเวลาว่างในฟอร์ม) */
+/** การจองที่ยืนยันแล้วของช่วงวัน (เปลี่ยนเดือน / ตรวจเวลาว่างในฟอร์ม) — ตามสาขาที่เลือกดู */
 export async function loadBookings(from: string, to: string): Promise<MeetingBooking[]> {
   if (!DATE_RE.test(from) || !DATE_RE.test(to)) return [];
   try {
-    return (await apiFetch<{ data: MeetingBooking[] }>(`/meeting-bookings?${new URLSearchParams({ from, to })}`)).data;
+    const branch = await selectedBranch("meeting");
+    return (await apiFetch<{ data: MeetingBooking[] }>(`/meeting-bookings?${new URLSearchParams({ from, to, ...branchQuery(branch) })}`)).data;
   } catch (e) {
     if (e instanceof ApiError) return [];
     throw e;

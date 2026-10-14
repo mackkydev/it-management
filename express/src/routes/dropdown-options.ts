@@ -12,7 +12,7 @@ import { isBuiltinName } from "../services/categories.js";
 /**
  * ข้อมูลหลัก → ข้อมูล Drop Down (ตาราง dropdown_options) — ค่าที่เลือกยังเก็บเป็นข้อความในตารางเดิม
  * (ห้องประชุม: ประเภทการใช้งาน = meeting_bookings.purpose, อุปกรณ์ = meeting_booking_equipment.name — จัดการด้วยสิทธิ์ meeting.rooms)
- * (จองรถ: ประเภทการใช้งาน = vehicle_bookings.purpose, รายการเพิ่มเติม = vehicle_booking_extras.name — จัดการด้วยสิทธิ์ vehicle.manage)
+ * (จองรถ: ประเภทการใช้งาน = vehicle_bookings.purpose, รายการเพิ่มเติม = vehicle_booking_extras.name, ประเภทรถ / เชื้อเพลิง = vehicles.vehicle_type / fuel_type — จัดการด้วยสิทธิ์ vehicle.manage)
  *   GET    /dropdown-options/{list}                  ที่เปิดใช้งาน (ฟอร์ม) · ?include_inactive=1 (dropdowns.manage) = ทั้งหมด + จำนวนที่ใช้
  *   POST   /dropdown-options/{list} { name, ... }    จัดการ (dropdowns.manage) หรือ "เพิ่มด่วน" จากฟอร์ม (สิทธิ์เพิ่ม/แก้ข้อมูลของระบบนั้น)
  *   PUT|PATCH /dropdown-options/{list}/{id}          เปลี่ยนชื่อ → ข้อมูลเดิมที่ใช้ชื่อนี้เปลี่ยนตาม
@@ -44,6 +44,21 @@ const LISTS: Record<string, ListConfig> = {
   vault_category: { ...textColumn("credentials", "category"), max: 30, quickAdd: ["vault.create", "vault.update"] },
   meeting_purpose: { ...textColumn("meeting_bookings", "purpose"), max: 100, quickAdd: [], manage: "meeting.rooms" },
   vehicle_purpose: { ...textColumn("vehicle_bookings", "purpose"), max: 100, quickAdd: [], manage: "vehicle.manage" },
+  // ประเภทรถ / เชื้อเพลิง = vehicles.vehicle_type / fuel_type (ตาราง vehicles ไม่มี deleted_at)
+  vehicle_type: {
+    max: 50,
+    quickAdd: [],
+    manage: "vehicle.manage",
+    usage: "(SELECT COUNT(*) FROM vehicles x WHERE LOWER(TRIM(x.vehicle_type)) = LOWER(o.name))",
+    rename: (to, from) => exec("UPDATE vehicles SET vehicle_type = ?, updated_at = ? WHERE LOWER(TRIM(vehicle_type)) = LOWER(?)", [to, nowDb(), from]),
+  },
+  vehicle_fuel: {
+    max: 50,
+    quickAdd: [],
+    manage: "vehicle.manage",
+    usage: "(SELECT COUNT(*) FROM vehicles x WHERE LOWER(TRIM(x.fuel_type)) = LOWER(o.name))",
+    rename: (to, from) => exec("UPDATE vehicles SET fuel_type = ?, updated_at = ? WHERE LOWER(TRIM(fuel_type)) = LOWER(?)", [to, nowDb(), from]),
+  },
   vehicle_extra: {
     max: 100,
     quickAdd: [],

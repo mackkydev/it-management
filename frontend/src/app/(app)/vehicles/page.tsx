@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { CarIcon, PlusIcon } from "@/components/icons";
+import { BranchFilter } from "@/components/branch-filter";
 import { PageHeader } from "@/components/page-header";
 import { btn, card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
+import { branchQuery, getBookingScope, selectedBranch } from "@/lib/booking-scope";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
 import { localToday } from "@/lib/date";
 import type { Vehicle, VehicleBooking } from "@/lib/types";
@@ -23,11 +25,14 @@ export default async function VehiclesPage({ searchParams }: PageProps<"/vehicle
   const params = await searchParams;
   const month = typeof params.month === "string" && MONTH_RE.test(params.month) ? params.month : localToday().slice(0, 7);
   const { from, to } = monthGrid(month);
+  // ขอบเขตตามสาขา (ตั้งต่อกลุ่มสิทธิ์) + สาขาที่เลือกดู — API กรองให้
+  const scope = await getBookingScope("vehicle");
+  const branch = await selectedBranch("vehicle", scope);
   const [{ t }, user, vehicles, bookings, can] = await Promise.all([
     getI18n(),
     getCurrentUser(),
-    apiFetch<{ data: Vehicle[] }>("/vehicles").then((r) => r.data),
-    apiFetch<{ data: VehicleBooking[] }>(`/vehicle-bookings?${new URLSearchParams({ from, to })}`).then((r) => r.data),
+    apiFetch<{ data: Vehicle[] }>(`/vehicles?${new URLSearchParams(branchQuery(branch))}`).then((r) => r.data),
+    apiFetch<{ data: VehicleBooking[] }>(`/vehicle-bookings?${new URLSearchParams({ from, to, ...branchQuery(branch) })}`).then((r) => r.data),
     getAccess(),
   ]);
   const canBook = can("btn:vehicles:book");
@@ -42,6 +47,7 @@ export default async function VehiclesPage({ searchParams }: PageProps<"/vehicle
           canBook && (
             <Link href="/vehicles/book" className={btn.primary}>
               <PlusIcon />
+      <BranchFilter kind="vehicle" meta={scope} value={branch} />
               {t("vehicle.book")}
             </Link>
           )

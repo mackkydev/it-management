@@ -10,6 +10,7 @@ import { bool, custom, int, regex, validate } from "../lib/validator.js";
 import { me } from "../http.js";
 import { can, type UserRow } from "../models/user.js";
 import { audit } from "../services/audit.js";
+import { bookingScope, branchWhere, canManageBranch, canSeeBranch, scopeOf, type ScopeOf } from "../services/booking-scope.js";
 import { markNoticesRead, notifyUsers } from "../services/notifications.js";
 import { usersWithPermissions } from "../services/permissions.js";
 import { MAX_PHOTOS, processPhoto } from "../services/photos.js";
@@ -24,6 +25,9 @@ import { deleteStored, randomString, readStored, writeStored } from "../services
  *     PUT /vehicle-bookings/:uuid/vehicle (ผู้จัดคิวเลือกรถ), PUT /vehicle-bookings/:uuid/mileage (เลขไมล์ — บันทึกได้หลังใช้งาน), POST /vehicle-bookings/:uuid/cancel
  *   ช่วงเวลา = start_on + start_time ถึง end_on + end_time ("HH:MM" เวลาไทย, หลายวันได้) — รถคันเดียวกันช่วงเวลาซ้อนกัน = 422 (ตรวจใน transaction + lock ต่อคัน)
  *   เลขไมล์: vehicles.mileage = เลขไมล์ล่าสุด — จองแล้วไม่กรอกเลขไมล์เริ่มต้น = ใช้เลขไมล์ล่าสุดของคัน; บันทึกเลขไมล์ที่มากกว่าเดิม = อัปเดตเลขไมล์ล่าสุด
+ *   ขอบเขตตามสาขาต่อกลุ่ม (services/booking-scope.ts): branch = เห็น/จองรถสาขาตัวเอง + รถใช้ร่วมกัน, จัดการรถ/จัดคิวเฉพาะสาขาตัวเอง
+ *     การจองเก็บสาขาที่ขอใช้ (vehicle_bookings.branch_id) — ยังไม่ระบุรถ = ผู้จัดคิวของสาขานั้น (+ ขอบเขต all) เลือกรถให้
+ *   ย้ายรถไปสาขาอื่น: POST /vehicles/:id/transfer (ประวัติ vehicle_transfers, GET /vehicles/:id/transfers) — แก้สาขาที่ PUT /vehicles/:id ไม่ได้
  * ประเภทการใช้งาน / รายการเพิ่มเติม = dropdown_options (vehicle_purpose / vehicle_extra) — routes/dropdown-options.ts
  */
 export const vehicleRoutes = Router();
@@ -35,6 +39,8 @@ const MAX_MILEAGE = 9_999_999;
 const t = (req: Request, key: string, replace: Record<string, string | number> = {}) => trans(req.locale, key, replace);
 const manages = (u: UserRow) => can(u, "vehicle.manage");
 const dispatches = (u: UserRow) => can(u, "vehicle.dispatch");
+const scope = (u: UserRow) => scopeOf(u, "vehicle");
+const branchOf = (v: number | string | null | undefined) => (v === null || v === undefined ? null : Number(v));
 const idParam = (v: unknown) => (/^\d+$/.test(String(v)) ? Number(v) : 0);
 
 /** วันเวลาปัจจุบัน "YYYY-MM-DD HH:MM" ตามเขตเวลาของผู้ใช้ */
@@ -59,6 +65,8 @@ interface VehicleRow {
   parking: string | null;
   description: string | null;
   mileage: number | null;
+  vehicle_type: string | null;
+  fuel_type: string | null;
   is_active: boolean | number;
   sort_order: number;
   bookings_count?: number | string;
@@ -74,7 +82,7 @@ interface ImageRow {
 
 const VEHICLE_SELECT = "SELECT v.*, b.name AS branch_name FROM vehicles v LEFT JOIN branches b ON b.id = v.branch_id";
 
-async function vehicleJson(v: VehicleRow, images?: ImageRow[]) {
+async function vehicleJson(v: VehicleRow, images?: ImageRow[], canManage?: boolean) {
   const imgs = images ?? (await select<ImageRow>("SELECT * FROM vehicle_images WHERE vehicle_id = ? ORDER BY sort_order, id", [v.id]));
   return {
     id: Number(v.id),
@@ -85,10 +93,13 @@ async function vehicleJson(v: VehicleRow, images?: ImageRow[]) {
     parking: v.parking,
     description: v.description,
     mileage: v.mileage === null ? null : Number(v.mileage),
+    vehicle_type: v.vehicle_type,
+    fuel_type: v.fuel_type,
     is_active: Boolean(v.is_active),
     sort_order: Number(v.sort_order),
     images: imgs.map((i) => ({ id: Number(i.id), is_primary: Boolean(i.is_primary) })),
     ...(v.bookings_count !== undefined ? { bookings_count: Number(v.bookings_count) } : {}),
+    ...(canManage !== undefined ? { can_manage: canManage } : {}),
   };
 }
 
@@ -99,18 +110,46 @@ async function findVehicle(id: number): Promise<VehicleRow> {
 }
 
 vehicleRoutes.get("/vehicles", async (req, res) => {
+  const u = me(req);
   const all = bool(req.query.include_inactive);
-  if (all) authorize(manages(me(req)));
+  if (all) authorize(manages(u));
+  const s = await scope(u);
+  const w = branchWhere("v.branch_id", s, int(req.query.branch_id));
   const rows = await select<VehicleRow>(
     `SELECT v.*, b.name AS branch_name, (SELECT COUNT(*) FROM vehicle_bookings x WHERE x.vehicle_id = v.id AND x.deleted_at IS NULL) AS bookings_count
-       FROM vehicles v LEFT JOIN branches b ON b.id = v.branch_id ${all ? "" : "WHERE v.is_active = true"} ORDER BY v.sort_order, v.name`,
+       FROM vehicles v LEFT JOIN branches b ON b.id = v.branch_id WHERE ${w.sql}${all ? "" : " AND v.is_active = true"} ORDER BY v.sort_order, v.name`,
+    w.params,
   );
   const images = rows.length ? await select<ImageRow>("SELECT * FROM vehicle_images WHERE vehicle_id IN (?) ORDER BY sort_order, id", [rows.map((r) => r.id)]) : [];
-  res.json({ data: await Promise.all(rows.map((r) => vehicleJson(r, images.filter((i) => Number(i.vehicle_id) === Number(r.id))))) });
+  const canManage = manages(u);
+  res.json({ data: await Promise.all(rows.map((r) => vehicleJson(r, images.filter((i) => Number(i.vehicle_id) === Number(r.id)), canManage && canManageBranch(s, branchOf(r.branch_id))))) });
 });
 
+/** รถที่ผู้ใช้เห็นได้ตามขอบเขตสาขา — นอกขอบเขต = 404 */
+async function visibleVehicle(u: UserRow, id: number): Promise<{ vehicle: VehicleRow; s: ScopeOf }> {
+  const vehicle = await findVehicle(id);
+  const s = await scope(u);
+  if (!canSeeBranch(s, branchOf(vehicle.branch_id))) throw notFound();
+  return { vehicle, s };
+}
+
+/** รถที่ผู้ใช้จัดการได้ (vehicle.manage + สาขาในขอบเขตที่จัดการได้) */
+async function managedVehicle(u: UserRow, id: number): Promise<VehicleRow> {
+  authorize(manages(u));
+  const { vehicle, s } = await visibleVehicle(u, id);
+  authorize(canManageBranch(s, branchOf(vehicle.branch_id)));
+  return vehicle;
+}
+
+/** การจองที่ยังไม่จบของรถคันนี้ (เตือนก่อนย้ายสาขา) */
+const upcomingOf = async (vehicleId: number) =>
+  Number(await scalar(`SELECT COUNT(*) FROM vehicle_bookings m WHERE m.vehicle_id = ? AND m.deleted_at IS NULL AND m.status = 'confirmed' AND ${UPCOMING}`, [vehicleId, ...upcomingParams()]));
+
 vehicleRoutes.get("/vehicles/:id", async (req, res) => {
-  res.json({ data: await vehicleJson(await findVehicle(idParam(req.params.id))) });
+  const u = me(req);
+  const { vehicle, s } = await visibleVehicle(u, idParam(req.params.id));
+  const canManage = manages(u) && canManageBranch(s, branchOf(vehicle.branch_id));
+  res.json({ data: { ...(await vehicleJson(vehicle, undefined, canManage)), ...(canManage ? { upcoming_bookings: await upcomingOf(Number(vehicle.id)) } : {}) } });
 });
 
 async function vehicleInput(req: Request, current: VehicleRow | null) {
@@ -129,16 +168,38 @@ async function vehicleInput(req: Request, current: VehicleRow | null) {
       parking: ["nullable", "string", "max:255"],
       description: ["nullable", "string", "max:2000"],
       mileage: ["nullable", "integer", "min:0", `max:${MAX_MILEAGE}`],
+      vehicle_type: ["nullable", "string", "max:50"],
+      fuel_type: ["nullable", "string", "max:50"],
       is_active: ["sometimes", "boolean"],
       sort_order: ["sometimes", "integer", "min:0", "max:9999"],
     },
     { locale: req.locale },
   );
+  // สาขา: ตอนเพิ่ม = ในขอบเขตที่จัดการได้ (ขอบเขตสาขาตัวเอง = สาขาของผู้เพิ่ม), ตอนแก้ = เปลี่ยนไม่ได้ (ใช้ POST /vehicles/:id/transfer)
+  let branchId = int(data.branch_id);
+  if (current) {
+    if ("branch_id" in req.input && branchId !== branchOf(current.branch_id)) throw ValidationError.withMessages({ branch_id: t(req, "eam.vehicle.branch_locked") });
+    branchId = branchOf(current.branch_id);
+  } else {
+    const s = await scope(me(req));
+    if (!canManageBranch(s, branchId)) throw ValidationError.withMessages({ branch_id: t(req, s.branchId === null ? "eam.meeting.no_branch" : "eam.meeting.branch_scope") });
+  }
   const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  // ประเภทรถ / เชื้อเพลิง ต้องเป็นตัวเลือกที่เปิดใช้งาน (ค่าเดิมของรถคันนี้คงไว้ได้แม้ถูกปิดใช้งานภายหลัง)
+  const option = async (field: "vehicle_type" | "fuel_type", list: string) => {
+    const value = text(data[field]);
+    if (value === null || value.toLowerCase() === (current?.[field] ?? "").toLowerCase()) return value;
+    if (!(await activeOptions(list)).some((o) => o.toLowerCase() === value.toLowerCase())) throw ValidationError.withMessages({ [field]: t(req, "eam.meeting.option_invalid") });
+    return value;
+  };
+  const vehicleType = await option("vehicle_type", "vehicle_type");
+  const fuelType = await option("fuel_type", "vehicle_fuel");
   return {
     name: String(data.name).trim(),
     plate_no: text(data.plate_no),
-    branch_id: int(data.branch_id),
+    vehicle_type: vehicleType,
+    fuel_type: fuelType,
+    branch_id: branchId,
     seats: int(data.seats)!,
     parking: text(data.parking),
     description: text(data.description),
@@ -155,26 +216,24 @@ vehicleRoutes.post("/vehicles", async (req, res) => {
   const v = await vehicleInput(req, null);
   const now = nowDb();
   const id = await insert("vehicles", { ...v, created_at: now, updated_at: now });
-  const json = await vehicleJson(await findVehicle(id));
+  const json = await vehicleJson(await findVehicle(id), undefined, true);
   await audit(req, { action: "vehicle.created", subjectType: "vehicle", subjectId: id, after: withoutImages(json) });
   res.status(201).json({ data: json });
 });
 
 vehicleRoutes.put("/vehicles/:id", async (req, res) => {
-  authorize(manages(me(req)));
-  const current = await findVehicle(idParam(req.params.id));
+  const current = await managedVehicle(me(req), idParam(req.params.id));
   const v = await vehicleInput(req, current);
   await update("vehicles", { ...v, updated_at: nowDb() }, "id = ?", [current.id]);
   const before = await vehicleJson(current, []);
-  const after = await vehicleJson(await findVehicle(current.id));
+  const after = await vehicleJson(await findVehicle(current.id), undefined, true);
   await audit(req, { action: "vehicle.updated", subjectType: "vehicle", subjectId: current.id, before: withoutImages(before), after: withoutImages(after) });
   res.json({ data: after });
 });
 
 /** ลบได้เมื่อไม่เคยมีการจอง — มีประวัติแล้วให้ปิดใช้งานแทน */
 vehicleRoutes.delete("/vehicles/:id", async (req, res) => {
-  authorize(manages(me(req)));
-  const current = await findVehicle(idParam(req.params.id));
+  const current = await managedVehicle(me(req), idParam(req.params.id));
   const used = Number(await scalar("SELECT COUNT(*) FROM vehicle_bookings WHERE vehicle_id = ?", [current.id]));
   if (used > 0) throw ValidationError.withMessages({ name: t(req, "eam.vehicle.in_use", { count: used }) });
   const images = await select<ImageRow>("SELECT * FROM vehicle_images WHERE vehicle_id = ?", [current.id]);
@@ -186,8 +245,10 @@ vehicleRoutes.delete("/vehicles/:id", async (req, res) => {
 
 /** ประวัติเลขไมล์จากการจอง (ล่าสุดก่อน) */
 vehicleRoutes.get("/vehicles/:id/mileage", async (req, res) => {
-  authorize(manages(me(req)) || dispatches(me(req)));
-  const v = await findVehicle(idParam(req.params.id));
+  const u = me(req);
+  authorize(manages(u) || dispatches(u));
+  const { vehicle: v, s } = await visibleVehicle(u, idParam(req.params.id));
+  authorize(canManageBranch(s, branchOf(v.branch_id)) || branchOf(v.branch_id) === null);
   const rows = await select<{ uuid: string; start_on: string; start_time: string; end_on: string; end_time: string; start_mileage: number | null; end_mileage: number | null; user_name: string | null; details: string }>(
     `SELECT m.uuid, m.start_on, m.start_time, m.end_on, m.end_time, m.start_mileage, m.end_mileage, m.details, u.name AS user_name
        FROM vehicle_bookings m LEFT JOIN users u ON u.id = m.user_id
@@ -211,11 +272,60 @@ vehicleRoutes.get("/vehicles/:id/mileage", async (req, res) => {
   });
 });
 
+/* ---------------------------------------------------------------- ย้ายสาขา */
+
+/**
+ * ย้ายรถไปสาขาอื่น (branch_id = null → ใช้ร่วมกันทุกสาขา เฉพาะขอบเขต all) — ผู้จัดการรถของสาขาต้นทาง
+ * การจองที่ยังไม่จบของรถคันนี้คงไว้ (ตอบจำนวนกลับไปให้หน้าเว็บแจ้ง) — ประวัติอยู่ที่ vehicle_transfers
+ */
+vehicleRoutes.post("/vehicles/:id/transfer", async (req, res) => {
+  const u = me(req);
+  const vehicle = await managedVehicle(u, idParam(req.params.id));
+  const data = await validate(
+    req.input,
+    {
+      branch_id: ["nullable", "integer", custom(async (v) => (await scalar("SELECT 1 FROM branches WHERE id = ?", [Number(v)])) !== null, t(req, "eam.meeting.branch_invalid"))],
+      note: ["nullable", "string", "max:1000"],
+    },
+    { locale: req.locale },
+  );
+  const to = int(data.branch_id);
+  const from = branchOf(vehicle.branch_id);
+  if (to === from) throw ValidationError.withMessages({ branch_id: t(req, "eam.vehicle.transfer_same") });
+  if (to === null && (await scope(u)).scope !== "all") throw ValidationError.withMessages({ branch_id: t(req, "eam.meeting.branch_scope") });
+  const note = typeof data.note === "string" && data.note.trim() ? data.note.trim() : null;
+  const now = nowDb();
+  await transaction(async () => {
+    await insert("vehicle_transfers", { vehicle_id: vehicle.id, from_branch_id: from, to_branch_id: to, note, created_by: u.id, created_at: now });
+    await update("vehicles", { branch_id: to, updated_at: now }, "id = ?", [vehicle.id]);
+  });
+  await audit(req, { action: "vehicle.transferred", subjectType: "vehicle", subjectId: vehicle.id, before: { branch_id: from }, after: { branch_id: to, note } });
+  const after = await findVehicle(Number(vehicle.id));
+  const s = await scope(u);
+  res.json({ data: { ...(await vehicleJson(after, undefined, canManageBranch(s, branchOf(after.branch_id)))), upcoming_bookings: await upcomingOf(Number(vehicle.id)) } });
+});
+
+/** ประวัติการย้ายสาขา (ล่าสุดก่อน) */
+vehicleRoutes.get("/vehicles/:id/transfers", async (req, res) => {
+  const u = me(req);
+  authorize(manages(u) || dispatches(u));
+  const { vehicle } = await visibleVehicle(u, idParam(req.params.id));
+  const rows = await select<{ id: number; from_name: string | null; to_name: string | null; from_branch_id: number | null; to_branch_id: number | null; note: string | null; user_name: string | null; created_at: string | null }>(
+    `SELECT x.id, x.from_branch_id, x.to_branch_id, x.note, x.created_at, fb.name AS from_name, tb.name AS to_name, u.name AS user_name
+       FROM vehicle_transfers x LEFT JOIN branches fb ON fb.id = x.from_branch_id LEFT JOIN branches tb ON tb.id = x.to_branch_id LEFT JOIN users u ON u.id = x.created_by
+      WHERE x.vehicle_id = ? ORDER BY x.created_at DESC, x.id DESC LIMIT 200`,
+    [vehicle.id],
+  );
+  const branch = (id: number | null, name: string | null) => (id === null ? null : { id: Number(id), name: name ?? "" });
+  res.json({
+    data: rows.map((r) => ({ id: Number(r.id), from: branch(r.from_branch_id, r.from_name), to: branch(r.to_branch_id, r.to_name), note: r.note, user_name: r.user_name ?? "", created_at: iso(r.created_at) })),
+  });
+});
+
 /* ---------------------------------------------------------------- รูปรถ */
 
 vehicleRoutes.post("/vehicles/:id/images", async (req, res) => {
-  authorize(manages(me(req)));
-  const vehicle = await findVehicle(idParam(req.params.id));
+  const vehicle = await managedVehicle(me(req), idParam(req.params.id));
   const data = await validate(
     req.input,
     { images: ["required", "array", `max:${MAX_PHOTOS}`], "images.*": ["file", "image", "mimes:jpg,jpeg,png,webp", "max:1024"] },
@@ -262,8 +372,8 @@ vehicleRoutes.get("/vehicles/:id/images/:imageId", async (req, res) => {
 });
 
 vehicleRoutes.put("/vehicles/:id/images/:imageId", async (req, res) => {
-  authorize(manages(me(req)));
   const { vehicle, img } = await findImage(req);
+  await managedVehicle(me(req), Number(vehicle.id));
   await transaction(async () => {
     await exec("UPDATE vehicle_images SET is_primary = false WHERE vehicle_id = ?", [vehicle.id]);
     await exec("UPDATE vehicle_images SET is_primary = true WHERE id = ?", [img.id]);
@@ -273,8 +383,8 @@ vehicleRoutes.put("/vehicles/:id/images/:imageId", async (req, res) => {
 });
 
 vehicleRoutes.delete("/vehicles/:id/images/:imageId", async (req, res) => {
-  authorize(manages(me(req)));
   const { vehicle, img } = await findImage(req);
+  await managedVehicle(me(req), Number(vehicle.id));
   await exec("DELETE FROM vehicle_images WHERE id = ?", [img.id]);
   if (img.is_primary) await exec("UPDATE vehicle_images SET is_primary = true WHERE vehicle_id = ? ORDER BY sort_order, id LIMIT 1", [vehicle.id]);
   await deleteStored(img.path);
@@ -290,6 +400,9 @@ interface BookingRow {
   vehicle_id: number | null;
   vehicle_name: string | null;
   plate_no: string | null;
+  vehicle_branch_id: number | null;
+  branch_id: number | null;
+  branch_name: string | null;
   user_id: number;
   user_name: string | null;
   department: string | null;
@@ -311,8 +424,28 @@ interface BookingRow {
   updated_at: string | null;
 }
 
-const BOOKING_SELECT = `SELECT m.*, v.name AS vehicle_name, v.plate_no, u.name AS user_name, a.name AS assigned_name
-  FROM vehicle_bookings m LEFT JOIN vehicles v ON v.id = m.vehicle_id LEFT JOIN users u ON u.id = m.user_id LEFT JOIN users a ON a.id = m.assigned_by`;
+const BOOKING_SELECT = `SELECT m.*, v.name AS vehicle_name, v.plate_no, v.branch_id AS vehicle_branch_id, bb.name AS branch_name, u.name AS user_name, a.name AS assigned_name
+  FROM vehicle_bookings m LEFT JOIN vehicles v ON v.id = m.vehicle_id LEFT JOIN branches bb ON bb.id = m.branch_id
+  LEFT JOIN users u ON u.id = m.user_id LEFT JOIN users a ON a.id = m.assigned_by`;
+
+/**
+ * เห็นการจองได้: มีรถแล้ว = รถอยู่ในขอบเขต (รถใช้ร่วมกันเห็นทุกสาขา — ให้รู้ว่ารถไม่ว่าง), ยังไม่มีรถ = สาขาที่ขอใช้อยู่ในขอบเขต
+ * จัดการ (ผู้จัดคิว): สาขาที่ขอใช้ หรือสาขาของรถ เป็นสาขาที่จัดการได้ (การจองเดิมที่ไม่มีสาขา = ทุกสาขา)
+ */
+const seesBooking = (s: ScopeOf, b: BookingRow) => (b.vehicle_id ? canSeeBranch(s, branchOf(b.vehicle_branch_id)) : canSeeBranch(s, branchOf(b.branch_id)));
+const managesBooking = (s: ScopeOf, b: BookingRow) =>
+  b.branch_id === null || canManageBranch(s, branchOf(b.branch_id)) || (b.vehicle_id !== null && canManageBranch(s, branchOf(b.vehicle_branch_id)));
+/** SQL เดียวกับ seesBooking / managesBooking (alias m = vehicle_bookings, v = vehicles) */
+function seesWhere(s: ScopeOf, filter?: number | null) {
+  const vw = branchWhere("v.branch_id", s, filter);
+  const bw = branchWhere("m.branch_id", s, filter);
+  return { sql: `((m.vehicle_id IS NOT NULL AND ${vw.sql}) OR (m.vehicle_id IS NULL AND ${bw.sql}))`, params: [...vw.params, ...bw.params] };
+}
+function managesWhere(s: ScopeOf) {
+  if (s.scope === "all") return { sql: "1 = 1", params: [] as unknown[] };
+  if (s.branchId === null) return { sql: "m.branch_id IS NULL", params: [] as unknown[] };
+  return { sql: "(m.branch_id IS NULL OR m.branch_id = ? OR v.branch_id = ?)", params: [s.branchId, s.branchId] as unknown[] };
+}
 
 const startAt = (b: { start_on: string; start_time: string }) => `${dateOnly(b.start_on)} ${b.start_time}`;
 const endAt = (b: { end_on: string; end_time: string }) => `${dateOnly(b.end_on)} ${b.end_time}`;
@@ -320,15 +453,18 @@ const isOver = (b: { end_on: string; end_time: string }) => endAt(b) <= localNow
 const numOrNull = (v: number | null) => (v === null ? null : Number(v));
 
 async function bookingsJson(rows: BookingRow[], u: UserRow) {
+  const s = await scope(u);
   const extras = rows.length ? await select<{ booking_id: number; name: string }>("SELECT booking_id, name FROM vehicle_booking_extras WHERE booking_id IN (?) ORDER BY name", [rows.map((r) => r.id)]) : [];
   return rows.map((r) => {
     const mine = Number(r.user_id) === u.id;
     const over = isOver(r);
     const active = r.status === "confirmed";
-    const allowed = mine || dispatches(u);
+    const dispatcher = dispatches(u) && managesBooking(s, r);
+    const allowed = mine || dispatcher;
     return {
       id: r.uuid,
       vehicle: r.vehicle_id ? { id: Number(r.vehicle_id), name: r.vehicle_name ?? "", plate_no: r.plate_no } : null,
+      branch: r.branch_id ? { id: Number(r.branch_id), name: r.branch_name ?? "" } : null,
       user: { id: Number(r.user_id), name: r.user_name ?? "" },
       department: r.department,
       details: r.details,
@@ -354,7 +490,7 @@ async function bookingsJson(rows: BookingRow[], u: UserRow) {
       can_delete: allowed && (!active || !over),
       // เลขไมล์บันทึกได้ทั้งระหว่างและหลังใช้งาน (เมื่อมีรถแล้ว)
       can_mileage: allowed && active && r.vehicle_id !== null,
-      can_assign: dispatches(u) && active && !over,
+      can_assign: dispatcher && active && !over,
     };
   });
 }
@@ -363,21 +499,29 @@ async function findBooking(req: Request): Promise<BookingRow> {
   const uuid = String(req.params.uuid);
   const row = isUuid(uuid) ? await first<BookingRow>(`${BOOKING_SELECT} WHERE m.uuid = ? AND m.deleted_at IS NULL`, [uuid]) : null;
   if (!row) throw notFound();
+  const u = me(req);
+  const s = await scope(u);
+  if (Number(row.user_id) !== u.id && !seesBooking(s, row) && !(dispatches(u) && managesBooking(s, row))) throw notFound();
   return row;
 }
 const reload = async (id: number) => (await first<BookingRow>(`${BOOKING_SELECT} WHERE m.id = ?`, [id]))!;
 
 vehicleRoutes.get("/vehicle-bookings", async (req, res) => {
-  const f = await validate(req.input, { from: ["required", regex(DATE)], to: ["required", regex(DATE)] }, { locale: req.locale });
+  const u = me(req);
+  const f = await validate(req.input, { from: ["required", regex(DATE)], to: ["required", regex(DATE)], branch_id: ["nullable", "integer"] }, { locale: req.locale });
   const from = String(f.from);
   const to = String(f.to) < from ? from : String(f.to);
   if ((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000 > 62) throw ValidationError.withMessages({ to: t(req, "eam.calendar.range_too_long") });
+  // ในขอบเขตสาขา (ของตัวเองเห็นเสมอเมื่อไม่ได้เลือกกรองสาขา)
+  const filter = int(f.branch_id);
+  const w = seesWhere(await scope(u), filter);
   const rows = await select<BookingRow>(
     `${BOOKING_SELECT} WHERE m.deleted_at IS NULL AND m.status = 'confirmed' AND m.start_on <= ? AND m.end_on >= ?
+        AND ${filter ? w.sql : `(${w.sql} OR m.user_id = ?)`}
       ORDER BY m.start_on, m.start_time, v.sort_order, v.name`,
-    [to, from],
+    [to, from, ...w.params, ...(filter ? [] : [u.id])],
   );
-  res.json({ data: await bookingsJson(rows, me(req)) });
+  res.json({ data: await bookingsJson(rows, u) });
 });
 
 /** ยังไม่จบ = เวลาสิ้นสุดยังไม่ถึง (เวลาไทย) */
@@ -407,9 +551,11 @@ vehicleRoutes.get("/vehicle-bookings/dispatch", async (req, res) => {
   const u = me(req);
   authorize(dispatches(u));
   const f = await validate(req.input, { status: ["nullable", "in:unassigned,upcoming"] }, { locale: req.locale });
-  const where = ["m.deleted_at IS NULL", "m.status = 'confirmed'", UPCOMING];
+  // เฉพาะการจองของสาขาที่จัดการได้
+  const mw = managesWhere(await scope(u));
+  const where = ["m.deleted_at IS NULL", "m.status = 'confirmed'", UPCOMING, mw.sql];
   if ((f.status ?? "unassigned") === "unassigned") where.push("m.vehicle_id IS NULL");
-  const rows = await select<BookingRow>(`${BOOKING_SELECT} WHERE ${where.join(" AND ")} ORDER BY m.start_on, m.start_time LIMIT 500`, upcomingParams());
+  const rows = await select<BookingRow>(`${BOOKING_SELECT} WHERE ${where.join(" AND ")} ORDER BY m.start_on, m.start_time LIMIT 500`, [...upcomingParams(), ...mw.params]);
   res.json({ data: await bookingsJson(rows, u) });
 });
 
@@ -420,11 +566,13 @@ vehicleRoutes.get("/vehicle-bookings/:uuid", async (req, res) => {
 
 const activeOptions = async (list: string) => (await select<{ name: string }>("SELECT name FROM dropdown_options WHERE list = ? AND is_active = true", [list])).map((o) => o.name);
 
-/** รถที่เลือกได้: เปิดใช้งาน (หรือคันเดิมของการจองนี้) */
-async function vehicleOk(id: number | null, currentId: number | null): Promise<boolean> {
-  if (id === null) return true;
-  const v = await first<{ is_active: boolean | number }>("SELECT is_active FROM vehicles WHERE id = ?", [id]);
-  return Boolean(v && (v.is_active || id === currentId));
+/** รถที่เลือกได้: เปิดใช้งาน + อยู่ในขอบเขตสาขา (หรือคันเดิมของการจองนี้) — คืนสาขาของรถ (undefined = เลือกไม่ได้) */
+async function vehicleOk(s: ScopeOf, id: number | null, currentId: number | null): Promise<{ branch_id: number | null } | undefined> {
+  if (id === null) return { branch_id: null };
+  const v = await first<{ is_active: boolean | number; branch_id: number | null }>("SELECT is_active, branch_id FROM vehicles WHERE id = ?", [id]);
+  if (!v) return undefined;
+  if (id === currentId) return { branch_id: branchOf(v.branch_id) };
+  return v.is_active && canSeeBranch(s, branchOf(v.branch_id)) ? { branch_id: branchOf(v.branch_id) } : undefined;
 }
 
 async function bookingInput(req: Request, current: BookingRow | null, currentExtras: string[]) {
@@ -432,6 +580,7 @@ async function bookingInput(req: Request, current: BookingRow | null, currentExt
     req.input,
     {
       vehicle_id: ["nullable", "integer"],
+      branch_id: ["nullable", "integer"],
       details: ["required", "string", "max:2000", regex(/\S/)],
       passengers: ["required", "integer", "min:1", "max:99"],
       purpose: ["required", "string", "max:100"],
@@ -449,7 +598,15 @@ async function bookingInput(req: Request, current: BookingRow | null, currentExt
   );
   const errors: Record<string, string> = {};
   const vehicleId = int(data.vehicle_id);
-  if (!(await vehicleOk(vehicleId, current?.vehicle_id ? Number(current.vehicle_id) : null))) errors.vehicle_id = t(req, "eam.vehicle.vehicle_invalid");
+  const s = await scope(me(req));
+  const picked = await vehicleOk(s, vehicleId, current?.vehicle_id ? Number(current.vehicle_id) : null);
+  if (!picked) errors.vehicle_id = t(req, "eam.vehicle.vehicle_invalid");
+  // สาขาที่ขอใช้: เลือกรถ = สาขาของรถ (รถใช้ร่วมกัน = สาขาที่เลือก/สาขาเดิม/สาขาของผู้จอง), ไม่เลือกรถ = สาขาที่เลือก (ไม่ส่ง = สาขาของผู้จอง)
+  const requested = "branch_id" in req.input ? int(data.branch_id) : current ? branchOf(current.branch_id) : s.branchId;
+  if (requested !== null && (!canSeeBranch(s, requested) || (await scalar("SELECT 1 FROM branches WHERE id = ?", [requested])) === null)) {
+    errors.branch_id = t(req, canSeeBranch(s, requested) ? "eam.meeting.branch_invalid" : "eam.meeting.branch_scope");
+  }
+  const branchId = picked?.branch_id ?? requested;
   const v = { start_on: String(data.start_on), start_time: String(data.start_time), end_on: String(data.end_on), end_time: String(data.end_time) };
   const days = (new Date(v.end_on).getTime() - new Date(v.start_on).getTime()) / 86_400_000;
   if (endAt(v) <= startAt(v)) errors.end_time = t(req, "eam.meeting.time_order");
@@ -469,6 +626,7 @@ async function bookingInput(req: Request, current: BookingRow | null, currentExt
   if (Object.keys(errors).length) throw ValidationError.withMessages(errors);
   return {
     vehicle_id: vehicleId,
+    branch_id: branchId,
     details: String(data.details).trim(),
     passengers: int(data.passengers)!,
     purpose,
@@ -509,9 +667,22 @@ async function bumpMileage(vehicleId: number | null, ...values: (number | null)[
 }
 const currentMileage = async (vehicleId: number | null) => (vehicleId ? numOrNull((await scalar<number | null>("SELECT mileage FROM vehicles WHERE id = ?", [vehicleId])) ?? null) : null);
 
-/** แจ้งผู้จัดคิวรถ (ยกเว้นตัวเอง): มีการจองที่ยังไม่ระบุรถ */
+/** ผู้จัดคิวรถของสาขาที่ขอใช้ (ขอบเขต all = ทุกสาขา) — เงื่อนไขเดียวกับรายการ/ตัวเลขเมนูจัดคิวรถ */
+async function dispatchersFor(branchId: number | null): Promise<number[]> {
+  const ids = (await usersWithPermissions(["vehicle.dispatch"])).map((x) => Number(x.id));
+  if (!ids.length) return [];
+  const users = await select<UserRow>("SELECT * FROM users WHERE id IN (?)", [ids]);
+  const out: number[] = [];
+  for (const d of users) {
+    const own = branchOf(d.branch_id);
+    if (branchId === null || own === branchId || (await bookingScope(d, "vehicle")) === "all") out.push(Number(d.id));
+  }
+  return out;
+}
+
+/** แจ้งผู้จัดคิวรถของสาขานั้น (ยกเว้นตัวเอง): มีการจองที่ยังไม่ระบุรถ */
 async function notifyDispatchers(u: UserRow, b: BookingRow) {
-  const ids = (await usersWithPermissions(["vehicle.dispatch"])).map((x) => x.id).filter((id) => id !== u.id);
+  const ids = (await dispatchersFor(branchOf(b.branch_id))).filter((id) => id !== u.id);
   if (!ids.length) return;
   await notifyUsers(ids, "vehicle.requested", noticeData(u, b, "requested"));
 }
@@ -557,8 +728,8 @@ vehicleRoutes.post("/vehicle-bookings", async (req, res) => {
   res.status(201).json({ data: json });
 });
 
-function assertOwner(u: UserRow, b: BookingRow) {
-  authorize(Number(b.user_id) === u.id || dispatches(u));
+async function assertOwner(u: UserRow, b: BookingRow) {
+  authorize(Number(b.user_id) === u.id || (dispatches(u) && managesBooking(await scope(u), b)));
 }
 /** ผู้จัดคิวแก้/เลือกรถ/ยกเลิก/ลบการจองของคนอื่น → แจ้งเจ้าของ */
 async function notifyOwner(u: UserRow, b: BookingRow, event: "updated" | "assigned" | "cancelled" | "deleted") {
@@ -577,7 +748,7 @@ const snapshot = (b: BookingRow, extras: string[]) => ({
 vehicleRoutes.put("/vehicle-bookings/:uuid", async (req, res) => {
   const u = me(req);
   const b = await findBooking(req);
-  assertOwner(u, b);
+  await assertOwner(u, b);
   assertActive(req, b);
   const currentExtras = (await select<{ name: string }>("SELECT name FROM vehicle_booking_extras WHERE booking_id = ?", [b.id])).map((e) => e.name);
   const v = await bookingInput(req, b, currentExtras);
@@ -612,10 +783,12 @@ vehicleRoutes.put("/vehicle-bookings/:uuid/vehicle", async (req, res) => {
   const u = me(req);
   authorize(dispatches(u));
   const b = await findBooking(req);
+  const s = await scope(u);
+  authorize(managesBooking(s, b));
   assertActive(req, b);
   const data = await validate(req.input, { vehicle_id: ["nullable", "integer"] }, { locale: req.locale });
   const vehicleId = int(data.vehicle_id);
-  if (!(await vehicleOk(vehicleId, numOrNull(b.vehicle_id)))) throw ValidationError.withMessages({ vehicle_id: t(req, "eam.vehicle.vehicle_invalid") });
+  if (!(await vehicleOk(s, vehicleId, numOrNull(b.vehicle_id)))) throw ValidationError.withMessages({ vehicle_id: t(req, "eam.vehicle.vehicle_invalid") });
   const startMileage = vehicleId && (b.start_mileage === null || numOrNull(b.vehicle_id) !== vehicleId) ? await currentMileage(vehicleId) : numOrNull(b.start_mileage);
   await transaction(async () => {
     if (vehicleId) {
@@ -643,7 +816,7 @@ vehicleRoutes.put("/vehicle-bookings/:uuid/vehicle", async (req, res) => {
 vehicleRoutes.put("/vehicle-bookings/:uuid/mileage", async (req, res) => {
   const u = me(req);
   const b = await findBooking(req);
-  assertOwner(u, b);
+  await assertOwner(u, b);
   if (b.status !== "confirmed" || !b.vehicle_id) throw ValidationError.withMessages({ start_mileage: t(req, "eam.vehicle.mileage_no_vehicle") });
   const data = await validate(
     req.input,
@@ -663,7 +836,7 @@ vehicleRoutes.put("/vehicle-bookings/:uuid/mileage", async (req, res) => {
 vehicleRoutes.post("/vehicle-bookings/:uuid/cancel", async (req, res) => {
   const u = me(req);
   const b = await findBooking(req);
-  assertOwner(u, b);
+  await assertOwner(u, b);
   assertActive(req, b);
   const now = nowDb();
   await update("vehicle_bookings", { status: "cancelled", cancelled_at: now, cancelled_by: u.id, updated_at: now }, "id = ?", [b.id]);
@@ -678,7 +851,7 @@ vehicleRoutes.post("/vehicle-bookings/:uuid/cancel", async (req, res) => {
 vehicleRoutes.delete("/vehicle-bookings/:uuid", async (req, res) => {
   const u = me(req);
   const b = await findBooking(req);
-  assertOwner(u, b);
+  await assertOwner(u, b);
   if (b.status === "confirmed" && isOver(b)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_deletable") });
   await update("vehicle_bookings", { deleted_at: nowDb() }, "id = ?", [b.id]);
   await audit(req, { action: "vehicle_booking.deleted", subjectType: "vehicle_booking", subjectId: b.id, before: snapshot(b, []) });
@@ -687,7 +860,14 @@ vehicleRoutes.delete("/vehicle-bookings/:uuid", async (req, res) => {
   res.status(204).end();
 });
 
-/** ตัวเลขเมนู "จัดคิวรถ" = การจองที่ยังไม่จบและยังไม่ระบุรถ */
-export async function unassignedVehicleBookings(): Promise<number> {
-  return Number(await scalar(`SELECT COUNT(*) FROM vehicle_bookings m WHERE m.deleted_at IS NULL AND m.status = 'confirmed' AND m.vehicle_id IS NULL AND ${UPCOMING}`, upcomingParams()));
+/** ตัวเลขเมนู "จัดคิวรถ" = การจองที่ยังไม่จบและยังไม่ระบุรถ ของสาขาที่ผู้จัดคิวดูแล */
+export async function unassignedVehicleBookings(u: UserRow): Promise<number> {
+  const mw = managesWhere(await scope(u));
+  return Number(
+    await scalar(
+      `SELECT COUNT(*) FROM vehicle_bookings m LEFT JOIN vehicles v ON v.id = m.vehicle_id
+        WHERE m.deleted_at IS NULL AND m.status = 'confirmed' AND m.vehicle_id IS NULL AND ${UPCOMING} AND ${mw.sql}`,
+      [...upcomingParams(), ...mw.params],
+    ),
+  );
 }

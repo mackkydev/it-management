@@ -381,7 +381,7 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
     ),
   );
   // การจองรถที่ยังไม่ระบุรถ (ผู้จัดคิวรถ) — ผู้รับแจ้งเตือน "รอจัดรถ" = ผู้มีสิทธิ์ vehicle.dispatch เหมือนกัน
-  if (can(u, "vehicle.dispatch")) data["/vehicles/dispatch"] = await unassignedVehicleBookings();
+  if (can(u, "vehicle.dispatch")) data["/vehicles/dispatch"] = await unassignedVehicleBookings(u);
   res.json({ data });
 });
 

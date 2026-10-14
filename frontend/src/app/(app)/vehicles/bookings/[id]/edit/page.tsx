@@ -34,7 +34,7 @@ export default async function EditVehicleBookingPage({ params }: PageProps<"/veh
   // รถที่ถูกปิดใช้งานภายหลัง — ยังแสดงคันเดิมของการจองนี้ให้เลือกค้างไว้
   const list = !booking.vehicle || vehicles.some((v) => v.id === booking.vehicle!.id)
     ? vehicles
-    : [...vehicles, { id: booking.vehicle.id, name: booking.vehicle.name, plate_no: booking.vehicle.plate_no, branch: null, seats: 0, parking: null, description: null, mileage: null, is_active: false, sort_order: 0, images: [] }];
+    : [...vehicles, { id: booking.vehicle.id, name: booking.vehicle.name, plate_no: booking.vehicle.plate_no, branch: null, seats: 0, parking: null, description: null, mileage: null, vehicle_type: null, fuel_type: null, is_active: false, sort_order: 0, images: [] }];
   const s = (n: number | null) => (n === null ? "" : String(n));
 
   return (

@@ -9,8 +9,11 @@ import { AlertIcon, ImageIcon, SaveIcon, SpinnerIcon, StarIcon, TrashIcon, Uploa
 import { Tooltip } from "@/components/tooltip";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import type { Vehicle } from "@/lib/types";
+import type { BranchChoices, Vehicle } from "@/lib/types";
 import { imageUrl } from "../vehicle-utils";
+
+/** ตัวเลือกที่เปิดใช้งาน + ค่าเดิมของรถคันนี้ (ถ้าตัวเลือกถูกปิดใช้งานภายหลัง) */
+const withCurrent = (list: string[], current?: string | null) => (current && !list.some((o) => o.toLowerCase() === current.toLowerCase()) ? [current, ...list] : list);
 
 const MAX_IMAGES = 4;
 const MAX_BYTES = 1024 * 1024;
@@ -22,8 +25,12 @@ interface Pending {
   url: string;
 }
 
-/** เพิ่ม / แก้ไขรถ — รูป ≤ 4 รูป ≤ 1MB (เลือกรูปหลักได้), เลขไมล์ล่าสุด (อัปเดตอัตโนมัติจากการจอง) */
-export function VehicleForm({ vehicle: initialVehicle, branches }: { vehicle: Vehicle | null; branches: { id: number; name: string }[] }) {
+/**
+ * เพิ่ม / แก้ไขรถ — รูป ≤ 4 รูป ≤ 1MB (เลือกรูปหลักได้), เลขไมล์ล่าสุด (อัปเดตอัตโนมัติจากการจอง)
+ * สาขา: เลือกตอนเพิ่ม (ตั้งต้น = สาขาของผู้เพิ่ม) — รถที่มีอยู่แล้วเปลี่ยนสาขาด้วย "ย้ายสาขา" ในหน้าแก้ไข (เก็บประวัติ)
+ * ประเภทรถ / เชื้อเพลิง = ข้อมูล Drop Down (vehicle_type / vehicle_fuel)
+ */
+export function VehicleForm({ vehicle: initialVehicle, choices, types, fuels }: { vehicle: Vehicle | null; choices: BranchChoices; types: string[]; fuels: string[] }) {
   const { t } = useI18n();
   const router = useRouter();
   const confirm = useConfirm();
@@ -33,11 +40,13 @@ export function VehicleForm({ vehicle: initialVehicle, branches }: { vehicle: Ve
   const [v, setV] = useState<VehicleValues>({
     name: initialVehicle?.name ?? "",
     plate_no: initialVehicle?.plate_no ?? "",
-    branch_id: initialVehicle?.branch ? String(initialVehicle.branch.id) : "",
+    branch_id: initialVehicle ? (initialVehicle.branch ? String(initialVehicle.branch.id) : "") : choices.defaultId ? String(choices.defaultId) : "",
     seats: initialVehicle ? String(initialVehicle.seats) : "",
     parking: initialVehicle?.parking ?? "",
     description: initialVehicle?.description ?? "",
     mileage: initialVehicle?.mileage != null ? String(initialVehicle.mileage) : "",
+    vehicle_type: initialVehicle?.vehicle_type ?? "",
+    fuel_type: initialVehicle?.fuel_type ?? "",
     is_active: initialVehicle?.is_active ?? true,
     sort_order: String(initialVehicle?.sort_order ?? 0),
   });
@@ -153,14 +162,46 @@ export function VehicleForm({ vehicle: initialVehicle, branches }: { vehicle: Ve
         </div>
         <div>
           {label("branch_id", t("meeting.rooms.branch"))}
-          <AppSelect id="branch_id" value={v.branch_id} onValueChange={(x) => set("branch_id", x)} className={cls("branch_id")}>
-            <option value="">{t("meeting.rooms.noBranch")}</option>
-            {branches.map((b) => (
-              <option key={b.id} value={String(b.id)}>
-                {b.name}
+          {vehicle ? (
+            <>
+              <p className={`${input} bg-subtle text-muted`}>{vehicle.branch?.name ?? t("meeting.rooms.noBranch")}</p>
+              <p className="mt-1 text-xs text-muted">{t("vehicle.transfer.formHint")}</p>
+            </>
+          ) : (
+            <AppSelect id="branch_id" value={v.branch_id} onValueChange={(x) => set("branch_id", x)} className={cls("branch_id")}>
+              {choices.allowShared && <option value="">{t("meeting.rooms.noBranch")}</option>}
+              {choices.branches.map((b) => (
+                <option key={b.id} value={String(b.id)}>
+                  {b.name}
+                </option>
+              ))}
+            </AppSelect>
+          )}
+          {err("branch_id")}
+        </div>
+        <div>
+          {label("vehicle_type", t("vehicle.manage.vehicleType"))}
+          <AppSelect id="vehicle_type" value={v.vehicle_type} onValueChange={(x) => set("vehicle_type", x)} className={cls("vehicle_type")}>
+            <option value="">{t("vehicle.manage.notSpecified")}</option>
+            {withCurrent(types, initialVehicle?.vehicle_type).map((o) => (
+              <option key={o} value={o}>
+                {o}
               </option>
             ))}
           </AppSelect>
+          {err("vehicle_type")}
+        </div>
+        <div>
+          {label("fuel_type", t("vehicle.manage.fuelType"))}
+          <AppSelect id="fuel_type" value={v.fuel_type} onValueChange={(x) => set("fuel_type", x)} className={cls("fuel_type")}>
+            <option value="">{t("vehicle.manage.notSpecified")}</option>
+            {withCurrent(fuels, initialVehicle?.fuel_type).map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </AppSelect>
+          {err("fuel_type")}
         </div>
         <div className="sm:col-span-2">
           {label("parking", t("vehicle.manage.parking"))}

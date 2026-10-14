@@ -31,6 +31,8 @@ export const DEFAULTS = {
   // ขอบเขตการมองเห็นวันลาของคนอื่นต่อกลุ่ม (ตั้งแยกจากปฏิทิน) { group_key: "self" | "department" | "branch" | "all" }
   leave_scope: null as unknown,
   leave_settings: null as unknown,
+  // ห้องประชุม/รถตามสาขา ต่อกลุ่ม { meeting: { group_key: "branch" | "all" }, vehicle: { … } } (services/booking-scope.ts)
+  booking_scope: null as unknown,
 };
 
 export type Settings = typeof DEFAULTS & Record<string, unknown>;

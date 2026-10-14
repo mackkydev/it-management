@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { CarIcon, PlusIcon } from "@/components/icons";
+import { BranchFilter } from "@/components/branch-filter";
 import { PageHeader } from "@/components/page-header";
 import { btn, card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
+import { branchQuery, getBookingScope, selectedBranch } from "@/lib/booking-scope";
 import { getCurrentUser, has } from "@/lib/auth";
 import { localToday } from "@/lib/date";
 import type { Vehicle, VehicleBooking } from "@/lib/types";
@@ -27,19 +29,23 @@ export default async function BookVehiclePage({ searchParams }: PageProps<"/vehi
   const date = DATE_RE.test(str(sp.date)) && str(sp.date) >= today ? str(sp.date) : "";
   const start = TIME_OPTIONS.includes(str(sp.start)) ? str(sp.start) : "08:00";
   const end = TIME_OPTIONS.includes(str(sp.end)) && str(sp.end) > start ? str(sp.end) : "17:00" > start ? "17:00" : "23:59";
+  // ขอบเขตตามสาขา (ตั้งต่อกลุ่มสิทธิ์) + สาขาที่เลือกดู — API กรองให้
+  const scope = await getBookingScope("vehicle");
+  const branch = await selectedBranch("vehicle", scope);
   const [{ t }, user, vehicles, purposes, extras, range] = await Promise.all([
     getI18n(),
     getCurrentUser(),
-    apiFetch<{ data: Vehicle[] }>("/vehicles").then((r) => r.data),
+    apiFetch<{ data: Vehicle[] }>(`/vehicles?${new URLSearchParams(branchQuery(branch))}`).then((r) => r.data),
     apiFetch<{ data: { name: string }[] }>("/dropdown-options/vehicle_purpose").then((r) => r.data.map((o) => o.name)),
     apiFetch<{ data: { name: string }[] }>("/dropdown-options/vehicle_extra").then((r) => r.data.map((o) => o.name)),
-    date ? apiFetch<{ data: VehicleBooking[] }>(`/vehicle-bookings?${new URLSearchParams({ from: date, to: date })}`).then((r) => r.data) : Promise.resolve([] as VehicleBooking[]),
+    date ? apiFetch<{ data: VehicleBooking[] }>(`/vehicle-bookings?${new URLSearchParams({ from: date, to: date, ...branchQuery(branch) })}`).then((r) => r.data) : Promise.resolve([] as VehicleBooking[]),
   ]);
   const vehicle = date ? vehicles.find((v) => String(v.id) === str(sp.vehicle)) : undefined;
 
   return (
     <div className="space-y-5">
       <PageHeader icon={CarIcon} title={t("vehicle.form.newTitle")} subtitle={t("vehicle.form.subtitle")} />
+      <BranchFilter kind="vehicle" meta={scope} value={branch} />
       {vehicles.length === 0 && has(user, "vehicle.manage") && (
         <div className={`flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-muted ${card}`}>
           {t("vehicle.noVehicles")}

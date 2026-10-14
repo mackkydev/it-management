@@ -127,6 +127,8 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
                   <td className={table.td}>
                     {b.user.name}
                     {b.department && <span className="block text-xs text-muted">{b.department}</span>}
+                    {/* สาขาที่ขอใช้รถ (ผู้จัดคิวของสาขานี้เลือกรถ) */}
+                    {b.branch && <span className="block text-xs text-muted">{b.branch.name}</span>}
                   </td>
                 )}
                 <td className={table.td}>{actions(b)}</td>
@@ -144,7 +146,7 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
               {status(b)}
             </div>
             <p className="text-sm">{periodText(b, fmt.date)}</p>
-            {mode === "dispatch" && <p className="text-xs text-muted">{b.user.name}</p>}
+            {mode === "dispatch" && <p className="text-xs text-muted">{[b.user.name, b.branch?.name].filter(Boolean).join(" · ")}</p>}
             {mode === "dispatch" && b.can_assign ? assignControl(b) : vehicleCell(b)}
             {mileage(b)}
             {actions(b)}

@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarIcon, CarIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon } from "@/components/icons";
+import { BranchFilter } from "@/components/branch-filter";
 import { PageHeader } from "@/components/page-header";
 import { alert, btn, card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
+import { branchQuery, getBookingScope, selectedBranch } from "@/lib/booking-scope";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
 import { localToday } from "@/lib/date";
 import type { Vehicle, VehicleBooking } from "@/lib/types";
@@ -24,11 +26,14 @@ export async function generateMetadata({ params }: PageProps<"/vehicles/day/[dat
 export default async function VehicleDayPage({ params, searchParams }: PageProps<"/vehicles/day/[date]">) {
   const [{ date }, sp] = await Promise.all([params, searchParams]);
   if (!DATE_RE.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) notFound();
+  // ขอบเขตตามสาขา (ตั้งต่อกลุ่มสิทธิ์) + สาขาที่เลือกดู — API กรองให้
+  const scope = await getBookingScope("vehicle");
+  const branch = await selectedBranch("vehicle", scope);
   const [{ t, fmt }, user, vehicles, bookings, can] = await Promise.all([
     getI18n(),
     getCurrentUser(),
-    apiFetch<{ data: Vehicle[] }>("/vehicles").then((r) => r.data),
-    apiFetch<{ data: VehicleBooking[] }>(`/vehicle-bookings?${new URLSearchParams({ from: date, to: date })}`).then((r) => r.data),
+    apiFetch<{ data: Vehicle[] }>(`/vehicles?${new URLSearchParams(branchQuery(branch))}`).then((r) => r.data),
+    apiFetch<{ data: VehicleBooking[] }>(`/vehicle-bookings?${new URLSearchParams({ from: date, to: date, ...branchQuery(branch) })}`).then((r) => r.data),
     getAccess(),
   ]);
   const canBook = can("btn:vehicles:book");
@@ -46,6 +51,7 @@ export default async function VehicleDayPage({ params, searchParams }: PageProps
           canBook && (
             <Link href={`/vehicles/book?date=${date}`} className={btn.primary}>
               <PlusIcon />
+      <BranchFilter kind="vehicle" meta={scope} value={branch} />
               {t("vehicle.book")}
             </Link>
           )

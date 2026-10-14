@@ -141,4 +141,26 @@ describe("vehicles", () => {
     expect((await admin.put(`/api/v1/dropdown-options/vehicle_extra/${easy.id}`).send({ name: "Easy Pass / M-Flow" })).status).toBe(200);
     expect(await scalar("SELECT name FROM vehicle_booking_extras WHERE booking_id = ?", [id])).toBe("Easy Pass / M-Flow");
   });
+
+  it("vehicle type and fuel come from drop-down options; renaming an option updates the vehicles", async () => {
+    const now = nowDb();
+    for (const [list, name] of [["vehicle_type", "รถตู้"], ["vehicle_type", "รถเก๋ง"], ["vehicle_fuel", "ไฟฟ้า"], ["vehicle_fuel", "น้ำมัน"]]) {
+      await insert("dropdown_options", { list, name, is_active: true, sort_order: 0, created_at: now, updated_at: now });
+    }
+    const admin = await as(await makeUser({ role: "admin" }), "th");
+    const body = { name: "รถตู้ EV", seats: 10, vehicle_type: "รถตู้", fuel_type: "ไฟฟ้า" };
+    expect((await admin.post("/api/v1/vehicles").send({ ...body, vehicle_type: "รถถัง" })).status).toBe(422);
+    const created = await admin.post("/api/v1/vehicles").send(body);
+    expect(created.body.data).toMatchObject({ vehicle_type: "รถตู้", fuel_type: "ไฟฟ้า" });
+    const id = created.body.data.id;
+
+    // ปิดใช้งานตัวเลือกแล้ว รถคันเดิมยังบันทึกค่าเดิมได้ แต่รถใหม่เลือกไม่ได้
+    const ev = (await admin.get("/api/v1/dropdown-options/vehicle_fuel?include_inactive=1")).body.data.find((o: { name: string }) => o.name === "ไฟฟ้า");
+    expect(ev.usage_count).toBe(1);
+    await admin.put(`/api/v1/dropdown-options/vehicle_fuel/${ev.id}`).send({ name: "ไฟฟ้า", is_active: false });
+    expect((await admin.put(`/api/v1/vehicles/${id}`).send(body)).status).toBe(200);
+    expect((await admin.post("/api/v1/vehicles").send({ ...body, name: "คันใหม่" })).status).toBe(422);
+    expect((await admin.put(`/api/v1/dropdown-options/vehicle_fuel/${ev.id}`).send({ name: "ไฟฟ้า (EV)", is_active: true })).status).toBe(200);
+    expect(await scalar("SELECT fuel_type FROM vehicles WHERE id = ?", [id])).toBe("ไฟฟ้า (EV)");
+  });
 });

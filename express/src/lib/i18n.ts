@@ -159,6 +159,8 @@ const eamTh = {
     mileage_order: "เลขไมล์สิ้นสุดต้องไม่น้อยกว่าเลขไมล์เริ่มต้น",
     mileage_no_vehicle: "การจองนี้ยังไม่มีรถ หรือถูกยกเลิกแล้ว — บันทึกเลขไมล์ไม่ได้",
     overlap: "รถ :vehicle ถูกจองช่วง :period แล้ว (โดย :name)",
+    transfer_same: "รถคันนี้อยู่สาขานี้อยู่แล้ว",
+    branch_locked: "เปลี่ยนสาขาของรถที่หน้าแก้ไขไม่ได้ — ใช้ปุ่ม \"ย้ายสาขา\" (เก็บประวัติการย้าย)",
   },
   two_factor: {
     invalid: "รหัสยืนยันไม่ถูกต้อง หรือถูกใช้ไปแล้ว",
@@ -182,6 +184,9 @@ const eamTh = {
     overlap: "ห้องนี้มีการจองช่วง :start–:end แล้ว (\":title\" โดย :name)",
     not_editable: "การจองนี้ยกเลิกแล้วหรือเลยเวลาแล้ว — แก้ไข/ยกเลิกไม่ได้",
     not_deletable: "การจองที่ใช้ไปแล้วเก็บเป็นประวัติ — ลบไม่ได้",
+    branch_scope: "เลือกได้เฉพาะสาขาของคุณ (ขอบเขตของกลุ่มสิทธิ์: เฉพาะสาขาตัวเอง)",
+    no_branch: "บัญชีของคุณยังไม่ได้ระบุสาขา — ติดต่อผู้ดูแลระบบ",
+    scope_invalid: "ขอบเขตตามสาขาไม่ถูกต้อง",
   },
   leave: {
     types: { sick: "ลาป่วย", personal: "ลากิจ", vacation: "ลาพักร้อน", other: "ลาอื่นๆ" },
@@ -438,6 +443,8 @@ const eamEn: Eam = {
     mileage_order: "The end mileage cannot be lower than the start mileage.",
     mileage_no_vehicle: "This booking has no vehicle yet or is cancelled — mileage cannot be recorded.",
     overlap: "Vehicle :vehicle is already booked :period (by :name).",
+    transfer_same: "This vehicle is already at that branch.",
+    branch_locked: "The branch cannot be changed on the edit form — use \"Move to branch\" (keeps the move history).",
   },
   two_factor: {
     invalid: "The verification code is wrong or has already been used.",
@@ -461,6 +468,9 @@ const eamEn: Eam = {
     overlap: "This room is already booked :start–:end (\":title\" by :name).",
     not_editable: "This booking is cancelled or already over — it cannot be edited or cancelled.",
     not_deletable: "Bookings that have taken place are kept as history and cannot be deleted.",
+    branch_scope: "You can only choose your own branch (your permission group's scope: own branch only).",
+    no_branch: "Your account has no branch yet — please contact an administrator.",
+    scope_invalid: "Invalid branch scope.",
   },
   leave: {
     types: { sick: "Sick leave", personal: "Personal leave", vacation: "Vacation", other: "Other leave" },

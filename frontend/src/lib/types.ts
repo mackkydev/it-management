@@ -1048,6 +1048,8 @@ export interface MeetingRoom {
   sort_order: number;
   images: { id: number; is_primary: boolean }[];
   bookings_count?: number;
+  /** จัดการห้องนี้ได้ (meeting.rooms + สาขาในขอบเขต) */
+  can_manage?: boolean;
 }
 
 /** GET /meeting-bookings — วันเดียว + ช่วงเวลา "HH:MM" */
@@ -1090,12 +1092,21 @@ export interface Vehicle {
   sort_order: number;
   images: { id: number; is_primary: boolean }[];
   bookings_count?: number;
+  /** ประเภทรถ / เชื้อเพลิง (ข้อมูล Drop Down vehicle_type / vehicle_fuel) */
+  vehicle_type: string | null;
+  fuel_type: string | null;
+  /** จัดการรถคันนี้ได้ (vehicle.manage + สาขาในขอบเขต) */
+  can_manage?: boolean;
+  /** การจองที่ยังไม่จบ (GET /vehicles/:id ของผู้จัดการ — เตือนก่อนย้ายสาขา) */
+  upcoming_bookings?: number;
 }
 
 /** GET /vehicle-bookings — หลายวันได้ (start_on + start_time ถึง end_on + end_time), vehicle = null คือรอผู้จัดคิวรถเลือกรถ */
 export interface VehicleBooking {
   id: string;
   vehicle: { id: number; name: string; plate_no: string | null } | null;
+  /** สาขาที่ขอใช้รถ (ยังไม่ระบุรถ = ผู้จัดคิวของสาขานี้เลือกรถ) */
+  branch: { id: number; name: string } | null;
   user: { id: number; name: string };
   department: string | null;
   details: string;
@@ -1135,4 +1146,34 @@ export interface VehicleMileageEntry {
   distance: number | null;
   user_name: string;
   details: string;
+}
+
+/** ขอบเขตห้องประชุม / รถ ตามสาขา (GET /booking-scope/me) — branch = เฉพาะสาขาตัวเอง + ของที่ใช้ร่วมกัน */
+export type BookingScope = "branch" | "all";
+export type BookingKind = "meeting" | "vehicle";
+export interface BookingScopeMeta {
+  scope: BookingScope;
+  /** สาขาของผู้ใช้ */
+  branch_id: number | null;
+  /** สาขาที่เลือกดูได้ (ขอบเขต all) */
+  branches: { id: number; name: string }[];
+}
+
+/** GET /vehicles/:id/transfers — ประวัติการย้ายสาขา (null = ใช้ร่วมกันทุกสาขา) */
+export interface VehicleTransfer {
+  id: number;
+  from: { id: number; name: string } | null;
+  to: { id: number; name: string } | null;
+  note: string | null;
+  user_name: string;
+  created_at: string | null;
+}
+
+/** ตัวเลือกสาขาในฟอร์มเพิ่มห้อง / รถ */
+export interface BranchChoices {
+  branches: { id: number; name: string }[];
+  /** เลือก "ใช้ร่วมกันทุกสาขา" ได้ (ขอบเขต all) */
+  allowShared: boolean;
+  /** ค่าตั้งต้นตอนเพิ่ม = สาขาของผู้เพิ่ม */
+  defaultId: number | null;
 }
