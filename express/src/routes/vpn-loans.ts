@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Router, type Request } from "express";
 import { first, insert, isUuid, lockNamed, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
@@ -12,13 +11,14 @@ import { markNoticesRead, notifyUsers } from "../services/notifications.js";
 import { assertCanReveal, notifyReveal } from "../services/secret-guard.js";
 import { decryptVaultNullable } from "../services/vault-crypto.js";
 import {
-  daysLeft, displayDate, HOLDING, loadVpnLoan, managesVpn, VPN_CATEGORY, VPN_SELECT, vpnJson, vpnManagerIds, vpnNotice, vpnTicketSubject, type VpnLoanRow,
+  daysLeft, displayDate, HOLDING, loadVpnLoan, managesVpn, REQUEST_VISIBLE, VPN_CATEGORY, VPN_SELECT, vpnJson, vpnNotice, vpnTicketSubject, type VpnLoanRow,
 } from "../services/vpn-loans.js";
 import { createSystemTicket } from "./tickets.js";
 
 /**
  * ยืม VPN — บัญชีจากคลังบัญชี/รหัสผ่าน หมวด VPN (services/vpn-loans.ts)
- *   ทุกคน: POST /vpn-loans (ขอใช้), GET /vpn-loans/mine, GET /vpn-loans/:uuid (ของตัวเอง), POST /vpn-loans/:uuid/cancel (ยกเลิกคำขอ),
+ *   ขอใช้ = ใบแจ้งงานเรื่อง "อื่นๆ → ขอใช้งาน VPN" + ช่วงวันที่ (routes/tickets.ts → syncVpnRequest) — ผู้ดูแลเห็นหลังหัวหน้าอนุมัติใบงาน
+ *   ทุกคน: GET /vpn-loans/mine, GET /vpn-loans/:uuid (ของตัวเอง), POST /vpn-loans/:uuid/cancel (ยกเลิกคำขอที่ไม่มีใบงาน),
  *          POST /vpn-loans/:uuid/reveal (เปิดดูรหัส — ระหว่างยังใช้ได้), POST /vpn-loans/:uuid/choice { choice: renew|cancel } → ใบแจ้งงานเข้าคิว IT
  *   loans.manage: GET /vpn-accounts (บัญชี VPN + ผู้ถือ), GET /vpn-loans/manage?status=, POST /vpn-loans/:uuid/assign, PUT /vpn-loans/:uuid,
  *          POST /vpn-loans/:uuid/reject, POST /vpn-loans/:uuid/end
@@ -36,6 +36,8 @@ async function findVpn(req: Request): Promise<VpnLoanRow> {
   if (!row) throw notFound();
   return row;
 }
+/** ขอผ่านใบแจ้งงานที่หัวหน้ายังไม่อนุมัติ — ยังมอบ/ไม่อนุมัติไม่ได้ */
+const awaitingApproval = (r: VpnLoanRow) => Boolean(r.ticket_id) && r.ticket_status === "pending_supervisor";
 const reload = async (id: number) => (await loadVpnLoan("v.id = ?", [id]))!;
 const lockKey = (credentialId: number) => `vpn_loan:${credentialId}`;
 const plusDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
@@ -87,7 +89,7 @@ vpnLoanRoutes.get("/vpn-loans/manage", async (req, res) => {
   const status = (f.status as string) ?? "requested";
   const today = localToday();
   const where = {
-    requested: ["v.status = 'requested'", []],
+    requested: [`v.status = 'requested' AND ${REQUEST_VISIBLE}`, []],
     active: ["v.status IN (?)", [HOLDING]],
     expiring: ["v.status IN (?) AND DATE_SUB(v.expires_on, INTERVAL v.notify_days_before DAY) <= ?", [HOLDING, today]],
     ended: ["v.status IN ('ended', 'rejected', 'cancelled')", []],
@@ -106,36 +108,11 @@ vpnLoanRoutes.get("/vpn-loans/:uuid", async (req, res) => {
 
 /* ---------------------------------------------------------------- ผู้ใช้ */
 
-/** ขอใช้ VPN { purpose, requested_until } — แจ้งผู้ดูแล */
-vpnLoanRoutes.post("/vpn-loans", async (req, res) => {
-  const u = me(req);
-  const today = localToday();
-  const data = await validate(
-    req.input,
-    { purpose: ["required", "string", "max:2000", regex(/\S/)], requested_until: ["nullable", regex(DATE)] },
-    { locale: req.locale },
-  );
-  const until = typeof data.requested_until === "string" && data.requested_until ? data.requested_until : null;
-  if (until && (until < today || until > plusDays(today, MAX_DAYS))) throw ValidationError.withMessages({ requested_until: t(req, "until_range", { days: MAX_DAYS }) });
-  if (await first("SELECT 1 AS x FROM vpn_loans WHERE user_id = ? AND status = 'requested'", [u.id])) {
-    throw ValidationError.withMessages({ purpose: t(req, "already_requested") });
-  }
-  const now = nowDb();
-  const id = await insert("vpn_loans", {
-    uuid: randomUUID(), user_id: u.id, department: u.department, purpose: String(data.purpose).trim(), requested_until: until, status: "requested", created_at: now, updated_at: now,
-  });
-  const r = await reload(id);
-  await audit(req, { action: "vpn_loan.requested", subjectType: "vpn_loan", subjectId: id, after: { purpose: r.purpose, requested_until: until } });
-  const ids = (await vpnManagerIds()).filter((x) => x !== u.id);
-  if (ids.length) await notifyUsers(ids, "vpn.requested", vpnNotice(r, "requested", u.name, { requested_until: until }));
-  res.status(201).json({ data: vpnJson(r, u) });
-});
-
 vpnLoanRoutes.post("/vpn-loans/:uuid/cancel", async (req, res) => {
   const u = me(req);
   const r = await findVpn(req);
   authorize(Number(r.user_id) === u.id);
-  if (r.status !== "requested") throw ValidationError.withMessages({ status: t(req, "not_requested") });
+  if (r.status !== "requested" || r.ticket_id) throw ValidationError.withMessages({ status: t(req, "not_requested") });
   const now = nowDb();
   await update("vpn_loans", { status: "cancelled", ended_at: now, ended_by: u.id, updated_at: now }, "id = ?", [r.id]);
   await audit(req, { action: "vpn_loan.cancelled", subjectType: "vpn_loan", subjectId: r.id, before: { status: r.status } });
@@ -236,7 +213,7 @@ vpnLoanRoutes.post("/vpn-loans/:uuid/assign", async (req, res) => {
   const u = me(req);
   authorize(managesVpn(u));
   const r = await findVpn(req);
-  if (r.status !== "requested") throw ValidationError.withMessages({ status: t(req, "not_requested") });
+  if (r.status !== "requested" || awaitingApproval(r)) throw ValidationError.withMessages({ status: t(req, "not_requested") });
   const data = await periodInput(req, { requireCredential: true });
   const start = String(data.start_on);
   const expires = String(data.expires_on);
@@ -302,7 +279,7 @@ vpnLoanRoutes.post("/vpn-loans/:uuid/reject", async (req, res) => {
   const u = me(req);
   authorize(managesVpn(u));
   const r = await findVpn(req);
-  if (r.status !== "requested") throw ValidationError.withMessages({ status: t(req, "not_requested") });
+  if (r.status !== "requested" || r.ticket_id) throw ValidationError.withMessages({ status: t(req, "not_requested") });
   const data = await validate(req.input, { note: ["required", "string", "max:2000", regex(/\S/)] }, { locale: req.locale });
   const now = nowDb();
   await update("vpn_loans", { status: "rejected", ended_at: now, ended_by: u.id, end_note: String(data.note).trim(), updated_at: now }, "id = ?", [r.id]);

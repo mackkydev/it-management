@@ -22,6 +22,8 @@ type Tone = keyof typeof tone;
 function stateOf(l: VpnLoan): { key: string; tone: Tone } {
   if (l.is_expired) return { key: "expired", tone: "danger" };
   if (l.is_expiring) return { key: "expiring", tone: "warning" };
+  // ขอผ่านใบแจ้งงานที่หัวหน้ายังไม่อนุมัติ
+  if (l.status === "requested" && l.ticket?.status === "pending_supervisor") return { key: "awaiting", tone: "idle" };
   const map: Record<VpnLoan["status"], Tone> = {
     requested: "info",
     active: "success",
@@ -141,7 +143,7 @@ export function VpnCard({ loan: initial, accounts, showUser = false }: { loan: V
           <VpnStatusBadge loan={l} />
           <h3 className="flex items-center gap-1.5 break-words font-semibold">
             <KeyIcon width={16} height={16} className="shrink-0 text-accent-500" />
-            {l.account ? l.account.title : showUser ? l.user.name : t("vpn.states.requested")}
+            {l.account ? l.account.title : showUser ? l.user.name : t("tickets.vpn.detail")}
           </h3>
           {showUser && l.account && <p className="text-sm text-muted">{l.user.name}{l.department ? ` · ${l.department}` : ""}</p>}
         </div>
@@ -160,7 +162,9 @@ export function VpnCard({ loan: initial, accounts, showUser = false }: { loan: V
       <dl className="divide-y divide-line">
         {showUser && !l.account && row(t("vpn.field.user"), `${l.user.name}${l.department ? ` · ${l.department}` : ""}`)}
         {row(t("vpn.field.purpose"), <span className="whitespace-pre-line">{l.purpose}</span>)}
-        {l.status === "requested" && l.requested_until && row(t("vpn.field.requestedUntil"), fmt.date(l.requested_until))}
+        {l.status === "requested" &&
+          l.requested_until &&
+          row(t("vpn.field.requestedUntil"), `${l.requested_from ? `${fmt.date(l.requested_from)} – ` : ""}${fmt.date(l.requested_until)}`)}
         {l.status === "requested" && l.created_at && row(t("vpn.field.requestedAt"), fmt.dateTime(l.created_at))}
         {l.account?.username && row(t("vpn.field.username"), <code className="font-mono text-xs">{l.account.username}</code>)}
         {l.can_reveal && row(t("vpn.field.password"), <RevealVpn id={l.id} />)}
@@ -356,7 +360,7 @@ function AssignDialog({ loan, mode, accounts, onClose, onDone }: { loan: VpnLoan
   const today = localToday();
   const [v, setV] = useState<VpnAssignValues>({
     credential_id: loan.account ? String(loan.account.id) : "",
-    start_on: loan.start_on ?? today,
+    start_on: loan.start_on ?? (loan.requested_from && loan.requested_from >= today ? loan.requested_from : today),
     expires_on: loan.expires_on ?? (loan.requested_until && loan.requested_until >= today ? loan.requested_until : addDays(today, 90)),
     notify_days_before: String(loan.notify_days_before ?? 7),
   });

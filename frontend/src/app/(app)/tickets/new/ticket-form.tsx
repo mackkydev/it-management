@@ -24,13 +24,16 @@ export interface TicketFormOptions {
   approvers: { id: number; name: string; branch_id: number; role: string }[];
   it_staff: { id: number; name: string; busy?: "leave" | "onsite" | null }[];
   other_types: string[];
+  /** หัวข้อ "อื่นๆ" ที่เป็นการขอใช้ VPN (เลือกแล้วถามช่วงวันที่) */
+  vpn_type?: string;
   /** สินทรัพย์ของผู้แจ้ง (ผู้ถือครอง / ชื่อผู้ใช้งานในทะเบียนคอมพิวเตอร์) — เลือกเครื่องที่ส่งซ่อม / ติดตั้ง */
   my_assets: { id: string; asset_tag: string; name: string; brand: string | null; model: string | null; category: string }[];
 }
 
 type Field =
   | "type" | "type_other" | "branch_id" | "department" | "division" | "approver_id" | "details" | "due_date" | "assignee_id"
-  | "person_name_th" | "person_name_en" | "device_name" | "asset_tag" | "symptom" | "photos" | "documents";
+  | "person_name_th" | "person_name_en" | "device_name" | "asset_tag" | "symptom" | "photos" | "documents"
+  | "vpn_start_on" | "vpn_end_on";
 type Errors = Partial<Record<Field, string>>;
 
 type Person = { id: number; name: string };
@@ -56,20 +59,29 @@ const withCurrent = (names: string[], current: string) => (current && !names.inc
  * ผู้อนุมัติ: เฉพาะคนในสาขาที่เลือกและตำแหน่งสูงกว่า — แทนขั้นแรกของสายอนุมัติ (ว่าง = ตามสาย)
  * ลายเซ็นผู้แจ้งไม่ต้องวาด — API ใช้ลายเซ็นที่อัปโหลดในข้อมูลส่วนตัว แล้วแสตมป์ลงเอกสารตอนดู/พิมพ์
  * editing = แก้ไขใบเดิม (ผู้แจ้ง ก่อนอนุมัติ) — ไม่มีส่วนไฟล์แนบ/ลายเซ็น/สายอนุมัติ
+ * อื่นๆ → ขอใช้งาน VPN (vpn = เปิดจากเมนู ขอใช้ VPN): ถามวันเริ่ม/สิ้นสุด + ข้อความตั้งต้นในวัตถุประสงค์ที่เปลี่ยนวันตามที่เลือก
  */
 export function TicketForm({
   user,
   options,
   plan,
   editing,
+  vpn = false,
 }: {
   user: User;
   options: TicketFormOptions;
   plan: ApprovalPlan | null;
   editing?: TicketDetail;
+  vpn?: boolean;
 }) {
   const { t, fmt } = useI18n();
-  const [type, setType] = useState<TicketType>(editing?.type ?? "repair");
+  const vpnType = options.vpn_type ?? "";
+  const presetVpn = vpn && !editing && Boolean(vpnType);
+  const [type, setType] = useState<TicketType>(editing?.type ?? (presetVpn ? "other" : "repair"));
+  // ข้อความตั้งต้นของคำขอ VPN: บรรทัดแรกมีวันที่ (เปลี่ยนตามวันที่เลือกถ้าผู้ใช้ยังไม่แก้บรรทัดนั้น) + "เนื่องจาก :"
+  const vpnLine = (from: string, to: string) =>
+    t("tickets.vpn.mockLine", { start: from ? fmt.date(from) : t("tickets.vpn.blank"), end: to ? fmt.date(to) : t("tickets.vpn.blank") });
+  const vpnMock = (from: string, to: string) => `${vpnLine(from, to)}\n${t("tickets.vpn.mockReason")}`;
 
   // ผู้อนุมัติ: เลือกให้ตามสาย (ใบใหม่) / ผู้อนุมัติเดิมของขั้นปัจจุบัน (แก้ไข) ถ้าอยู่ในรายชื่อของสาขาที่เลือก
   const preferredApprovers: Person[] = editing
@@ -99,14 +111,16 @@ export function TicketForm({
           device_name: editing.device_name ?? "",
           asset_tag: editing.asset_tag ?? "",
           symptom: editing.symptom ?? "",
+          vpn_start_on: editing.vpn_request?.requested_from ?? "",
+          vpn_end_on: editing.vpn_request?.requested_until ?? "",
         }
       : {
-          type_other: "",
+          type_other: presetVpn ? vpnType : "",
           branch_id: userBranch,
           department: user.department ?? "",
           division: user.division ?? "",
           approver_id: userBranch ? pickApprover(userBranch) : "",
-          details: "",
+          details: presetVpn ? vpnMock(localToday(), "") : "",
           due_date: "",
           assignee_id: "",
           person_name_th: "",
@@ -114,6 +128,8 @@ export function TicketForm({
           device_name: "",
           asset_tag: "",
           symptom: "",
+          vpn_start_on: presetVpn ? localToday() : "",
+          vpn_end_on: "",
         },
   );
   const [photos, setPhotos] = useState<File[]>([]);
@@ -123,6 +139,8 @@ export function TicketForm({
   const [pending, startTransition] = useTransition();
 
   const needsPerson = type === "grant_access" || type === "revoke_access";
+  const isVpnType = (value: string) => Boolean(vpnType) && value.trim().toLowerCase() === vpnType.toLowerCase();
+  const isVpn = type === "other" && isVpnType(v.type_other);
   const isRepair = type === "repair";
   // 1.2 ข้อมูลเครื่อง: งานซ่อม (เครื่องที่ส่งซ่อม + อาการ) และงานติดตั้ง (เครื่องที่ติดตั้ง)
   const isInstall = type === "install";
@@ -140,6 +158,23 @@ export function TicketForm({
   const set = (name: keyof typeof v, value: string) => {
     setV((s) => ({ ...s, [name]: value }));
     setErrors((e) => ({ ...e, [name]: "" }));
+  };
+
+  // เลือกหัวข้อ "ขอใช้งาน VPN" → ใส่ข้อความตั้งต้นในวัตถุประสงค์ (เฉพาะตอนยังว่าง)
+  const setTypeOther = (value: string) => {
+    setV((s) => ({ ...s, type_other: value, details: isVpnType(value) && !s.details.trim() ? vpnMock(s.vpn_start_on, s.vpn_end_on) : s.details }));
+    setErrors((e) => ({ ...e, type_other: "" }));
+  };
+  // เปลี่ยนวันที่ → บรรทัดแรกของข้อความตั้งต้นเปลี่ยนตาม (ถ้าผู้ใช้ยังไม่แก้บรรทัดนั้น)
+  const setVpnDate = (name: "vpn_start_on" | "vpn_end_on", value: string) => {
+    setV((s) => {
+      const next = { ...s, [name]: value };
+      if (name === "vpn_start_on" && value && next.vpn_end_on && next.vpn_end_on < value) next.vpn_end_on = value;
+      const [first, ...rest] = s.details.split("\n");
+      if (first === vpnLine(s.vpn_start_on, s.vpn_end_on)) next.details = [vpnLine(next.vpn_start_on, next.vpn_end_on), ...rest].join("\n");
+      return next;
+    });
+    setErrors((e) => ({ ...e, vpn_start_on: "", vpn_end_on: "", details: "" }));
   };
 
   // สาขา → แผนก → ฝ่าย: เปลี่ยนสาขาแล้วผู้อนุมัติที่ไม่อยู่สาขาใหม่ถูกเลือกใหม่ตามสาย / ล้างแผนกแล้วล้างฝ่าย
@@ -167,6 +202,9 @@ export function TicketForm({
     if (needsPerson && !v.person_name_en.trim()) e.person_name_en = t("tickets.validate.nameEn");
     if (isRepair && !v.device_name.trim()) e.device_name = t("tickets.validate.device");
     if (isRepair && !v.symptom.trim()) e.symptom = t("tickets.validate.symptom");
+    if (isVpn && !v.vpn_start_on) e.vpn_start_on = t("tickets.vpn.validate.dates");
+    if (isVpn && !v.vpn_end_on) e.vpn_end_on = t("tickets.vpn.validate.dates");
+    else if (isVpn && v.vpn_start_on && v.vpn_end_on < v.vpn_start_on) e.vpn_end_on = t("tickets.vpn.validate.order");
     return e;
   };
 
@@ -195,6 +233,10 @@ export function TicketForm({
       if (v.asset_tag.trim()) fd.set("asset_tag", v.asset_tag.trim());
     }
     if (isRepair) fd.set("symptom", v.symptom.trim());
+    if (isVpn) {
+      fd.set("vpn_start_on", v.vpn_start_on);
+      fd.set("vpn_end_on", v.vpn_end_on);
+    }
     photos.forEach((f) => fd.append("photos[]", f));
     docs.forEach((f) => fd.append("documents[]", f));
 
@@ -290,7 +332,7 @@ export function TicketForm({
                     id="type_other"
                     list="ticket-other-types"
                     value={v.type_other}
-                    onChange={(e) => set("type_other", e.target.value)}
+                    onChange={(e) => setTypeOther(e.target.value)}
                     maxLength={255}
                     placeholder={t("tickets.form.otherTypePlaceholder")}
                     className={cls("type_other")}
@@ -306,7 +348,7 @@ export function TicketForm({
                         <button
                           key={o}
                           type="button"
-                          onClick={() => set("type_other", o)}
+                          onClick={() => setTypeOther(o)}
                           className={`cursor-pointer rounded-full px-3 py-1 text-xs ring-1 transition-colors ${
                             v.type_other === o ? "bg-accent-200 text-accent-900 ring-accent-300 dark:bg-accent-400/25 dark:text-accent-100" : "ring-line hover:bg-subtle"
                           }`}
@@ -319,6 +361,24 @@ export function TicketForm({
                 </>,
                 true,
               )}
+            </div>
+          )}
+          {/* ขอใช้งาน VPN: ช่วงวันที่ใช้ */}
+          {isVpn && (
+            <div className="mt-4 grid max-w-md grid-cols-2 gap-3">
+              {field(
+                "vpn_start_on",
+                t("tickets.vpn.start"),
+                <DateInput id="vpn_start_on" value={v.vpn_start_on} min={editing ? undefined : localToday()} onChange={(d) => setVpnDate("vpn_start_on", d)} className={cls("vpn_start_on")} />,
+                true,
+              )}
+              {field(
+                "vpn_end_on",
+                t("tickets.vpn.end"),
+                <DateInput id="vpn_end_on" value={v.vpn_end_on} min={v.vpn_start_on || localToday()} onChange={(d) => setVpnDate("vpn_end_on", d)} className={cls("vpn_end_on")} />,
+                true,
+              )}
+              <p className="col-span-2 -mt-1 text-xs text-muted">{t("tickets.vpn.hint")}</p>
             </div>
           )}
         </section>

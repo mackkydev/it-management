@@ -22,7 +22,10 @@ import { OWN_SQL } from "./assets.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
 import { unassignedVehicleBookings } from "./vehicles.js";
 import { loanBadges } from "./loans.js";
-import { applyVpnTicketOutcome, vpnBadges } from "../services/vpn-loans.js";
+import {
+  announceVpnRequest, applyVpnTicketOutcome, closeVpnRequest, isVpnRequestType, pendingVpnRequest, syncVpnRequest, vpnBadges, vpnOfTicket, VPN_REQUEST_TYPE,
+  type VpnRequestInput,
+} from "../services/vpn-loans.js";
 import { trans } from "../lib/i18n.js";
 
 /**
@@ -170,6 +173,8 @@ async function detail(t: TicketRow, viewer: UserRow) {
     events: events.map((e) => ({ id: e.id, action: e.action, comment: e.comment, user: person(e.u_id, e.u_name), created_at: iso(e.created_at) })),
     // ช่วงวันไปทำงานหน้างาน (ปฏิทิน) — ผู้รับงานเพิ่ม/แก้ได้
     calendar_event: await onsiteOf(t.id),
+    // ขอใช้งาน VPN: ช่วงวันที่ที่ขอ + สถานะการมอบบัญชี (ผู้ดูแลมอบที่หน้า จัดการ VPN)
+    vpn_request: await vpnOfTicket(t.id),
     can_edit_calendar: canEditOnsite(viewer, t),
     // ผู้ร่วมดำเนินการ — ผู้รับงานเลือกเพิ่มตอนรับงาน / แก้ภายหลัง (ตัวเลือก = เจ้าหน้าที่ IT)
     helpers: await helpersOf(t.id),
@@ -527,11 +532,49 @@ ticketRoutes.get("/tickets/form-options", async (req, res) => {
       approvers: approvers.map((a) => ({ id: a.id, name: a.name, branch_id: Number(a.branch_id), role: a.role })),
       // วันนี้ลา / ออกหน้างาน — เตือนตอนผู้แจ้งเลือกเจ้าหน้าที่
       it_staff: staff.map((s) => ({ id: s.id, name: s.name, busy: busyToday.get(Number(s.id))?.[0]?.kind ?? null })),
-      other_types: Array.isArray(otherTypes) ? otherTypes : Object.values(otherTypes ?? {}),
+      // "ขอใช้งาน VPN" อยู่ในรายการเสมอ (เลือกแล้วฟอร์มถามช่วงวันที่ใช้) — ผู้ดูแลไม่ต้องเพิ่มเอง
+      other_types: withVpnType(Array.isArray(otherTypes) ? otherTypes : Object.values(otherTypes ?? {})),
+      vpn_type: VPN_REQUEST_TYPE,
       my_assets: assets.map((a) => ({ id: a.uuid, asset_tag: a.asset_tag, name: a.name, brand: a.brand, model: a.model, category: a.category })),
     },
   });
 });
+
+const withVpnType = (types: unknown[]) => [
+  VPN_REQUEST_TYPE,
+  ...types.map(String).filter((x) => x.trim().toLowerCase() !== VPN_REQUEST_TYPE.toLowerCase()),
+];
+
+const VPN_MAX_DAYS = 366;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * ใบแจ้งงาน "อื่นๆ → ขอใช้งาน VPN": ต้องมีวันเริ่มต้น / สิ้นสุด (vpn_start_on, vpn_end_on)
+ * วันสิ้นสุดไม่ก่อนวันเริ่ม / วันนี้ และไม่เกิน 366 วันนับจากวันเริ่ม — เรื่องอื่น = ไม่ใช่คำขอ VPN
+ */
+function vpnRequestInput(req: Request, data: Record<string, unknown>): VpnRequestInput {
+  const purpose = String(data.details ?? "").trim();
+  if (!isVpnRequestType(data.type, data.type_other)) return { vpn: false, from: null, until: null, purpose };
+  const date = (k: string) => (typeof data[k] === "string" && DATE_RE.test(String(data[k]).slice(0, 10)) ? String(data[k]).slice(0, 10) : null);
+  const from = date("vpn_start_on");
+  const until = date("vpn_end_on");
+  const missing: Record<string, string> = {};
+  if (!from) missing.vpn_start_on = trans(req.locale, "eam.vpn.request_dates");
+  if (!until) missing.vpn_end_on = trans(req.locale, "eam.vpn.request_dates");
+  if (Object.keys(missing).length) throw ValidationError.withMessages(missing);
+  const limit = new Date(Date.parse(`${from}T00:00:00Z`) + VPN_MAX_DAYS * 86_400_000).toISOString().slice(0, 10);
+  if (until! < from! || until! < localToday() || until! > limit) {
+    throw ValidationError.withMessages({ vpn_end_on: trans(req.locale, "eam.vpn.request_range", { days: VPN_MAX_DAYS }) });
+  }
+  return { vpn: true, from, until, purpose };
+}
+
+/** บันทึกคำขอ VPN ของใบงาน (ใน transaction) — มีคำขอที่รออยู่แล้ว = 422 */
+async function saveVpnRequest(req: Request, ticketId: number, requester: UserRow, input: VpnRequestInput) {
+  if (!(await syncVpnRequest(ticketId, requester, input))) {
+    throw ValidationError.withMessages({ type_other: trans(req.locale, "eam.vpn.already_requested") });
+  }
+}
 
 /** ผู้อนุมัติที่ผู้แจ้งเลือก — ต้องอยู่สาขาที่เลือกและตำแหน่งสูงกว่า (คืน null = ไม่ได้เลือก) */
 async function chosenApprover(req: Request, data: Record<string, unknown>) {
@@ -570,6 +613,9 @@ ticketRoutes.post("/tickets", async (req, res) => {
       device_name: ["required_if:type,repair", "nullable", "string", "max:255"],
       asset_tag: ["nullable", "string", "max:50"],
       symptom: ["required_if:type,repair", "nullable", "string", "max:5000"],
+      // อื่นๆ → ขอใช้งาน VPN: ช่วงวันที่ใช้ (ตรวจใน vpnRequestInput)
+      vpn_start_on: ["nullable", "string", "max:10"],
+      vpn_end_on: ["nullable", "string", "max:10"],
       photos: ["nullable", "array", "max:4"],
       "photos.*": PHOTO_RULE,
       documents: ["nullable", "array", "max:5"],
@@ -581,6 +627,7 @@ ticketRoutes.post("/tickets", async (req, res) => {
   );
 
   const chosen = await chosenApprover(req, data);
+  const vpnInput = vpnRequestInput(req, data);
   const routePlan = await planFor(u);
   const plan = chosen ? withChosenApprover(routePlan, chosen) : routePlan;
   const ticketId = await transaction(async () => {
@@ -615,6 +662,7 @@ ticketRoutes.post("/tickets", async (req, res) => {
     });
     const firstStep = await snapshotPlan(id, plan);
     if (firstStep !== null) await update("it_tickets", { current_step: firstStep }, "id = ?", [id]);
+    if (vpnInput.vpn) await saveVpnRequest(req, id, u, vpnInput);
 
     // ลายเซ็นผู้แจ้ง: ส่งมาเป็นรูปวาด (แอป/ระบบเดิม) หรือคัดลอกลายเซ็นในโปรไฟล์ ณ ตอนแจ้ง
     const signature = data.signature
@@ -713,7 +761,10 @@ ticketRoutes.post("/tickets/:uuid/approve", async (req, res) => {
     }
   });
   if (next) await notify((await loadTicket("t.id = ?", t.id))!, "step_approved", u);
-  else await notify({ ...t, status: "approved", approver_id: u.id, current_step: null }, "approved", u);
+  else {
+    await notify({ ...t, status: "approved", approver_id: u.id, current_step: null }, "approved", u);
+    await announceVpnRequest(t.id, t.assignee_id);
+  }
   await respondDetail(req, res, t.id);
 });
 
@@ -730,6 +781,7 @@ ticketRoutes.post("/tickets/:uuid/reject", async (req, res) => {
     }
     await update("it_tickets", { status: "rejected", approver_id: u.id, approved_at: now, closed_at: now, current_step: null, updated_at: now }, "id = ?", [t.id]);
     await log(t.id, u.id, "rejected", String(data.comment));
+    await closeVpnRequest(t.id, "rejected", u, String(data.comment));
   });
   await notify({ ...t, status: "rejected", approver_id: u.id, current_step: null }, "rejected", u);
   await respondDetail(req, res, t.id);
@@ -813,6 +865,10 @@ ticketRoutes.post("/tickets/:uuid/result", async (req, res) => {
     { locale: req.locale },
   );
 
+  // ขอใช้งาน VPN: ต้องมอบบัญชีก่อนบันทึกผลสำเร็จ (หน้า จัดการ VPN)
+  if (data.result === "completed" && (await pendingVpnRequest(t.id))) {
+    throw ValidationError.withMessages({ result: trans(req.locale, "eam.vpn.assign_first") });
+  }
   await transaction(async () => {
     const now = nowDb();
     const completed = data.result === "completed";
@@ -854,6 +910,7 @@ ticketRoutes.post("/tickets/:uuid/result", async (req, res) => {
     await log(t.id, u.id, "resulted");
     // ใบงานจากคำขอ VPN: ทำสำเร็จ = ต่ออายุ / เลิกใช้ตามที่ผู้ใช้เลือก, ทำไม่ได้ = กลับเป็นใช้งานอยู่
     await applyVpnTicketOutcome(t.id, completed ? "completed" : "not_done", u);
+    if (!completed) await closeVpnRequest(t.id, "rejected", u, String(data.cannot_reason ?? "") || null);
   });
   await notify({ ...t, status: "pending_it_head" }, "resulted", u);
   await respondDetail(req, res, t.id);
@@ -959,10 +1016,14 @@ async function updateTicket(req: Request, res: Response) {
       device_name: ["required_if:type,repair", "nullable", "string", "max:255"],
       asset_tag: ["nullable", "string", "max:50"],
       symptom: ["required_if:type,repair", "nullable", "string", "max:5000"],
+      // อื่นๆ → ขอใช้งาน VPN: ช่วงวันที่ใช้ (ตรวจใน vpnRequestInput)
+      vpn_start_on: ["nullable", "string", "max:10"],
+      vpn_end_on: ["nullable", "string", "max:10"],
     },
     { locale: req.locale },
   );
   const chosen = await chosenApprover(req, data);
+  const vpnInput = vpnRequestInput(req, data);
   const type = String(data.type);
   const values: Record<string, unknown> = {};
   for (const key of FILLABLE) values[key] = key in data ? data[key] : null;
@@ -978,6 +1039,8 @@ async function updateTicket(req: Request, res: Response) {
   let approverChanged = false;
   await transaction(async () => {
     await update("it_tickets", { ...values, asset_id: assetId, updated_at: nowDb() }, "id = ?", [t.id]);
+    // เปลี่ยนเป็น/ออกจากเรื่องขอใช้งาน VPN หรือแก้ช่วงวันที่ → ปรับคำขอ VPN ของใบนี้
+    await saveVpnRequest(req, t.id, u, vpnInput);
     if (chosen) {
       if (t.current_step !== null) {
         const step = await first<{ id: number; approver_ids: unknown }>(
@@ -1009,6 +1072,7 @@ ticketRoutes.delete("/tickets/:uuid", async (req, res) => {
   await transaction(async () => {
     // แจ้งเตือนที่อ้างถึงใบนี้ (ลิงก์จะเสีย)
     await exec("DELETE FROM notifications WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.ticket_id')) = ?", [t.uuid]);
+    await closeVpnRequest(t.id, "cancelled", u, t.ticket_no);
     await exec("DELETE FROM it_tickets WHERE id = ?", [t.id]);
   });
   await deleteTicketFiles(t.uuid);
@@ -1045,6 +1109,7 @@ ticketRoutes.post("/tickets/:uuid/cancel/confirm", async (req, res) => {
     await update("it_tickets", { status: "cancelled", cancelled_at: nowDb(), cancelled_by: u.id, closed_at: nowDb(), updated_at: nowDb() }, "id = ?", [t.id]);
     await log(t.id, u.id, "cancelled", (data.comment as string) ?? null);
     await applyVpnTicketOutcome(t.id, "not_done", u);
+    await closeVpnRequest(t.id, "cancelled", u, (data.comment as string) ?? null);
   });
   await notify({ ...t, status: "cancelled" }, "cancelled", u);
   await respondDetail(req, res, t.id);

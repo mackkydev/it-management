@@ -3,16 +3,22 @@ import { exec, first, scalar } from "../src/db.js";
 import { localToday } from "../src/lib/time.js";
 import { notifyVpnExpiry } from "../src/services/vpn-loans.js";
 import { kpiMonthRows } from "../src/services/kpi.js";
-import { SIG, as, localDay, makeUser } from "./helpers.js";
+import type { UserRow } from "../src/models/user.js";
+import { SIG, as, localDay, makeBranch, makeUser } from "./helpers.js";
 
 /** ยืม VPN — บัญชีจากคลังบัญชี (หมวด VPN), แจ้งเตือนล่วงหน้า / หมดอายุ, ผู้ใช้เลือก ต่ออายุ / เลิกใช้ → ใบแจ้งงานเข้าคิว IT → KPI */
 
 const notices = (userId: number, type: string) =>
   scalar("SELECT COUNT(*) FROM notifications WHERE notifiable_id = ? AND type = ? AND read_at IS NULL", [userId, type]).then(Number);
 
+let branch = 0;
+let chief: UserRow;
+
 async function setup() {
+  branch = await makeBranch({ code: "VPN", name: "สาขา VPN" });
+  chief = await makeUser({ name: "หัวหน้า", branch_id: branch });
   const managerUser = await makeUser({ name: "เจ้าหน้าที่ IT", is_it_staff: true, is_it_head: true, role: "admin" });
-  const userRow = await makeUser({ name: "ผู้ใช้ VPN", department: "ขาย" });
+  const userRow = await makeUser({ name: "ผู้ใช้ VPN", department: "ขาย", supervisor_id: chief.id, branch_id: branch });
   const manager = await as(managerUser, "th");
   const user = await as(userRow, "th");
   await manager.put("/api/v1/settings").send({ secret_guard: { reauth: false } });
@@ -22,10 +28,29 @@ async function setup() {
   return { managerUser, userRow, manager, user, vpn1, vpn2, other };
 }
 
-async function assigned(s: Awaited<ReturnType<typeof setup>>, expiresIn = 30, notifyDays = 7) {
-  const req = await s.user.post("/api/v1/vpn-loans").send({ purpose: "ทำงานจากบ้าน", requested_until: localDay(60) });
-  expect(req.status).toBe(201);
-  const res = await s.manager.post(`/api/v1/vpn-loans/${req.body.data.id}/assign`).send({
+type Setup = Awaited<ReturnType<typeof setup>>;
+
+/** แจ้งงาน "อื่นๆ → ขอใช้งาน VPN" + ช่วงวันที่ → คืนเลขใบงาน (uuid) */
+async function vpnTicket(requester: UserRow, s: Setup, from = localToday(), until = localDay(60)) {
+  const res = await (await as(requester, "th")).post("/api/v1/tickets").send({
+    type: "other", type_other: "ขอใช้งาน VPN", branch_id: branch, details: "ขอรหัสใช้งานระบบ VPN\nเนื่องจาก : ทำงานจากบ้าน",
+    assignee_id: s.managerUser.id, vpn_start_on: from, vpn_end_on: until,
+  });
+  expect(res.status).toBe(201);
+  return res.body.data.id as string;
+}
+const approve = async (ticketId: string) => expect((await (await as(chief, "th")).post(`/api/v1/tickets/${ticketId}/approve`).send({})).status).toBe(200);
+const requestOf = async (requester: UserRow) => (await (await as(requester, "th")).get("/api/v1/vpn-loans/mine")).body.data[0] as { id: string; status: string };
+
+/** ขอผ่านใบแจ้งงาน → หัวหน้าอนุมัติ → คืนรหัสคำขอ VPN */
+async function requested(requester: UserRow, s: Setup) {
+  await approve(await vpnTicket(requester, s));
+  return (await requestOf(requester)).id;
+}
+
+async function assigned(s: Setup, expiresIn = 30, notifyDays = 7) {
+  const id = await requested(s.userRow, s);
+  const res = await s.manager.post(`/api/v1/vpn-loans/${id}/assign`).send({
     credential_id: s.vpn1.id, start_on: localToday(), expires_on: localDay(expiresIn), notify_days_before: notifyDays,
   });
   expect(res.status).toBe(200);
@@ -35,17 +60,14 @@ async function assigned(s: Awaited<ReturnType<typeof setup>>, expiresIn = 30, no
 describe("VPN loans", () => {
   it("request → IT assigns a VPN account from the vault (one holder per account) → the user can reveal the password", async () => {
     const s = await setup();
-    const created = await s.user.post("/api/v1/vpn-loans").send({ purpose: "ทำงานจากบ้าน" });
-    expect(created.status).toBe(201);
-    expect(created.body.data).toMatchObject({ status: "requested", department: "ขาย", account: null, can_cancel: true });
-    expect(await notices(s.managerUser.id, "vpn.requested")).toBe(1);
-    expect((await s.user.post("/api/v1/vpn-loans").send({ purpose: "อีกครั้ง" })).status).toBe(422); // รอคำขอเดิมอยู่
+    const id = await requested(s.userRow, s);
+    const created = (await s.user.get(`/api/v1/vpn-loans/${id}`)).body.data;
+    expect(created).toMatchObject({ status: "requested", department: "ขาย", account: null, can_cancel: false, requested_from: localToday(), requested_until: localDay(60) });
 
     // บัญชีที่ให้ได้ = หมวด VPN (ไม่สนตัวพิมพ์)
     const accounts = (await s.manager.get("/api/v1/vpn-accounts")).body.data.map((a: { title: string }) => a.title);
     expect(accounts).toEqual(["VPN-01", "VPN-02"]);
     expect((await s.user.get("/api/v1/vpn-accounts")).status).toBe(403);
-    const id = created.body.data.id;
     expect((await s.manager.post(`/api/v1/vpn-loans/${id}/assign`).send({ credential_id: s.other.id, start_on: localToday(), expires_on: localDay(30) })).status).toBe(422);
     const ok = await s.manager.post(`/api/v1/vpn-loans/${id}/assign`).send({ credential_id: s.vpn1.id, start_on: localToday(), expires_on: localDay(30), notify_days_before: 5 });
     expect(ok.status).toBe(200);
@@ -53,8 +75,9 @@ describe("VPN loans", () => {
     expect(await notices(s.userRow.id, "vpn.assigned")).toBe(1);
 
     // บัญชีเดียวกันให้คนที่สองไม่ได้
-    const second = await as(await makeUser(), "th");
-    const req2 = (await second.post("/api/v1/vpn-loans").send({ purpose: "ประชุม" })).body.data.id;
+    const secondRow = await makeUser({ supervisor_id: chief.id, branch_id: branch });
+    const second = await as(secondRow, "th");
+    const req2 = await requested(secondRow, s);
     const taken = await s.manager.post(`/api/v1/vpn-loans/${req2}/assign`).send({ credential_id: s.vpn1.id, start_on: localToday(), expires_on: localDay(30) });
     expect(taken.status).toBe(422);
     expect(taken.body.errors.credential_id[0]).toContain("ผู้ใช้ VPN");
@@ -105,7 +128,8 @@ describe("VPN loans", () => {
     expect(ticket).toMatchObject({ status: "approved", type: "other", type_other: "VPN: ขอต่ออายุ", assignee_id: s.managerUser.id, requester_id: s.userRow.id });
     expect(ticket!.details).toContain("VPN-01");
     expect(ticket!.details).not.toContain("Vpn-Pass-1");
-    expect(await notices(s.managerUser.id, "App\\Notifications\\TicketActivity")).toBe(1);
+    // ใบขอใช้ (ผ่านหัวหน้าแล้ว) + ใบขอต่ออายุ
+    expect(await notices(s.managerUser.id, "App\\Notifications\\TicketActivity")).toBe(2);
 
     // IT รับงาน → บันทึกผลสำเร็จ → ต่ออายุให้อัตโนมัติ
     expect((await s.manager.post(`/api/v1/tickets/${ticketId}/accept`)).status).toBe(200);
@@ -152,12 +176,83 @@ describe("VPN loans", () => {
     await s.manager.post(`/api/v1/tickets/${ticketId}/result`).send({ result: "cannot_complete", cannot_reason: "รออนุมัติงบ", signature: SIG });
     expect((await s.user.get(`/api/v1/vpn-loans/${loan.id}`)).body.data).toMatchObject({ status: "active", expires_on: localDay(30), can_choose: true });
 
-    const other = await as(await makeUser(), "th");
-    const a = (await other.post("/api/v1/vpn-loans").send({ purpose: "a" })).body.data.id;
-    expect((await s.manager.post(`/api/v1/vpn-loans/${a}/reject`).send({ note: "" })).status).toBe(422);
-    expect((await s.manager.post(`/api/v1/vpn-loans/${a}/reject`).send({ note: "ไม่มีบัญชีว่าง" })).body.data).toMatchObject({ status: "rejected", end_note: "ไม่มีบัญชีว่าง" });
-    const b = (await other.post("/api/v1/vpn-loans").send({ purpose: "b" })).body.data.id;
-    expect((await other.post(`/api/v1/vpn-loans/${b}/cancel`)).body.data.status).toBe("cancelled");
+    const otherRow = await makeUser({ supervisor_id: chief.id, branch_id: branch });
+    const other = await as(otherRow, "th");
+    // ขอผ่านใบแจ้งงาน: ปฏิเสธที่ใบงาน ไม่ใช่ที่ VPN (ใบงานกับคำขอต้องตรงกัน)
+    const a = await requested(otherRow, s);
+    expect((await s.manager.get(`/api/v1/vpn-loans/${a}`)).body.data.can_reject).toBe(false);
+    expect((await s.manager.post(`/api/v1/vpn-loans/${a}/reject`).send({ note: "ไม่มีบัญชีว่าง" })).status).toBe(422);
+    const ticketA = (await s.manager.get(`/api/v1/vpn-loans/${a}`)).body.data.ticket.id;
+    await s.manager.post(`/api/v1/tickets/${ticketA}/accept`);
+    await s.manager.post(`/api/v1/tickets/${ticketA}/result`).send({ result: "cannot_complete", cannot_reason: "ไม่มีบัญชีว่าง", signature: SIG });
+    expect((await s.manager.get(`/api/v1/vpn-loans/${a}`)).body.data).toMatchObject({ status: "rejected", end_note: "ไม่มีบัญชีว่าง" });
+    // ขอผ่านใบแจ้งงาน — ยกเลิกที่ใบงาน (ลบใบก่อนอนุมัติ) ไม่ใช่ที่ VPN
+    const ticketB = await vpnTicket(otherRow, s);
+    const b = await requestOf(otherRow);
+    expect((await other.post(`/api/v1/vpn-loans/${b.id}/cancel`)).status).toBe(422);
+    expect((await other.delete(`/api/v1/tickets/${ticketB}`)).status).toBe(204);
+    expect((await other.get(`/api/v1/vpn-loans/${b.id}`)).body.data.status).toBe("cancelled");
     expect((await s.manager.get("/api/v1/vpn-loans/manage?status=ended")).body.data).toHaveLength(2);
+  });
+
+  it("request through a ticket: dates required, visible to IT only after approval, result needs an account, reject / cannot-do closes it", async () => {
+    const s = await setup();
+    const api = s.user;
+    const base = { type: "other", type_other: "ขอใช้งาน VPN", branch_id: branch, details: "x", assignee_id: s.managerUser.id };
+
+    // ตัวเลือก "ขอใช้งาน VPN" อยู่ในฟอร์มเสมอ
+    const options = (await api.get("/api/v1/tickets/form-options")).body.data;
+    expect(options.other_types[0]).toBe("ขอใช้งาน VPN");
+    expect(options.vpn_type).toBe("ขอใช้งาน VPN");
+
+    // ต้องมีช่วงวันที่ที่ถูกต้อง
+    const missing = await api.post("/api/v1/tickets").send(base);
+    expect(missing.status).toBe(422);
+    expect(Object.keys(missing.body.errors)).toEqual(expect.arrayContaining(["vpn_start_on", "vpn_end_on"]));
+    expect((await api.post("/api/v1/tickets").send({ ...base, vpn_start_on: localDay(5), vpn_end_on: localDay(2) })).status).toBe(422);
+    expect((await api.post("/api/v1/tickets").send({ ...base, vpn_start_on: localToday(), vpn_end_on: localDay(400) })).status).toBe(422);
+    // เรื่องอื่น = ไม่ใช่คำขอ VPN
+    expect((await api.post("/api/v1/tickets").send({ ...base, type_other: "งานออกแบบ" })).status).toBe(201);
+    expect((await api.get("/api/v1/vpn-loans/mine")).body.data).toHaveLength(0);
+
+    // ก่อนหัวหน้าอนุมัติ: ผู้ดูแลยังไม่เห็น / มอบไม่ได้
+    const ticketId = await vpnTicket(s.userRow, s, localDay(1), localDay(30));
+    const loan = await requestOf(s.userRow);
+    expect(loan).toMatchObject({ status: "requested", requested_from: localDay(1), requested_until: localDay(30) });
+    expect((await s.manager.get("/api/v1/vpn-loans/manage?status=requested")).body.data).toHaveLength(0);
+    expect((await s.manager.get("/api/v1/menu-badges")).body.data["/loans/vpn"] ?? 0).toBe(0);
+    expect((await s.manager.post(`/api/v1/vpn-loans/${loan.id}/assign`).send({ credential_id: s.vpn1.id, start_on: localToday(), expires_on: localDay(30) })).status).toBe(422);
+    // มีคำขอรออยู่แล้ว = แจ้งใบใหม่ไม่ได้
+    expect((await api.post("/api/v1/tickets").send({ ...base, vpn_start_on: localToday(), vpn_end_on: localDay(10) })).status).toBe(422);
+
+    // ผู้แจ้งแก้ช่วงวันที่ก่อนอนุมัติ → คำขอปรับตาม
+    expect((await api.put(`/api/v1/tickets/${ticketId}`).send({ ...base, vpn_start_on: localDay(2), vpn_end_on: localDay(45) })).status).toBe(200);
+    expect(await requestOf(s.userRow)).toMatchObject({ requested_from: localDay(2), requested_until: localDay(45) });
+    expect((await api.get(`/api/v1/tickets/${ticketId}`)).body.data.vpn_request).toMatchObject({ status: "requested", requested_from: localDay(2), requested_until: localDay(45) });
+
+    // หัวหน้าอนุมัติ → เข้าคิว IT + หน้า จัดการ VPN
+    await approve(ticketId);
+    expect((await s.manager.get("/api/v1/vpn-loans/manage?status=requested")).body.data).toHaveLength(1);
+    expect((await s.manager.get("/api/v1/menu-badges")).body.data["/loans/vpn"]).toBe(1);
+
+    // บันทึกผลสำเร็จต้องมอบบัญชีก่อน
+    expect((await s.manager.post(`/api/v1/tickets/${ticketId}/accept`)).status).toBe(200);
+    const early = await s.manager.post(`/api/v1/tickets/${ticketId}/result`).send({ result: "completed", completed_on: localToday(), signature: SIG });
+    expect(early.status).toBe(422);
+    expect(early.body.errors.result[0]).toContain("จัดการ VPN");
+    expect((await s.manager.post(`/api/v1/vpn-loans/${loan.id}/assign`).send({ credential_id: s.vpn1.id, start_on: localDay(2), expires_on: localDay(45) })).status).toBe(200);
+    expect((await s.manager.post(`/api/v1/tickets/${ticketId}/result`).send({ result: "completed", completed_on: localToday(), signature: SIG })).status).toBe(200);
+    expect((await api.get(`/api/v1/tickets/${ticketId}`)).body.data.vpn_request).toMatchObject({ status: "active", account: "VPN-01", expires_on: localDay(45) });
+
+    // อีกคน: หัวหน้าไม่อนุมัติ → คำขอปิด / อีกใบ IT ทำไม่ได้ → คำขอปิด
+    const otherRow = await makeUser({ supervisor_id: chief.id, branch_id: branch });
+    const rejected = await vpnTicket(otherRow, s);
+    expect((await (await as(chief, "th")).post(`/api/v1/tickets/${rejected}/reject`).send({ comment: "ไม่จำเป็น" })).status).toBe(200);
+    expect(await requestOf(otherRow)).toMatchObject({ status: "rejected", end_note: "ไม่จำเป็น" });
+    const cannot = await vpnTicket(otherRow, s);
+    await approve(cannot);
+    await s.manager.post(`/api/v1/tickets/${cannot}/accept`);
+    expect((await s.manager.post(`/api/v1/tickets/${cannot}/result`).send({ result: "cannot_complete", cannot_reason: "บัญชีเต็ม", signature: SIG })).status).toBe(200);
+    expect(await requestOf(otherRow)).toMatchObject({ status: "rejected", end_note: "บัญชีเต็ม" });
   });
 });

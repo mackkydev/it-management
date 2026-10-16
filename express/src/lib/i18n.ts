@@ -198,6 +198,9 @@ const eamTh = {
     ticket_reason: "เหตุผล: :reason",
     ticket_footer: "สร้างอัตโนมัติจากการแจ้งเตือน VPN — บันทึกผลสำเร็จแล้วระบบปรับการยืม VPN ให้",
     ticket_auto_approved: "อนุมัติอัตโนมัติ (คำขอต่ออายุ / ยกเลิก VPN จากผู้ใช้งาน)",
+    request_dates: "กรุณาระบุวันเริ่มต้นและวันสิ้นสุดการใช้ VPN",
+    request_range: "วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น / วันนี้ และไม่เกิน :days วันนับจากวันเริ่มต้น",
+    assign_first: "ยังไม่ได้มอบบัญชี VPN ให้ผู้ขอ — มอบบัญชีที่เมนู จัดการ VPN ก่อนบันทึกผลสำเร็จ",
   },
   two_factor: {
     invalid: "รหัสยืนยันไม่ถูกต้อง หรือถูกใช้ไปแล้ว",
@@ -519,6 +522,9 @@ const eamEn: Eam = {
     ticket_reason: "Reason: :reason",
     ticket_footer: "Created automatically from a VPN reminder — recording a completed result updates the VPN loan.",
     ticket_auto_approved: "Approved automatically (VPN renewal / cancellation from the user)",
+    request_dates: "Please enter the VPN start and end dates.",
+    request_range: "The end date cannot be before the start date / today or more than :days days after the start.",
+    assign_first: "No VPN account has been assigned yet — assign one in Manage VPN before recording a completed result.",
   },
   two_factor: {
     invalid: "The verification code is wrong or has already been used.",

@@ -60,12 +60,6 @@ export default async function MyLoansPage({ searchParams }: PageProps<"/loans/mi
           {t("loan.form.saved")}
         </p>
       )}
-      {sp.vpn === "requested" && (
-        <p role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0" />
-          {t("vpn.requested")}
-        </p>
-      )}
       {overdue > 0 && <p className={alert.error}>{t("loan.mine.overdueAlert", { n: overdue })}</p>}
       <nav className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1">
         {TABS.map((s) => (
