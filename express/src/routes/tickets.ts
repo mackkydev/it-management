@@ -22,6 +22,7 @@ import { OWN_SQL } from "./assets.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
 import { unassignedVehicleBookings } from "./vehicles.js";
 import { loanBadges } from "./loans.js";
+import { applyVpnTicketOutcome, vpnBadges } from "../services/vpn-loans.js";
 import { trans } from "../lib/i18n.js";
 
 /**
@@ -401,6 +402,8 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
   if (can(u, "vehicle.dispatch")) data["/vehicles/dispatch"] = await unassignedVehicleBookings(u);
   // ยืมอุปกรณ์ IT: ของฉันที่เกินกำหนดคืน / ผู้จัดการ: รอส่งมอบที่ถึงวันแล้ว + เกินกำหนดคืน
   Object.assign(data, await loanBadges(u));
+  // VPN รวมกับตัวเลขเดิมของ /loans/mine
+  for (const [k, n] of Object.entries(await vpnBadges(u))) data[k] = Number(data[k] ?? 0) + n;
   res.json({ data });
 });
 
@@ -633,6 +636,49 @@ ticketRoutes.post("/tickets", async (req, res) => {
   await respondDetail(req, res, ticketId, 201);
 });
 
+/**
+ * ใบแจ้งงานที่ระบบสร้างแทนผู้ใช้ (เช่น ขอต่ออายุ / ยกเลิก VPN) — ไม่ต้องผ่านหัวหน้า: อนุมัติแล้ว เข้าคิวงาน IT ทันที
+ * เรื่อง = อื่นๆ (type_other) · ผู้รับงาน = ระบุ (ต้องยังเป็นเจ้าหน้าที่ IT) หรือว่าง = รอรับงานในคิว
+ * ลายเซ็นผู้แจ้ง = สำเนาลายเซ็นในโปรไฟล์ (ถ้ามี) — เรียกใน transaction ของผู้เรียกได้ (nested)
+ */
+export async function createSystemTicket(
+  req: Request,
+  requester: UserRow,
+  opts: { typeOther: string; details: string; assigneeId: number | null; comment: string },
+): Promise<{ id: number; uuid: string; ticket_no: string }> {
+  const assigneeId = opts.assigneeId && (await first(`SELECT 1 AS x FROM users WHERE id = ? AND ${IT_STAFF_WHERE}`, [opts.assigneeId])) ? opts.assigneeId : null;
+  const created = await transaction(async () => {
+    const uuid = randomUUID();
+    const now = nowDb();
+    const ticketNo = await nextTicketNo();
+    const id = await insert("it_tickets", {
+      uuid,
+      ticket_no: ticketNo,
+      type: "other",
+      type_other: opts.typeOther.slice(0, 255),
+      status: "approved",
+      requester_id: requester.id,
+      branch_id: requester.branch_id,
+      department: requester.department,
+      division: requester.division,
+      details: opts.details.slice(0, 5000),
+      assignee_id: assigneeId,
+      requested_at: now,
+      approved_at: now,
+      created_at: now,
+      updated_at: now,
+    });
+    const signature = await copySignatureTo(requester.id, `tickets/${uuid}/signatures`, "requester", req, { ticket: uuid });
+    if (signature) await update("it_tickets", { requester_signature: signature }, "id = ?", [id]);
+    await log(id, requester.id, "submitted");
+    await log(id, null, "approved", opts.comment);
+    return { id, uuid, ticket_no: ticketNo };
+  });
+  // แจ้งผู้รับงาน (หรือผู้รับงานได้ทั้งหมด) ว่ามีงานรอในคิว
+  await notify((await loadTicket("t.id = ?", created.id))!, "approved", requester);
+  return created;
+}
+
 ticketRoutes.get("/tickets/:uuid", async (req, res) => {
   const t = await findTicket(req.params.uuid);
   authorize(canView(me(req), t));
@@ -806,6 +852,8 @@ ticketRoutes.post("/tickets/:uuid/result", async (req, res) => {
       await insert("it_ticket_attachments", { it_ticket_id: t.id, kind: "result", uploaded_by: u.id, ...(await storeUpload(t.uuid, photo, "result")), created_at: now, updated_at: now });
     }
     await log(t.id, u.id, "resulted");
+    // ใบงานจากคำขอ VPN: ทำสำเร็จ = ต่ออายุ / เลิกใช้ตามที่ผู้ใช้เลือก, ทำไม่ได้ = กลับเป็นใช้งานอยู่
+    await applyVpnTicketOutcome(t.id, completed ? "completed" : "not_done", u);
   });
   await notify({ ...t, status: "pending_it_head" }, "resulted", u);
   await respondDetail(req, res, t.id);
@@ -996,6 +1044,7 @@ ticketRoutes.post("/tickets/:uuid/cancel/confirm", async (req, res) => {
   await transaction(async () => {
     await update("it_tickets", { status: "cancelled", cancelled_at: nowDb(), cancelled_by: u.id, closed_at: nowDb(), updated_at: nowDb() }, "id = ?", [t.id]);
     await log(t.id, u.id, "cancelled", (data.comment as string) ?? null);
+    await applyVpnTicketOutcome(t.id, "not_done", u);
   });
   await notify({ ...t, status: "cancelled" }, "cancelled", u);
   await respondDetail(req, res, t.id);

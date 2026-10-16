@@ -101,7 +101,7 @@ export function NotificationList({ items }: { items: AppNotification[] }) {
                 <Icon width={16} height={16} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className={`block text-sm ${n.read_at ? "text-muted" : "font-medium text-ink"}`}>{notificationText(n, t)}</span>
+                <span className={`block text-sm ${n.read_at ? "text-muted" : "font-medium text-ink"}`}>{notificationText(n, t, fmt.date)}</span>
                 <span className="mt-0.5 block text-xs text-faint">{fmt.dateTime(n.created_at)}</span>
               </span>
               {!n.read_at && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-accent-500" aria-hidden="true" />}

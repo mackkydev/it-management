@@ -112,7 +112,7 @@ export function LoginDigest({
                         <button type="button" onClick={() => go(n)} className="flex w-full cursor-pointer items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-subtle">
                           <Icon width={15} height={15} className="mt-0.5 shrink-0 text-accent-500" />
                           <span className="min-w-0 flex-1">
-                            <span className="block text-sm font-medium text-ink">{notificationText(n, t)}</span>
+                            <span className="block text-sm font-medium text-ink">{notificationText(n, t, fmt.date)}</span>
                             <span className="mt-0.5 block text-xs text-faint">{fmt.dateTime(n.created_at)}</span>
                           </span>
                         </button>

@@ -33,7 +33,7 @@ export async function notifyUsers(userIds: number[], type: string, data: Record<
  *   userId = เฉพาะคนนั้น, events = เฉพาะเหตุการณ์ที่ระบุ, exceptUserId = ยกเว้นคนนี้
  */
 export async function markNoticesRead(
-  field: "ticket_id" | "leave_id" | "vehicle_booking_id" | "loan_id",
+  field: "ticket_id" | "leave_id" | "vehicle_booking_id" | "loan_id" | "vpn_id",
   value: string,
   opts: { userId?: number; events?: string[]; exceptUserId?: number | null } = {},
 ): Promise<void> {

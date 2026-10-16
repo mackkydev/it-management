@@ -1,8 +1,8 @@
 import type { MessageKey, TFunction } from "@/i18n/types";
 import type { AppNotification } from "@/lib/types";
 
-/** ข้อความของการแจ้งเตือน (ใช้ร่วมกันระหว่างกระดิ่งและหน้าต่างหลัง login) */
-export function notificationText(n: AppNotification, t: TFunction): string {
+/** ข้อความของการแจ้งเตือน (ใช้ร่วมกันระหว่างกระดิ่งและหน้าต่างหลัง login) — date = แสดงวันที่ dd/MM/yyyy (fmt.date) */
+export function notificationText(n: AppNotification, t: TFunction, date: (iso: string) => string = (iso) => iso): string {
   if (n.data.kind === "ticket") {
     return t(`notifications.ticket.${n.data.event}` as MessageKey, { no: n.data.ticket_no, actor: n.data.actor ?? "" });
   }
@@ -25,6 +25,17 @@ export function notificationText(n: AppNotification, t: TFunction): string {
     const d = n.data;
     const period = d.start_on === d.end_on ? `${d.start_on} ${d.start_time}–${d.end_time}` : `${d.start_on} ${d.start_time} – ${d.end_on} ${d.end_time}`;
     return t(`notifications.loan.${d.event}` as MessageKey, { actor: d.actor ?? "", device: d.device, period, end: `${d.end_on} ${d.end_time}` });
+  }
+  if (n.data.kind === "vpn") {
+    const d = n.data;
+    return t(`notifications.vpn.${d.event}` as MessageKey, {
+      actor: d.actor ?? "",
+      user: d.user,
+      account: d.account,
+      expires: d.expires_on ? date(d.expires_on) : "-",
+      days: d.days_left ?? 0,
+      ticket: d.ticket_no ?? "",
+    });
   }
   if (n.data.kind === "meeting") {
     const d = n.data;
@@ -54,6 +65,13 @@ export function notificationHref(n: AppNotification): string {
     if (n.data.event === "requested") return "/loans/manage?status=pending";
     if (n.data.event === "cancelled") return "/loans/mine?status=cancelled";
     if (n.data.event === "returned") return "/loans/mine?status=past";
+    return "/loans/mine";
+  }
+  // VPN: ขอใช้ / หมดอายุ → หน้าจัดการ VPN (ผู้ใช้ทั่วไปถูกพาไปการยืมของฉัน), ไม่อนุมัติ / สิ้นสุด → แท็บคืนแล้ว, อื่นๆ → การยืมของฉัน
+  if (n.data.kind === "vpn") {
+    if (n.data.event === "requested") return "/loans/vpn?status=requested";
+    if (n.data.event === "expired") return "/loans/vpn?status=expiring";
+    if (n.data.event === "rejected" || n.data.event === "ended") return "/loans/mine?status=past";
     return "/loans/mine";
   }
   // การจองห้องประชุมที่ผู้จัดการแก้/ยกเลิก/ลบ → การจองของฉัน (ยกเลิก = แท็บยกเลิกแล้ว)

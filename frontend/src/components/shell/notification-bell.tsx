@@ -85,7 +85,7 @@ export function NotificationBell({ tooltipSide = "right", size = "md" }: { toolt
     setOpen((o) => !o);
   };
 
-  const text = (n: AppNotification) => notificationText(n, t);
+  const text = (n: AppNotification) => notificationText(n, t, fmt.date);
   const href = notificationHref;
 
   const openItem = async (n: AppNotification) => {
