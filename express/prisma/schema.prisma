@@ -1415,6 +1415,8 @@ model vpn_loans {
   user_id              BigInt
   department           String?      @db.VarChar(255)
   purpose              String       @db.Text
+  /// ขอผ่านใบแจ้งงาน (อื่นๆ → ขอใช้งาน VPN): วันที่ผู้ขอต้องการเริ่มใช้
+  requested_from       DateTime?    @db.Date
   /// วันที่ผู้ขอต้องการใช้ถึง (ตอนขอ)
   requested_until      DateTime?    @db.Date
   status               String       @default("requested") @db.VarChar(20)

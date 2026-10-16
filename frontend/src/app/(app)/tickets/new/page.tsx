@@ -10,7 +10,9 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("tickets.create") };
 }
 
-export default async function NewTicketPage() {
+/** ?vpn=1 (เมนู ขอใช้ VPN) = เลือก อื่นๆ → ขอใช้งาน VPN ไว้ให้ */
+export default async function NewTicketPage({ searchParams }: PageProps<"/tickets/new">) {
+  const { vpn } = await searchParams;
   const [user, { data: options }, plan] = await Promise.all([
     getCurrentUser(),
     apiFetch<{ data: TicketFormOptions }>("/tickets/form-options"),
@@ -18,5 +20,5 @@ export default async function NewTicketPage() {
     apiFetch<{ data: ApprovalPlan }>("/approval-routes/resolve").then((r) => r.data, () => null),
   ]);
 
-  return <TicketForm user={user} options={options} plan={plan} />;
+  return <TicketForm user={user} options={options} plan={plan} vpn={vpn === "1"} />;
 }

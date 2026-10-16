@@ -126,6 +126,9 @@
 
 ## ยืม VPN (เมนู ยืมอุปกรณ์ / VPN → ขอใช้ VPN, จัดการ VPN)
 - บัญชี VPN = รายการในคลังบัญชี/รหัสผ่านที่หมวดหมู่ `VPN` (ไม่สนตัวพิมพ์) — ตาราง `vpn_loans`, โค้ดกลาง `express/src/services/vpn-loans.ts` + `routes/vpn-loans.ts`, เทสต์ `express/tests/vpn-loans.test.ts`
+- **ขอใช้ = ใบแจ้งงาน** เรื่อง อื่นๆ → `VPN_REQUEST_TYPE` ("ขอใช้งาน VPN" — อยู่หน้าสุดของ `other_types` เสมอ, เมนู `/loans/vpn/request` redirect ไป `/tickets/new?vpn=1`) + `vpn_start_on`/`vpn_end_on` (บังคับ, ≤ 366 วัน)
+  → `syncVpnRequest` สร้าง/แก้ `vpn_loans` สถานะ requested (`requested_from`/`requested_until`, `ticket_id`) ตอนแจ้ง/แก้ใบ; ฟอร์มเติมข้อความตั้งต้น "ขอรหัสใช้งานระบบ VPN วันที่ … ถึง วันที่ … / เนื่องจาก :" (บรรทัดแรกเปลี่ยนตามวันที่ที่เลือก)
+  ผู้ดูแลเห็น/มอบได้หลังหัวหน้าอนุมัติ (`REQUEST_VISIBLE`, แจ้ง `vpn.requested` ตอนอนุมัติครบ); บันทึกผลสำเร็จต้องมอบบัญชีก่อน (422 `assign_first`); ไม่อนุมัติ / ทำไม่ได้ / ยกเลิก / ลบใบ → `closeVpnRequest` — ปฏิเสธคำขอที่มาจากใบงานต้องทำที่ใบงาน
 - ผู้ดูแล = สิทธิ์ `loans.manage` (เดียวกับส่งมอบ/รับคืน); 1 บัญชีให้ได้ทีละคน (สถานะ `active` / `renewal_requested` / `cancel_requested` = ถือบัญชีอยู่, lock ด้วย `lockNamed`)
 - ผู้ใช้ดูรหัสของตัวเองได้ระหว่างยังไม่หมดอายุ (`POST /vpn-loans/:uuid/reveal` — `assertCanReveal` + `notifyReveal` + `credential_access_logs` action `vpn_reveal`)
 - scheduler ทุกชั่วโมง (`notifyVpnExpiry`): ถึงช่วงแจ้งล่วงหน้า (`notify_days_before`) → `vpn.expiring` ถึงผู้ใช้, เลยวันหมดอายุ → `vpn.expired` ถึงผู้ใช้ + ผู้ดูแล — ครั้งเดียวต่อวันหมดอายุ (`reminded_for` / `expired_notified_for`)

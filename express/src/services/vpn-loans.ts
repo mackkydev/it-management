@@ -1,4 +1,5 @@
-import { exec, first, scalar, select, update } from "../db.js";
+import { randomUUID } from "node:crypto";
+import { exec, first, insert, scalar, select, update } from "../db.js";
 import { trans, type Locale } from "../lib/i18n.js";
 import { dateOnly, iso, localToday, nowDb } from "../lib/time.js";
 import { can, type UserRow } from "../models/user.js";
@@ -14,6 +15,15 @@ import { usersWithPermissions } from "./permissions.js";
  */
 
 export const VPN_CATEGORY = "vpn";
+/**
+ * ขอใช้ VPN = ใบแจ้งงานเรื่อง "อื่นๆ" หัวข้อนี้ (ตัวเลือกในฟอร์มเสมอ) + ช่วงวันที่ → vpn_loans สถานะ requested ผูก ticket_id
+ * ผู้ดูแลเห็นคำขอหลังหัวหน้าอนุมัติใบงานแล้ว (เหมือนคิวงาน IT) แล้วมอบบัญชีที่หน้า จัดการ VPN
+ */
+export const VPN_REQUEST_TYPE = "ขอใช้งาน VPN";
+export const isVpnRequestType = (type: unknown, typeOther: unknown) =>
+  type === "other" && typeof typeOther === "string" && typeOther.trim().toLowerCase() === VPN_REQUEST_TYPE.toLowerCase();
+/** คำขอที่ผู้ดูแลเห็น/มอบได้: ขอตรง (ไม่มีใบงาน) หรือใบงานผ่านหัวหน้าแล้ว — ใช้คู่กับ VPN_SELECT (alias t = it_tickets) */
+export const REQUEST_VISIBLE = "(v.ticket_id IS NULL OR t.status <> 'pending_supervisor')";
 /** สถานะที่ถือบัญชีอยู่ (บัญชีนี้ให้คนอื่นไม่ได้) */
 export const HOLDING = ["active", "renewal_requested", "cancel_requested"] as const;
 
@@ -27,6 +37,7 @@ export interface VpnLoanRow {
   user_name: string | null;
   department: string | null;
   purpose: string;
+  requested_from: string | null;
   requested_until: string | null;
   status: string;
   credential_id: number | null;
@@ -73,11 +84,13 @@ export function vpnJson(r: VpnLoanRow, u: UserRow) {
   const left = daysLeft(r.expires_on);
   const holding = (HOLDING as readonly string[]).includes(r.status);
   const expired = holding && left !== null && left < 0;
+  const waitingApproval = Boolean(r.ticket_id) && r.ticket_status === "pending_supervisor";
   return {
     id: r.uuid,
     user: { id: Number(r.user_id), name: r.user_name ?? "" },
     department: r.department,
     purpose: r.purpose,
+    requested_from: dateOnly(r.requested_from),
     requested_until: dateOnly(r.requested_until),
     status: r.status as "requested" | "active" | "renewal_requested" | "cancel_requested" | "ended" | "rejected" | "cancelled",
     // ชื่อบัญชี / ชื่อผู้ใช้ VPN ไม่ใช่ความลับ — รหัสผ่านต้องกดเปิดดู (POST /vpn-loans/:uuid/reveal)
@@ -99,11 +112,13 @@ export function vpnJson(r: VpnLoanRow, u: UserRow) {
     ended_by: r.ended_name,
     end_note: r.end_note,
     created_at: iso(r.created_at),
-    can_cancel: mine && r.status === "requested",
+    // ขอผ่านใบแจ้งงาน = ยกเลิก/แก้ที่ใบแจ้งงาน
+    can_cancel: mine && r.status === "requested" && !r.ticket_id,
     can_choose: mine && r.status === "active",
     can_reveal: mine && holding && !expired && r.credential_id !== null,
-    can_assign: manage && r.status === "requested",
-    can_reject: manage && r.status === "requested",
+    can_assign: manage && r.status === "requested" && waitingApproval === false,
+    // ขอผ่านใบแจ้งงาน: ปฏิเสธที่ใบงาน (บันทึกผล "ดำเนินการไม่ได้") เพื่อให้ใบงานกับคำขอตรงกัน
+    can_reject: manage && r.status === "requested" && !r.ticket_id,
     can_edit: manage && holding,
     can_end: manage && holding,
   };
@@ -163,7 +178,13 @@ export async function vpnBadges(u: UserRow): Promise<Record<string, number>> {
     ),
   };
   if (managesVpn(u)) {
-    out["/loans/vpn"] = Number(await scalar("SELECT COUNT(*) FROM vpn_loans v WHERE v.status = 'requested' OR (v.status = 'active' AND v.expires_on < ?)", [today]));
+    out["/loans/vpn"] = Number(
+      await scalar(
+        `SELECT COUNT(*) FROM vpn_loans v LEFT JOIN it_tickets t ON t.id = v.ticket_id
+          WHERE (v.status = 'requested' AND ${REQUEST_VISIBLE}) OR (v.status = 'active' AND v.expires_on < ?)`,
+        [today],
+      ),
+    );
   }
   return out;
 }
@@ -203,3 +224,67 @@ export async function notifyVpnExpiry(): Promise<number> {
 
 /** ข้อความเรื่องของใบแจ้งงาน (ใช้ทดสอบ / แสดงผล) */
 export const vpnTicketSubject = (choice: "renew" | "cancel", locale: Locale) => trans(locale, `eam.vpn.ticket_${choice}`);
+
+/* ---------------------------------------------------------------- ขอใช้ผ่านใบแจ้งงาน */
+
+export interface VpnRequestInput {
+  /** ใบงานเป็นเรื่อง "ขอใช้งาน VPN" หรือไม่ (ไม่ใช่ = ยกเลิกคำขอเดิมของใบนี้ถ้ามี) */
+  vpn: boolean;
+  from: string | null;
+  until: string | null;
+  purpose: string;
+}
+
+/**
+ * สร้าง / ปรับคำขอ VPN ของใบแจ้งงาน (เรียกใน transaction ของการแจ้งงาน / แก้ใบงาน — ตรวจวันที่มาแล้ว)
+ * คืน false = ผู้ใช้มีคำขอที่รออยู่แล้ว (ผู้เรียกแจ้ง error)
+ */
+export async function syncVpnRequest(ticketId: number, requester: UserRow, input: VpnRequestInput): Promise<boolean> {
+  const current = await first<{ id: number }>("SELECT id FROM vpn_loans WHERE ticket_id = ? AND status = 'requested' FOR UPDATE", [ticketId]);
+  const now = nowDb();
+  if (!input.vpn) {
+    if (current) await update("vpn_loans", { status: "cancelled", ended_at: now, ended_by: requester.id, updated_at: now }, "id = ?", [current.id]);
+    return true;
+  }
+  const values = { purpose: input.purpose, requested_from: input.from, requested_until: input.until, updated_at: now };
+  if (current) {
+    await update("vpn_loans", values, "id = ?", [current.id]);
+    return true;
+  }
+  if (await first("SELECT 1 AS x FROM vpn_loans WHERE user_id = ? AND status = 'requested'", [requester.id])) return false;
+  const id = await insert("vpn_loans", {
+    ...values, uuid: randomUUID(), user_id: requester.id, department: requester.department, status: "requested", ticket_id: ticketId, created_at: now,
+  });
+  await audit({ user: { id: requester.id } }, { action: "vpn_loan.requested", subjectType: "vpn_loan", subjectId: id, after: { ticket_id: ticketId, from: input.from, until: input.until } });
+  return true;
+}
+
+/** คำขอ VPN ของใบงานที่ยังรอมอบบัญชี (ใบงานบันทึกผลสำเร็จไม่ได้จนกว่าจะมอบบัญชี) */
+export const pendingVpnRequest = (ticketId: number) =>
+  first<{ id: number; uuid: string }>("SELECT id, uuid FROM vpn_loans WHERE ticket_id = ? AND status = 'requested'", [ticketId]);
+
+/** ใบงานถูกไม่อนุมัติ / ยกเลิก / ลบ / ทำไม่ได้ → ปิดคำขอ VPN ที่ยังรอมอบบัญชี */
+export async function closeVpnRequest(ticketId: number, status: "rejected" | "cancelled", actor: UserRow, note: string | null): Promise<void> {
+  const r = await pendingVpnRequest(ticketId);
+  if (!r) return;
+  const now = nowDb();
+  await update("vpn_loans", { status, ended_at: now, ended_by: actor.id, end_note: note, updated_at: now }, "id = ?", [r.id]);
+  await audit({ user: { id: actor.id } }, { action: `vpn_loan.${status}`, subjectType: "vpn_loan", subjectId: r.id, after: { ticket_id: ticketId, note } });
+  await markNoticesRead("vpn_id", r.uuid, { events: ["requested"] });
+}
+
+/** ใบงานขอใช้ VPN ผ่านหัวหน้าแล้ว → แจ้งผู้ดูแล VPN (ยกเว้นผู้รับงานของใบ ซึ่งได้แจ้งเตือนใบงานอยู่แล้ว) */
+export async function announceVpnRequest(ticketId: number, assigneeId: number | null): Promise<void> {
+  const r = await loadVpnLoan("v.ticket_id = ? AND v.status = 'requested'", [ticketId]);
+  if (!r) return;
+  const ids = (await vpnManagerIds()).filter((x) => x !== Number(r.user_id) && x !== assigneeId);
+  if (ids.length) await notifyUsers(ids, "vpn.requested", vpnNotice(r, "requested", r.user_name, { requested_until: dateOnly(r.requested_until) }));
+}
+
+/** คำขอ VPN ที่ผูกกับใบงาน (หน้าใบงาน) */
+export async function vpnOfTicket(ticketId: number) {
+  const r = await loadVpnLoan("v.ticket_id = ? ORDER BY v.id DESC LIMIT 1", [ticketId]);
+  return r
+    ? { id: r.uuid, status: r.status, requested_from: dateOnly(r.requested_from), requested_until: dateOnly(r.requested_until), account: r.credential_title, expires_on: dateOnly(r.expires_on) }
+    : null;
+}

@@ -30,11 +30,6 @@ async function call<F extends string>(id: string | null, path: string, body: Rec
 const date = (v: string) => (DATE_RE.test(v) ? v : null);
 const text = (v: string) => v.trim() || null;
 
-/** ขอใช้ VPN */
-export async function requestVpn(v: { purpose: string; requested_until: string }) {
-  return call<"purpose" | "requested_until">(null, "/vpn-loans", { purpose: v.purpose.trim(), requested_until: date(v.requested_until) });
-}
-
 /** ผู้ใช้ยกเลิกคำขอที่ยังรอ */
 export async function cancelVpnRequest(id: string) {
   return call<"status">(id, `/vpn-loans/${id}/cancel`, {});

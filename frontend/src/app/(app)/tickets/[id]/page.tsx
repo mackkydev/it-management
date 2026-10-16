@@ -8,7 +8,7 @@ import { card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
-import { getAccess } from "@/lib/auth";
+import { getAccess, getCurrentUser, has } from "@/lib/auth";
 import type { TicketDetail } from "@/lib/types";
 import type { TicketFormOptions } from "../new/ticket-form";
 import { DoneBanner } from "../ticket-list";
@@ -102,13 +102,15 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
   const { id } = await params;
   if (!UUID_RE.test(id)) notFound();
   const { done } = await searchParams;
-  const [tk, { t, fmt }, can, branches] = await Promise.all([
+  const [tk, { t, fmt }, can, branches, user] = await Promise.all([
     getTicket(id),
     getI18n(),
     getAccess(),
     // รายการสาขาสำหรับช่องติ๊กในแบบฟอร์มพิมพ์ (โหลดไม่ได้ = แสดงเฉพาะสาขาของใบงาน)
     apiFetch<{ data: TicketFormOptions }>("/tickets/form-options").then((r) => r.data.branches, () => []),
+    getCurrentUser(),
   ]);
+  const vpn = tk.vpn_request;
 
   const requestPhotos = tk.attachments.filter((a) => a.kind === "request");
   const resultPhotos = tk.attachments.filter((a) => a.kind === "result");
@@ -167,6 +169,25 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
           <Item label={t("tickets.detail.requestedBy")}>{tk.requester?.name}</Item>
           <Item label={t("tickets.form.dueDate")}>{tk.due_date ? fmt.date(tk.due_date) : null}</Item>
           <Item label={t("tickets.detail.assignee")}>{tk.assignee?.name ?? t("tickets.detail.notAssigned")}</Item>
+          {/* ขอใช้งาน VPN: ช่วงวันที่ + สถานะการมอบบัญชี (ผู้ดูแลมอบที่หน้า จัดการ VPN) */}
+          {vpn && (
+            <div className="sm:col-span-2 lg:col-span-4">
+              <Item label={t("tickets.vpn.detail")}>
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span>
+                    {vpn.requested_from ? fmt.date(vpn.requested_from) : "-"} – {vpn.requested_until ? fmt.date(vpn.requested_until) : "-"}
+                  </span>
+                  <span className="rounded-full bg-subtle px-2 py-0.5 text-xs font-medium">{t(`vpn.states.${vpn.status}`)}</span>
+                  {vpn.account && vpn.expires_on && <span className="text-muted">{t("tickets.vpn.account", { account: vpn.account, date: fmt.date(vpn.expires_on) })}</span>}
+                  {vpn.status === "requested" && tk.status !== "pending_supervisor" && has(user, "loans.manage") && (
+                    <Link href="/loans/vpn?status=requested" className="cursor-pointer text-sm font-medium text-accent-700 hover:underline dark:text-accent-300">
+                      {t("tickets.vpn.manage")}
+                    </Link>
+                  )}
+                </span>
+              </Item>
+            </div>
+          )}
           <div className="sm:col-span-2 lg:col-span-4">
             <Item label={t("tickets.form.details")}>{tk.details}</Item>
           </div>

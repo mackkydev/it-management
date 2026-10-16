@@ -287,7 +287,8 @@ describe("IT tickets", () => {
     const opts = await api.get("/api/v1/tickets/form-options");
     expect(opts.body.data.branches).toEqual([{ id: branch, code: "KKN", name: "ขอนแก่น" }]);
     expect(opts.body.data.it_staff.map((u: { name: string }) => u.name)).toEqual(["IT", "IT Head"]);
-    expect(opts.body.data.other_types).toEqual(["งานออกแบบ"]);
+    // "ขอใช้งาน VPN" อยู่หน้าสุดเสมอ (ฟอร์มถามช่วงวันที่ใช้)
+    expect(opts.body.data.other_types).toEqual(["ขอใช้งาน VPN", "งานออกแบบ"]);
     expect((await api.get("/api/v1/it-staff")).body.data).toContainEqual({ id: itHead.id, name: "IT Head", is_it_head: true });
   });
 

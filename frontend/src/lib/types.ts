@@ -275,6 +275,15 @@ export interface TicketSummary {
 }
 
 export interface TicketDetail extends TicketSummary {
+  /** ขอใช้งาน VPN (อื่นๆ): ช่วงวันที่ที่ขอ + สถานะการมอบบัญชี */
+  vpn_request?: {
+    id: string;
+    status: VpnLoanStatus;
+    requested_from: string | null;
+    requested_until: string | null;
+    account: string | null;
+    expires_on: string | null;
+  } | null;
   /** ช่วงวันไปทำงานหน้างาน (ปฏิทิน) */
   calendar_event?: TicketOnsite | null;
   can_edit_calendar?: boolean;
@@ -1279,6 +1288,7 @@ export interface VpnLoan {
   user: { id: number; name: string };
   department: string | null;
   purpose: string;
+  requested_from: string | null;
   requested_until: string | null;
   status: VpnLoanStatus;
   account: { id: number; title: string; username: string | null; url: string | null } | null;
