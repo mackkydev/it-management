@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { syncDueConnections } from "../services/directory-sync.js";
 import { notifyExpiring } from "./notify-expiring.js";
+import { notifyOverdueLoans } from "../routes/loans.js";
 
 /**
  * ตั้งเวลารันงานรายวันใน process ของ API (แทน `php artisan schedule:work`)
@@ -48,6 +49,23 @@ export function startScheduler(): void {
     schedule();
   };
   schedule();
+
+  // ยืมอุปกรณ์ IT เกินกำหนดคืน — ตรวจทุกชั่วโมง แจ้งวันละครั้งต่อรายการ (overdue_notified_on)
+  let loanCheck = false;
+  const checkLoans = async () => {
+    if (loanCheck) return;
+    loanCheck = true;
+    try {
+      const n = await notifyOverdueLoans();
+      if (n) console.info(`[scheduler] overdue equipment loans: notified ${n}`);
+    } catch (e) {
+      console.error("[scheduler] overdue equipment loans failed", e);
+    } finally {
+      loanCheck = false;
+    }
+  };
+  setTimeout(checkLoans, 60_000).unref();
+  setInterval(checkLoans, 60 * 60_000).unref();
 
   // ซิงค์รายชื่อ API User ตามรอบของแต่ละการเชื่อมต่อ (ตรวจทุก 5 นาที, ไม่ซ้อนรอบ)
   let syncing = false;

@@ -1,0 +1,9 @@
+# กุญแจคลังบัญชี (VAULT_KEY) แยกจาก APP_KEY — ใช้คู่กับ docker-compose.yml หลัก:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.vault.yml --profile web up -d --build
+# ไฟล์กุญแจอยู่นอกโฟลเดอร์ระบบและนอกไฟล์สำรอง (deploy/backup.sh ไม่สำรองไฟล์นี้) — ดู deploy/README.md หัวข้อ "กุญแจคลังบัญชี"
+services:
+  express:
+    environment:
+      VAULT_KEY_FILE: /run/secrets/vault_key
+    volumes:
+      - ${IT_VAULT_KEY_FILE:-/etc/it-system/vault.key}:/run/secrets/vault_key:ro

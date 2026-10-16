@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +16,24 @@ const env = (key: string, fallback = ""): string => {
   return v === undefined || v === "null" ? fallback : v.replace(/^"(.*)"$/, "$1");
 };
 
+/**
+ * กุญแจคลังบัญชี (รหัสผ่าน / หมายเหตุลับ) แยกจาก APP_KEY — services/vault-crypto.ts
+ * VAULT_KEY_FILE = path ไฟล์ที่มี "base64:..." (แนะนำบนเครื่องจริง: เก็บนอกโฟลเดอร์ระบบ / นอกไฟล์สำรอง) หรือ VAULT_KEY = ค่าโดยตรง
+ * ไม่ตั้ง = ใช้ APP_KEY เหมือนเดิม (security:check เตือน)
+ */
+function vaultKey(): Buffer | null {
+  const file = env("VAULT_KEY_FILE");
+  let raw = env("VAULT_KEY");
+  if (file) {
+    if (!existsSync(file)) throw new Error(`VAULT_KEY_FILE not found: ${file}`);
+    raw = readFileSync(file, "utf8").trim();
+  }
+  if (!raw) return null;
+  const key = raw.startsWith("base64:") ? Buffer.from(raw.slice(7), "base64") : Buffer.from(raw, "utf8");
+  if (key.length !== 32) throw new Error("VAULT_KEY must be a 32-byte key (base64:...) — generate with npm run vault:keygen");
+  return key;
+}
+
 function appKey(): Buffer {
   const raw = env("APP_KEY");
   const key = raw.startsWith("base64:") ? Buffer.from(raw.slice(7), "base64") : Buffer.from(raw, "utf8");
@@ -27,6 +45,9 @@ export const config = {
   appName: env("APP_NAME", "IT-SYSTEM"),
   port: Number(env("PORT", "8020")),
   appKey: appKey(),
+  /** กุญแจคลังบัญชี (null = ใช้ APP_KEY) */
+  vaultKey: vaultKey(),
+  vaultKeySource: env("VAULT_KEY_FILE") ? "file" : env("VAULT_KEY") ? "env" : null,
   defaultLocale: env("APP_LOCALE", "th") as "th" | "en",
   db: dbConfig(),
   /** อายุ token ที่ออกตอน login (นาที) — ค่าเริ่มต้น 12 ชั่วโมง */

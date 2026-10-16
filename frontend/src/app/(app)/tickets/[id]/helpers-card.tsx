@@ -10,8 +10,24 @@ import type { TicketDetail } from "@/lib/types";
 type Option = NonNullable<TicketDetail["helper_options"]>[number];
 
 /** เลือกผู้ร่วมดำเนินการ (เจ้าหน้าที่ IT) — ค้นหาชื่อ + ติ๊กเลือกหลายคน, ไม่รวมผู้รับงานเอง */
-export function HelperPicker({ options, value, onChange, exclude }: { options: Option[]; value: number[]; onChange: (ids: number[]) => void; exclude?: number | null }) {
+export function HelperPicker({
+  options,
+  value,
+  onChange,
+  exclude,
+  searchLabel,
+  noMatchLabel,
+}: {
+  options: Option[];
+  value: number[];
+  onChange: (ids: number[]) => void;
+  exclude?: number | null;
+  /** ข้อความช่องค้นหา / ไม่พบ (ค่าตั้งต้น = เจ้าหน้าที่ IT) — ใช้ซ้ำเลือกผู้ใช้อื่นได้ */
+  searchLabel?: string;
+  noMatchLabel?: string;
+}) {
   const { t } = useI18n();
+  const search = searchLabel ?? t("ticketHelpers.search");
   const [q, setQ] = useState("");
   const list = options.filter((o) => o.id !== exclude);
   const shown = list.filter((o) => o.name.toLowerCase().includes(q.trim().toLowerCase()));
@@ -29,10 +45,10 @@ export function HelperPicker({ options, value, onChange, exclude }: { options: O
             ))}
         </div>
       )}
-      {list.length > 8 && <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("ticketHelpers.search")} aria-label={t("ticketHelpers.search")} className={input} />}
+      {list.length > 8 && <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={search} aria-label={search} className={input} />}
       <div className="max-h-48 overflow-y-auto rounded-xl p-1 ring-1 ring-line">
         {shown.length === 0 ? (
-          <p className="px-2 py-1.5 text-sm text-muted">{t("ticketHelpers.noMatch")}</p>
+          <p className="px-2 py-1.5 text-sm text-muted">{noMatchLabel ?? t("ticketHelpers.noMatch")}</p>
         ) : (
           shown.map((o) => (
             <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-subtle/60">

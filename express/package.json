@@ -22,7 +22,10 @@
     "db:status": "prisma migrate status",
     "db:seed": "prisma db seed",
     "db:validate": "prisma validate && prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code",
-    "db:import-postgres": "tsx scripts/migrate-from-postgres.ts"
+    "db:import-postgres": "tsx scripts/migrate-from-postgres.ts",
+    "vault:keygen": "tsx src/cli/vault-key.ts keygen",
+    "vault:rekey": "tsx src/cli/vault-key.ts rekey",
+    "vault:rekey:prod": "node dist/cli/vault-key.js rekey"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

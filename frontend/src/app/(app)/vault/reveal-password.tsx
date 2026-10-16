@@ -6,6 +6,7 @@ import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon, SpinnerIcon } from "@/compone
 import { ReauthPrompt } from "@/components/reauth-prompt";
 import type { ReauthChallenge } from "@/lib/types";
 import { Tooltip } from "@/components/tooltip";
+import { copySecret } from "@/lib/clipboard";
 import { useI18n } from "@/i18n/client";
 
 const AUTO_HIDE_MS = 30_000;
@@ -40,7 +41,8 @@ export function RevealPassword({ id }: { id: number }) {
 
   const copy = async () => {
     if (value === null) return;
-    await navigator.clipboard.writeText(value);
+    // ล้าง clipboard อัตโนมัติใน 30 วินาที (lib/clipboard.ts)
+    await copySecret(value);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };

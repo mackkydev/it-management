@@ -3,7 +3,7 @@ import { config } from "../config.js";
 import { exec, first, insert, isUuid, likeEscape, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
-import { decryptNullable, encryptNullable } from "../lib/laravel-crypt.js";
+import { decryptVaultNullable, encryptVaultNullable } from "../services/vault-crypto.js";
 import { limits } from "../lib/rate-limit.js";
 import { dateOnly, diffInDays, fromDbDate, iso, nowDb } from "../lib/time.js";
 import { bool, custom, exists, int, makeHash, regex, unique, validate } from "../lib/validator.js";
@@ -11,9 +11,9 @@ import { audit } from "../services/audit.js";
 import { BUILTIN_CATEGORIES } from "../services/categories.js";
 import { notifyAccessChange } from "../services/access-control.js";
 import { me, shortMeta, pageParam } from "../http.js";
-import { can } from "../models/user.js";
-import { audiencePermissions } from "../services/permissions.js";
-import { assertCanReveal, centralPin, centralPinStatus, isValidIpEntry, notifyReveal, PIN_PATTERN, pinSetAt, secretGuard, verifyLoginPassword } from "../services/secret-guard.js";
+import { can, type UserRow } from "../models/user.js";
+import { audiencePermissions, groupsOf, usersWithPermissions } from "../services/permissions.js";
+import { assertCanReveal, centralPin, centralPinStatus, isValidIpEntry, notifyReveal, PIN_PATTERN, pinSetAt, secretGuard, verifyLoginPassword, revealRecipients } from "../services/secret-guard.js";
 import { allSettings, getSetting, putSetting } from "../services/settings.js";
 
 /** IT-SYSTEM: สาขา, ตั้งค่า, แจ้งเตือนในระบบ, คลังบัญชี/รหัสผ่าน, สัญญา vendor */
@@ -121,7 +121,17 @@ itDataRoutes.delete("/branches/:id", async (req, res) => {
 /** ตั้งค่าทั้งหมด — secret_guard คืนค่าที่ใช้งานจริง (รวมค่าเริ่มต้น); PIN กลางส่งเฉพาะสถานะ (ห้ามส่ง hash) */
 const settingsJson = async () => {
   const { secret_pin: _hidden, ...rest } = await allSettings();
-  return { ...rest, secret_guard: await secretGuard(), secret_pin_status: await centralPinStatus() };
+  const guard = await secretGuard();
+  return {
+    ...rest,
+    secret_guard: guard,
+    secret_pin_status: await centralPinStatus(),
+    // ตัวเลือกผู้รับแจ้งเตือนเมื่อมีคนเปิดดูข้อมูลลับ (ผู้ใช้ที่ใช้งานอยู่) + ผู้รับจริงตอนนี้ (ไม่ได้เลือก = หัวหน้า IT)
+    secret_notify_options: (await select<{ id: number; name: string; department: string | null }>("SELECT id, name, department FROM users WHERE is_active = true ORDER BY name LIMIT 2000")).map((x) => ({
+      id: Number(x.id), name: x.department ? `${x.name} (${x.department})` : x.name,
+    })),
+    secret_notify_effective: await revealRecipients(guard),
+  };
 };
 
 /* ================================================================ PIN กลางสำหรับเปิดดูข้อมูลลับ */
@@ -210,11 +220,15 @@ itDataRoutes.put("/settings", async (req, res) => {
       secret_guard: ["sometimes", "array"],
       "secret_guard.reauth": ["sometimes", "boolean"],
       "secret_guard.reauth_method": ["sometimes", "in:password,pin"],
-      "secret_guard.reauth_minutes": ["sometimes", "integer", "min:1", "max:60"],
+      // 0 = ยืนยันทุกครั้งที่เปิดดู
+      "secret_guard.reauth_minutes": ["sometimes", "integer", "min:0", "max:60"],
       "secret_guard.ip_restrict": ["sometimes", "boolean"],
       "secret_guard.allowed_ips": ["sometimes", "array", "max:50"],
       "secret_guard.allowed_ips.*": ["string", "max:50", custom((v) => typeof v === "string" && isValidIpEntry(v), trans(req.locale, "eam.secret_guard.invalid_ip"))],
       "secret_guard.notify_heads": ["sometimes", "boolean"],
+      // ผู้รับแจ้งเตือนเมื่อมีคนเปิดดู ([] = หัวหน้า IT ทุกคน)
+      "secret_guard.notify_user_ids": ["sometimes", "array", "max:50"],
+      "secret_guard.notify_user_ids.*": ["integer"],
       two_factor_required: ["sometimes", "boolean"],
     },
     {
@@ -227,6 +241,14 @@ itDataRoutes.put("/settings", async (req, res) => {
         const ips = Array.isArray(g.allowed_ips) ? g.allowed_ips : current.allowed_ips;
         // เปิดจำกัด IP แต่ไม่มี IP ในรายการ = ไม่มีใครเปิดดูได้เลย
         if (restrict && ips.length === 0) errors.add("secret_guard.allowed_ips", trans(req.locale, "eam.secret_guard.ip_required"));
+        // ผู้รับแจ้งเตือนต้องเป็นผู้ใช้ที่ยังใช้งานอยู่
+        if (Array.isArray(g.notify_user_ids) && g.notify_user_ids.length) {
+          const ids = [...new Set(g.notify_user_ids.map(Number))];
+          const found = ids.every((x) => Number.isInteger(x) && x > 0)
+            ? Number(await scalar("SELECT COUNT(*) FROM users WHERE is_active = true AND id IN (?)", [ids]))
+            : -1;
+          if (found !== ids.length) errors.add("secret_guard.notify_user_ids", trans(req.locale, "eam.secret_guard.recipient_invalid"));
+        }
       },
     },
   );
@@ -268,6 +290,7 @@ itDataRoutes.put("/settings", async (req, res) => {
       ip_restrict: "ip_restrict" in g ? bool(g.ip_restrict) : current.ip_restrict,
       allowed_ips: Array.isArray(g.allowed_ips) ? [...new Set((g.allowed_ips as string[]).map((s) => s.trim()))] : current.allowed_ips,
       notify_heads: "notify_heads" in g ? bool(g.notify_heads) : current.notify_heads,
+      notify_user_ids: Array.isArray(g.notify_user_ids) ? [...new Set((g.notify_user_ids as unknown[]).map(Number))] : current.notify_user_ids,
     };
   }
   if ("two_factor_required" in data) values.two_factor_required = bool(data.two_factor_required);
@@ -360,6 +383,7 @@ interface CredentialRow {
   password: string | null; secret_notes: string | null; notes: string | null;
   branch_id: number | null; owner_id: number | null; expires_at: string | null;
   password_changed_at: string | null; updated_at: string | null; require_reauth: boolean;
+  access_mode: string; created_by: number | null;
   b_id?: number | null; b_name?: string | null; o_id?: number | null; o_name?: string | null; upd_name?: string | null;
 }
 
@@ -380,6 +404,8 @@ const credentialJson = (c: CredentialRow) => ({
   has_secret_notes: c.secret_notes !== null,
   /** ต้องยืนยันตัวตนก่อนเปิดดู (ใช้เมื่อเปิดการยืนยันในหน้าตั้งค่าระบบ) */
   require_reauth: Boolean(c.require_reauth),
+  /** all = ทุกคนที่มีสิทธิ์คลังบัญชี / restricted = เฉพาะผู้ใช้-กลุ่มที่เลือก + เจ้าของ + ผู้สร้าง */
+  access_mode: c.access_mode === "restricted" ? "restricted" : "all",
   notes: c.notes,
   branch: c.b_id ? { id: c.b_id, name: c.b_name } : null,
   branch_id: c.branch_id,
@@ -390,10 +416,101 @@ const credentialJson = (c: CredentialRow) => ({
   updated_at: iso(c.updated_at),
 });
 
-async function loadCredential(id: number): Promise<CredentialRow> {
-  const c = await first<CredentialRow>(`SELECT ${CREDENTIAL_SELECT} WHERE c.id = ? AND c.deleted_at IS NULL`, [id]);
+/**
+ * สิทธิ์รายรายการ: access_mode = all → ทุกคนที่มีสิทธิ์คลังบัญชี (ค่าเดิม)
+ * restricted → ผู้ใช้ / กลุ่มสิทธิ์ใน credential_access + เจ้าของ (owner_id) + ผู้สร้าง + ผู้มี vault.all (ผู้ดูแลระบบสูงสุดผ่านเสมอ)
+ * ผู้ที่ไม่มีสิทธิ์ไม่เห็นรายการนั้นเลย (รายการ / ดู / แก้ / ลบ / เปิดดู / ประวัติ = 404)
+ */
+async function accessWhere(u: UserRow): Promise<{ sql: string; params: unknown[] }> {
+  if (can(u, "vault.all")) return { sql: "1 = 1", params: [] };
+  const groups = await groupsOf(u);
+  return {
+    sql: `(c.access_mode <> 'restricted' OR c.owner_id = ? OR c.created_by = ?
+      OR EXISTS (SELECT 1 FROM credential_access a WHERE a.credential_id = c.id AND (a.user_id = ? OR a.group_key IN (?))))`,
+    params: [u.id, u.id, u.id, groups],
+  };
+}
+
+async function loadCredential(id: number, u: UserRow): Promise<CredentialRow> {
+  const w = await accessWhere(u);
+  const c = await first<CredentialRow>(`SELECT ${CREDENTIAL_SELECT} WHERE c.id = ? AND c.deleted_at IS NULL AND ${w.sql}`, [id, ...w.params]);
   if (!c) throw notFound();
   return c;
+}
+
+interface AccessInfo { mode: "all" | "restricted"; users: { id: number; name: string }[]; groups: string[] }
+
+async function accessOf(c: Pick<CredentialRow, "id" | "access_mode">): Promise<AccessInfo> {
+  const rows = await select<{ user_id: number | null; group_key: string | null; name: string | null }>(
+    "SELECT a.user_id, a.group_key, u.name FROM credential_access a LEFT JOIN users u ON u.id = a.user_id WHERE a.credential_id = ? ORDER BY u.name, a.group_key",
+    [c.id],
+  );
+  return {
+    mode: c.access_mode === "restricted" ? "restricted" : "all",
+    users: rows.filter((r) => r.user_id !== null).map((r) => ({ id: Number(r.user_id), name: r.name ?? "" })),
+    groups: rows.filter((r) => r.group_key !== null).map((r) => r.group_key!),
+  };
+}
+
+/** รายละเอียด + การเข้าถึง (ผู้ใช้ / กลุ่มที่เลือก) */
+const credentialDetail = async (c: CredentialRow) => {
+  const a = await accessOf(c);
+  return { ...credentialJson(c), access_users: a.users, access_groups: a.groups };
+};
+
+/** ตรวจ + เตรียมค่าการเข้าถึงจาก input (ไม่ส่ง access_mode มา = ไม่แตะ) */
+async function accessInput(req: Request, current: CredentialRow | null): Promise<AccessInfo | null> {
+  const raw = req.input;
+  if (raw.access_mode === undefined && raw.access_user_ids === undefined && raw.access_groups === undefined) return null;
+  const data = await validate(
+    raw,
+    {
+      access_mode: ["required", "in:all,restricted"],
+      access_user_ids: ["nullable", "array", "max:100"],
+      "access_user_ids.*": ["integer"],
+      access_groups: ["nullable", "array", "max:50"],
+      "access_groups.*": ["string", "max:50"],
+    },
+    { locale: req.locale },
+  );
+  const mode = data.access_mode === "restricted" ? "restricted" : "all";
+  const ids = [...new Set(Object.values((data.access_user_ids as Record<string, unknown>) ?? {}).map(Number))];
+  const groups = [...new Set(Object.values((data.access_groups as Record<string, unknown>) ?? {}).map((g) => String(g).trim()))];
+  const t = (key: string) => trans(req.locale, `eam.vault.${key}`);
+  if (ids.length) {
+    const found = await select<{ id: number; name: string }>("SELECT id, name FROM users WHERE is_active = true AND id IN (?)", [ids]);
+    if (found.length !== ids.length) throw ValidationError.withMessages({ access_user_ids: t("access_user_invalid") });
+  }
+  if (groups.length) {
+    const found = await select<{ key: string }>('SELECT "key" FROM permission_groups WHERE "key" IN (?)', [groups]);
+    if (found.length !== groups.length) throw ValidationError.withMessages({ access_groups: t("access_group_invalid") });
+  }
+  // จำกัดสิทธิ์แล้วตัวผู้แก้ต้องยังเข้าถึงได้ (กันล็อกตัวเองออก)
+  if (mode === "restricted") {
+    const u = me(req);
+    const owner = "owner_id" in raw ? int(raw.owner_id) : (current?.owner_id ?? null);
+    const creator = current ? current.created_by : u.id;
+    const keeps =
+      can(u, "vault.all") || owner === u.id || creator === u.id || ids.includes(u.id) || (await groupsOf(u)).some((g) => groups.includes(g));
+    if (!keeps) throw ValidationError.withMessages({ access_mode: t("access_self") });
+  }
+  const names = ids.length ? await select<{ id: number; name: string }>("SELECT id, name FROM users WHERE id IN (?) ORDER BY name", [ids]) : [];
+  return { mode, users: names.map((n) => ({ id: Number(n.id), name: n.name })), groups: mode === "restricted" ? groups : [] };
+}
+
+/** บันทึกการเข้าถึง (แทนที่ทั้งชุด) + audit ถ้าเปลี่ยน */
+async function saveAccess(req: Request, credentialId: number, before: AccessInfo | null, next: AccessInfo) {
+  const users = next.mode === "restricted" ? next.users : [];
+  await update("credentials", { access_mode: next.mode }, "id = ?", [credentialId]);
+  await exec("DELETE FROM credential_access WHERE credential_id = ?", [credentialId]);
+  const now = nowDb();
+  for (const x of users) await insert("credential_access", { credential_id: credentialId, user_id: x.id, created_by: me(req).id, created_at: now });
+  for (const g of next.groups) await insert("credential_access", { credential_id: credentialId, group_key: g, created_by: me(req).id, created_at: now });
+  const view = (a: AccessInfo | null) => (a ? { mode: a.mode, user_ids: a.users.map((x) => x.id).sort(), groups: [...a.groups].sort() } : null);
+  const after = view({ ...next, users });
+  if (JSON.stringify(view(before)) !== JSON.stringify(after)) {
+    await audit(req, { action: "credential.access_updated", subjectType: "credential", subjectId: credentialId, before: view(before), after });
+  }
 }
 
 async function credentialInput(req: Request, partial: boolean) {
@@ -421,9 +538,9 @@ async function credentialInput(req: Request, partial: boolean) {
   if ("category" in data) out.category = String(data.category).trim();
   for (const key of ["branch_id", "owner_id"]) if (key in data) out[key] = int(data[key]);
   if ("expires_at" in data) out.expires_at = data.expires_at === null ? null : String(data.expires_at).slice(0, 10);
-  // password/secret_notes: ไม่ส่งมา = คงเดิม, ส่ง null ("") = ลบ — เข้ารหัสด้วย APP_KEY เหมือน encrypted cast
-  if ("password" in data) out.password = encryptNullable(data.password as string | null);
-  if ("secret_notes" in data) out.secret_notes = encryptNullable(data.secret_notes as string | null);
+  // password/secret_notes: ไม่ส่งมา = คงเดิม, ส่ง null ("") = ลบ — เข้ารหัสด้วยกุญแจคลัง (VAULT_KEY, ไม่ตั้ง = APP_KEY)
+  if ("password" in data) out.password = encryptVaultNullable(data.password as string | null);
+  if ("secret_notes" in data) out.secret_notes = encryptVaultNullable(data.secret_notes as string | null);
   return { out, plainPassword: data.password as string | null | undefined };
 }
 
@@ -445,8 +562,10 @@ itDataRoutes.get("/credentials", async (req, res) => {
   );
   const perPage = int(f.per_page) ?? 25;
   const page = pageParam(req);
-  const where = ["c.deleted_at IS NULL"];
-  const params: unknown[] = [];
+  // เฉพาะรายการที่ผู้ใช้เข้าถึงได้ (สิทธิ์รายรายการ)
+  const access = await accessWhere(me(req));
+  const where = ["c.deleted_at IS NULL", access.sql];
+  const params: unknown[] = [...access.params];
   const term = String(f.search ?? "").trim();
   if (term) {
     const t = `%${likeEscape(term)}%`;
@@ -474,15 +593,24 @@ itDataRoutes.get("/credentials/categories", async (req, res) => {
   res.json({ data: { builtin: CATEGORIES, custom: custom.map((c) => c.category) } });
 });
 
+/** ตัวเลือกการเข้าถึงรายรายการ: ผู้ใช้ที่มีสิทธิ์ดูคลังบัญชี + กลุ่มสิทธิ์ทั้งหมด */
+itDataRoutes.get("/credentials/access-options", async (req, res) => {
+  vault(req, "create", "update");
+  const users = await usersWithPermissions(["vault.view"]);
+  const groups = await select<{ key: string; name_th: string; name_en: string }>('SELECT "key", name_th, name_en FROM permission_groups ORDER BY sort_order, "key"');
+  res.json({ data: { users: users.map((u) => ({ id: Number(u.id), name: u.name })), groups: groups.map((g) => ({ key: g.key, name_th: g.name_th, name_en: g.name_en })) } });
+});
+
 itDataRoutes.get("/credentials/:id", async (req, res) => {
-  const c = await loadCredential(routeId(req));
   vault(req, "view", "update");
-  res.json({ data: credentialJson(c) });
+  const c = await loadCredential(routeId(req), me(req));
+  res.json({ data: await credentialDetail(c) });
 });
 
 itDataRoutes.post("/credentials", async (req, res) => {
   vault(req, "create");
   const { out, plainPassword } = await credentialInput(req, false);
+  const access = await accessInput(req, null);
   const u = me(req);
   const id = await transaction(async () => {
     const now = nowDb();
@@ -496,36 +624,40 @@ itDataRoutes.post("/credentials", async (req, res) => {
       updated_at: now,
     });
     await logAccess(req, newId, "create");
+    if (access) await saveAccess(req, newId, null, access);
     return newId;
   });
   // Laravel ตอบหลัง refresh() (ไม่โหลด relation) → branch/owner/updated_by เป็น null
-  const c = await loadCredential(id);
-  res.status(201).json({ data: credentialJson({ ...c, b_id: null, o_id: null, upd_name: null }) });
+  const c = await loadCredential(id, u);
+  res.status(201).json({ data: { ...(await credentialDetail(c)), branch: null, owner: null, updated_by: null } });
 });
 
 async function updateCredential(req: Request, res: import("express").Response) {
-  const current = await loadCredential(routeId(req));
   vault(req, "update");
+  const current = await loadCredential(routeId(req), me(req));
   const { out, plainPassword } = await credentialInput(req, true);
+  const access = await accessInput(req, current);
+  const accessBefore = access ? await accessOf(current) : null;
   await transaction(async () => {
     const changes: Record<string, unknown> = { ...out, updated_by: me(req).id, updated_at: nowDb() };
     // password_changed_at เมื่อรหัสผ่านเปลี่ยนจริง (isDirty)
     if ("password" in out) {
-      const before = current.password === null ? null : decryptNullable(current.password);
+      const before = decryptVaultNullable(current.password);
       if ((plainPassword ?? null) !== before) changes.password_changed_at = nowDb();
       else delete changes.password; // ไม่เปลี่ยน → ไม่เขียน ciphertext ใหม่
     }
     await update("credentials", changes, "id = ?", [current.id]);
     await logAccess(req, current.id, "update");
+    if (access) await saveAccess(req, current.id, accessBefore, access);
   });
-  res.json({ data: credentialJson(await loadCredential(current.id)) });
+  res.json({ data: await credentialDetail(await loadCredential(current.id, me(req))) });
 }
 itDataRoutes.put("/credentials/:id", updateCredential);
 itDataRoutes.patch("/credentials/:id", updateCredential);
 
 itDataRoutes.delete("/credentials/:id", async (req, res) => {
-  const c = await loadCredential(routeId(req));
   vault(req, "delete");
+  const c = await loadCredential(routeId(req), me(req));
   await logAccess(req, c.id, "delete");
   await update("credentials", { deleted_at: nowDb(), updated_at: nowDb() }, "id = ?", [c.id]);
   res.status(204).end();
@@ -533,19 +665,19 @@ itDataRoutes.delete("/credentials/:id", async (req, res) => {
 
 /** เปิดดูรหัสผ่าน — ตรวจ IP / ยืนยันรหัสผ่านซ้ำ (ถ้าเปิดใช้) แล้วบันทึก log ผู้เปิดดู + IP ทุกครั้ง + แจ้งหัวหน้า IT (ถ้าเปิดใช้) */
 itDataRoutes.post("/credentials/:id/reveal", limits.reveal, async (req, res) => {
-  const c = await loadCredential(routeId(req));
   vault(req, "view");
+  const c = await loadCredential(routeId(req), me(req));
   // บัญชีที่ปิด "ต้องยืนยันก่อนเปิดดู" → ข้ามการยืนยันตัวตน (ยังตรวจ IP + บันทึก log + แจ้งเตือนตามปกติ)
   await assertCanReveal(req, { reauth: Boolean(c.require_reauth) });
   await logAccess(req, c.id, "reveal");
   await notifyReveal(req, "vault", { id: c.id, title: c.title });
-  res.json({ data: { password: decryptNullable(c.password), secret_notes: decryptNullable(c.secret_notes) } });
+  res.json({ data: { password: decryptVaultNullable(c.password), secret_notes: decryptVaultNullable(c.secret_notes) } });
 });
 
 /** ประวัติการเข้าถึง (ล่าสุด 50 รายการ) */
 itDataRoutes.get("/credentials/:id/logs", async (req, res) => {
-  const c = await loadCredential(routeId(req));
   vault(req, "view");
+  const c = await loadCredential(routeId(req), me(req));
   const logs = await select<{ id: number; action: string; ip: string | null; created_at: string; u_id: number | null; u_name: string | null }>(
     `SELECT l.id, l.action, l.ip, l.created_at, u.id AS u_id, u.name AS u_name
        FROM credential_access_logs l LEFT JOIN users u ON u.id = l.user_id

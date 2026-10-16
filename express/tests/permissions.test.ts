@@ -43,8 +43,8 @@ describe("permissions", () => {
       const expected = PERMISSIONS.filter((p) => p.defaults.some((d) => groups.includes(d))).map((p) => p.key);
       expect([...(await permissionsOf(sample))].sort()).toEqual(expected.sort());
     }
-    // ผู้ดูแลระบบ (admin) = ทุกอย่าง ยกเว้นสิทธิ์ที่สงวนไว้ (จัดการสิทธิ์) และ KPI ของคนอื่น (เฉพาะผู้ดูแลระบบสูงสุด = หัวหน้า IT)
-    const superOnly = ["kpi.view_all", "kpi.edit_all"];
+    // ผู้ดูแลระบบ (admin) = ทุกอย่าง ยกเว้นสิทธิ์ที่สงวนไว้ (จัดการสิทธิ์), KPI ของคนอื่น และเห็นทุกรายการในคลังบัญชี (เฉพาะผู้ดูแลระบบสูงสุด)
+    const superOnly = ["kpi.view_all", "kpi.edit_all", "vault.all"];
     expect([...(await permissionsOf(await makeUser({ role: "admin" })))].sort()).toEqual(PERMISSIONS.filter((p) => !p.locked && !superOnly.includes(p.key)).map((p) => p.key).sort());
   });
 

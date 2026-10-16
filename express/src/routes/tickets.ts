@@ -21,6 +21,7 @@ import { KPI_TICKET_STATUSES } from "../services/kpi.js";
 import { OWN_SQL } from "./assets.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
 import { unassignedVehicleBookings } from "./vehicles.js";
+import { loanBadges } from "./loans.js";
 import { trans } from "../lib/i18n.js";
 
 /**
@@ -360,6 +361,7 @@ async function counts(u: UserRow) {
  *   /it/queue          คิวงาน IT: ใบที่ยังไม่มีผู้รับ (ถ้าเป็นเจ้าหน้าที่ IT ที่รับงานได้) + รอหัวหน้า IT อนุมัติผล (ถ้าเป็นหัวหน้า IT)
  *   /kpi               ใบงานของฉันที่ผู้จัดการ IT อนุมัติผลแล้วแต่ยังไม่กรอก Complexity ใน KPI (KPI_TICKET_STATUSES)
  *   /vehicles/dispatch การจองรถที่ยังไม่ระบุรถ (ผู้จัดคิวรถ)
+ *   /loans/mine, /loans/manage  ยืมอุปกรณ์ IT (routes/loans.ts loanBadges)
  */
 ticketRoutes.get("/menu-badges", async (req, res) => {
   const u = me(req);
@@ -397,6 +399,8 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
   );
   // การจองรถที่ยังไม่ระบุรถ (ผู้จัดคิวรถ) — ผู้รับแจ้งเตือน "รอจัดรถ" = ผู้มีสิทธิ์ vehicle.dispatch เหมือนกัน
   if (can(u, "vehicle.dispatch")) data["/vehicles/dispatch"] = await unassignedVehicleBookings(u);
+  // ยืมอุปกรณ์ IT: ของฉันที่เกินกำหนดคืน / ผู้จัดการ: รอส่งมอบที่ถึงวันแล้ว + เกินกำหนดคืน
+  Object.assign(data, await loanBadges(u));
   res.json({ data });
 });
 

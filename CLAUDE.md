@@ -111,7 +111,10 @@
 
 ## เปิดดูข้อมูลลับ (รหัสผ่านคลังบัญชี / License key)
 - ทุก endpoint ที่ถอดรหัสส่งให้ผู้ใช้ต้องเรียก `assertCanReveal(req)` + `notifyReveal()` (`express/src/services/secret-guard.ts`) และบันทึกประวัติทุกครั้ง
-- สวิตช์ใน `app_settings.secret_guard` (หน้าตั้งค่าระบบ): ยืนยันตัวตนซ้ำ (428 → `POST /auth/reauth`, เก็บ `personal_access_tokens.reauth_at`) ด้วยรหัสผ่าน login หรือ PIN กลาง (`reauth_method`), จำกัด IP, แจ้งหัวหน้า IT
+- คลังบัญชีเข้ารหัสด้วย**กุญแจคลัง** `VAULT_KEY_FILE` / `VAULT_KEY` แยกจาก APP_KEY (`services/vault-crypto.ts` — อ่านด้วยกุญแจคลังก่อน ไม่ผ่านจึงลอง APP_KEY ของข้อมูลเดิม; ไม่ตั้ง = APP_KEY) — ย้ายข้อมูลเดิม `npm run vault:rekey` (`cli/vault-key.ts`, สร้างกุญแจ `vault:keygen`), เครื่องจริง mount ไฟล์ด้วย `deploy/docker-compose.vault.yml` (ไม่อยู่ในไฟล์สำรอง — กุญแจหาย = เปิดคลังไม่ได้); license key / 2FA / token ต้นทาง ยังใช้ APP_KEY
+- สิทธิ์รายรายการ: `credentials.access_mode` = all (ทุกคนที่มี vault.view — ค่าเดิม) / restricted = ผู้ใช้-กลุ่มใน `credential_access` + เจ้าของ + ผู้สร้าง + `vault.all` (ตั้งต้นไม่ให้ใคร, super_admin ผ่าน) — `accessWhere()` ใน routes/it-data.ts ใช้ทุก endpoint (ไม่มีสิทธิ์ = 404 / ไม่อยู่ในรายการ), กันล็อกตัวเองออก (422 `access_self`), เปลี่ยนการเข้าถึง → audit `credential.access_updated`
+- ยืนยันตัวตนซ้ำ `reauth_minutes` = 0 → ต้องยืนยันทุกครั้งที่เปิดดู (ใช้การยืนยันได้ครั้งเดียวภายใน 2 นาที); คัดลอกรหัสผ่าน / license key ใช้ `copySecret()` (`frontend/src/lib/clipboard.ts` — ล้าง clipboard ใน 30 วินาที)
+- สวิตช์ใน `app_settings.secret_guard` (หน้าตั้งค่าระบบ): ยืนยันตัวตนซ้ำ (428 → `POST /auth/reauth`, เก็บ `personal_access_tokens.reauth_at`) ด้วยรหัสผ่าน login หรือ PIN กลาง (`reauth_method`), จำกัด IP, แจ้งเตือนในระบบ (กระดิ่ง ไม่ใช่อีเมล) เมื่อมีคนเปิดดู — ผู้รับ = `notify_user_ids` ที่เลือกในหน้าตั้งค่า / ไม่เลือก = หัวหน้า IT ทุกคน (`revealRecipients`)
 - PIN กลางอันเดียว: `app_settings.secret_pin` (bcrypt — ห้ามส่ง hash ออก API, `settingsJson` ตัดออก) ตั้งที่ `PUT /secret-pin` (สิทธิ์ `secrets.pin_manage` — ตั้งต้น admin + รหัสผ่าน login ผู้ตั้ง, แจ้งเตือน super_admin + admin ทุกครั้ง); ผิด 5 ครั้ง = ล็อกคนนั้น 15 นาที (`users.secret_pin_failures` / `secret_pin_locked_until`)
 - IP ผู้ใช้: frontend ส่ง `X-Forwarded-For` ใน `apiFetch` — เชื่อถือได้เมื่อมี reverse proxy เขียนทับ header หน้า Next.js
 
@@ -152,6 +155,14 @@
 - ประเภทการใช้งาน / รายการเพิ่มเติม / ประเภทรถ / เชื้อเพลิง = `dropdown_options` list `vehicle_purpose` / `vehicle_extra` / `vehicle_type` / `vehicle_fuel` (แท็บ `/dropdowns`, สิทธิ์ `vehicle.manage`) — ประเภทรถ/เชื้อเพลิงเก็บเป็นข้อความใน `vehicles.vehicle_type` / `fuel_type`
 - ย้ายรถไปสาขาอื่น = `POST /vehicles/:id/transfer` (ประวัติ `vehicle_transfers`, `GET /vehicles/:id/transfers`) — แก้สาขาที่ `PUT /vehicles/:id` ไม่ได้ (422 `branch_locked`); การจองที่ยังไม่ถึงคงไว้ (ตอบ `upcoming_bookings` ให้หน้าเว็บเตือน); หน้าแก้ไขรถมีแผง `vehicle-transfer.tsx`
 - หน้า: `/vehicles` (ปฏิทินเดือน) → `/vehicles/day/{date}` (ไทม์ไลน์ 00–24 แถวละคัน + แถวรอจัดรถ) / `/vehicles/book?date=&vehicle=&start=&end=` / `/vehicles/bookings/{uuid}/edit` / `/vehicles/mine` / `/vehicles/dispatch` / `/vehicles/manage` (+ ประวัติเลขไมล์ในหน้าแก้ไขรถ) — ส่วนกลางของระบบจองที่ `frontend/src/lib/booking.ts`
+
+## ยืมอุปกรณ์ IT (เมนู "ยืมอุปกรณ์ IT")
+- API: `express/src/routes/loans.ts` — ตาราง `equipment_loans` (หลายวันได้ `start_on`+`start_time` ถึง `end_on`+`end_time` เวลาไทย); อุปกรณ์ = สินทรัพย์ไม่ถูกลบ สถานะ active/in_storage ที่ผู้ถือครองเป็นเจ้าหน้าที่ IT (`DEVICE_WHERE` ใช้ `IT_STAFF_WHERE`) — ไม่มีตารางอุปกรณ์แยก
+- สถานะ: `reserved` (จอง รอรับ) → `on_loan` (ส่งมอบแล้ว) → `returned` / `cancelled` — ห้ามลบ (ประวัติ); อุปกรณ์เดียวกันช่วงซ้อน (reserved/on_loan) = 422 (transaction + `lockNamed`); ส่งมอบไม่ได้ถ้าอุปกรณ์ยังไม่คืนจากการยืมก่อน
+- สิทธิ์: ทุกคนดูปฏิทิน / จอง / แก้-ยกเลิกของตัวเองก่อนส่งมอบ (`ALWAYS` module `loans`); `loans.manage` = ส่งมอบ / รับคืน (+ หมายเหตุสภาพ) / จัดการของคนอื่น (แจ้งเจ้าของ)
+- แจ้งเตือน kind `loan`: จอง → `requested` ถึงผู้มี `loans.manage`; ส่งมอบ/รับคืน → ปิด `requested`/`overdue`; **เกินกำหนดคืน** (`OVERDUE` = on_loan เลยวันเวลาคืน) → `overdue` ถึงผู้ยืม + ผู้จัดการ วันละครั้ง (`notifyOverdueLoans`, scheduler ตรวจทุกชั่วโมง, `overdue_notified_on`)
+- ตัวเลขเมนู (`loanBadges`): `/loans/mine` = ของฉันที่เกินกำหนด, `/loans/manage` = รอส่งมอบที่ถึงวันแล้ว + เกินกำหนด
+- หน้า: `/loans` (ปฏิทินเดือน — แถบสีตามสถานะ, คลิกวัน = จอง, คลิกรายการ = `loan-dialog.tsx`) / `/loans/book?date=&device=` / `/loans/{uuid}/edit` / `/loans/mine` / `/loans/manage`
 
 ## ห้องประชุม / รถ ตามสาขา (ขอบเขตต่อกลุ่ม)
 - `app_settings.booking_scope` = `{ meeting: { group: "branch"|"all" }, vehicle: { … } }` ตั้งที่ส่วนท้ายหน้า `/role-permissions` (`GET/PUT /booking-scope`, access.manage) — ไม่ตั้ง = ทุกสาขา (เหมือนก่อนมีการตั้งค่า), ได้ขอบเขตกว้างสุดของทุกกลุ่ม, super_admin = all — โค้ดกลาง `express/src/services/booking-scope.ts`

@@ -21,6 +21,11 @@ export function notificationText(n: AppNotification, t: TFunction): string {
     const period = d.start_on === d.end_on ? `${d.start_on} ${d.start_time}–${d.end_time}` : `${d.start_on} ${d.start_time} – ${d.end_on} ${d.end_time}`;
     return t(`notifications.vehicle.${d.event}` as MessageKey, { actor: d.actor, vehicle: d.vehicle ?? "", period });
   }
+  if (n.data.kind === "loan") {
+    const d = n.data;
+    const period = d.start_on === d.end_on ? `${d.start_on} ${d.start_time}–${d.end_time}` : `${d.start_on} ${d.start_time} – ${d.end_on} ${d.end_time}`;
+    return t(`notifications.loan.${d.event}` as MessageKey, { actor: d.actor ?? "", device: d.device, period, end: `${d.end_on} ${d.end_time}` });
+  }
   if (n.data.kind === "meeting") {
     const d = n.data;
     return t(`notifications.meeting.${d.event}` as MessageKey, { actor: d.actor, room: d.room, title: d.title, date: d.date, start: d.start_time, end: d.end_time });
@@ -43,6 +48,13 @@ export function notificationHref(n: AppNotification): string {
   if (n.data.kind === "vehicle") {
     if (n.data.event === "requested") return "/vehicles/dispatch";
     return n.data.event === "cancelled" ? "/vehicles/mine?status=cancelled" : "/vehicles/mine";
+  }
+  // ยืมอุปกรณ์: รอส่งมอบ → หน้าส่งมอบ/รับคืน, เกินกำหนด → ผู้จัดการไปแท็บเกินกำหนด (ผู้ยืมไปการยืมของฉัน — ลิงก์เดียวกัน redirect ตามสิทธิ์), อื่นๆ → การยืมของฉัน
+  if (n.data.kind === "loan") {
+    if (n.data.event === "requested") return "/loans/manage?status=pending";
+    if (n.data.event === "cancelled") return "/loans/mine?status=cancelled";
+    if (n.data.event === "returned") return "/loans/mine?status=past";
+    return "/loans/mine";
   }
   // การจองห้องประชุมที่ผู้จัดการแก้/ยกเลิก/ลบ → การจองของฉัน (ยกเลิก = แท็บยกเลิกแล้ว)
   if (n.data.kind === "meeting") return n.data.event === "cancelled" ? "/meeting-rooms/mine?status=cancelled" : "/meeting-rooms/mine";

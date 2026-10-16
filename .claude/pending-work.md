@@ -13,7 +13,7 @@
 ## คิว
 
 <!-- เพิ่มงานใต้บรรทัดนี้ -->
-- [!] รอผู้ใช้: login บัญชีจริง worakit.sync@gmail.com (รหัสชั่วคราวใน E:Claude_Jobsit-management-backupseal-admin-temp-password.txt) → เปลี่ยนรหัส + เปิด 2FA ที่หน้า ข้อมูลส่วนตัว → ลบไฟล์รหัสชั่วคราว → จากนั้นเปิดสวิตช์บังคับ 2FA ผู้ดูแลระบบ (หน้า ตั้งค่าระบบ) และปิดบัญชี @example.com (ผู้ใช้เลือก "ยังไม่ปิด" 2026-10-14 — ยังใช้ทดสอบสายอนุมัติ) — รหัสฐานข้อมูลเปลี่ยนตอนขึ้นเครื่องจริง (deploy/README.md)
+- [!] รอผู้ใช้: login บัญชีจริง worakit.sync@gmail.com (รหัสชั่วคราวใน E:Claude_Jobsit-management-backupseal-admin-temp-password.txt) → เปลี่ยนรหัส + เปิด 2FA ที่หน้า ข้อมูลส่วนตัว → ลบไฟล์รหัสชั่วคราว → จากนั้นเปิดสวิตช์บังคับ 2FA ผู้ดูแลระบบ (หน้า ตั้งค่าระบบ) — บัญชี @example.com ทั้ง 43 บัญชี + ประวัติ ลบแล้ว 2026-10-14 ตามที่ผู้ใช้สั่ง (สำรองที่ it-management-backups/it_system-before-delete-example-users-20261014-1748.sql; audit_logs เก็บไว้ actor เป็น NULL) — ตอนนี้เหลือ super_admin คนเดียวคือ worakit — รหัสฐานข้อมูลเปลี่ยนตอนขึ้นเครื่องจริง (deploy/README.md)
 
 ## เสร็จแล้ว / ติดปัญหา
 

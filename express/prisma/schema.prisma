@@ -260,6 +260,7 @@ model assets {
   license_installations_device     license_installations[] @relation("license_installations_device_asset_idToassets")
   asset_movements                  asset_movements[]
   asset_user_logs                  asset_user_logs[]
+  equipment_loans                  equipment_loans[]
   users_assets_created_byTousers   users?                  @relation("assets_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "assets_created_by_foreign")
   users_assets_custodian_idTousers users?                  @relation("assets_custodian_idTousers", fields: [custodian_id], references: [id], onUpdate: Restrict, map: "assets_custodian_id_foreign")
   locations                        locations?              @relation(fields: [location_id], references: [id], onUpdate: Restrict, map: "assets_location_id_foreign")
@@ -419,7 +420,10 @@ model credentials {
   deleted_at                          DateTime?                @db.DateTime(0)
   /// ต้องยืนยันตัวตนก่อนเปิดดูรหัสของบัญชีนี้ (ปิด = กดดูได้เลย)
   require_reauth                      Boolean                  @default(true)
+  /// all = ทุกคนที่มีสิทธิ์คลังบัญชี / restricted = เฉพาะผู้ใช้-กลุ่มใน credential_access + เจ้าของ + ผู้สร้าง + vault.all
+  access_mode                         String                   @default("all") @db.VarChar(20)
   credential_access_logs              credential_access_logs[]
+  credential_access                   credential_access[]
   branches                            branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "credentials_branch_id_foreign")
   users_credentials_created_byTousers users?                   @relation("credentials_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "credentials_created_by_foreign")
   users_credentials_owner_idTousers   users?                   @relation("credentials_owner_idTousers", fields: [owner_id], references: [id], onUpdate: Restrict, map: "credentials_owner_id_foreign")
@@ -796,6 +800,12 @@ model users {
   meeting_bookings                                  meeting_bookings[]
   vehicle_bookings                                  vehicle_bookings[]
   vehicle_transfers                                 vehicle_transfers[]
+  credential_access_users                           credential_access[]     @relation("credential_access_user")
+  credential_access_created                         credential_access[]     @relation("credential_access_creator")
+  equipment_loans_borrower                          equipment_loans[]       @relation("equipment_loans_user")
+  equipment_loans_handed                            equipment_loans[]       @relation("equipment_loans_handed")
+  equipment_loans_returned                          equipment_loans[]       @relation("equipment_loans_returned")
+  equipment_loans_cancelled                         equipment_loans[]       @relation("equipment_loans_cancelled")
   company_holidays                                  company_holidays[]
   leave_quota_overrides                             leave_quota_overrides[]
   /// ลิงก์ iCal ส่วนตัว (GET /calendar/feed/{token}.ics)
@@ -1330,4 +1340,63 @@ model vehicle_booking_extras {
   vehicle_bookings vehicle_bookings @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "vehicle_booking_extras_booking_id_foreign")
 
   @@id([booking_id, name])
+}
+
+/// ยืมอุปกรณ์ IT (สินทรัพย์ที่เจ้าหน้าที่ IT ถือครอง) — จอง (reserved) → ส่งมอบ (on_loan) → รับคืน (returned) / ยกเลิก (cancelled)
+/// ช่วงเวลา = start_on + start_time ถึง end_on + end_time ("HH:MM" เวลาไทย) — on_loan เลยกำหนดคืน = เกินกำหนด (แจ้งเตือนวันละครั้ง overdue_notified_on)
+model equipment_loans {
+  id                  BigInt    @id @default(autoincrement())
+  uuid                String    @unique(map: "equipment_loans_uuid_unique") @db.Char(36)
+  asset_id            BigInt
+  user_id             BigInt
+  department          String?   @db.VarChar(255)
+  purpose             String    @db.Text
+  note                String?   @db.Text
+  start_on            DateTime  @db.Date
+  start_time          String    @db.VarChar(5)
+  end_on              DateTime  @db.Date
+  end_time            String    @db.VarChar(5)
+  status              String    @default("reserved") @db.VarChar(20)
+  handed_out_at       DateTime? @db.DateTime(0)
+  handed_out_by       BigInt?
+  returned_at         DateTime? @db.DateTime(0)
+  returned_by         BigInt?
+  return_note         String?   @db.Text
+  overdue_notified_on DateTime? @db.Date
+  cancelled_at        DateTime? @db.DateTime(0)
+  cancelled_by        BigInt?
+  created_at          DateTime? @db.DateTime(0)
+  updated_at          DateTime? @db.DateTime(0)
+  assets              assets    @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "equipment_loans_asset_id_foreign")
+  users               users     @relation("equipment_loans_user", fields: [user_id], references: [id], onUpdate: Restrict, map: "equipment_loans_user_id_foreign")
+  handed_by_user      users?    @relation("equipment_loans_handed", fields: [handed_out_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "equipment_loans_handed_out_by_foreign")
+  returned_by_user    users?    @relation("equipment_loans_returned", fields: [returned_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "equipment_loans_returned_by_foreign")
+  cancelled_by_user   users?    @relation("equipment_loans_cancelled", fields: [cancelled_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "equipment_loans_cancelled_by_foreign")
+
+  @@index([asset_id, start_on, end_on], map: "equipment_loans_asset_id_start_on_end_on_index")
+  @@index([start_on, end_on], map: "equipment_loans_start_on_end_on_index")
+  @@index([user_id], map: "equipment_loans_user_id_index")
+  @@index([status, end_on], map: "equipment_loans_status_end_on_index")
+  @@index([handed_out_by], map: "equipment_loans_handed_out_by_index")
+  @@index([returned_by], map: "equipment_loans_returned_by_index")
+  @@index([cancelled_by], map: "equipment_loans_cancelled_by_index")
+}
+
+/// ผู้ใช้ / กลุ่มสิทธิ์ที่เปิดดูบัญชีที่จำกัดสิทธิ์ (credentials.access_mode = restricted) ได้ — แถวละ user_id หรือ group_key
+model credential_access {
+  id            BigInt      @id @default(autoincrement())
+  credential_id BigInt
+  user_id       BigInt?
+  group_key     String?     @db.VarChar(50)
+  created_by    BigInt?
+  created_at    DateTime?   @db.DateTime(0)
+  credentials   credentials @relation(fields: [credential_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "credential_access_credential_id_foreign")
+  users         users?      @relation("credential_access_user", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "credential_access_user_id_foreign")
+  creator       users?      @relation("credential_access_creator", fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "credential_access_created_by_foreign")
+
+  @@unique([credential_id, user_id], map: "credential_access_credential_id_user_id_unique")
+  @@unique([credential_id, group_key], map: "credential_access_credential_id_group_key_unique")
+  @@index([user_id], map: "credential_access_user_id_index")
+  @@index([group_key], map: "credential_access_group_key_index")
+  @@index([created_by], map: "credential_access_created_by_index")
 }

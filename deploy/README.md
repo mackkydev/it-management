@@ -56,6 +56,27 @@ docker compose exec express npm run security:check:prod   # ใน container บ
 - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`
 - cookie session: `httpOnly` + `SameSite=Lax` + `Secure` (เมื่อไม่ใช่ localhost), หมดอายุ 12 ชม.
 
+## 4.1 กุญแจคลังบัญชี (VAULT_KEY) — แยกจาก APP_KEY
+
+รหัสผ่าน / หมายเหตุลับในคลังบัญชีเข้ารหัสด้วย **กุญแจคลัง** แยกจาก `APP_KEY` — คนที่ได้ไฟล์ `.env` / ไฟล์สำรองไปพร้อมฐานข้อมูล
+ยังอ่านรหัสผ่านในคลังไม่ได้ ถ้ากุญแจคลังเก็บไว้นอกโฟลเดอร์ระบบและนอกไฟล์สำรอง (ไม่ตั้ง = ใช้ `APP_KEY` เหมือนเดิม, `security:check` เตือน)
+
+```bash
+sudo mkdir -p /etc/it-system
+docker compose run --rm express node -e "process.stdout.write('base64:'+require('crypto').randomBytes(32).toString('base64')+'\n')" | sudo tee /etc/it-system/vault.key >/dev/null
+sudo chmod 600 /etc/it-system/vault.key          # หรือบนเครื่องที่มี Node: cd express && npm run vault:keygen -- /etc/it-system/vault.key
+# สำรองฐานข้อมูลก่อน แล้วเปิดใช้กุญแจ (mount ไฟล์เข้า container แบบอ่านอย่างเดียว)
+docker compose -f docker-compose.yml -f deploy/docker-compose.vault.yml --profile web up -d --build
+docker compose -f docker-compose.yml -f deploy/docker-compose.vault.yml exec express npm run vault:rekey:prod -- --dry-run
+docker compose -f docker-compose.yml -f deploy/docker-compose.vault.yml exec express npm run vault:rekey:prod   # เข้ารหัสข้อมูลเดิมใหม่ด้วยกุญแจคลัง
+docker compose -f docker-compose.yml -f deploy/docker-compose.vault.yml exec express npm run security:check:prod
+```
+
+- **กุญแจคลังหาย = เปิดรหัสผ่านในคลังไม่ได้อีกเลย** — เก็บสำเนาไฟล์ `vault.key` ไว้นอกเครื่อง (ตู้เซฟ / password manager ของบริษัท) แยกจากไฟล์สำรองข้อมูล
+- `deploy/backup.sh` **ไม่สำรองไฟล์กุญแจคลัง** (ตั้งใจ) — กู้คืนเครื่องใหม่ต้องนำ `vault.key` สำเนามาวางที่เดิมด้วย
+- ห้ามใส่ `VAULT_KEY` ไว้ใน `express/.env` บนเครื่องจริง (ไฟล์ `.env` อยู่ในไฟล์สำรอง) — ใช้ `VAULT_KEY_FILE` ตามด้านบน
+- ระหว่างย้าย: ข้อมูลเดิมที่ยังเข้ารหัสด้วย `APP_KEY` ยังเปิดดูได้ (ระบบลองกุญแจคลังก่อนแล้วจึงลอง `APP_KEY`) — `vault:rekey` รันซ้ำได้ ไม่แตะแถวที่ย้ายแล้ว
+
 ## 5. สำรองข้อมูล (เข้ารหัส)
 
 สคริปต์ [`deploy/backup.sh`](backup.sh): dump ฐานข้อมูล + `storage/private` + ไฟล์ `.env` → tar → เข้ารหัส **AES-256 (openssl, PBKDF2)** ในท่อเดียว

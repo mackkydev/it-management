@@ -95,6 +95,7 @@ export const BUTTONS: { key: string; page: MessageKey; label: MessageKey; system
   { key: "btn:meeting:room-create", page: "nav.meetingGroup", label: "permissions.buttons.meetingRoomCreate", system: perm("meeting.rooms") },
   { key: "btn:vehicles:book", page: "nav.vehicleGroup", label: "permissions.buttons.vehicleBook" },
   { key: "btn:vehicles:create", page: "nav.vehicleGroup", label: "permissions.buttons.vehicleCreate", system: perm("vehicle.manage") },
+  { key: "btn:loans:book", page: "nav.loanGroup", label: "permissions.buttons.loanBook" },
   { key: "btn:kpi:create", page: "nav.kpi", label: "permissions.buttons.kpiCreate", system: perm("kpi.use") },
   { key: "btn:kpi:export", page: "nav.kpi", label: "permissions.buttons.kpiExport", system: perm("kpi.use") },
   { key: "btn:vault:create", page: "nav.vault", label: "permissions.buttons.vaultCreate", system: perm("vault.create") },

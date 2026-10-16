@@ -108,6 +108,10 @@ export interface CredentialPayload {
   expires_at: string;
   /** ต้องยืนยันตัวตนก่อนเปิดดูรหัสของบัญชีนี้ */
   require_reauth?: boolean;
+  /** สิทธิ์รายรายการ — ไม่ส่ง = ไม่แตะ */
+  access_mode?: "all" | "restricted";
+  access_user_ids?: number[];
+  access_groups?: string[];
 }
 
 export async function saveCredential(id: number | null, v: CredentialPayload): Promise<ItResult> {
@@ -120,6 +124,12 @@ export async function saveCredential(id: number | null, v: CredentialPayload): P
     branch_id: v.branch_id ? Number(v.branch_id) : null,
     expires_at: v.expires_at || null,
   };
+  if (v.require_reauth !== undefined) body.require_reauth = v.require_reauth;
+  if (v.access_mode) {
+    body.access_mode = v.access_mode;
+    body.access_user_ids = v.access_mode === "restricted" ? (v.access_user_ids ?? []) : [];
+    body.access_groups = v.access_mode === "restricted" ? (v.access_groups ?? []) : [];
+  }
   if (v.password !== undefined) body.password = v.password === "" ? null : v.password;
   if (v.secret_notes !== undefined) body.secret_notes = v.secret_notes === "" ? null : v.secret_notes;
 

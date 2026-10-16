@@ -39,6 +39,7 @@ export const MODULES = [
   { key: "leave", group: "users", name_th: "การลา", name_en: "Leave" },
   { key: "meeting", group: "users", name_th: "ห้องประชุม", name_en: "Meeting rooms" },
   { key: "vehicle", group: "users", name_th: "จองรถ", name_en: "Vehicle booking" },
+  { key: "loans", group: "users", name_th: "ยืมอุปกรณ์ IT", name_en: "IT equipment loans" },
 ] as const;
 export type ModuleKey = (typeof MODULES)[number]["key"];
 
@@ -81,6 +82,8 @@ const DEFS: Def[] = [
   { key: "vault.create", module: "vault", action: "create", name_th: "เพิ่มบัญชี/รหัสผ่าน", name_en: "Add credentials", defaults: IT, from: "vault.use" },
   { key: "vault.update", module: "vault", action: "update", name_th: "แก้ไขบัญชี/รหัสผ่าน", name_en: "Edit credentials", defaults: IT, from: "vault.use" },
   { key: "vault.delete", module: "vault", action: "delete", name_th: "ลบบัญชี/รหัสผ่าน", name_en: "Delete credentials", defaults: IT, from: "vault.use" },
+  // รายการที่ตั้ง "เฉพาะที่เลือก" เห็นได้เฉพาะผู้ใช้/กลุ่มที่เลือก + เจ้าของ + ผู้สร้าง — สิทธิ์นี้เห็นทุกรายการ (ผู้ตรวจสอบ) ตั้งต้นไม่ให้ใคร (ผู้ดูแลระบบสูงสุดผ่านเสมอ)
+  { key: "vault.all", module: "vault", action: "manage", name_th: "เห็นทุกรายการในคลังบัญชี (รวมรายการที่จำกัดสิทธิ์)", name_en: "See every vault entry (including restricted ones)", defaults: [] },
   { key: "contracts.view", module: "contracts", action: "view", name_th: "ดูสัญญา vendor", name_en: "View vendor contracts", defaults: IT, from: "contracts.manage" },
   { key: "contracts.create", module: "contracts", action: "create", name_th: "เพิ่มสัญญา vendor", name_en: "Add vendor contracts", defaults: IT, from: "contracts.manage" },
   { key: "contracts.update", module: "contracts", action: "update", name_th: "แก้ไขสัญญา vendor", name_en: "Edit vendor contracts", defaults: IT, from: "contracts.manage" },
@@ -132,6 +135,8 @@ const DEFS: Def[] = [
   { key: "meeting.rooms", module: "meeting", action: "manage", name_th: "จัดการห้องประชุม (รายละเอียด / ที่นั่ง / รูป) และตัวเลือกประเภทการใช้งาน / อุปกรณ์", name_en: "Manage meeting rooms (details / seats / photos) and the usage-type / equipment options", defaults: ["admin"] },
   // จองรถ: ทุกคนดูปฏิทินรถ / จอง (ไม่ระบุรถได้) / แก้-ยกเลิก-ลบ / บันทึกเลขไมล์ของการจองตัวเองได้เสมอ
   { key: "vehicle.dispatch", module: "vehicle", action: "update", name_th: "จัดคิวรถ: เลือกรถให้การจอง และแก้ไข / ยกเลิก / ลบการจองของผู้อื่น", name_en: "Dispatch: assign vehicles and edit / cancel / delete other people's bookings", defaults: ["admin"] },
+  // ยืมอุปกรณ์ IT — ทุกคนดูปฏิทิน / จอง / แก้-ยกเลิกการจองของตัวเอง (routes/loans.ts)
+  { key: "loans.manage", module: "loans", action: "manage", name_th: "ส่งมอบ / รับคืนอุปกรณ์ IT และจัดการการยืมของผู้อื่น (ได้แจ้งเตือนรอส่งมอบ / เกินกำหนดคืน)", name_en: "Hand over / receive IT equipment and manage other people's loans (notified of pending hand-overs / overdue returns)", defaults: ["admin"] },
   { key: "vehicle.manage", module: "vehicle", action: "manage", name_th: "จัดการรถ (รายละเอียด / ที่นั่ง / รูป / เลขไมล์) และตัวเลือกประเภทการใช้งาน / รายการเพิ่มเติม", name_en: "Manage vehicles (details / seats / photos / mileage) and the usage-type / extra options", defaults: ["admin"] },
 ];
 

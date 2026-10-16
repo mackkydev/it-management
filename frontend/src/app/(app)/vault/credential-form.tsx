@@ -4,20 +4,36 @@ import Link from "next/link";
 import { useState, useTransition, type ReactNode } from "react";
 import { deleteCredential, saveCredential, type CredentialPayload } from "@/app/actions/it-data";
 import { DateInput } from "@/components/date-input";
-import { AlertIcon, KeyIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { AlertIcon, KeyIcon, LockIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { PasswordInput } from "@/components/password-input";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import { CREDENTIAL_CATEGORIES, isBuiltinCategory, type Branch, type Credential } from "@/lib/types";
+import { CREDENTIAL_CATEGORIES, isBuiltinCategory, type Branch, type Credential, type CredentialAccessOptions } from "@/lib/types";
+import { HelperPicker } from "../tickets/[id]/helpers-card";
 
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
 import { OptionPicker } from "@/components/option-picker";
 import { quickAddOption } from "@/app/actions/dropdowns";
 
-/** canDelete = มีสิทธิ์ vault.delete (API ตรวจซ้ำ) */
-export function CredentialForm({ credential, branches, customCategories = [], canDelete = false }: { credential?: Credential; branches: Branch[]; customCategories?: string[]; canDelete?: boolean }) {
-  const { t } = useI18n();
+/**
+ * canDelete = มีสิทธิ์ vault.delete (API ตรวจซ้ำ)
+ * การเข้าถึงรายรายการ: ทุกคนที่มีสิทธิ์คลังบัญชี (ค่าเดิม) / เฉพาะผู้ใช้-กลุ่มที่เลือก (+ เจ้าของ + ผู้สร้าง + ผู้มีสิทธิ์เห็นทุกรายการ)
+ */
+export function CredentialForm({
+  credential,
+  branches,
+  customCategories = [],
+  canDelete = false,
+  accessOptions,
+}: {
+  credential?: Credential;
+  branches: Branch[];
+  customCategories?: string[];
+  canDelete?: boolean;
+  accessOptions: CredentialAccessOptions;
+}) {
+  const { t, locale } = useI18n();
   const confirm = useConfirm();
   const isEdit = Boolean(credential);
   const [v, setV] = useState({
@@ -34,6 +50,15 @@ export function CredentialForm({ credential, branches, customCategories = [], ca
   const [secret, setSecret] = useState("");
   // ต้องยืนยันตัวตน (รหัสผ่าน login / PIN กลาง) ก่อนเปิดดูรหัสของบัญชีนี้ — บัญชีใหม่ = เปิดไว้
   const [requireReauth, setRequireReauth] = useState(credential?.require_reauth ?? true);
+  const [accessMode, setAccessMode] = useState<"all" | "restricted">(credential?.access_mode ?? "all");
+  const [accessUsers, setAccessUsers] = useState<number[]>((credential?.access_users ?? []).map((u) => u.id));
+  const [accessGroups, setAccessGroups] = useState<string[]>(credential?.access_groups ?? []);
+  // ผู้ใช้ที่เลือกไว้เดิมแต่ไม่อยู่ในตัวเลือกแล้ว (เช่น ถูกถอดสิทธิ์คลังบัญชี) ยังแสดงให้เอาออกได้
+  const userOptions = [
+    ...accessOptions.users,
+    ...(credential?.access_users ?? []).filter((u) => !accessOptions.users.some((o) => o.id === u.id)),
+  ].map((u) => ({ ...u, busy: null }));
+  const clearAccessError = () => setErrors((e) => ({ ...e, access_mode: "", access_user_ids: "", access_groups: "" }));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [pending, start] = useTransition();
@@ -47,7 +72,7 @@ export function CredentialForm({ credential, branches, customCategories = [], ca
   const submit = () => {
     if (!v.title.trim()) return setErrors({ title: t("vault.validate.title") });
     if (!v.category) return setErrors({ category: t("vault.form.categoryRequired") });
-    const payload: CredentialPayload = { ...v, require_reauth: requireReauth };
+    const payload: CredentialPayload = { ...v, require_reauth: requireReauth, access_mode: accessMode, access_user_ids: accessUsers, access_groups: accessGroups };
     // แก้ไข: ไม่ส่ง = คงเดิม; ติ๊กลบ = ส่ง ""
     if (!isEdit || password) payload.password = password;
     if (isEdit && clearPassword && !password) payload.password = "";
@@ -176,6 +201,65 @@ export function CredentialForm({ credential, branches, customCategories = [], ca
         )}
         {field("expires_at", t("vault.form.expiresAt"), <DateInput id="expires_at" value={v.expires_at} onChange={(d) => set("expires_at", d)} className={cls("expires_at")} />)}
         {field("notes", t("vault.form.notes"), <textarea id="notes" rows={3} maxLength={5000} value={v.notes} onChange={(e) => set("notes", e.target.value)} className={cls("notes")} />, false, undefined, true)}
+
+        {/* การเข้าถึงรายรายการ */}
+        <div className="space-y-3 rounded-xl p-4 ring-1 ring-line sm:col-span-2">
+          <div>
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <LockIcon width={14} height={14} className="text-accent-500" />
+              {t("vault.access.title")}
+            </p>
+            <p className="mt-0.5 text-xs text-muted">{t("vault.access.hint")}</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(["all", "restricted"] as const).map((m) => (
+              <label
+                key={m}
+                className={`flex cursor-pointer items-start gap-2 rounded-xl px-3 py-2 text-sm ring-1 transition-colors ${accessMode === m ? "bg-accent-50 ring-accent-300 dark:bg-accent-400/10" : "ring-line hover:bg-subtle"}`}
+              >
+                <input type="radio" name="access_mode" checked={accessMode === m} onChange={() => (setAccessMode(m), clearAccessError())} className="mt-0.5 cursor-pointer accent-[var(--accent-500)]" />
+                <span>
+                  <span className="block font-medium">{t(`vault.access.modes.${m}`)}</span>
+                  <span className="block text-xs text-muted">{t(`vault.access.modeHints.${m}`)}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {accessMode === "restricted" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="mb-1 text-xs font-medium">{t("vault.access.users")}</p>
+                <HelperPicker
+                  options={userOptions}
+                  value={accessUsers}
+                  onChange={(ids) => (setAccessUsers(ids), clearAccessError())}
+                  searchLabel={t("vault.access.searchUser")}
+                  noMatchLabel={t("vault.access.noUser")}
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-medium">{t("vault.access.groups")}</p>
+                <div className="max-h-48 overflow-y-auto rounded-xl p-1 ring-1 ring-line">
+                  {accessOptions.groups.map((g) => (
+                    <label key={g.key} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-subtle/60">
+                      <input
+                        type="checkbox"
+                        checked={accessGroups.includes(g.key)}
+                        onChange={() => (setAccessGroups((x) => (x.includes(g.key) ? x.filter((k) => k !== g.key) : [...x, g.key])), clearAccessError())}
+                        className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+                      />
+                      {locale === "th" ? g.name_th : g.name_en}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-muted sm:col-span-2">{t("vault.access.alwaysSee")}</p>
+            </div>
+          )}
+          {(errors.access_mode || errors.access_user_ids || errors.access_groups) && (
+            <p className="text-xs font-medium text-red-500">{errors.access_mode || errors.access_user_ids || errors.access_groups}</p>
+          )}
+        </div>
       </fieldset>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">

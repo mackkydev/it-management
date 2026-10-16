@@ -1,6 +1,6 @@
 import { BlockList, isIP } from "node:net";
 import type { Request } from "express";
-import { first, select, update } from "../db.js";
+import { first, select, update, exec } from "../db.js";
 import { HttpError, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
 import { nowDb, toDbDateTime } from "../lib/time.js";
@@ -16,11 +16,11 @@ const parseDb = (v: string) => new Date(`${String(v).replace(" ", "T")}Z`);
 
 /**
  * การป้องกันตอนเปิดดูข้อมูลลับ (รหัสผ่านในคลังบัญชี / License key) — เปิด-ปิดแยกกันได้ที่หน้าตั้งค่าระบบ (app_settings.secret_guard)
- *   reauth       ต้องยืนยันตัวตนซ้ำ — ยืนยันแล้วเปิดดูต่อได้ reauth_minutes นาที (ต่อ session)
+ *   reauth       ต้องยืนยันตัวตนซ้ำ — ยืนยันแล้วเปิดดูต่อได้ reauth_minutes นาที (ต่อ session) — 0 = ต้องยืนยันทุกครั้งที่เปิดดู
  *                reauth_method: password = รหัสผ่าน login ของแต่ละคน / pin = PIN กลางอันเดียว (app_settings.secret_pin)
  *                PIN กลางตั้งได้โดยผู้มีสิทธิ์ secrets.pin_manage — กรอกผิดติดกัน 5 ครั้ง = ล็อกคนนั้น 15 นาที
  *   ip_restrict  เปิดดูได้เฉพาะจาก IP / ช่วง IP ที่กำหนด (สำนักงาน / VPN)
- *   notify_heads แจ้งเตือนหัวหน้า IT ทุกครั้งที่มีคนเปิดดู
+ *   notify_heads แจ้งเตือนทุกครั้งที่มีคนเปิดดู — ผู้รับ = notify_user_ids (เลือกเองในหน้าตั้งค่า) / ไม่เลือก = หัวหน้า IT ทุกคน (is_it_head)
  * การบันทึกประวัติการเปิดดู (ใคร / เมื่อไร / IP) ทำทุกครั้งเสมอ — ปิดไม่ได้
  * IP มาจาก X-Forwarded-For ที่ frontend ส่งต่อ: เชื่อถือได้เมื่อมี reverse proxy (Caddy/Nginx) เขียนทับ header นี้หน้า Next.js
  */
@@ -35,9 +35,11 @@ export interface SecretGuard {
   ip_restrict: boolean;
   allowed_ips: string[];
   notify_heads: boolean;
+  /** ผู้รับแจ้งเตือนเมื่อมีคนเปิดดู — [] = หัวหน้า IT ทุกคน (ค่าเดิม) */
+  notify_user_ids: number[];
 }
 
-export const SECRET_GUARD_DEFAULTS: SecretGuard = { reauth: true, reauth_method: "password", reauth_minutes: 5, ip_restrict: false, allowed_ips: [], notify_heads: true };
+export const SECRET_GUARD_DEFAULTS: SecretGuard = { reauth: true, reauth_method: "password", reauth_minutes: 5, ip_restrict: false, allowed_ips: [], notify_heads: true, notify_user_ids: [] };
 
 export async function secretGuard(): Promise<SecretGuard> {
   const stored = (await getSetting("secret_guard")) as Partial<SecretGuard> | null;
@@ -84,7 +86,10 @@ export async function assertCanReveal(req: Request, opts: { reauth?: boolean } =
   // reauth: false = รายการนี้ไม่ต้องยืนยัน (คลังบัญชีตั้งรายบัญชีได้)
   if (g.reauth && opts.reauth !== false) {
     const row = req.tokenId ? await first<{ reauth_at: string | null }>("SELECT reauth_at FROM personal_access_tokens WHERE id = ?", [req.tokenId]) : null;
-    const fresh = row?.reauth_at && Date.now() - parseDb(row.reauth_at).getTime() <= g.reauth_minutes * 60_000;
+    // reauth_minutes = 0 → ยืนยันทุกครั้ง: ใช้การยืนยันที่เพิ่งทำ (ภายใน 2 นาที) ได้ครั้งเดียวแล้วล้างทิ้ง
+    const windowMs = g.reauth_minutes > 0 ? g.reauth_minutes * 60_000 : 120_000;
+    const fresh = row?.reauth_at && Date.now() - parseDb(row.reauth_at).getTime() <= windowMs;
+    if (fresh && g.reauth_minutes === 0) await exec("UPDATE personal_access_tokens SET reauth_at = NULL WHERE id = ?", [req.tokenId]);
     if (!fresh) {
       const u = me(req);
       const pin = g.reauth_method === "pin";
@@ -97,11 +102,21 @@ export async function assertCanReveal(req: Request, opts: { reauth?: boolean } =
   }
 }
 
-/** แจ้งเตือนหัวหน้า IT (ยกเว้นคนที่เปิดดูเอง) เมื่อเปิดใช้ notify_heads */
+/** ผู้รับแจ้งเตือนเมื่อมีคนเปิดดู: ผู้ใช้ที่เลือกไว้ (ที่ยังใช้งานอยู่) / ไม่ได้เลือก = หัวหน้า IT ทุกคน */
+export async function revealRecipients(g: SecretGuard, exceptId: number | null = null): Promise<{ id: number; name: string }[]> {
+  const ids = (g.notify_user_ids ?? []).map(Number).filter((x) => Number.isInteger(x) && x > 0);
+  const rows = ids.length
+    ? await select<{ id: number; name: string }>("SELECT id, name FROM users WHERE is_active = true AND id IN (?) ORDER BY name", [ids])
+    : await select<{ id: number; name: string }>("SELECT id, name FROM users WHERE is_active = true AND is_it_head = true ORDER BY name");
+  return rows.filter((r) => Number(r.id) !== exceptId).map((r) => ({ id: Number(r.id), name: r.name }));
+}
+
+/** แจ้งเตือนผู้รับที่ตั้งไว้ (ยกเว้นคนที่เปิดดูเอง) เมื่อเปิดใช้ notify_heads */
 export async function notifyReveal(req: Request, kind: "vault" | "license", subject: { id: string | number; title: string }): Promise<void> {
-  if (!(await secretGuard()).notify_heads) return;
+  const g = await secretGuard();
+  if (!g.notify_heads) return;
   const u = me(req);
-  const heads = await select<{ id: number }>("SELECT id FROM users WHERE is_active = true AND is_it_head = true AND id <> ?", [u.id]);
+  const heads = await revealRecipients(g, u.id);
   if (!heads.length) return;
   await notifyUsers(
     heads.map((h) => h.id),

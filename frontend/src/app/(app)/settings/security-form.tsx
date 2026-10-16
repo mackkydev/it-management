@@ -8,6 +8,7 @@ import { alert, btn, card, input } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { SecretGuard, SecretPinStatus } from "@/lib/types";
 import { CentralPinForm } from "@/components/central-pin-form";
+import { HelperPicker } from "../tickets/[id]/helpers-card";
 
 /** IPv4 / IPv6 หรือช่วง (CIDR) — API ตรวจซ้ำ */
 const IP_RE = /^([0-9]{1,3}(\.[0-9]{1,3}){3}(\/([0-9]|[12][0-9]|3[0-2]))?|[0-9a-f:]+:[0-9a-f:.]*(\/[0-9]{1,3})?)$/i;
@@ -42,7 +43,19 @@ function Toggle({ id, checked, onChange, title, hint, children }: { id: string; 
  * ความปลอดภัยตอนเปิดดูรหัสผ่าน (คลังบัญชี) / License key — เปิด-ปิดแยกกันได้
  * ประวัติการเปิดดูถูกบันทึกทุกครั้งเสมอ (ปิดไม่ได้)
  */
-export function SecurityForm({ initial, pinStatus, canManagePin }: { initial: SecretGuard; pinStatus: SecretPinStatus; canManagePin: boolean }) {
+export function SecurityForm({
+  initial,
+  pinStatus,
+  canManagePin,
+  userOptions,
+  effectiveRecipients,
+}: {
+  initial: SecretGuard;
+  pinStatus: SecretPinStatus;
+  canManagePin: boolean;
+  userOptions: { id: number; name: string }[];
+  effectiveRecipients: { id: number; name: string }[];
+}) {
   const { t } = useI18n();
   const [v, setV] = useState<SecretGuard>(initial);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
@@ -108,12 +121,13 @@ export function SecurityForm({ initial, pinStatus, canManagePin }: { initial: Se
           <input
             id="sg-minutes"
             type="number"
-            min={1}
+            min={0}
             max={60}
             value={v.reauth_minutes}
-            onChange={(e) => set("reauth_minutes", Math.min(60, Math.max(1, Number(e.target.value) || 1)))}
+            onChange={(e) => set("reauth_minutes", Math.min(60, Math.max(0, Number(e.target.value) || 0)))}
             className={`${input} max-w-32`}
           />
+          <p className="mt-1 text-xs text-muted">{t("secretGuard.reauthMinutesHint")}</p>
         </Toggle>
 
         <Toggle id="sg-ip" checked={v.ip_restrict} onChange={(x) => set("ip_restrict", x)} title={t("secretGuard.ipTitle")} hint={t("secretGuard.ipHint")}>
@@ -128,7 +142,20 @@ export function SecurityForm({ initial, pinStatus, canManagePin }: { initial: Se
           <p className="mt-2 text-xs text-warning-700 dark:text-warning-300">{t("secretGuard.ipProxyNote")}</p>
         </Toggle>
 
-        <Toggle id="sg-notify" checked={v.notify_heads} onChange={(x) => set("notify_heads", x)} title={t("secretGuard.notifyTitle")} hint={t("secretGuard.notifyHint")} />
+        <Toggle id="sg-notify" checked={v.notify_heads} onChange={(x) => set("notify_heads", x)} title={t("secretGuard.notifyTitle")} hint={t("secretGuard.notifyHint")}>
+          {/* ผู้รับแจ้งเตือน: เลือกผู้ใช้ในระบบ — ไม่เลือก = หัวหน้า IT ทุกคน */}
+          <p className="mb-1 text-xs font-medium">{t("secretGuard.notifyRecipients")}</p>
+          <p className="mb-2 text-xs text-muted">{t("secretGuard.notifyRecipientsHint")}</p>
+          <HelperPicker options={userOptions.map((o) => ({ ...o, busy: null }))} value={v.notify_user_ids} onChange={(ids) => set("notify_user_ids", ids)}
+            searchLabel={t("secretGuard.searchUser")}
+            noMatchLabel={t("secretGuard.noUser")}
+          />
+          {v.notify_user_ids.length === 0 && (
+            <p className={`mt-2 text-xs ${effectiveRecipients.length ? "text-muted" : "text-warning-700 dark:text-warning-300"}`}>
+              {effectiveRecipients.length ? t("secretGuard.notifyNow", { names: effectiveRecipients.map((r) => r.name).join(", ") }) : t("secretGuard.notifyNobody")}
+            </p>
+          )}
+        </Toggle>
 
         <p className="text-xs text-muted">{t("secretGuard.logNote")}</p>
       </fieldset>

@@ -7,7 +7,7 @@ import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
 import { has, getCurrentUser } from "@/lib/auth";
-import type { Branch, Credential } from "@/lib/types";
+import type { Branch, Credential, CredentialAccessOptions } from "@/lib/types";
 import { CredentialForm } from "../../credential-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -30,19 +30,26 @@ export default async function EditCredentialPage({ params }: PageProps<"/vault/[
   const user = await getCurrentUser();
   if (!has(user, "vault.update")) redirect("/tickets");
 
-  const [{ data: credential }, { data: branches }, { data: categories }, { data: logs }, { t, fmt }] = await Promise.all([
+  const [{ data: credential }, { data: branches }, { data: categories }, { data: logs }, { t, fmt }, { data: accessOptions }] = await Promise.all([
     load<Credential>(`/credentials/${id}`),
     apiFetch<{ data: Branch[] }>("/branches"),
     // หมวดที่เพิ่มเอง = ข้อมูล Drop Down (vault_category)
     apiFetch<{ data: { name: string }[] }>("/dropdown-options/vault_category").then((r) => ({ data: { custom: r.data.map((o) => o.name) } })),
     load<{ id: number; action: string; user: { name: string } | null; ip: string | null; created_at: string }[]>(`/credentials/${id}/logs`),
     getI18n(),
+    apiFetch<{ data: CredentialAccessOptions }>("/credentials/access-options"),
   ]);
 
   return (
     <div className="space-y-5">
       <PageHeader icon={KeyIcon} title={t("vault.editTitle")} subtitle={credential.title} />
-      <CredentialForm credential={credential} branches={branches} customCategories={categories.custom} canDelete={has(user, "vault.delete")} />
+      <CredentialForm
+        credential={credential}
+        branches={branches}
+        customCategories={categories.custom}
+        canDelete={has(user, "vault.delete")}
+        accessOptions={accessOptions}
+      />
 
       {/* ประวัติการเข้าถึง (audit) */}
       <section className={`p-4 sm:p-6 ${card}`}>

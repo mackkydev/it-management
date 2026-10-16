@@ -9,6 +9,7 @@ import { Tooltip } from "@/components/tooltip";
 import { alert, btn } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { AssetFile } from "@/lib/types";
+import { copySecret } from "@/lib/clipboard";
 import { useConfirm } from "@/components/dialog-provider";
 
 const ICON_BTN =
@@ -44,7 +45,8 @@ export function LicenseKey({ assetId }: { assetId: string }) {
 
   const copy = async () => {
     if (!key) return;
-    await navigator.clipboard.writeText(key);
+    // ล้าง clipboard อัตโนมัติใน 30 วินาที (lib/clipboard.ts)
+    await copySecret(key);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };

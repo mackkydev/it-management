@@ -102,7 +102,12 @@ const eamTh = {
     took_over_from: "รับงานแทน :name",
     forward_same: "เจ้าหน้าที่คนนี้เป็นผู้รับงานของใบนี้อยู่แล้ว",
   },
-  vault: { invalid_category: "หมวดหมู่ต้องยาว 1–30 ตัวอักษร" },
+  vault: {
+    invalid_category: "หมวดหมู่ต้องยาว 1–30 ตัวอักษร",
+    access_user_invalid: "ผู้ใช้ที่เลือกต้องเป็นผู้ใช้ที่ยังใช้งานอยู่",
+    access_group_invalid: "ไม่พบกลุ่มสิทธิ์ที่เลือก",
+    access_self: "จำกัดสิทธิ์แล้วคุณจะเปิดดูรายการนี้ไม่ได้ — เลือกตัวคุณเอง (หรือกลุ่มของคุณ) ไว้ด้วย",
+  },
   secret_guard: {
     ip_blocked: "เปิดดูข้อมูลลับได้เฉพาะจากเครือข่ายที่อนุญาต (IP ของคุณ: :ip)",
     reauth_required: "กรุณายืนยันรหัสผ่านของคุณก่อนเปิดดู",
@@ -115,6 +120,7 @@ const eamTh = {
     pin_mismatch: "ยืนยัน PIN ไม่ตรงกัน",
     not_supported: "บัญชีนี้ยืนยันรหัสผ่านซ้ำไม่ได้ — ติดต่อผู้ดูแลระบบให้ปิดการยืนยันตัวตนซ้ำ หรือใช้บัญชีในระบบ",
     ip_required: "เปิดจำกัด IP แล้ว — กรุณาระบุ IP หรือช่วง IP อย่างน้อย 1 รายการ",
+    recipient_invalid: "ผู้รับแจ้งเตือนต้องเป็นผู้ใช้ที่ยังใช้งานอยู่",
     invalid_ip: "IP / ช่วง IP ไม่ถูกต้อง (เช่น 192.168.1.0/24)",
   },
   kpi: {
@@ -164,6 +170,15 @@ const eamTh = {
     overlap: "รถ :vehicle ถูกจองช่วง :period แล้ว (โดย :name)",
     transfer_same: "รถคันนี้อยู่สาขานี้อยู่แล้ว",
     branch_locked: "เปลี่ยนสาขาของรถที่หน้าแก้ไขไม่ได้ — ใช้ปุ่ม \"ย้ายสาขา\" (เก็บประวัติการย้าย)",
+  },
+  loan: {
+    device_invalid: "เลือกอุปกรณ์ที่ให้ยืมได้ (สินทรัพย์ที่ฝ่าย IT ถือครอง ใช้งาน/เก็บในคลัง)",
+    too_long: "ยืมได้ไม่เกิน :days วันต่อครั้ง",
+    overlap: "อุปกรณ์ :device ถูกจองช่วง :period แล้ว (โดย :name)",
+    not_editable: "การยืมนี้ส่งมอบแล้ว / คืนแล้ว / ยกเลิกแล้ว หรือเลยเวลาแล้ว — แก้ไขหรือยกเลิกไม่ได้",
+    not_reserved: "การยืมนี้ไม่ได้อยู่ในสถานะรอส่งมอบ",
+    not_on_loan: "การยืมนี้ไม่ได้อยู่ระหว่างยืม",
+    still_on_loan: "อุปกรณ์นี้ยังไม่ถูกคืนจากการยืมก่อนหน้า (:name) — รับคืนก่อนจึงส่งมอบได้",
   },
   two_factor: {
     invalid: "รหัสยืนยันไม่ถูกต้อง หรือถูกใช้ไปแล้ว",
@@ -389,7 +404,12 @@ const eamEn: Eam = {
     took_over_from: "Took over from :name",
     forward_same: "This staff member is already the assignee of this ticket.",
   },
-  vault: { invalid_category: "The category must be 1–30 characters." },
+  vault: {
+    invalid_category: "The category must be 1–30 characters.",
+    access_user_invalid: "Selected users must be active.",
+    access_group_invalid: "The selected permission group was not found.",
+    access_self: "With this restriction you could not open this entry — include yourself (or your group).",
+  },
   secret_guard: {
     ip_blocked: "Secrets can only be viewed from allowed networks (your IP: :ip).",
     reauth_required: "Please confirm your password before viewing.",
@@ -402,6 +422,7 @@ const eamEn: Eam = {
     pin_mismatch: "The PIN confirmation does not match.",
     not_supported: "This account cannot confirm its password — ask an administrator to turn off re-authentication or use a local account.",
     ip_required: "IP restriction is on — enter at least one IP or IP range.",
+    recipient_invalid: "Notification recipients must be active users.",
     invalid_ip: "Invalid IP / IP range (e.g. 192.168.1.0/24).",
   },
   kpi: {
@@ -451,6 +472,15 @@ const eamEn: Eam = {
     overlap: "Vehicle :vehicle is already booked :period (by :name).",
     transfer_same: "This vehicle is already at that branch.",
     branch_locked: "The branch cannot be changed on the edit form — use \"Move to branch\" (keeps the move history).",
+  },
+  loan: {
+    device_invalid: "Choose a lendable device (an asset held by IT staff, in use or in storage).",
+    too_long: "A loan can be at most :days days.",
+    overlap: "Device :device is already booked :period (by :name).",
+    not_editable: "This loan was handed over / returned / cancelled or is already over — it cannot be edited or cancelled.",
+    not_reserved: "This loan is not waiting for hand-over.",
+    not_on_loan: "This loan is not on loan.",
+    still_on_loan: "This device has not been returned from the previous loan (:name) — receive it first.",
   },
   two_factor: {
     invalid: "The verification code is wrong or has already been used.",

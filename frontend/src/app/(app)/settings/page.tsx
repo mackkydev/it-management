@@ -27,7 +27,13 @@ export default async function SettingsPage() {
       <PageHeader icon={SettingsIcon} title={t("settingsPage.title")} subtitle={t("settingsPage.subtitle")} />
       <LogoCard version={ui.logo_version} />
       <SettingsForm initial={data} />
-      <SecurityForm initial={data.secret_guard} pinStatus={data.secret_pin_status} canManagePin={has(user, "secrets.pin_manage")} />
+      <SecurityForm
+        initial={data.secret_guard}
+        pinStatus={data.secret_pin_status}
+        canManagePin={has(user, "secrets.pin_manage")}
+        userOptions={data.secret_notify_options}
+        effectiveRecipients={data.secret_notify_effective}
+      />
       {/* บังคับ 2FA ผู้ดูแลระบบ — นโยบายการเข้าสู่ระบบ (access.manage) */}
       {has(user, "access.manage") && <TwoFactorPolicy initial={Boolean(data.two_factor_required)} />}
     </div>

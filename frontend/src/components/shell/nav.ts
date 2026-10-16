@@ -106,6 +106,18 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
+    // ยืมอุปกรณ์ IT — ทุกคน: ปฏิทิน / ยืม / การยืมของฉัน (ตัวเลข = เกินกำหนดคืน); ส่งมอบ/รับคืน = loans.manage (ตัวเลข = รอส่งมอบที่ถึงวัน + เกินกำหนด)
+    id: "loans",
+    label: "nav.loanGroup",
+    icon: BoxIcon,
+    items: [
+      { label: "nav.loanCalendar", href: "/loans", icon: CalendarIcon },
+      { label: "nav.loanBook", href: "/loans/book", icon: PlusIcon },
+      { label: "nav.loanMine", href: "/loans/mine", icon: InboxIcon },
+      { label: "nav.loanManage", href: "/loans/manage", icon: CheckCircleIcon, visible: perm("loans.manage") },
+    ],
+  },
+  {
     // มุมผู้ทำงาน — เฉพาะฝ่าย IT: คิวงานของฉัน (เฉพาะใบของตัวเอง + ตัวเลขงานรอ) / คิวงาน IT (ทุกใบ — รับงานแทนได้) / KPI
     id: "it-work",
     label: "nav.itWork",

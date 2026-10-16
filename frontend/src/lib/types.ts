@@ -149,6 +149,10 @@ export interface AppSettings {
   /** ความปลอดภัยตอนเปิดดูรหัสผ่าน / License key */
   secret_guard: SecretGuard;
   secret_pin_status: SecretPinStatus;
+  /** ตัวเลือกผู้รับแจ้งเตือนเมื่อมีคนเปิดดูข้อมูลลับ (ผู้ใช้ที่ใช้งานอยู่) */
+  secret_notify_options: { id: number; name: string }[];
+  /** ผู้รับจริงตอนนี้ (ไม่ได้เลือก = หัวหน้า IT) */
+  secret_notify_effective: { id: number; name: string }[];
 }
 
 /** สถานะ PIN กลาง (GET /secret-pin) — ไม่มีค่า PIN */
@@ -175,6 +179,8 @@ export interface SecretGuard {
   ip_restrict: boolean;
   allowed_ips: string[];
   notify_heads: boolean;
+  /** ผู้รับแจ้งเตือนเมื่อมีคนเปิดดู — [] = หัวหน้า IT ทุกคน */
+  notify_user_ids: number[];
 }
 
 /** หมวดตั้งต้น (แก้ไม่ได้) — คลังบัญชีและหมวดหมู่สัญญาใช้ชุดเดียวกัน ("other" ท้ายสุด) */
@@ -205,6 +211,17 @@ export interface Credential {
   password_changed_at: string | null;
   updated_by: string | null;
   updated_at: string | null;
+  /** all = ทุกคนที่มีสิทธิ์คลังบัญชี / restricted = เฉพาะผู้ใช้-กลุ่มที่เลือก + เจ้าของ + ผู้สร้าง */
+  access_mode: "all" | "restricted";
+  /** รายละเอียด (GET /credentials/:id) เท่านั้น */
+  access_users?: { id: number; name: string }[];
+  access_groups?: string[];
+}
+
+/** ตัวเลือกการเข้าถึงรายรายการ (GET /credentials/access-options) */
+export interface CredentialAccessOptions {
+  users: { id: number; name: string }[];
+  groups: { key: string; name_th: string; name_en: string }[];
 }
 
 export interface Contract {
@@ -401,6 +418,18 @@ export interface AppNotification {
         room: string;
         date: string;
         start_time: string;
+        end_time: string;
+      }
+    | {
+        // ยืมอุปกรณ์ IT: requested = จองยืม (ถึงผู้จัดการ), handed_out/returned/updated/cancelled = ผู้จัดการทำกับการยืมของเรา, overdue = เกินกำหนดคืน
+        kind: "loan";
+        event: "requested" | "handed_out" | "returned" | "updated" | "cancelled" | "overdue";
+        loan_id: string;
+        actor: string | null;
+        device: string;
+        start_on: string;
+        start_time: string;
+        end_on: string;
         end_time: string;
       };
   read_at: string | null;
@@ -1185,4 +1214,46 @@ export interface BranchChoices {
   allowShared: boolean;
   /** ค่าตั้งต้นตอนเพิ่ม = สาขาของผู้เพิ่ม */
   defaultId: number | null;
+}
+
+/** ยืมอุปกรณ์ IT — อุปกรณ์ = สินทรัพย์ที่เจ้าหน้าที่ IT ถือครอง (GET /loan-devices) */
+export interface LoanDevice {
+  id: number;
+  asset_tag: string;
+  name: string;
+  category: string;
+  brand: string | null;
+  model: string | null;
+  custodian: string | null;
+  /** ยืมอยู่ตอนนี้ (ยังไม่คืน) */
+  on_loan: { user: string; end_on: string; end_time: string; is_overdue: boolean } | null;
+}
+
+export type LoanStatus = "reserved" | "on_loan" | "returned" | "cancelled";
+
+/** GET /loans — จอง (reserved) → ยืมอยู่ (on_loan) → คืนแล้ว (returned) / ยกเลิก (cancelled) */
+export interface Loan {
+  id: string;
+  asset: { id: number; asset_tag: string; name: string; category: string };
+  user: { id: number; name: string };
+  department: string | null;
+  purpose: string;
+  note: string | null;
+  start_on: string;
+  start_time: string;
+  end_on: string;
+  end_time: string;
+  status: LoanStatus;
+  is_overdue: boolean;
+  handed_out_at: string | null;
+  handed_out_by: string | null;
+  returned_at: string | null;
+  returned_by: string | null;
+  return_note: string | null;
+  cancelled_at: string | null;
+  created_at: string | null;
+  can_edit: boolean;
+  can_cancel: boolean;
+  can_hand_out: boolean;
+  can_return: boolean;
 }

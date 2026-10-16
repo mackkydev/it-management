@@ -48,7 +48,7 @@ describe("secret guard", () => {
     expect((await api.put("/api/v1/settings").send({ secret_guard: { reauth: false } })).status).toBe(403);
 
     const off = await admin.put("/api/v1/settings").send({ secret_guard: { reauth: false, notify_heads: false } });
-    expect(off.body.data.secret_guard).toEqual({ reauth: false, reauth_method: "password", reauth_minutes: 5, ip_restrict: false, allowed_ips: [], notify_heads: false });
+    expect(off.body.data.secret_guard).toEqual({ reauth: false, reauth_method: "password", reauth_minutes: 5, ip_restrict: false, allowed_ips: [], notify_heads: false, notify_user_ids: [] });
     expect((await api.post(`/api/v1/credentials/${id}/reveal`)).status).toBe(200);
     expect(await notifications(head.id)).toBe(0);
     expect(await first("SELECT 1 FROM audit_logs WHERE action = 'settings.secret_guard_updated'")).toBeTruthy();
@@ -153,5 +153,29 @@ describe("per-credential confirmation switch", () => {
     expect((await api.post(`/api/v1/credentials/${id}/reveal`)).status).toBe(428);
     // ค่าเริ่มต้นของบัญชีใหม่ = ต้องยืนยัน
     expect((await api.post("/api/v1/credentials").send({ title: "Server", category: "server" })).body.data.require_reauth).toBe(true);
+  });
+
+  it("the alert goes to the chosen users instead of the IT heads; none chosen = IT heads", async () => {
+    const { head, staff, admin, api, id } = await setup();
+    const auditor = await makeUser({ name: "ผู้ตรวจสอบภายใน" });
+    const inactive = await makeUser({ is_active: false });
+    // ผู้ใช้ที่ปิดใช้งาน / ไม่มีอยู่ = 422
+    const bad = await admin.put("/api/v1/settings").send({ secret_guard: { notify_user_ids: [inactive.id] } });
+    expect(Object.keys(bad.body.errors ?? {})).toEqual(["secret_guard.notify_user_ids"]);
+    const saved = await admin.put("/api/v1/settings").send({ secret_guard: { reauth: false, notify_user_ids: [auditor.id, auditor.id] } });
+    expect(saved.body.data.secret_guard.notify_user_ids).toEqual([auditor.id]);
+    expect(saved.body.data.secret_notify_effective).toEqual([{ id: auditor.id, name: "ผู้ตรวจสอบภายใน" }]);
+    expect(saved.body.data.secret_notify_options.map((o: { id: number }) => o.id)).toContain(auditor.id);
+
+    expect((await api.post(`/api/v1/credentials/${id}/reveal`)).status).toBe(200);
+    expect(await notifications(auditor.id)).toBe(1);
+    expect(await notifications(head.id)).toBe(0);
+    expect(await notifications(staff.id)).toBe(0);
+
+    // ล้างรายชื่อ = กลับไปแจ้งหัวหน้า IT
+    const reset = await admin.put("/api/v1/settings").send({ secret_guard: { notify_user_ids: [] } });
+    expect(reset.body.data.secret_notify_effective.map((x: { id: number }) => x.id)).toEqual([head.id]);
+    await api.post(`/api/v1/credentials/${id}/reveal`);
+    expect(await notifications(head.id)).toBe(1);
   });
 });

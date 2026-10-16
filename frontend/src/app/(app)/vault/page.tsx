@@ -3,7 +3,8 @@ import Form from "next/form";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { CheckCircleIcon, KeyIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon, ExternalLinkIcon } from "@/components/icons";
+import { CheckCircleIcon, KeyIcon, LockIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon, ExternalLinkIcon } from "@/components/icons";
+import { Tooltip } from "@/components/tooltip";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
@@ -147,7 +148,14 @@ async function VaultResults({ query, canEdit, canReveal: mayReveal }: { query: U
             {res.data.map((c) => (
               <tr key={c.id} className={`${table.row} align-top`}>
                 <td className={table.td}>
-                  <div className="font-medium">{c.title}</div>
+                  <div className="flex items-center gap-1.5 font-medium">
+                    {c.title}
+                    {c.access_mode === "restricted" && (
+                      <Tooltip label={t("vault.access.restrictedBadge")} side="top">
+                        <LockIcon width={13} height={13} className="shrink-0 text-warning-600 dark:text-warning-300" aria-label={t("vault.access.restrictedBadge")} />
+                      </Tooltip>
+                    )}
+                  </div>
                   <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
                     <span className="rounded-full bg-subtle px-2 py-0.5 ring-1 ring-inset ring-line">{isBuiltinCategory(c.category) ? t(`vault.categories.${c.category}`) : c.category}</span>
                     {/* URL / IP ที่เปิดในเบราว์เซอร์ได้ (http/https) → ลิงก์เข้าหน้าจัดการอุปกรณ์ เช่น เครื่องพิมพ์ / router */}

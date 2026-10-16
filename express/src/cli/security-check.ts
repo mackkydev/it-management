@@ -2,6 +2,7 @@ import { closePool, select } from "../db.js";
 import { config } from "../config.js";
 import { verifyHash } from "../lib/validator.js";
 import { secretGuard } from "../services/secret-guard.js";
+import { decryptVaultWithKey } from "../services/vault-crypto.js";
 
 /**
  * npm run security:check — ตรวจความพร้อมก่อนเปิดระบบออนไลน์ (อ่านอย่างเดียว ไม่แก้ข้อมูล)
@@ -70,6 +71,25 @@ try {
   const guard = await secretGuard();
   if (!guard.reauth) report("WARN", "ยืนยันตัวตนซ้ำก่อนเปิดดูข้อมูลลับ", "ปิดอยู่ — เปิดที่หน้า ตั้งค่าระบบ");
   else report("OK", "ยืนยันตัวตนซ้ำก่อนเปิดดูข้อมูลลับ", `เปิด (${guard.reauth_method})`);
+  // กุญแจคลังบัญชีแยกจาก APP_KEY (services/vault-crypto.ts) + ข้อมูลเดิมที่ยังเข้ารหัสด้วย APP_KEY
+  if (!config.vaultKey) report("WARN", "กุญแจคลังบัญชี (VAULT_KEY)", "ยังใช้ APP_KEY — สร้างด้วย npm run vault:keygen แล้วตั้ง VAULT_KEY_FILE (เก็บนอกโฟลเดอร์ระบบ / นอกไฟล์สำรอง) และรัน npm run vault:rekey");
+  else if (config.vaultKey.equals(config.appKey)) report("FAIL", "กุญแจคลังบัญชี (VAULT_KEY)", "ค่าเดียวกับ APP_KEY — ต้องเป็นกุญแจคนละตัว");
+  else {
+    const rows = await select<{ password: string | null; secret_notes: string | null }>("SELECT password, secret_notes FROM credentials WHERE password IS NOT NULL OR secret_notes IS NOT NULL");
+    let legacy = 0;
+    for (const r of rows) {
+      for (const v of [r.password, r.secret_notes]) {
+        if (v === null) continue;
+        try {
+          if (decryptVaultWithKey(v).key === "app_key") legacy++;
+        } catch {
+          legacy++;
+        }
+      }
+    }
+    if (legacy) report("WARN", "กุญแจคลังบัญชี (VAULT_KEY)", `ยังมี ${legacy} ค่าที่เข้ารหัสด้วย APP_KEY — รัน npm run vault:rekey`);
+    else report("OK", "กุญแจคลังบัญชี (VAULT_KEY)", `แยกจาก APP_KEY (${config.vaultKeySource === "file" ? "ไฟล์" : "env"})`);
+  }
   if (!guard.ip_restrict) report("WARN", "จำกัด IP ตอนเปิดดูข้อมูลลับ", "ปิดอยู่ — แนะนำจำกัดเฉพาะ IP สำนักงาน / VPN");
   else report("OK", "จำกัด IP ตอนเปิดดูข้อมูลลับ", guard.allowed_ips.join(", "));
 } finally {
