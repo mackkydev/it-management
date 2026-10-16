@@ -136,7 +136,7 @@ const DEFS: Def[] = [
   // จองรถ: ทุกคนดูปฏิทินรถ / จอง (ไม่ระบุรถได้) / แก้-ยกเลิก-ลบ / บันทึกเลขไมล์ของการจองตัวเองได้เสมอ
   { key: "vehicle.dispatch", module: "vehicle", action: "update", name_th: "จัดคิวรถ: เลือกรถให้การจอง และแก้ไข / ยกเลิก / ลบการจองของผู้อื่น", name_en: "Dispatch: assign vehicles and edit / cancel / delete other people's bookings", defaults: ["admin"] },
   // ยืมอุปกรณ์ IT — ทุกคนดูปฏิทิน / จอง / แก้-ยกเลิกการจองของตัวเอง (routes/loans.ts)
-  { key: "loans.manage", module: "loans", action: "manage", name_th: "ส่งมอบ / รับคืนอุปกรณ์ IT และจัดการการยืมของผู้อื่น (ได้แจ้งเตือนรอส่งมอบ / เกินกำหนดคืน)", name_en: "Hand over / receive IT equipment and manage other people's loans (notified of pending hand-overs / overdue returns)", defaults: ["admin"] },
+  { key: "loans.manage", module: "loans", action: "manage", name_th: "ส่งมอบ / รับคืนอุปกรณ์ IT, มอบ / จัดการ VPN และจัดการการยืมของผู้อื่น (ได้แจ้งเตือนรอส่งมอบ / เกินกำหนด / คำขอ VPN)", name_en: "Hand over / receive IT equipment, assign / manage VPN accounts and manage other people's loans (notified of hand-overs / overdue / VPN requests)", defaults: ["admin"] },
   { key: "vehicle.manage", module: "vehicle", action: "manage", name_th: "จัดการรถ (รายละเอียด / ที่นั่ง / รูป / เลขไมล์) และตัวเลือกประเภทการใช้งาน / รายการเพิ่มเติม", name_en: "Manage vehicles (details / seats / photos / mileage) and the usage-type / extra options", defaults: ["admin"] },
 ];
 

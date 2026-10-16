@@ -424,6 +424,7 @@ model credentials {
   access_mode                         String                   @default("all") @db.VarChar(20)
   credential_access_logs              credential_access_logs[]
   credential_access                   credential_access[]
+  vpn_loans                           vpn_loans[]
   branches                            branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "credentials_branch_id_foreign")
   users_credentials_created_byTousers users?                   @relation("credentials_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "credentials_created_by_foreign")
   users_credentials_owner_idTousers   users?                   @relation("credentials_owner_idTousers", fields: [owner_id], references: [id], onUpdate: Restrict, map: "credentials_owner_id_foreign")
@@ -570,6 +571,7 @@ model it_tickets {
   users_it_tickets_it_head_idTousers   users?                     @relation("it_tickets_it_head_idTousers", fields: [it_head_id], references: [id], onUpdate: Restrict, map: "it_tickets_it_head_id_foreign")
   users_it_tickets_requester_idTousers users                      @relation("it_tickets_requester_idTousers", fields: [requester_id], references: [id], onUpdate: Restrict, map: "it_tickets_requester_id_foreign")
   calendar_events                      calendar_events?
+  vpn_loans                            vpn_loans[]
 
   @@index([approver_id, status], map: "it_tickets_approver_id_status_index")
   @@index([asset_id], map: "it_tickets_asset_id_index")
@@ -806,6 +808,9 @@ model users {
   equipment_loans_handed                            equipment_loans[]       @relation("equipment_loans_handed")
   equipment_loans_returned                          equipment_loans[]       @relation("equipment_loans_returned")
   equipment_loans_cancelled                         equipment_loans[]       @relation("equipment_loans_cancelled")
+  vpn_loans_borrower                                vpn_loans[]             @relation("vpn_loans_user")
+  vpn_loans_assigned                                vpn_loans[]             @relation("vpn_loans_assigned")
+  vpn_loans_ended                                   vpn_loans[]             @relation("vpn_loans_ended")
   company_holidays                                  company_holidays[]
   leave_quota_overrides                             leave_quota_overrides[]
   /// ลิงก์ iCal ส่วนตัว (GET /calendar/feed/{token}.ics)
@@ -1399,4 +1404,52 @@ model credential_access {
   @@index([user_id], map: "credential_access_user_id_index")
   @@index([group_key], map: "credential_access_group_key_index")
   @@index([created_by], map: "credential_access_created_by_index")
+}
+
+/// ยืม VPN — บัญชี VPN มาจากคลังบัญชี/รหัสผ่าน (credentials หมวด VPN) — routes/vpn-loans.ts
+/// status: requested (ขอใช้) → active (ฝ่าย IT มอบบัญชี + กำหนดวันหมดอายุ) → renewal_requested / cancel_requested (ผู้ใช้เลือก → ใบแจ้งงาน ticket_id)
+///         → active (ต่ออายุแล้ว) / ended (เลิกใช้) — rejected / cancelled = ไม่ได้มอบ — ห้ามลบ (เก็บเป็นประวัติ)
+model vpn_loans {
+  id                   BigInt       @id @default(autoincrement())
+  uuid                 String       @unique(map: "vpn_loans_uuid_unique") @db.Char(36)
+  user_id              BigInt
+  department           String?      @db.VarChar(255)
+  purpose              String       @db.Text
+  /// วันที่ผู้ขอต้องการใช้ถึง (ตอนขอ)
+  requested_until      DateTime?    @db.Date
+  status               String       @default("requested") @db.VarChar(20)
+  credential_id        BigInt?
+  assigned_by          BigInt?
+  assigned_at          DateTime?    @db.DateTime(0)
+  start_on             DateTime?    @db.Date
+  /// ใช้ได้ถึงวันนี้ (เวลาไทย)
+  expires_on           DateTime?    @db.Date
+  /// แจ้งเตือนผู้ใช้ล่วงหน้ากี่วันก่อนหมดอายุ
+  notify_days_before   Int          @default(7) @db.SmallInt
+  /// แจ้งเตือนล่วงหน้าแล้วสำหรับวันหมดอายุนี้ (ล้างเมื่อเปลี่ยนวันหมดอายุ)
+  reminded_for         DateTime?    @db.Date
+  /// แจ้งเตือนหมดอายุแล้ว (ผู้ใช้ + ผู้ดูแล) สำหรับวันหมดอายุนี้
+  expired_notified_for DateTime?    @db.Date
+  /// ผู้ใช้เลือก: ต่ออายุถึงวันที่ / เหตุผล → ใบแจ้งงาน
+  renew_until          DateTime?    @db.Date
+  choice_reason        String?      @db.Text
+  choice_at            DateTime?    @db.DateTime(0)
+  ticket_id            BigInt?
+  ended_at             DateTime?    @db.DateTime(0)
+  ended_by             BigInt?
+  end_note             String?      @db.Text
+  created_at           DateTime?    @db.DateTime(0)
+  updated_at           DateTime?    @db.DateTime(0)
+  user                 users        @relation("vpn_loans_user", fields: [user_id], references: [id], onUpdate: Restrict, map: "vpn_loans_user_id_foreign")
+  credential           credentials? @relation(fields: [credential_id], references: [id], onUpdate: Restrict, map: "vpn_loans_credential_id_foreign")
+  assigner             users?       @relation("vpn_loans_assigned", fields: [assigned_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "vpn_loans_assigned_by_foreign")
+  ender                users?       @relation("vpn_loans_ended", fields: [ended_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "vpn_loans_ended_by_foreign")
+  ticket               it_tickets?  @relation(fields: [ticket_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "vpn_loans_ticket_id_foreign")
+
+  @@index([user_id], map: "vpn_loans_user_id_index")
+  @@index([status, expires_on], map: "vpn_loans_status_expires_on_index")
+  @@index([credential_id], map: "vpn_loans_credential_id_index")
+  @@index([ticket_id], map: "vpn_loans_ticket_id_index")
+  @@index([assigned_by], map: "vpn_loans_assigned_by_index")
+  @@index([ended_by], map: "vpn_loans_ended_by_index")
 }

@@ -28,8 +28,9 @@ export const MARKS: Record<string, number> = { "0.5": 0.5, "1": 1, "2": 2.25, "3
 export const COMPLEXITY_VALUES = [0, 0.5, 1, 2, 3, 4, 5, 6, 7, 8];
 export const markOf = (complexity: number | null | undefined): number => (complexity == null ? 0 : (MARKS[String(Number(complexity))] ?? 0));
 
-/** ประเภทการแจ้งตั้งต้นของแถวใบงาน (แก้รายแถวได้) */
-export function defaultServiceType(ticketType: string): string {
+/** ประเภทการแจ้งตั้งต้นของแถวใบงาน (แก้รายแถวได้) — เรื่อง "อื่นๆ" ที่เกี่ยวกับ VPN (เช่น ใบงานต่ออายุ / ยกเลิก VPN) = Network Service */
+export function defaultServiceType(ticketType: string, typeOther: string | null = null): string {
+  if (ticketType === "other" && typeOther && /\bvpn\b/i.test(typeOther)) return "Network Service";
   if (ticketType === "repair" || ticketType === "install") return "Computer Service";
   if (ticketType === "grant_access" || ticketType === "revoke_access") return "User Account Service";
   return "ETC.";
@@ -76,12 +77,12 @@ export async function kpiMonthRows(userId: number, month: string, locale: Locale
   const { first, last } = monthRange(month);
   // ช่วง UTC กว้างกว่าเดือนเล็กน้อย แล้วกรองด้วยวันที่ท้องถิ่น (requested_at เก็บเป็น UTC)
   const tickets = await select<{
-    id: number; uuid: string; ticket_no: string; type: string; status: string; requested_at: string; details: string; symptom: string | null;
+    id: number; uuid: string; ticket_no: string; type: string; type_other: string | null; status: string; requested_at: string; details: string; symptom: string | null;
     repair_details: string | null; cannot_reason: string | null; completed_on: string | null;
     requester: string | null; branch: string | null; assignee: string | null;
     k_id: number | null; k_service_type: string | null; k_complexity: string | null;
   }>(
-    `SELECT t.id, t.uuid, t.ticket_no, t.type, t.status, t.requested_at, t.details, t.symptom, t.repair_details, t.cannot_reason, t.completed_on,
+    `SELECT t.id, t.uuid, t.ticket_no, t.type, t.type_other, t.status, t.requested_at, t.details, t.symptom, t.repair_details, t.cannot_reason, t.completed_on,
             r.name AS requester, b.name AS branch, o.name AS assignee, k.id AS k_id, k.service_type AS k_service_type, k.complexity AS k_complexity
        FROM it_tickets t
        JOIN users o ON o.id = ?
@@ -117,7 +118,7 @@ export async function kpiMonthRows(userId: number, month: string, locale: Locale
       work_date: workDate,
       requester: t.requester,
       branch: t.branch,
-      service_type: t.k_service_type ?? defaultServiceType(t.type),
+      service_type: t.k_service_type ?? defaultServiceType(t.type, t.type_other),
       details: t.type === "repair" && t.symptom ? t.symptom : t.details,
       assignee: t.assignee,
       solution: t.repair_details ?? t.cannot_reason,

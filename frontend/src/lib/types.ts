@@ -431,6 +431,19 @@ export interface AppNotification {
         start_time: string;
         end_on: string;
         end_time: string;
+      }
+    | {
+        // ยืม VPN: requested = ขอใช้ (ถึงผู้ดูแล), assigned/updated/rejected/ended = ผู้ดูแลทำกับคำขอของเรา,
+        // renewed / ended / choice_not_done = ผลใบแจ้งงาน ต่ออายุ / เลิกใช้, expiring = ใกล้หมดอายุ (ผู้ใช้), expired = หมดอายุ (ผู้ใช้ + ผู้ดูแล)
+        kind: "vpn";
+        event: "requested" | "assigned" | "updated" | "rejected" | "ended" | "renewed" | "choice_not_done" | "expiring" | "expired";
+        vpn_id: string;
+        actor: string | null;
+        user: string;
+        account: string;
+        expires_on: string | null;
+        days_left?: number | null;
+        ticket_no?: string | null;
       };
   read_at: string | null;
   created_at: string;
@@ -1256,4 +1269,51 @@ export interface Loan {
   can_cancel: boolean;
   can_hand_out: boolean;
   can_return: boolean;
+}
+
+/** ยืม VPN (GET /vpn-loans/mine, /vpn-loans/manage) — บัญชีจากคลังบัญชีหมวด VPN */
+export type VpnLoanStatus = "requested" | "active" | "renewal_requested" | "cancel_requested" | "ended" | "rejected" | "cancelled";
+
+export interface VpnLoan {
+  id: string;
+  user: { id: number; name: string };
+  department: string | null;
+  purpose: string;
+  requested_until: string | null;
+  status: VpnLoanStatus;
+  account: { id: number; title: string; username: string | null; url: string | null } | null;
+  assigned_by: string | null;
+  assigned_at: string | null;
+  start_on: string | null;
+  expires_on: string | null;
+  notify_days_before: number;
+  /** วันที่เหลือ (0 = หมดวันนี้, ติดลบ = หมดแล้ว) — เฉพาะที่ถือบัญชีอยู่ */
+  days_left: number | null;
+  is_expired: boolean;
+  is_expiring: boolean;
+  renew_until: string | null;
+  choice_reason: string | null;
+  choice_at: string | null;
+  ticket: { id: string; ticket_no: string; status: string } | null;
+  ended_at: string | null;
+  ended_by: string | null;
+  end_note: string | null;
+  created_at: string | null;
+  can_cancel: boolean;
+  can_choose: boolean;
+  can_reveal: boolean;
+  can_assign: boolean;
+  can_reject: boolean;
+  can_edit: boolean;
+  can_end: boolean;
+}
+
+/** GET /vpn-accounts — บัญชี VPN ในคลังบัญชี + ผู้ที่ใช้อยู่ */
+export interface VpnAccount {
+  id: number;
+  title: string;
+  username: string | null;
+  expires_at: string | null;
+  holder: string | null;
+  holder_until: string | null;
 }

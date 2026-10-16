@@ -124,6 +124,14 @@
 - ผู้ร่วมดำเนินการ (`it_ticket_helpers`): ผู้รับงานเลือกเจ้าหน้าที่ IT (`IT_STAFF_WHERE`) ตอนรับงาน (`helper_ids`) หรือแก้ภายหลัง `PUT /tickets/:uuid/helpers` → แจ้งเตือนคนที่เพิ่มใหม่ (event `helper_added`), เห็นใบงาน (`canView`) และได้แถวใบงานในชีต KPI ของตัวเอง (`PUT /kpi/tickets/:uuid` ส่ง `user_id` = เจ้าของชีต)
 - Export `/kpi/export` (`services/kpi-export.ts`): ชีต ServiceType + ชีตละเดือน (`Oct68`), Cordia New 14, สูตร Mark/Total จริง, วันหยุดรวมเซลล์ B:G — เปลี่ยนรูปแบบต้องเทียบกับไฟล์ต้นฉบับ
 
+## ยืม VPN (เมนู ยืมอุปกรณ์ / VPN → ขอใช้ VPN, จัดการ VPN)
+- บัญชี VPN = รายการในคลังบัญชี/รหัสผ่านที่หมวดหมู่ `VPN` (ไม่สนตัวพิมพ์) — ตาราง `vpn_loans`, โค้ดกลาง `express/src/services/vpn-loans.ts` + `routes/vpn-loans.ts`, เทสต์ `express/tests/vpn-loans.test.ts`
+- ผู้ดูแล = สิทธิ์ `loans.manage` (เดียวกับส่งมอบ/รับคืน); 1 บัญชีให้ได้ทีละคน (สถานะ `active` / `renewal_requested` / `cancel_requested` = ถือบัญชีอยู่, lock ด้วย `lockNamed`)
+- ผู้ใช้ดูรหัสของตัวเองได้ระหว่างยังไม่หมดอายุ (`POST /vpn-loans/:uuid/reveal` — `assertCanReveal` + `notifyReveal` + `credential_access_logs` action `vpn_reveal`)
+- scheduler ทุกชั่วโมง (`notifyVpnExpiry`): ถึงช่วงแจ้งล่วงหน้า (`notify_days_before`) → `vpn.expiring` ถึงผู้ใช้, เลยวันหมดอายุ → `vpn.expired` ถึงผู้ใช้ + ผู้ดูแล — ครั้งเดียวต่อวันหมดอายุ (`reminded_for` / `expired_notified_for`)
+- ผู้ใช้เลือก ต่ออายุ / เลิกใช้ → `createSystemTicket` (ใบแจ้งงานประเภทอื่นๆ "VPN: ...", อนุมัติแล้ว เข้าคิว IT, ผู้รับงาน = คนที่มอบบัญชี) → บันทึกผลสำเร็จ = มีผลอัตโนมัติ (`applyVpnTicketOutcome`), ทำไม่ได้/ยกเลิกใบ = กลับเป็นใช้งานอยู่
+- KPI: ใบงานประเภทอื่นๆ ที่มีคำว่า VPN ตั้งต้นเป็น Service Type `Network Service` (`defaultServiceType`)
+
 ## ซอฟต์แวร์บนเครื่องคอมพิวเตอร์ (ฟอร์มสินทรัพย์)
 - OS / Office / Anti Virus / Software อื่นๆ เลือกจากสินทรัพย์ Software ที่มี license → `license_installations` ของเครื่อง (`slot` = os/office/antivirus, NULL = อื่นๆ) — `express/src/services/asset-software.ts`
 - ส่ง `software` มา = sync (ใหม่ติดตั้งวันนี้ + ตรวจ seat, เอาออก = uninstalled_at วันนี้); ไม่ส่ง = ไม่แตะ; ช่องที่ผูกแล้ว API เขียนชื่อ license ลง `assets.os/office/antivirus` (ค่าจาก Excel ที่ยังไม่ผูกคงไว้)

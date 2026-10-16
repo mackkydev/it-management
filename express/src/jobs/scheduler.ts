@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { syncDueConnections } from "../services/directory-sync.js";
 import { notifyExpiring } from "./notify-expiring.js";
 import { notifyOverdueLoans } from "../routes/loans.js";
+import { notifyVpnExpiry } from "../services/vpn-loans.js";
 
 /**
  * ตั้งเวลารันงานรายวันใน process ของ API (แทน `php artisan schedule:work`)
@@ -58,6 +59,9 @@ export function startScheduler(): void {
     try {
       const n = await notifyOverdueLoans();
       if (n) console.info(`[scheduler] overdue equipment loans: notified ${n}`);
+      // VPN ใกล้หมดอายุ / หมดอายุ — แจ้งครั้งเดียวต่อวันหมดอายุ
+      const v = await notifyVpnExpiry();
+      if (v) console.info(`[scheduler] VPN expiry: notified ${v}`);
     } catch (e) {
       console.error("[scheduler] overdue equipment loans failed", e);
     } finally {
