@@ -167,13 +167,15 @@
 - ย้ายรถไปสาขาอื่น = `POST /vehicles/:id/transfer` (ประวัติ `vehicle_transfers`, `GET /vehicles/:id/transfers`) — แก้สาขาที่ `PUT /vehicles/:id` ไม่ได้ (422 `branch_locked`); การจองที่ยังไม่ถึงคงไว้ (ตอบ `upcoming_bookings` ให้หน้าเว็บเตือน); หน้าแก้ไขรถมีแผง `vehicle-transfer.tsx`
 - หน้า: `/vehicles` (ปฏิทินเดือน) → `/vehicles/day/{date}` (ไทม์ไลน์ 00–24 แถวละคัน + แถวรอจัดรถ) / `/vehicles/book?date=&vehicle=&start=&end=` / `/vehicles/bookings/{uuid}/edit` / `/vehicles/mine` / `/vehicles/dispatch` / `/vehicles/manage` (+ ประวัติเลขไมล์ในหน้าแก้ไขรถ) — ส่วนกลางของระบบจองที่ `frontend/src/lib/booking.ts`
 
-## ยืมอุปกรณ์ IT (เมนู "ยืมอุปกรณ์ IT")
-- API: `express/src/routes/loans.ts` — ตาราง `equipment_loans` (หลายวันได้ `start_on`+`start_time` ถึง `end_on`+`end_time` เวลาไทย); อุปกรณ์ = สินทรัพย์ไม่ถูกลบ สถานะ active/in_storage ที่ผู้ถือครองเป็นเจ้าหน้าที่ IT (`DEVICE_WHERE` ใช้ `IT_STAFF_WHERE`) — ไม่มีตารางอุปกรณ์แยก
+## ยืมอุปกรณ์ IT (เมนู "ยืมอุปกรณ์ / VPN" → ยืมโน้ตบุ๊ก)
+- API: `express/src/routes/loans.ts` — ตาราง `equipment_loans` (หลายวันได้ `start_on`+`start_time` ถึง `end_on`+`end_time` เวลาไทย); อุปกรณ์ = สินทรัพย์ไม่ถูกลบ สถานะ active/in_storage ที่ติ๊ก **"เป็นเครื่องสำหรับยืม"** (`assets.is_loanable` — ฟอร์มสินทรัพย์, `DEVICE_WHERE`; migration `20261102090000_asset_loanable` ตั้งค่าเริ่มต้นจากกติกาเดิม = ผู้ถือครองเป็นเจ้าหน้าที่ IT) — ไม่มีตารางอุปกรณ์แยก
+- `GET /loan-devices` คืน `busy` = ช่วงที่จอง/ยืมอยู่ (ยังไม่จบ) ต่อเครื่อง — หน้าเว็บแสดง "ติดยืม" และกันเลือกช่วงซ้อน (API ตรวจซ้ำ)
 - สถานะ: `reserved` (จอง รอรับ) → `on_loan` (ส่งมอบแล้ว) → `returned` / `cancelled` — ห้ามลบ (ประวัติ); อุปกรณ์เดียวกันช่วงซ้อน (reserved/on_loan) = 422 (transaction + `lockNamed`); ส่งมอบไม่ได้ถ้าอุปกรณ์ยังไม่คืนจากการยืมก่อน
 - สิทธิ์: ทุกคนดูปฏิทิน / จอง / แก้-ยกเลิกของตัวเองก่อนส่งมอบ (`ALWAYS` module `loans`); `loans.manage` = ส่งมอบ / รับคืน (+ หมายเหตุสภาพ) / จัดการของคนอื่น (แจ้งเจ้าของ)
 - แจ้งเตือน kind `loan`: จอง → `requested` ถึงผู้มี `loans.manage`; ส่งมอบ/รับคืน → ปิด `requested`/`overdue`; **เกินกำหนดคืน** (`OVERDUE` = on_loan เลยวันเวลาคืน) → `overdue` ถึงผู้ยืม + ผู้จัดการ วันละครั้ง (`notifyOverdueLoans`, scheduler ตรวจทุกชั่วโมง, `overdue_notified_on`)
 - ตัวเลขเมนู (`loanBadges`): `/loans/mine` = ของฉันที่เกินกำหนด, `/loans/manage` = รอส่งมอบที่ถึงวันแล้ว + เกินกำหนด
-- หน้า: `/loans` (ปฏิทินเดือน — แถบสีตามสถานะ, คลิกวัน = จอง, คลิกรายการ = `loan-dialog.tsx`) / `/loans/book?date=&device=` / `/loans/{uuid}/edit` / `/loans/mine` / `/loans/manage`
+- หน้า `/loans/book` (`loan-board.tsx`, 2 คอลัมน์): ซ้าย = รายการโน้ตบุ๊ก (`device-list.tsx` — ปุ่ม ยืม-จอง ขยายฟอร์มวันเริ่ม-สิ้นสุด), ขวา = ปฏิทินเดือน (`loan-calendar.tsx` — ดับเบิลคลิก / คลิกขวาที่วัน = เลือกเครื่องที่ไม่ติดยืมวันนั้น → เปิดฟอร์มในรายการ, คลิกรายการ = `loan-dialog.tsx`)
+  สีประจำเครื่อง = `.loan-dev-0…7` ใน `globals.css` (`loanColorOf` ใน loan-utils — พื้นแถบในปฏิทินตรงกับสีในรายการ, จุด = สถานะ); `/loans?month=` redirect มาหน้านี้ / `/loans/{uuid}/edit` / `/loans/mine` / `/loans/manage`
 
 ## ห้องประชุม / รถ ตามสาขา (ขอบเขตต่อกลุ่ม)
 - `app_settings.booking_scope` = `{ meeting: { group: "branch"|"all" }, vehicle: { … } }` ตั้งที่ส่วนท้ายหน้า `/role-permissions` (`GET/PUT /booking-scope`, access.manage) — ไม่ตั้ง = ทุกสาขา (เหมือนก่อนมีการตั้งค่า), ได้ขอบเขตกว้างสุดของทุกกลุ่ม, super_admin = all — โค้ดกลาง `express/src/services/booking-scope.ts`

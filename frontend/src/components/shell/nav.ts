@@ -106,14 +106,13 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
-    // ยืมอุปกรณ์ / VPN — ทุกคน: ตารางยืมโน้ตบุ๊ก / ยืม / ขอใช้ VPN / การยืมของฉัน (ตัวเลข = เกินกำหนดคืน + VPN ใกล้หมดอายุ);
+    // ยืมอุปกรณ์ / VPN — ทุกคน: ยืมโน้ตบุ๊ก (รายการเครื่อง + ปฏิทิน) / ขอใช้ VPN / การยืมของฉัน (ตัวเลข = เกินกำหนดคืน + VPN ใกล้หมดอายุ);
     // ส่งมอบ/รับคืน + จัดการ VPN = loans.manage (ตัวเลข = รอส่งมอบที่ถึงวัน + เกินกำหนด / คำขอ VPN รอมอบ + หมดอายุ)
     id: "loans",
     label: "nav.loanGroup",
     icon: BoxIcon,
     items: [
-      { label: "nav.loanCalendar", href: "/loans", icon: CalendarIcon },
-      { label: "nav.loanBook", href: "/loans/book", icon: PlusIcon },
+      { label: "nav.loanBook", href: "/loans/book", icon: CalendarIcon },
       { label: "nav.vpnRequest", href: "/loans/vpn/request", icon: KeyIcon },
       { label: "nav.loanMine", href: "/loans/mine", icon: InboxIcon },
       { label: "nav.loanManage", href: "/loans/manage", icon: CheckCircleIcon, visible: perm("loans.manage") },

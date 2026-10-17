@@ -22,7 +22,7 @@ const TAB_CLS = (active: boolean) =>
 /** ส่งมอบ / รับคืนอุปกรณ์ (loans.manage) — รอส่งมอบ / ยืมอยู่ / เกินกำหนดคืน / ทั้งหมด */
 export default async function ManageLoansPage({ searchParams }: PageProps<"/loans/manage">) {
   const user = await getCurrentUser();
-  if (!has(user, "loans.manage")) redirect("/loans");
+  if (!has(user, "loans.manage")) redirect("/loans/book");
   const sp = await searchParams;
   const status = TABS.find((s) => s === sp.status) ?? "pending";
   const [{ t }, items] = await Promise.all([getI18n(), apiFetch<{ data: Loan[] }>(`/loans/manage?status=${status}`).then((r) => r.data)]);

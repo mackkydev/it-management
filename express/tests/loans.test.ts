@@ -12,13 +12,14 @@ const notices = (userId: number, type: string) =>
   scalar("SELECT COUNT(*) FROM notifications WHERE notifiable_id = ? AND type = ? AND read_at IS NULL", [userId, type]).then(Number);
 
 describe("IT equipment loans", () => {
-  it("only assets held by IT staff can be borrowed; bookings cannot overlap; managers are told about new requests", async () => {
+  it("only assets marked as loanable can be borrowed; bookings cannot overlap; managers are told about new requests", async () => {
     const itStaff = await makeUser({ name: "เจ้าหน้าที่ IT", is_it_staff: true });
     const manager = await makeUser({ role: "admin", name: "ผู้ดูแลอุปกรณ์" });
     const borrowerUser = await makeUser({ name: "ผู้ยืม", department: "ขาย" });
-    const projector = await makeAsset({ name: "Projector", custodian_id: itStaff.id });
-    const notIt = await makeAsset({ name: "เครื่องของพนักงาน", custodian_id: borrowerUser.id });
-    const disposed = await makeAsset({ name: "เครื่องจำหน่ายแล้ว", custodian_id: itStaff.id, status: "disposed" });
+    const projector = await makeAsset({ name: "Projector", custodian_id: itStaff.id, is_loanable: true });
+    // ไม่ได้ติ๊ก "เป็นเครื่องสำหรับยืม" (แม้ฝ่าย IT ถือครอง) / จำหน่ายแล้ว = ยืมไม่ได้
+    const notIt = await makeAsset({ name: "เครื่องของ IT ที่ไม่ได้ให้ยืม", custodian_id: itStaff.id });
+    const disposed = await makeAsset({ name: "เครื่องจำหน่ายแล้ว", custodian_id: itStaff.id, status: "disposed", is_loanable: true });
     const borrower = await as(borrowerUser, "th");
 
     const devices = (await borrower.get("/api/v1/loan-devices")).body.data.map((d: { id: number }) => d.id);
@@ -27,6 +28,12 @@ describe("IT equipment loans", () => {
     expect(devices).not.toContain(disposed.id);
 
     expect((await borrower.post("/api/v1/loans").send(loan(notIt.id))).status).toBe(422);
+    // ติ๊ก "เป็นเครื่องสำหรับยืม" ในฟอร์มสินทรัพย์ → ขึ้นในรายการยืม
+    const flagged = await (await as(manager)).put(`/api/v1/assets/${notIt.uuid}`).send({ is_loanable: true });
+    expect(flagged.status).toBe(200);
+    expect(flagged.body.data.is_loanable).toBe(true);
+    expect((await borrower.get("/api/v1/loan-devices")).body.data.map((d: { id: number }) => d.id)).toContain(notIt.id);
+    await (await as(manager)).put(`/api/v1/assets/${notIt.uuid}`).send({ is_loanable: false });
     expect((await borrower.post("/api/v1/loans").send(loan(projector.id, { end_on: day(1), end_time: "08:00" }))).status).toBe(422);
     const created = await borrower.post("/api/v1/loans").send(loan(projector.id));
     expect(created.status).toBe(201);
@@ -36,6 +43,12 @@ describe("IT equipment loans", () => {
     const clash = await borrower.post("/api/v1/loans").send(loan(projector.id, { start_on: day(2), start_time: "10:00", end_on: day(3) }));
     expect(clash.status).toBe(422);
     expect((await borrower.post("/api/v1/loans").send(loan(projector.id, { start_on: day(2), start_time: "17:00", end_on: day(3) }))).status).toBe(201);
+    // รายการอุปกรณ์บอกช่วงที่ติดยืม / จองไว้
+    const busy = (await borrower.get("/api/v1/loan-devices")).body.data.find((d: { id: number }) => d.id === projector.id).busy;
+    expect(busy.map((b: { start_on: string; end_on: string; user: string }) => [b.start_on, b.end_on, b.user])).toEqual([
+      [day(1), day(2), "ผู้ยืม"],
+      [day(2), day(3), "ผู้ยืม"],
+    ]);
     // ปฏิทินเห็นทุกคน
     expect((await (await as(itStaff)).get(`/api/v1/loans?from=${day(0)}&to=${day(5)}`)).body.data).toHaveLength(2);
   });
@@ -45,7 +58,7 @@ describe("IT equipment loans", () => {
     const managerUser = await makeUser({ role: "admin", name: "ผู้ดูแลอุปกรณ์" });
     const borrowerUser = await makeUser({ name: "ผู้ยืม" });
     const otherUser = await makeUser({ name: "คนถัดไป" });
-    const notebook = await makeAsset({ name: "Notebook สำรอง", custodian_id: itStaff.id });
+    const notebook = await makeAsset({ name: "Notebook สำรอง", custodian_id: itStaff.id, is_loanable: true });
     const [borrower, manager, other] = [await as(borrowerUser, "th"), await as(managerUser, "th"), await as(otherUser, "th")];
 
     const first = (await borrower.post("/api/v1/loans").send(loan(notebook.id, { start_on: day(0), start_time: "00:00", end_on: day(1), end_time: "09:00" }))).body.data;

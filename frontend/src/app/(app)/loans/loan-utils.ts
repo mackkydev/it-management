@@ -17,3 +17,12 @@ export const STATE_TONE: Record<LoanState, { bar: string; dot: string }> = {
 };
 
 export const deviceLabel = (a: { asset_tag: string; name: string }) => `${a.asset_tag} · ${a.name}`;
+
+/** จำนวนสีแยกโน้ตบุ๊ก (.loan-dev-0 … .loan-dev-7 ใน globals.css) */
+const DEVICE_COLORS = 8;
+
+/** สีประจำโน้ตบุ๊ก (เรียงตาม id ให้คงที่) — ใช้ทั้งรายการโน้ตบุ๊กและแถบในปฏิทิน; ไม่อยู่ในรายการแล้ว = สีกลาง */
+export function loanColorOf(deviceIds: number[]): (id: number) => string {
+  const order = new Map([...deviceIds].sort((a, b) => a - b).map((id, i) => [id, `loan-dev-${i % DEVICE_COLORS}`]));
+  return (id) => order.get(id) ?? "bg-subtle text-muted ring-line";
+}

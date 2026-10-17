@@ -11,11 +11,10 @@ import { can, type UserRow } from "../models/user.js";
 import { audit } from "../services/audit.js";
 import { markNoticesRead, notifyUsers } from "../services/notifications.js";
 import { usersWithPermissions } from "../services/permissions.js";
-import { IT_STAFF_WHERE } from "../services/ticket-workflow.js";
 
 /**
- * ยืมอุปกรณ์ IT — อุปกรณ์ = สินทรัพย์ที่เจ้าหน้าที่ IT ถือครอง (IT_STAFF_WHERE) สถานะใช้งาน / เก็บในคลัง
- *   ทุกคน: GET /loan-devices?from=&to= (อุปกรณ์ + ว่าง/ไม่ว่างในช่วงนั้น), GET /loans?from=&to= (ปฏิทิน), GET /loans/mine?status=active|past|cancelled,
+ * ยืมอุปกรณ์ IT — อุปกรณ์ = สินทรัพย์ที่ติ๊ก "เป็นเครื่องสำหรับยืม" (assets.is_loanable) สถานะใช้งาน / เก็บในคลัง
+ *   ทุกคน: GET /loan-devices (อุปกรณ์ + ยืมอยู่ตอนนี้ + ช่วงที่ติดยืม/จองตั้งแต่วันนี้), GET /loans?from=&to= (ปฏิทิน), GET /loans/mine?status=active|past|cancelled,
  *          GET /loans/:uuid, POST /loans, PUT /loans/:uuid + POST /loans/:uuid/cancel (ของตัวเอง ระหว่างยังไม่ส่งมอบ)
  *   loans.manage: GET /loans/manage?status=pending|on_loan|overdue|all, POST /loans/:uuid/hand-out (ส่งมอบ), POST /loans/:uuid/return (รับคืน),
  *          แก้ / ยกเลิกการจองของผู้อื่น (แจ้งเตือนเจ้าของ)
@@ -63,8 +62,8 @@ interface DeviceRow {
   custodian_name: string | null;
 }
 
-/** อุปกรณ์ที่ให้ยืมได้ = สินทรัพย์ (ไม่ถูกลบ, ใช้งาน / เก็บในคลัง) ที่ผู้ถือครองเป็นเจ้าหน้าที่ IT */
-const DEVICE_WHERE = `a.deleted_at IS NULL AND a.status IN ('active', 'in_storage') AND a.custodian_id IN (SELECT id FROM users WHERE ${IT_STAFF_WHERE})`;
+/** อุปกรณ์ที่ให้ยืมได้ = สินทรัพย์ (ไม่ถูกลบ, ใช้งาน / เก็บในคลัง) ที่ติ๊กเป็นเครื่องสำหรับยืม (migration ตั้งค่าเริ่มต้นจากกติกาเดิม: ผู้ถือครองเป็นเจ้าหน้าที่ IT) */
+const DEVICE_WHERE = "a.deleted_at IS NULL AND a.status IN ('active', 'in_storage') AND a.is_loanable = true";
 const DEVICE_SELECT = `SELECT a.id, a.asset_tag, a.name, a.category, a.brand, a.model, c.name AS custodian_name FROM assets a LEFT JOIN users c ON c.id = a.custodian_id`;
 
 const deviceJson = (d: DeviceRow) => ({
@@ -84,6 +83,14 @@ loanRoutes.get("/loan-devices", async (req, res) => {
   const onLoan = await select<{ asset_id: number; user_name: string | null; end_on: string; end_time: string }>(
     "SELECT l.asset_id, u.name AS user_name, l.end_on, l.end_time FROM equipment_loans l LEFT JOIN users u ON u.id = l.user_id WHERE l.status = 'on_loan'",
   );
+  // ช่วงที่ติดยืม / จองไว้ (ยังไม่คืน ไม่ยกเลิก และยังไม่จบ) — หน้ายืมแสดง "ติดยืม" และกันเลือกวันซ้อน
+  const busy = await select<{ uuid: string; asset_id: number; user_name: string | null; start_on: string; start_time: string; end_on: string; end_time: string; status: string }>(
+    `SELECT l.uuid, l.asset_id, u.name AS user_name, l.start_on, l.start_time, l.end_on, l.end_time, l.status
+       FROM equipment_loans l LEFT JOIN users u ON u.id = l.user_id
+      WHERE l.status IN ('reserved', 'on_loan') AND (l.end_on >= ? OR l.status = 'on_loan')
+      ORDER BY l.start_on, l.start_time, l.id`,
+    [localToday()],
+  );
   const from = typeof f.from === "string" ? f.from : null;
   const to = typeof f.to === "string" ? f.to : from;
   res.json({
@@ -92,6 +99,12 @@ loanRoutes.get("/loan-devices", async (req, res) => {
       return {
         ...deviceJson(d),
         on_loan: loan ? { user: loan.user_name ?? "", end_on: dateOnly(loan.end_on), end_time: loan.end_time, is_overdue: isPast(loan) } : null,
+        busy: busy
+          .filter((b) => Number(b.asset_id) === Number(d.id))
+          .map((b) => ({
+            id: b.uuid, user: b.user_name ?? "", status: b.status,
+            start_on: dateOnly(b.start_on), start_time: b.start_time, end_on: dateOnly(b.end_on), end_time: b.end_time,
+          })),
       };
     }),
     meta: { from, to, can_manage: manages(me(req)) },

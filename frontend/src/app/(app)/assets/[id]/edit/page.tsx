@@ -33,6 +33,7 @@ function toFormValues(a: Asset): AssetFormValues {
     purchase_cost: a.purchase_cost ?? "",
     warranty_expires_at: a.warranty_expires_at ?? "",
     notes: a.notes ?? "",
+    is_loanable: a.is_loanable ?? false,
     branch_id: a.branch ? String(a.branch.id) : "",
     ...(Object.fromEntries([...COMPUTER_TEXT_FIELDS, ...COMPUTER_DATE_FIELDS].map((k) => [k, a[k] ?? ""])) as Pick<
       AssetFormValues,
