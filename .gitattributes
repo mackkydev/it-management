@@ -1,0 +1,3 @@
+# สคริปต์ Windows (update-local.cmd) ต้องขึ้นบรรทัดแบบ CRLF ไม่อย่างนั้น cmd อ่าน goto/label ผิด
+*.cmd text eol=crlf
+*.bat text eol=crlf

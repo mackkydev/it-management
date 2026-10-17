@@ -57,6 +57,15 @@ docker compose exec mysql sh -c 'mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --si
 docker compose logs -f express
 ```
 
+**อัปเดตเครื่องนี้เป็นเวอร์ชันล่าสุด (หลัง merge เข้า main)** — ดับเบิลคลิก หรือรันในโฟลเดอร์โปรเจกต์:
+
+```cmd
+update-local.cmd
+```
+
+ทำตามลำดับ และหยุดทันทีถ้าขั้นไหนผิดพลาด: ตรวจว่าไม่มีไฟล์ที่แก้ค้าง → `git pull origin main` → สำรองฐานข้อมูลไปที่ `..\it-system-backups\it_system-<วันเวลา>.sql` (นอกโปรเจกต์ ไม่ขึ้น git)
+→ `docker compose --profile web up -d --build` → `prisma migrate deploy` → restart express
+
 **อีเมลแจ้งเตือน (SMTP)** — แก้ใน `express\.env` แล้ว `docker compose up -d express`
 
 ```env
