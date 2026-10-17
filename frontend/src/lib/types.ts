@@ -44,6 +44,8 @@ export interface Asset {
   purchase_cost: string | null;
   warranty_expires_at: string | null;
   notes: string | null;
+  /** เป็นเครื่องสำหรับยืม (แสดงในหน้า ยืมโน้ตบุ๊ก) */
+  is_loanable: boolean;
   branch?: { id: number; name: string } | null;
   /** ข้อมูลเครื่องคอมพิวเตอร์ (หมวด COMPUTER — asset_tag = Host Name) */
   department: string | null;
@@ -715,6 +717,7 @@ export interface AssetFormValues {
   warranty_expires_at: string;
   notes: string;
   branch_id: string;
+  is_loanable: boolean;
   /** ข้อมูลเครื่องคอมพิวเตอร์ (CATEGORY_FORM.computer) */
   department: string;
   user_name: string;
@@ -1249,6 +1252,8 @@ export interface LoanDevice {
   custodian: string | null;
   /** ยืมอยู่ตอนนี้ (ยังไม่คืน) */
   on_loan: { user: string; end_on: string; end_time: string; is_overdue: boolean } | null;
+  /** ช่วงที่ติดยืม / จองไว้ (ตั้งแต่วันนี้) */
+  busy?: { id: string; user: string; status: LoanStatus; start_on: string; start_time: string; end_on: string; end_time: string }[];
 }
 
 export type LoanStatus = "reserved" | "on_loan" | "returned" | "cancelled";

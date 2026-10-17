@@ -105,6 +105,7 @@ export interface AssetRow {
   warranty_expires_at: string | null;
   notes: string | null;
   branch_id: number | null;
+  is_loanable: boolean | number;
   /** ข้อมูลเครื่องคอมพิวเตอร์ (หมวด COMPUTER) — ดู COMPUTER_FIELDS */
   department: string | null;
   user_name: string | null;
@@ -149,6 +150,7 @@ export function assetResource(
     serial_number: a.serial_number,
     status: a.status,
     status_label: trans(locale, `eam.status.${a.status}`),
+    is_loanable: Boolean(a.is_loanable),
     ...("location" in rel ? { location: rel.location ? locationResource(rel.location) : null } : {}),
     ...("custodian" in rel ? { custodian: rel.custodian } : {}),
     purchase_date: dateOnly(a.purchase_date),

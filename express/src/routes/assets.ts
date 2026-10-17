@@ -4,7 +4,7 @@ import { exec, first, insert, isUuid, likeEscape, scalar, select, transaction, u
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
 import { iso, localToday, nowDb, parseDate } from "../lib/time.js";
-import { exists, int, regex, unique, validate, type ErrorBag, type Rules } from "../lib/validator.js";
+import { bool, exists, int, regex, unique, validate, type ErrorBag, type Rules } from "../lib/validator.js";
 import { limits } from "../lib/rate-limit.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
 import { me, pageParam, paginated } from "../http.js";
@@ -32,7 +32,7 @@ const SORTABLE = ["asset_tag", "name", "category", "status", "purchase_date", "c
 const TAG = /^[A-Za-z0-9\-_/]+$/;
 const FILLABLE = [
   "asset_tag", "name", "category", "brand", "model", "serial_number", "status", "location_id",
-  "custodian_id", "purchase_date", "purchase_cost", "warranty_expires_at", "notes", "branch_id",
+  "custodian_id", "purchase_date", "purchase_cost", "warranty_expires_at", "notes", "branch_id", "is_loanable",
   ...(Object.keys(COMPUTER_TEXT_FIELDS) as (keyof typeof COMPUTER_TEXT_FIELDS)[]),
   ...COMPUTER_DATE_FIELDS,
 ] as const;
@@ -144,6 +144,8 @@ function assetRules(ignoreId?: number): Rules {
     purchase_cost: r(["nullable", "numeric", "min:0", "max:9999999999999.99"]),
     warranty_expires_at: r(["nullable", "date"]),
     notes: r(["nullable", "string", "max:5000"]),
+    // เป็นเครื่องสำหรับยืม → แสดงในหน้า ยืมโน้ตบุ๊ก
+    is_loanable: ["sometimes", "boolean"],
     branch_id: r(["nullable", "integer", exists("branches", "id", "deleted_at IS NULL")]),
     // ข้อมูลเครื่องคอมพิวเตอร์ (ใช้กับหมวด COMPUTER — หมวดอื่นส่งมาได้แต่ฟอร์มไม่แสดง)
     ...Object.fromEntries(Object.entries(COMPUTER_TEXT_FIELDS).map(([k, max]) => [k, r(["nullable", "string", `max:${max}`])])),
@@ -165,6 +167,7 @@ function columnValue(key: string, v: unknown): unknown {
   if ((COMPUTER_DATE_FIELDS as readonly string[]).includes(key)) return String(v).slice(0, 10);
   if (key === "purchase_date" || key === "warranty_expires_at") return String(v).slice(0, 10);
   if (key === "purchase_cost") return Number(v).toFixed(2);
+  if (key === "is_loanable") return bool(v);
   return v;
 }
 

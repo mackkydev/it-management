@@ -48,6 +48,7 @@ function toPayload(v: AssetFormValues) {
     purchase_cost: text(v.purchase_cost),
     warranty_expires_at: form?.hide?.includes("warranty_expires_at") ? null : text(v.warranty_expires_at),
     notes: text(v.notes),
+    is_loanable: v.is_loanable,
     branch_id: v.branch_id ? Number(v.branch_id) : null,
     // ข้อมูลเครื่องคอมพิวเตอร์: หมวดอื่นส่งเป็น null (ไม่เก็บค่าค้างจากหมวดเดิม)
     ...Object.fromEntries([...COMPUTER_TEXT_FIELDS, ...COMPUTER_DATE_FIELDS].map((k) => [k, form?.computer ? text(v[k]) : null])),

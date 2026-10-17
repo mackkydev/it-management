@@ -109,6 +109,11 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
             <h1 className="text-2xl font-semibold">{asset.name}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <StatusBadge status={asset.status} label={asset.status_label} />
+              {asset.is_loanable && (
+                <span className="inline-flex items-center rounded-full bg-accent-100 px-2.5 py-0.5 text-xs font-medium text-accent-800 dark:bg-accent-400/15 dark:text-accent-200">
+                  {t("assets.form.loanableBadge")}
+                </span>
+              )}
               {!canEdit && <span className="text-xs text-faint">{t("assets.detail.readOnly")}</span>}
             </div>
           </div>

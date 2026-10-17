@@ -57,6 +57,7 @@ const EMPTY: AssetFormValues = {
   warranty_expires_at: "",
   notes: "",
   branch_id: "",
+  is_loanable: false,
   ...(Object.fromEntries([...COMPUTER_TEXT_FIELDS, ...COMPUTER_DATE_FIELDS].map((k) => [k, ""])) as Record<ComputerField, string>),
   movement_reason: "",
   license: {
@@ -139,7 +140,7 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
     isEdit && (values.location_id !== initial?.location_id || values.custodian_id !== initial?.custodian_id);
 
   const onChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const field = e.target.name as Exclude<keyof AssetFormValues, "license" | "software">;
+    const field = e.target.name as Exclude<keyof AssetFormValues, "license" | "software" | "is_loanable">;
     setValues((v) => ({ ...v, [field]: e.target.value }));
     setErrors((prev) => ({ ...prev, [field]: "" })); // ล้าง error ของช่องที่แก้ทันที
   };
@@ -249,7 +250,7 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
     startTransition(async () => handleResult(await deleteAsset(assetId)));
   };
 
-  type Plain = Exclude<keyof AssetFormValues, "license" | "software">;
+  type Plain = Exclude<keyof AssetFormValues, "license" | "software" | "is_loanable">;
   const field = (name: Plain, label: string, control: ReactNode, required = false, wide = false) => (
     <div className={wide ? "sm:col-span-2" : undefined}>
       <label htmlFor={name} className="mb-1 block text-sm font-medium">
@@ -362,6 +363,20 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
                 ))}
               </AppSelect>,
             )}
+            {/* ป้ายกำกับ: เครื่องสำหรับยืม → แสดงในหน้า ยืมโน้ตบุ๊ก (สถานะใช้งาน / เก็บในคลัง) */}
+            <label className="flex cursor-pointer items-start gap-2.5 self-end rounded-xl p-2.5 ring-1 ring-line transition-colors hover:bg-subtle sm:col-span-2">
+              <input
+                type="checkbox"
+                name="is_loanable"
+                checked={values.is_loanable}
+                onChange={(e) => setValues((v) => ({ ...v, is_loanable: e.target.checked }))}
+                className="mt-0.5 h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+              />
+              <span>
+                <span className="block text-sm font-medium">{t("assets.form.loanable")}</span>
+                <span className="block text-xs text-muted">{t("assets.form.loanableHint")}</span>
+              </span>
+            </label>
             {field(
               "brand",
               t("assets.form.brand"),

@@ -1,14 +1,13 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type MouseEvent } from "react";
 import { loadLoans } from "@/app/actions/loans";
-import { ChevronLeftIcon, ChevronRightIcon, PlusIcon, SpinnerIcon } from "@/components/icons";
+import { ChevronLeftIcon, ChevronRightIcon, PlusIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { Tooltip } from "@/components/tooltip";
 import { btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
-import type { Loan } from "@/lib/types";
+import type { Loan, LoanDevice } from "@/lib/types";
 import { monthGrid, shiftMonth } from "../calendar/calendar-grid";
 import { LoanDialog } from "./loan-dialog";
 import { daysOf, periodText, STATE_TONE, stateOf, type LoanState } from "./loan-utils";
@@ -17,15 +16,33 @@ const MAX_CHIPS = 3;
 const LEGEND: LoanState[] = ["reserved", "on_loan", "overdue", "returned"];
 
 /**
- * ปฏิทินเดือนของการยืมอุปกรณ์ IT — การยืมหลายวันขึ้นทุกวันในช่วง (สีตามสถานะ: จอง / ยืมอยู่ / เกินกำหนด / คืนแล้ว),
- * คลิกรายการ = รายละเอียด (ส่งมอบ / รับคืน / ยกเลิก ตามสิทธิ์), คลิกวัน / + = จองยืมวันนั้น
+ * ปฏิทินเดือนของการยืมโน้ตบุ๊ก (คอลัมน์ขวาของหน้า ยืมโน้ตบุ๊ก) — การยืมหลายวันขึ้นทุกวันในช่วง,
+ * พื้นแถบ = สีประจำเครื่อง (ตรงกับรายการทางซ้าย) + จุดสีสถานะ (จอง / ยืมอยู่ / เกินกำหนด / คืนแล้ว),
+ * คลิกรายการ = รายละเอียด (ส่งมอบ / รับคืน / ยกเลิก ตามสิทธิ์), ดับเบิลคลิก / คลิกขวาที่วัน = เลือกโน้ตบุ๊กที่ว่างวันนั้น → onPick
  */
-export function LoanCalendar({ month: initialMonth, initialLoans, canBook = true }: { month: string; initialLoans: Loan[]; canBook?: boolean }) {
+export function LoanCalendar({
+  month: initialMonth,
+  initialLoans,
+  devices,
+  colorOf,
+  canBook = true,
+  refreshKey = 0,
+  onPick,
+}: {
+  month: string;
+  initialLoans: Loan[];
+  devices: LoanDevice[];
+  colorOf: (id: number) => string;
+  canBook?: boolean;
+  /** เปลี่ยนค่า = โหลดเดือนนี้ใหม่ (หลังจองจากรายการทางซ้าย) */
+  refreshKey?: number;
+  onPick: (date: string, deviceId: number) => void;
+}) {
   const { t, fmt, locale } = useI18n();
-  const router = useRouter();
   const [month, setMonth] = useState(initialMonth);
   const [loans, setLoans] = useState(initialLoans);
   const [selected, setSelected] = useState<Loan | null>(null);
+  const [pickDay, setPickDay] = useState<string | null>(null);
   const [loading, startLoad] = useTransition();
   const today = localToday();
 
@@ -47,18 +64,36 @@ export function LoanCalendar({ month: initialMonth, initialLoans, canBook = true
   const goMonth = (m: string) => {
     setMonth(m);
     reload(m);
-    window.history.replaceState(null, "", `/loans?month=${m}`);
+    window.history.replaceState(null, "", `/loans/book?month=${m}`);
   };
-  const book = (d: string) => router.push(`/loans/book?date=${d}`);
+  // จองจากรายการทางซ้ายแล้ว → โหลดเดือนนี้ใหม่
+  useEffect(() => {
+    if (refreshKey) reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- โหลดใหม่ตาม refreshKey เท่านั้น
+  }, [refreshKey]);
+
+  /** โน้ตบุ๊กที่ไม่ติดยืม (จอง / ยืมอยู่) วันนั้น */
+  const freeOn = (d: string) => {
+    const taken = new Set((byDay.get(d) ?? []).filter((l) => l.status === "reserved" || l.status === "on_loan").map((l) => l.asset.id));
+    for (const dev of devices) for (const b of dev.busy ?? []) if (b.start_on <= d && b.end_on >= d) taken.add(dev.id);
+    return devices.filter((dev) => !taken.has(dev.id));
+  };
+  const openPicker = (d: string, e?: MouseEvent) => {
+    e?.preventDefault();
+    if (canBook && d >= today) setPickDay(d);
+  };
   const line = (l: Loan) => `${periodText(l, fmt.date)} · ${l.asset.asset_tag} ${l.asset.name} · ${l.user.name}`;
+  // พื้น = สีประจำเครื่อง, จุด = สถานะ (คืนแล้ว = จางลง)
   const chip = (l: Loan, small = false) => (
     <button
       key={l.id}
       type="button"
       onClick={(e) => (e.stopPropagation(), setSelected(l))}
-      className={`block w-full cursor-pointer truncate rounded-md px-1.5 text-left font-medium ring-1 ring-inset ${small ? "py-0.5 text-[11px]" : "py-1 text-xs"} ${STATE_TONE[stateOf(l)].bar}`}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={`flex w-full cursor-pointer items-center gap-1 truncate rounded-md px-1.5 text-left font-medium ring-1 ring-inset ${small ? "py-0.5 text-[11px]" : "py-1 text-xs"} ${colorOf(l.asset.id)} ${l.status === "returned" ? "opacity-60" : ""}`}
     >
-      {small ? `${l.asset.asset_tag} · ${l.user.name}` : line(l)}
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATE_TONE[stateOf(l)].dot}`} aria-hidden="true" />
+      <span className="truncate">{small ? `${l.asset.asset_tag} · ${l.user.name}` : line(l)}</span>
     </button>
   );
 
@@ -91,7 +126,7 @@ export function LoanCalendar({ month: initialMonth, initialLoans, canBook = true
         {canBook && (
           <span className="hidden w-full items-center gap-1.5 text-xs text-muted md:flex">
             <PlusIcon width={12} height={12} />
-            {t("loan.bookHint")}
+            {t("loan.board.calendarHint")}
           </span>
         )}
       </div>
@@ -115,9 +150,10 @@ export function LoanCalendar({ month: initialMonth, initialLoans, canBook = true
                 key={d}
                 role={bookable ? "button" : undefined}
                 tabIndex={bookable ? 0 : undefined}
-                onClick={() => bookable && book(d)}
-                onKeyDown={(e) => bookable && e.key === "Enter" && book(d)}
-                className={`group flex min-h-28 flex-col gap-1 border-b border-r border-line p-1.5 transition-colors [&:nth-child(7n)]:border-r-0 ${bookable ? "cursor-pointer hover:bg-accent-50/60 dark:hover:bg-accent-400/5" : ""} ${outside ? "bg-subtle/40 text-faint" : ""}`}
+                onDoubleClick={(e) => openPicker(d, e)}
+                onContextMenu={(e) => bookable && openPicker(d, e)}
+                onKeyDown={(e) => bookable && e.key === "Enter" && openPicker(d)}
+                className={`group flex min-h-28 select-none flex-col gap-1 border-b border-r border-line p-1.5 transition-colors [&:nth-child(7n)]:border-r-0 ${bookable ? "cursor-pointer hover:bg-accent-50/60 dark:hover:bg-accent-400/5" : ""} ${outside ? "bg-subtle/40 text-faint" : ""}`}
               >
                 <span className="flex items-center justify-between gap-1">
                   <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium ${d === today ? "bg-accent-500 text-white" : ""}`}>{Number(d.slice(8))}</span>
@@ -164,6 +200,45 @@ export function LoanCalendar({ month: initialMonth, initialLoans, canBook = true
       </ul>
 
       {selected && <LoanDialog loan={selected} onClose={() => setSelected(null)} onChanged={() => reload()} />}
+
+      {/* ดับเบิลคลิก / คลิกขวาที่วัน: เลือกโน้ตบุ๊กที่ว่างวันนั้น → เปิดฟอร์มยืม-จองในรายการทางซ้าย */}
+      {pickDay && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4" onClick={() => setPickDay(null)}>
+          <div role="dialog" aria-modal="true" className={`max-h-[80vh] w-full max-w-sm space-y-3 overflow-y-auto p-4 shadow-xl ${card}`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold">{t("loan.board.pickTitle", { date: fmt.date(pickDay) })}</h3>
+                <p className="text-xs text-muted">{t("loan.board.pickHint")}</p>
+              </div>
+              <button type="button" onClick={() => setPickDay(null)} aria-label={t("common.close")} className={`${btn.secondary} ${btn.sm} shrink-0 px-2`}>
+                <XIcon width={14} height={14} />
+              </button>
+            </div>
+            {freeOn(pickDay).length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted">{t("loan.board.noneFree")}</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {freeOn(pickDay).map((dev) => (
+                  <li key={dev.id}>
+                    <button
+                      type="button"
+                      onClick={() => (onPick(pickDay, dev.id), setPickDay(null))}
+                      className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl p-2.5 text-left ring-1 ring-line transition-colors hover:bg-subtle"
+                    >
+                      <span className={`h-4 w-4 shrink-0 rounded ring-1 ring-inset ${colorOf(dev.id)}`} aria-hidden="true" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{dev.name}</span>
+                        <span className="block truncate text-xs text-muted">{dev.asset_tag}</span>
+                      </span>
+                      <PlusIcon width={14} height={14} className="ml-auto shrink-0 text-muted" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -221,6 +221,8 @@ model assets {
   model                            String?                 @db.VarChar(100)
   serial_number                    String?                 @db.VarChar(100)
   status                           String                  @default("active") @db.VarChar(20)
+  /// เป็นเครื่องสำหรับยืม (หน้า ยืมโน้ตบุ๊ก) — ติ๊กในฟอร์มสินทรัพย์
+  is_loanable                      Boolean                 @default(false)
   location_id                      BigInt?
   custodian_id                     BigInt?
   purchase_date                    DateTime?               @db.Date
