@@ -116,18 +116,21 @@ describe("IT data", () => {
     expect(again.items).toHaveLength(0);
   });
 
-  it("settings and branches are admin only", async () => {
+  it("settings are super admin only; branches are admin", async () => {
     const viewer = await as(await makeUser());
     expect((await viewer.get("/api/v1/settings")).status).toBe(403);
     expect((await viewer.post("/api/v1/branches").send({ code: "X", name: "X" })).status).toBe(403);
     expect((await viewer.get("/api/v1/branches")).status).toBe(200);
 
     const admin = await as(await makeUser({ role: "admin" }));
-    const bad = await admin.put("/api/v1/settings").send({ notify_emails: ["A@x.com", "bad"], contract_notify_days: 45 });
+    // ตั้งค่าระบบ = super_admin เท่านั้น (locked)
+    expect((await admin.get("/api/v1/settings")).status).toBe(403);
+    const root = await as(await makeUser({ role: "super_admin" }));
+    const bad = await root.put("/api/v1/settings").send({ notify_emails: ["A@x.com", "bad"], contract_notify_days: 45 });
     expect(bad.status).toBe(422);
     expect(bad.body.errors).toHaveProperty(["notify_emails.1"]);
 
-    const ok = await admin.put("/api/v1/settings").send({ notify_emails: ["A@x.com", "b@y.com"], contract_notify_days: 45 });
+    const ok = await root.put("/api/v1/settings").send({ notify_emails: ["A@x.com", "b@y.com"], contract_notify_days: 45 });
     expect(ok.status).toBe(200);
     expect(ok.body.data).toMatchObject({ notify_emails: ["a@x.com", "b@y.com"], contract_notify_days: 45, ticket_other_types: ["งานออกแบบ"] });
 

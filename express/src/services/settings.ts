@@ -26,6 +26,8 @@ export const DEFAULTS = {
   two_factor_required: false as unknown,
   // PIN กลางสำหรับเปิดดูข้อมูลลับ { hash, set_at, set_by } — ห้ามส่ง hash ออกนอก API (routes/it-data.ts ตัดออก)
   secret_pin: null as unknown,
+  // นโยบายรหัสผ่าน: ล็อกบัญชีเมื่อ login ผิด + บังคับเปลี่ยนรหัสผ่านทุก N วัน (services/password-policy.ts) — null = ค่าเริ่มต้น
+  password_policy: null as unknown,
   // ปฏิทิน: ขอบเขตการมองเห็นต่อกลุ่ม { group_key: "all" | "branch" | "department" } และตั้งค่าการลา (services/calendar.ts)
   calendar_scope: null as unknown,
   // ขอบเขตการมองเห็นวันลาของคนอื่นต่อกลุ่ม (ตั้งแยกจากปฏิทิน) { group_key: "self" | "department" | "branch" | "all" }

@@ -55,7 +55,7 @@ export function LoginDigest({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => setOpen(false)}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay p-4 backdrop-blur-sm" onClick={() => setOpen(false)}>
       <div
         role="dialog"
         aria-modal="true"

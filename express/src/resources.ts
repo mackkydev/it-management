@@ -3,6 +3,7 @@ import { dateOnly, iso } from "./lib/time.js";
 import type { UserRow } from "./models/user.js";
 import { fileJson, licenseJson, type AssetFileRow, type LicenseRow } from "./services/asset-licenses.js";
 import type { SoftwareSet } from "./services/asset-software.js";
+import { loginLockedMinutes } from "./services/password-policy.js";
 
 /** JSON ของแต่ละ model — รูปแบบเดียวกับ App\Http\Resources ของ Laravel */
 
@@ -52,6 +53,8 @@ export function userResource(
     signature_url: viewerId === u.id ? ownSignatureUrl(extra.signature_id) : null,
     /** เปิดการยืนยันตัวตน 2 ขั้นแล้ว (ไม่ส่ง secret / recovery codes ออกไป) */
     two_factor_enabled: Boolean(u.two_factor_confirmed_at),
+    /** ถูกล็อกการ login ถึงเวลานี้ (null = ไม่ถูกล็อก) — ปลดล็อกที่ DELETE /users/{id}/login-lock */
+    login_locked_until: u.login_locked_until && loginLockedMinutes(u) > 0 ? iso(u.login_locked_until) : null,
     ...(extra.signature_id !== undefined ? { has_signature: extra.signature_id !== null } : {}),
     created_at: iso(u.created_at),
   };

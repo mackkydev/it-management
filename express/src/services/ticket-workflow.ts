@@ -58,6 +58,11 @@ export interface TicketRow {
   cancel_requested_status: string | null;
   cancelled_at: string | null;
   cancelled_by: number | null;
+  /**
+   * มีผู้อนุมัติผล (it_tickets.close) ที่ไม่ได้ทำงานใบนี้อยู่ไหม — ตั้งโดย withCloseInfo() เฉพาะใบที่รออนุมัติผล
+   * false = ไม่มีคนอื่นเลย ผู้รับงาน/ผู้ร่วมที่มีสิทธิ์อนุมัติผลงานตัวเองได้ (audit ticket.self_closed); ไม่ได้ตั้ง = ถือว่ามี (ห้ามอนุมัติงานตัวเอง)
+   */
+  independent_closer?: boolean;
 }
 
 /** คอลัมน์เพิ่มเติมของ it_tickets t สำหรับกติกาสายอนุมัติ — ใส่ใน SELECT ทุกที่ที่โหลด TicketRow */
@@ -85,14 +90,15 @@ export const canView = (u: UserRow, t: TicketRow) =>
 /**
  * สายอนุมัติ: ผู้อนุมัติคนใดคนหนึ่งของขั้นปัจจุบัน
  * ระบบเดิม (ไม่มีสาย): หัวหน้าตามสายบังคับบัญชาของผู้แจ้ง — ถ้าผู้แจ้งไม่มีหัวหน้า admin อนุมัติแทน
- * ผู้มีสิทธิ์ tickets.approve_any (ตั้งต้น = admin) อนุมัติแทนได้ทุกกรณี
- * ผู้มีสิทธิ์ tickets.approve_own (ตั้งต้น = ผู้จัดการขึ้นไป) อนุมัติใบของตัวเองได้ทุกขั้น — ไม่นับในรายการ/ตัวเลข "รอฉันอนุมัติ" (approvalsWhere)
+ * ผู้มีสิทธิ์ tickets.approve_any (locked — ตั้งต้นไม่ให้ใคร, super_admin ผ่าน) อนุมัติแทนได้ทุกใบ ยกเว้นใบของตัวเอง
+ * ใบของตัวเอง: เฉพาะสิทธิ์ tickets.approve_own (ตั้งต้น = ผู้จัดการ / ผู้จัดการฝ่าย) อนุมัติได้ทุกขั้น — การอยู่ในสาย / approve_any ไม่นับ
+ *   และไม่นับในรายการ/ตัวเลข "รอฉันอนุมัติ" (approvalsWhere)
  */
 export const canApprove = (u: UserRow, t: TicketRow) =>
   t.status === "pending_supervisor" &&
-  (can(u, "tickets.approve_any") ||
-    (t.requester_id === u.id && can(u, "tickets.approve_own")) ||
-    (t.current_step !== null ? (t.step_approver_ids ?? []).map(Number).includes(u.id) : u.id === t.approver_id));
+  (t.requester_id === u.id
+    ? can(u, "tickets.approve_own")
+    : can(u, "tickets.approve_any") || (t.current_step !== null ? (t.step_approver_ids ?? []).map(Number).includes(u.id) : u.id === t.approver_id));
 
 /**
  * ผู้ที่ถูกเลือกไว้ หรือผู้มีสิทธิ์ it_tickets.accept ถ้ายังไม่ได้เลือก (it_tickets.manage_all = หัวหน้า IT/admin รับแทนได้)
@@ -117,7 +123,18 @@ export const canRecordResult = (u: UserRow, t: TicketRow) =>
 /** บันทึกความคืบหน้า — คนเดียวกับที่บันทึกผลได้ */
 export const canProgress = canRecordResult;
 
-export const canClose = (u: UserRow, t: TicketRow) => t.status === "pending_it_head" && can(u, "it_tickets.close");
+/** ผู้รับงาน / ผู้ร่วมดำเนินการของใบนี้ (ได้แถว KPI ของใบนี้) */
+export const worksOn = (userId: number, t: TicketRow) => userId === t.assignee_id || (t.helper_ids ?? []).map(Number).includes(userId);
+
+/**
+ * อนุมัติผล / ส่งกลับแก้ไข — ผู้มีสิทธิ์ it_tickets.close ที่ไม่ได้ทำงานใบนี้ (กันอนุมัติงานตัวเองเข้า KPI)
+ * ยกเว้นไม่มีผู้อนุมัติผลคนอื่นเลย (independent_closer = false) → ผู้ที่ทำงานใบนี้อนุมัติได้ และบันทึก ticket.self_closed
+ */
+export const canClose = (u: UserRow, t: TicketRow) =>
+  t.status === "pending_it_head" && can(u, "it_tickets.close") && (!worksOn(u.id, t) || t.independent_closer === false);
+
+/** อนุมัติผลงานที่ตัวเองทำ (ใช้บันทึก audit / ไทม์ไลน์) */
+export const isSelfClose = (u: UserRow, t: TicketRow) => worksOn(u.id, t);
 
 /** หัวหน้า IT อนุมัติผลแล้ว (รอปิดงาน) → ผู้แจ้งกดรับงานเพื่อปิดงาน */
 export const canConfirmClose = (u: UserRow, t: TicketRow) => t.status === "pending_requester" && u.id === t.requester_id;
@@ -195,6 +212,29 @@ export async function closers(): Promise<Person[]> {
   return direct.length ? direct : all;
 }
 
+/**
+ * ผู้อนุมัติผลของใบนี้ = closers() ที่ไม่ได้ทำงานใบนี้ → ไม่มี = ผู้มีสิทธิ์อนุมัติผลคนอื่น → ยังไม่มี = closers() เดิม (อนุมัติงานตัวเอง)
+ * ใช้ทั้งแจ้งเตือน "resulted" และตัวเลขเมนู /it/queue (เงื่อนไขเดียวกัน)
+ */
+export async function closersFor(t: TicketRow): Promise<Person[]> {
+  return closersAmong(t, await closers(), await usersWithPermissions(["it_tickets.queue", "it_tickets.close"]));
+}
+
+/** closersFor แบบส่งรายชื่อมาเอง (base = closers(), all = ผู้มีสิทธิ์อนุมัติผลทั้งหมด) — ใช้นับหลายใบ */
+export function closersAmong(t: TicketRow, base: Person[], all: Person[]): Person[] {
+  const others = base.filter((p) => !worksOn(p.id, t));
+  if (others.length) return others;
+  const anyOther = all.filter((p) => !worksOn(p.id, t));
+  return anyOther.length ? anyOther : base;
+}
+
+/** ตั้ง independent_closer ให้ใบที่รออนุมัติผล (canClose ใช้ค่านี้) */
+export async function withCloseInfo<T extends TicketRow>(t: T): Promise<T> {
+  if (t.status !== "pending_it_head") return t;
+  const all = await usersWithPermissions(["it_tickets.queue", "it_tickets.close"]);
+  return { ...t, independent_closer: all.some((p) => !worksOn(p.id, t)) };
+}
+
 /** ระบบเดิม: หัวหน้าที่ระบุ — ไม่มี/ปิดใช้งาน = ผู้มีสิทธิ์อนุมัติแทน (tickets.approve_any) */
 async function approvers(t: TicketRow): Promise<Person[]> {
   if (t.approver_id) {
@@ -265,7 +305,7 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
       recipients = [requester];
       break;
     case "resulted":
-      recipients = await closers();
+      recipients = await closersFor(t);
       break;
     case "returned":
       recipients = [assignee];

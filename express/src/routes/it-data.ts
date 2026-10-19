@@ -8,6 +8,7 @@ import { limits } from "../lib/rate-limit.js";
 import { dateOnly, diffInDays, fromDbDate, iso, nowDb } from "../lib/time.js";
 import { bool, custom, exists, int, makeHash, regex, unique, validate } from "../lib/validator.js";
 import { audit } from "../services/audit.js";
+import { passwordPolicy } from "../services/password-policy.js";
 import { BUILTIN_CATEGORIES } from "../services/categories.js";
 import { notifyAccessChange } from "../services/access-control.js";
 import { me, shortMeta, pageParam } from "../http.js";
@@ -125,6 +126,8 @@ const settingsJson = async () => {
   return {
     ...rest,
     secret_guard: guard,
+    // ค่าที่ใช้งานจริง (รวมค่าเริ่มต้น)
+    password_policy: await passwordPolicy(),
     secret_pin_status: await centralPinStatus(),
     // ตัวเลือกผู้รับแจ้งเตือนเมื่อมีคนเปิดดูข้อมูลลับ (ผู้ใช้ที่ใช้งานอยู่) + ผู้รับจริงตอนนี้ (ไม่ได้เลือก = หัวหน้า IT)
     secret_notify_options: (await select<{ id: number; name: string; department: string | null }>("SELECT id, name, department FROM users WHERE is_active = true ORDER BY name LIMIT 2000")).map((x) => ({
@@ -178,6 +181,29 @@ itDataRoutes.put("/secret-pin", limits.pinSet, async (req, res) => {
   res.json({ data: { ...(await centralPinStatus()), can_manage: true } });
 });
 
+/**
+ * ตัวเลือกเรื่อง "อื่นๆ" ในใบแจ้งงาน = ข้อมูล Drop Down (หน้า /dropdowns แท็บ ticket_types) — สิทธิ์ dropdowns.manage
+ * (แยกจาก PUT /settings ที่ต้องมี settings.manage เพื่อให้ผู้ดูแลข้อมูลหลักแก้ได้โดยไม่ต้องมีสิทธิ์ตั้งค่าระบบ)
+ */
+const otherTypes = (req: Request) => authorize(can(me(req), "dropdowns.manage") || can(me(req), "settings.manage"));
+itDataRoutes.get("/ticket-other-types", async (req, res) => {
+  otherTypes(req);
+  res.json({ data: await getSetting("ticket_other_types") });
+});
+itDataRoutes.put("/ticket-other-types", async (req, res) => {
+  otherTypes(req);
+  const data = await validate(
+    req.input,
+    { items: ["nullable", "array", "max:30"], "items.*": ["required", "string", "max:100", "distinct"] },
+    { locale: req.locale },
+  );
+  const before = await getSetting("ticket_other_types");
+  const items = [...new Set(Object.values((data.items ?? {}) as Record<string, string>).map((x) => x.trim()))];
+  await putSetting("ticket_other_types", items, me(req).id);
+  await audit(req, { action: "settings.ticket_other_types_updated", subjectType: "settings", subjectId: "ticket_other_types", before: { items: before }, after: { items } });
+  res.json({ data: items });
+});
+
 itDataRoutes.get("/settings", async (req, res) => {
   settings(req);
   res.json({ data: await settingsJson() });
@@ -189,6 +215,8 @@ itDataRoutes.put("/settings", async (req, res) => {
   if ("ui_permissions" in req.input || "menu_labels" in req.input) authorize(can(me(req), "access.manage"));
   // บังคับ 2FA ผู้ดูแลระบบ = นโยบายความปลอดภัยของการเข้าสู่ระบบ (สงวนไว้ให้ผู้ดูแลระบบสูงสุด)
   if ("two_factor_required" in req.input) authorize(can(me(req), "access.manage"));
+  // นโยบายรหัสผ่าน (ล็อกบัญชี / บังคับเปลี่ยนรหัสผ่าน) — services/password-policy.ts
+  if ("password_policy" in req.input) authorize(can(me(req), "access.manage"));
   const groupKeys = new Set((await select<{ key: string }>('SELECT "key" FROM permission_groups')).map((g) => g.key));
   const data = await validate(
     req.input,
@@ -230,6 +258,13 @@ itDataRoutes.put("/settings", async (req, res) => {
       "secret_guard.notify_user_ids": ["sometimes", "array", "max:50"],
       "secret_guard.notify_user_ids.*": ["integer"],
       two_factor_required: ["sometimes", "boolean"],
+      password_policy: ["sometimes", "array"],
+      // 0 = ไม่ล็อกบัญชี
+      "password_policy.lockout_attempts": ["sometimes", "integer", "min:0", "max:50"],
+      "password_policy.lockout_minutes": ["sometimes", "integer", "min:1", "max:1440"],
+      // 0 = ไม่บังคับเปลี่ยนรหัสผ่าน
+      "password_policy.expiry_days": ["sometimes", "integer", "min:0", "max:730"],
+      "password_policy.expiry_warn_days": ["sometimes", "integer", "min:0", "max:60"],
     },
     {
       locale: req.locale,
@@ -294,9 +329,25 @@ itDataRoutes.put("/settings", async (req, res) => {
     };
   }
   if ("two_factor_required" in data) values.two_factor_required = bool(data.two_factor_required);
+  if ("password_policy" in data && data.password_policy && typeof data.password_policy === "object") {
+    const p = data.password_policy as Record<string, unknown>;
+    const current = await passwordPolicy();
+    const next = {
+      lockout_attempts: "lockout_attempts" in p ? int(p.lockout_attempts)! : current.lockout_attempts,
+      lockout_minutes: "lockout_minutes" in p ? int(p.lockout_minutes)! : current.lockout_minutes,
+      expiry_days: "expiry_days" in p ? int(p.expiry_days)! : current.expiry_days,
+      expiry_warn_days: "expiry_warn_days" in p ? int(p.expiry_warn_days)! : current.expiry_warn_days,
+      since: current.since,
+    };
+    // เพิ่งเปิดบังคับเปลี่ยน → ผู้ที่ยังไม่มีวันเปลี่ยนรหัสผ่านเริ่มนับจากวันนี้ (ไม่หมดอายุทันที) / ปิด = ล้างจุดเริ่มนับ
+    if (next.expiry_days > 0 && (current.expiry_days <= 0 || !current.since)) next.since = nowDb();
+    if (next.expiry_days <= 0) next.since = null;
+    values.password_policy = next;
+  }
   for (const [key, value] of Object.entries(values)) await putSetting(key, value, u.id);
   if ("two_factor_required" in values) await audit(req, { action: "settings.two_factor_required", subjectType: "settings", subjectId: "two_factor_required", after: { required: values.two_factor_required } });
   if ("menu_labels" in values) await audit(req, { action: "settings.menu_labels_updated", subjectType: "settings", subjectId: "menu_labels", after: { labels: values.menu_labels } });
+  if ("password_policy" in values) await audit(req, { action: "settings.password_policy_updated", subjectType: "settings", subjectId: "password_policy", after: values.password_policy as Record<string, unknown> });
   if ("secret_guard" in values) await audit(req, { action: "settings.secret_guard_updated", subjectType: "settings", subjectId: "secret_guard", after: values.secret_guard as Record<string, unknown> });
 
   res.json({ data: await settingsJson() });
@@ -513,7 +564,11 @@ async function saveAccess(req: Request, credentialId: number, before: AccessInfo
   }
 }
 
-async function credentialInput(req: Request, partial: boolean) {
+/**
+ * currentReauth = ค่าเดิมของรายการ (แก้ไข) — ปิด "ต้องยืนยันตัวตนก่อนเปิดดู" ได้เฉพาะผู้มีสิทธิ์ vault.all (ผู้ดูแลระบบสูงสุด)
+ * เปิดกลับได้ทุกคนที่แก้รายการได้ และส่งค่าเดิม (ปิดอยู่แล้ว) มาพร้อมการแก้ช่องอื่นได้
+ */
+async function credentialInput(req: Request, partial: boolean, currentReauth?: boolean) {
   const s = partial ? ["sometimes"] : [];
   const data = await validate(
     req.input,
@@ -533,7 +588,12 @@ async function credentialInput(req: Request, partial: boolean) {
     { locale: req.locale },
   );
   const out: Record<string, unknown> = {};
-  if ("require_reauth" in data) out.require_reauth = bool(data.require_reauth);
+  if ("require_reauth" in data) {
+    out.require_reauth = bool(data.require_reauth);
+    if (!out.require_reauth && currentReauth !== false && !can(me(req), "vault.all")) {
+      throw ValidationError.withMessages({ require_reauth: trans(req.locale, "eam.vault.reauth_locked") });
+    }
+  }
   for (const key of ["title", "url", "username", "notes"]) if (key in data) out[key] = data[key];
   if ("category" in data) out.category = String(data.category).trim();
   for (const key of ["branch_id", "owner_id"]) if (key in data) out[key] = int(data[key]);
@@ -635,7 +695,7 @@ itDataRoutes.post("/credentials", async (req, res) => {
 async function updateCredential(req: Request, res: import("express").Response) {
   vault(req, "update");
   const current = await loadCredential(routeId(req), me(req));
-  const { out, plainPassword } = await credentialInput(req, true);
+  const { out, plainPassword } = await credentialInput(req, true, Boolean(current.require_reauth));
   const access = await accessInput(req, current);
   const accessBefore = access ? await accessOf(current) : null;
   await transaction(async () => {

@@ -440,7 +440,7 @@ function MobileDrawer({ open, onClose, groups, user }: { open: boolean; onClose:
   return (
     <div className={`fixed inset-0 z-40 lg:hidden ${open ? "" : "pointer-events-none"}`} aria-hidden={!open} inert={!open}>
       <div
-        className={`absolute inset-0 cursor-pointer bg-slate-900/40 backdrop-blur-sm transition-opacity ${open ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 cursor-pointer bg-overlay backdrop-blur-sm transition-opacity ${open ? "opacity-100" : "opacity-0"}`}
         onClick={onClose}
       />
       <aside

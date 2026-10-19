@@ -68,11 +68,11 @@ export async function saveSettings(values: Partial<AppSettings>): Promise<ItResu
 export async function saveTicketOtherTypes(items: string[]): Promise<ItResult> {
   const { t } = await getI18n();
   try {
-    await apiFetch("/settings", { method: "PUT", body: JSON.stringify({ ticket_other_types: items }) });
+    await apiFetch("/ticket-other-types", { method: "PUT", body: JSON.stringify({ items }) });
   } catch (e) {
     return toActionResult(e);
   }
-  revalidatePath("/ticket-types");
+  revalidatePath("/dropdowns");
   revalidatePath("/tickets/new");
   return { ok: true, message: t("ticketTypes.saved") };
 }

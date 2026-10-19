@@ -31,6 +31,8 @@
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
+  /* พื้นหลังมืดโปร่งหลังหน้าต่าง popup / เมนูมือถือ — ใช้ bg-overlay */
+  --color-overlay: var(--overlay);
 }
 
 /* ---------- ธีมสี pastel ---------- */
@@ -312,6 +314,7 @@
   --ink: var(--color-slate-900);
   --muted: var(--color-slate-500);
   --faint: var(--color-slate-400);
+  --overlay: color-mix(in oklab, var(--color-slate-900) 40%, transparent);
   color-scheme: light;
 }
 
@@ -325,6 +328,7 @@
   --ink: #e7eaf3;
   --muted: #9aa4bd;
   --faint: #6c7792;
+  --overlay: color-mix(in oklab, #000 60%, transparent);
   color-scheme: dark;
 }
 

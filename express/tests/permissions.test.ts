@@ -43,8 +43,9 @@ describe("permissions", () => {
       const expected = PERMISSIONS.filter((p) => p.defaults.some((d) => groups.includes(d))).map((p) => p.key);
       expect([...(await permissionsOf(sample))].sort()).toEqual(expected.sort());
     }
-    // ผู้ดูแลระบบ (admin) = ทุกอย่าง ยกเว้นสิทธิ์ที่สงวนไว้ (จัดการสิทธิ์), KPI ของคนอื่น และเห็นทุกรายการในคลังบัญชี (เฉพาะผู้ดูแลระบบสูงสุด)
-    const superOnly = ["kpi.view_all", "kpi.edit_all", "vault.all"];
+    // ผู้ดูแลระบบ (admin = เจ้าหน้าที่ IT) = ทุกอย่าง ยกเว้นสิทธิ์ที่สงวนไว้ (locked: จัดการสิทธิ์ / อนุมัติแทน / ลายเซ็นคนอื่น / ตั้งค่าระบบ / PIN กลาง),
+    // KPI ของคนอื่น, เห็นทุกรายการในคลังบัญชี และอนุมัติใบของตัวเอง (ผู้จัดการ)
+    const superOnly = ["kpi.view_all", "kpi.edit_all", "vault.all", "tickets.approve_own"];
     expect([...(await permissionsOf(await makeUser({ role: "admin" })))].sort()).toEqual(PERMISSIONS.filter((p) => !p.locked && !superOnly.includes(p.key)).map((p) => p.key).sort());
   });
 

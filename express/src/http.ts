@@ -2,11 +2,12 @@ import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import { config } from "./config.js";
 import { HttpError, unauthenticated, ValidationError } from "./lib/errors.js";
-import type { Locale } from "./lib/i18n.js";
+import { trans, type Locale } from "./lib/i18n.js";
 import { findToken } from "./lib/tokens.js";
 import { UploadedFile } from "./lib/uploaded-file.js";
 import { findUser, type UserRow } from "./models/user.js";
 import { checkApiSession } from "./services/api-auth.js";
+import { PASSWORD_EXPIRED_ALLOWED, passwordPolicy, passwordStatus } from "./services/password-policy.js";
 import { permissionsOf } from "./services/permissions.js";
 
 declare global {
@@ -166,6 +167,12 @@ export async function auth(req: Request, _res: Response, next: NextFunction) {
   }
   // สิทธิ์จริง (กลุ่ม + เพิ่ม/ถอดรายคน) คำนวณครั้งเดียวต่อ request — can(user, key) ใช้ค่านี้
   user.perms = await permissionsOf(user);
+  // รหัสผ่านหมดอายุ (นโยบายรหัสผ่าน — LOCAL) → ใช้ได้แค่ดูข้อมูลตัวเอง / เปลี่ยนรหัสผ่าน / ออกจากระบบ
+  if (user.type === "LOCAL" && !PASSWORD_EXPIRED_ALLOWED.some((a) => a.method === req.method && a.path === req.path)) {
+    if (passwordStatus(user, await passwordPolicy()).password_expired) {
+      throw new HttpError(403, trans(req.locale, "eam.auth.password_expired"), {}, { code: "password_expired" });
+    }
+  }
 
   req.user = user;
   req.tokenId = token.id;

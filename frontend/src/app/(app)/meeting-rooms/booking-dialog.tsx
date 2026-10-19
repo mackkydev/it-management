@@ -35,7 +35,7 @@ export function BookingDialog({ booking: b, tone, onClose, onChanged }: { bookin
   );
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-overlay p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" className={`w-full max-w-md space-y-3 p-5 shadow-xl ${card}`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

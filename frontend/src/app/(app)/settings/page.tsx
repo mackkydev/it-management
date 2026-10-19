@@ -9,6 +9,7 @@ import type { AppSettings } from "@/lib/types";
 import { LogoCard } from "./logo-card";
 import { SecurityForm } from "./security-form";
 import { SettingsForm } from "./settings-form";
+import { PasswordPolicyForm } from "./password-policy-form";
 import { TwoFactorPolicy } from "./two-factor-policy";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -36,6 +37,8 @@ export default async function SettingsPage() {
       />
       {/* บังคับ 2FA ผู้ดูแลระบบ — นโยบายการเข้าสู่ระบบ (access.manage) */}
       {has(user, "access.manage") && <TwoFactorPolicy initial={Boolean(data.two_factor_required)} />}
+      {/* นโยบายรหัสผ่าน: ล็อกบัญชีเมื่อ login ผิด + บังคับเปลี่ยนรหัสผ่านทุก N วัน (access.manage) */}
+      {has(user, "access.manage") && <PasswordPolicyForm initial={data.password_policy} />}
     </div>
   );
 }

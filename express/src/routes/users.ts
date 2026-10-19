@@ -12,6 +12,7 @@ import { deactivateSignature } from "../services/signatures.js";
 import { disableTwoFactor } from "../services/two-factor.js";
 import { lastLocalSuperAdmin, notifyAccessChange, roleChangeError } from "../services/access-control.js";
 import { audit } from "../services/audit.js";
+import { loginLockedMinutes, passwordChangedNow } from "../services/password-policy.js";
 import { userResource } from "../resources.js";
 
 /** UserController — ตัวเลือกผู้ถือครอง (admin/manager) และจัดการผู้ใช้ (users.create / update / delete) */
@@ -194,6 +195,7 @@ userRoutes.post("/users", async (req, res) => {
     role: data.role,
     is_active: "is_active" in req.input ? bool(req.input.is_active) : true,
     password: makeHash(String(data.password), config.bcryptRounds),
+    ...passwordChangedNow(),
     ...orgColumns(data),
     created_at: now,
     updated_at: now,
@@ -218,7 +220,8 @@ async function updateUser(req: Request, res: import("express").Response) {
     if ("role" in data) changes.role = data.role;
     if ("is_active" in data) changes.is_active = bool(data.is_active);
     const newPassword = target.type === "LOCAL" && typeof req.input.password === "string" && req.input.password !== "";
-    if (newPassword) changes.password = makeHash(req.input.password, config.bcryptRounds);
+    // รีเซ็ตรหัสผ่าน = เริ่มนับวันหมดอายุใหม่ + ปลดล็อกการ login
+    if (newPassword) Object.assign(changes, { password: makeHash(req.input.password, config.bcryptRounds), ...passwordChangedNow(), login_failures: 0, login_locked_until: null });
 
     if (Object.keys(changes).length) await update("users", { ...changes, updated_at: nowDb() }, "id = ?", [target.id]);
 
@@ -267,6 +270,16 @@ userRoutes.delete("/users/:id/2fa", async (req, res) => {
   await disableTwoFactor(target.id);
   await deleteUserTokens(target.id);
   await audit(req, { action: "two_factor.reset", subjectType: "user", subjectId: target.id });
+  res.status(204).end();
+});
+
+/** DELETE /users/{id}/login-lock — ปลดล็อกบัญชีที่ถูกล็อกเพราะ login ผิดหลายครั้ง (ผู้มีสิทธิ์แก้ไขผู้ใช้) */
+userRoutes.delete("/users/:id/login-lock", async (req, res) => {
+  const target = await routeUser(req);
+  authorize(can(me(req), "users.update") && !superAdminTarget(me(req), target));
+  if (!loginLockedMinutes(target) && !Number(target.login_failures ?? 0)) throw notFound();
+  await update("users", { login_failures: 0, login_locked_until: null }, "id = ?", [target.id]);
+  await audit(req, { action: "auth.unlocked", subjectType: "user", subjectId: target.id, before: { until: target.login_locked_until ?? null, failures: Number(target.login_failures ?? 0) } });
   res.status(204).end();
 });
 

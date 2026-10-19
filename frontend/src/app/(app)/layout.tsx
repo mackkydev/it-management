@@ -1,4 +1,9 @@
 import { cookies } from "next/headers";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { AlertIcon } from "@/components/icons";
+import { alert } from "@/components/ui";
+import { getI18n } from "@/i18n/server";
 import { AppShell } from "@/components/shell/app-shell";
 import { LiveRefresh } from "@/components/live-refresh";
 import { LoginDigest } from "@/components/shell/login-digest";
@@ -28,11 +33,22 @@ async function loginDigest() {
 }
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
-  const [user, prefs, uiConfig, digest] = await Promise.all([getCurrentUser(), getPrefs(), getUiConfig(), loginDigest()]);
+  const [user, prefs, uiConfig, digest, { t, fmt }] = await Promise.all([getCurrentUser(), getPrefs(), getUiConfig(), loginDigest(), getI18n()]);
+  // รหัสผ่านหมดอายุ (นโยบายรหัสผ่าน) — API ตอบ 403 แทบทุก endpoint จนกว่าจะเปลี่ยน (apiFetch ก็พาไปหน้าเดียวกัน)
+  if (user.password_expired) redirect("/password-expired");
 
   return (
     <AppShell layout={prefs.layout} user={user} uiConfig={uiConfig}>
       <LiveRefresh />
+      {user.password_warn && user.password_expires_at && (
+        <p role="status" className={`${alert.warning} mb-4 flex-wrap`}>
+          <AlertIcon className="shrink-0" />
+          {t("passwordExpired.warn", { date: fmt.date(user.password_expires_at) })}
+          <Link href="/profile" className="cursor-pointer font-medium underline underline-offset-2">
+            {t("passwordExpired.changeNow")}
+          </Link>
+        </p>
+      )}
       {digest && <LoginDigest {...digest} />}
       {children}
     </AppShell>

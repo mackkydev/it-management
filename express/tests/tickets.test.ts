@@ -269,13 +269,16 @@ describe("IT tickets", () => {
     expect((await staffApi.get("/api/v1/tickets?scope=mine")).body.meta.total).toBe(1);
   });
 
-  it("requester without supervisor is approved by admin", async () => {
+  it("requester without supervisor is approved by a super admin (admin = IT staff no longer approves on behalf)", async () => {
     const lonely = await makeUser({ name: "No boss" });
     const admin = await makeUser({ role: "admin" });
+    const root = await makeUser({ role: "super_admin" });
     const id = (await (await as(lonely)).post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x", assignee_id: it_.id, signature: SIG })).body.data.id;
-    expect(await unread(admin)).toBe(1);
+    expect(await unread(root)).toBe(1);
+    expect(await unread(admin)).toBe(0);
+    expect((await (await as(admin)).post(`/api/v1/tickets/${id}/approve`).send({})).status).toBe(403);
 
-    const api = await as(admin);
+    const api = await as(root);
     expect((await api.post(`/api/v1/tickets/${id}/reject`).send({})).status).toBe(422);
     const rejected = await api.post(`/api/v1/tickets/${id}/reject`).send({ comment: "ข้อมูลไม่ครบ" });
     expect(rejected.body.data.status).toBe("rejected");

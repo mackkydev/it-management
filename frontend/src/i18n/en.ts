@@ -544,6 +544,13 @@ const en: Dictionary = {
     },
   },
   users: {
+    loginLock: {
+      title: "Sign-in locked",
+      until: "Locked until {time}",
+      unlock: "Unlock",
+      confirm: "Unlock this user so they can sign in right away?",
+      unlocked: "Unlocked",
+    },
     twoFactor: {
       title: "Two-step verification",
       reset: "Reset 2FA",
@@ -724,6 +731,7 @@ const en: Dictionary = {
     subtitleAnnouncements: "Latest announcements from IT",
   },
   notifications: {
+    accountLocked: "{subject}'s account was locked for {minutes} minute(s) after {attempts} failed sign-ins",
     vpn: {
       requested: "{actor} requested VPN access — waiting for an account",
       assigned: "{actor} gave you VPN account {account} — valid until {expires}",
@@ -1158,6 +1166,7 @@ const en: Dictionary = {
     form: {
       requireReauth: "Confirm before viewing",
       requireReauthHint: "On = enter your login password or the shared PIN (per system settings) before viewing / Off = view directly",
+      requireReauthLocked: "Only users who can \"See every vault entry\" (super admins) can turn this off",
       requireReauthOn: "Viewing requires confirmation",
       requireReauthOff: "Viewable without confirmation (views are still logged)",
       addCategory: "+ Add a new category",
@@ -1911,7 +1920,33 @@ const en: Dictionary = {
       userCreate: "Add user",
     },
   },
+  passwordExpired: {
+    title: "Password expired",
+    hint: "{name} — passwords must be changed periodically. Set a new password to continue.",
+    expiredOn: "Expired on {date}",
+    logout: "Sign out",
+    warn: "Your password expires on {date}",
+    changeNow: "Change password",
+  },
   settingsPage: {
+    passwordPolicy: {
+      title: "Password policy",
+      hint: "Applies to local accounts (API users change their password at the source system)",
+      lockoutTitle: "Lock accounts after repeated failed sign-ins",
+      lockoutHint: "Counts consecutive wrong passwords and 2FA codes — administrators are notified and can unlock on the user's edit page",
+      attempts: "Consecutive failures",
+      minutes: "Lock for (minutes)",
+      minutesHint: "Unlocks automatically afterwards",
+      expiryTitle: "Require periodic password changes",
+      expiryHint: "An expired password must be changed before continuing",
+      expiryDays: "Change every (days)",
+      expiryDaysHint: "90–180 days recommended",
+      warnDays: "Warn in advance (days)",
+      warnDaysHint: "Shows a reminder bar before it expires — 0 = no reminder",
+      since: "Users who have not changed their password since the policy was turned on are counted from {date}",
+      sinceNew: "Once saved, users who have never changed their password are counted from today (nobody expires immediately)",
+      range: "Enter a number from {min} to {max}",
+    },
     twoFactor: {
       title: "Require two-step verification for administrators",
       hint: "Super admins and admins (local accounts) must set up and use an app code at every sign-in — anyone not set up is asked to at their next sign-in",

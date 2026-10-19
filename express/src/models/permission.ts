@@ -54,6 +54,11 @@ export interface PermissionDef {
   defaults: Audience[];
   from?: string;
   locked?: boolean;
+  /**
+   * มีผลกับงานของผู้ได้รับเองเท่านั้น (เช่น อนุมัติใบของตัวเอง) — ตอน "ตั้งตำแหน่ง" ผู้มอบไม่ต้องมีสิทธิ์ข้อนี้
+   * (admin ตั้งผู้ใช้เป็นผู้จัดการได้ แม้ตัวเองไม่มี approve_own) — มอบเป็นรายข้อ / กลุ่มที่สร้างเอง ยังต้องมีสิทธิ์ตามปกติ
+   */
+  selfScoped?: boolean;
 }
 
 const IT: Audience[] = ["admin"];
@@ -64,9 +69,9 @@ type Def = Omit<PermissionDef, "group">;
 const DEFS: Def[] = [
   // ใบแจ้งงาน — การแจ้งงาน/ดูใบของตัวเอง/อนุมัติตามสาย ทุกคนทำได้เสมอ (ไม่ต้องมีสิทธิ์)
   { key: "tickets.view_all", module: "tickets", action: "view", name_th: "ดูใบแจ้งงานทั้งหมด (รวมที่ยังไม่อนุมัติ)", name_en: "View every ticket (including pending approval)", defaults: ["admin"] },
-  { key: "tickets.approve_any", module: "tickets", action: "approve", name_th: "อนุมัติแทนผู้อนุมัติทุกสาย", name_en: "Approve on behalf of any approver", defaults: ["admin"] },
+  { key: "tickets.approve_any", module: "tickets", action: "approve", name_th: "อนุมัติแทนผู้อนุมัติทุกสาย", name_en: "Approve on behalf of any approver", defaults: [], locked: true },
   // ผู้จัดการขึ้นไปอนุมัติใบแจ้งงานของตัวเองได้ (ทุกขั้นของสาย) — ปุ่มอนุมัติในหน้าใบงาน ไม่นับเป็นงานรออนุมัติ (ตัวเลขเมนู)
-  { key: "tickets.approve_own", module: "tickets", action: "approve", name_th: "อนุมัติใบแจ้งงานของตัวเอง", name_en: "Approve own tickets", defaults: ["division_manager", "manager", "admin"] },
+  { key: "tickets.approve_own", module: "tickets", action: "approve", name_th: "อนุมัติใบแจ้งงานของตัวเอง", name_en: "Approve own tickets", defaults: ["division_manager", "manager"], selfScoped: true },
   { key: "it_tickets.queue", module: "it_jobs", action: "view", name_th: "เห็นคิวงาน IT และใบงานที่อนุมัติแล้ว", name_en: "See the IT queue and approved tickets", defaults: IT },
   { key: "it_tickets.manage_all", module: "it_jobs", action: "update", name_th: "รับงาน/บันทึกความคืบหน้าและผลแทนผู้อื่น", name_en: "Accept / update tickets on behalf of others", defaults: ["admin"] },
   { key: "it_tickets.close", module: "it_jobs", action: "approve", name_th: "ตรวจรับและปิดงาน / ส่งกลับแก้ไข", name_en: "Review and close / return tickets", defaults: ["admin"] },
@@ -114,21 +119,21 @@ const DEFS: Def[] = [
   { key: "org.manage", module: "org", action: "manage", name_th: "จัดการแผนกและฝ่าย", name_en: "Manage departments and divisions", defaults: ["admin"] },
   // ลายเซ็น: จัดการของตัวเอง (ตั้งต้นทุกกลุ่ม) / ใช้ลายเซ็นของผู้อื่นในเอกสาร
   { key: "signature.manage_own", module: "signature", action: "manage", name_th: "อัปโหลด/วาด/ลบลายเซ็นของตัวเอง", name_en: "Upload / draw / delete own signature", defaults: ["admin", "division_manager", "manager", "viewer"] },
-  { key: "signature.use", module: "signature", action: "other", name_th: "ใช้ลายเซ็นของผู้อื่นในเอกสาร", name_en: "Use other users' signatures in documents", defaults: ["admin"] },
+  { key: "signature.use", module: "signature", action: "other", name_th: "ใช้ลายเซ็นของผู้อื่นในเอกสาร", name_en: "Use other users' signatures in documents", defaults: [], locked: true },
 
   // ตั้งค่าระบบ
-  { key: "settings.manage", module: "settings", action: "manage", name_th: "ตั้งค่าระบบ (แจ้งเตือน, ประเภทงาน, โลโก้, ลำดับเมนู)", name_en: "System settings (notifications, ticket types, logo, menu order)", defaults: ["admin"] },
+  { key: "settings.manage", module: "settings", action: "manage", name_th: "ตั้งค่าระบบ (แจ้งเตือน, ความปลอดภัย, โลโก้)", name_en: "System settings (notifications, security, logo)", defaults: [], locked: true },
   // หน้า ข้อมูล Drop Down: Computer Type / ยี่ห้อ / หมวดหมู่คลังบัญชี — ผู้ที่ตั้งค่าระบบได้อยู่แล้วได้ตั้งแต่แรก (from)
-  { key: "dropdowns.manage", module: "settings", action: "other", name_th: "จัดการข้อมูล Drop Down (Computer Type, ยี่ห้อ, หมวดหมู่คลังบัญชี)", name_en: "Manage drop-down data (computer type, brand, vault category)", defaults: ["admin"], from: "settings.manage" },
+  { key: "dropdowns.manage", module: "settings", action: "other", name_th: "จัดการข้อมูล Drop Down (Computer Type, ยี่ห้อ, หมวดหมู่คลังบัญชี, ตัวเลือกเรื่อง \"อื่นๆ\")", name_en: "Manage drop-down data (computer type, brand, vault category, \"Other\" ticket subjects)", defaults: ["admin"] },
   { key: "approval_routes.manage", module: "approval_routes", action: "manage", name_th: "จัดการสายอนุมัติ", name_en: "Manage approval routes", defaults: ["admin"] },
   { key: "audit_logs.view", module: "audit", action: "view", name_th: "ดูบันทึกการเปลี่ยนแปลง (audit log)", name_en: "View the audit log", defaults: ["admin"] },
   { key: "access.assign", module: "access", action: "other", name_th: "มอบตำแหน่ง/กลุ่ม/สิทธิ์ให้ผู้ใช้ (เฉพาะสิทธิ์ที่ตัวเองมี)", name_en: "Assign roles / groups / permissions to users (only ones held)", defaults: ["admin"] },
   { key: "access.manage", module: "access", action: "manage", name_th: "กำหนดสิทธิ์ของกลุ่ม / สร้างกลุ่ม / การมองเห็นเมนู / วันหมดอายุของสิทธิ์", name_en: "Edit group permissions / groups / menu visibility / permission expiry", defaults: [], locked: true },
   // PIN กลาง: ผู้ดูแลระบบ (admin)แก้ได้ — ทุกครั้งแจ้งเตือนผู้ดูแลระบบสูงสุด + ผู้ดูแลระบบทุกคน (routes/it-data.ts)
-  { key: "secrets.pin_manage", module: "security", action: "update", name_th: "ตั้ง/เปลี่ยน PIN กลางสำหรับเปิดดูรหัสผ่าน / License key (แจ้งเตือนผู้ดูแลระบบทุกคน)", name_en: "Set / change the shared PIN for viewing secrets (notifies all admins)", defaults: ["admin"] },
+  { key: "secrets.pin_manage", module: "security", action: "update", name_th: "ตั้ง/เปลี่ยน PIN กลางสำหรับเปิดดูรหัสผ่าน / License key (แจ้งเตือนผู้ดูแลระบบทุกคน)", name_en: "Set / change the shared PIN for viewing secrets (notifies all admins)", defaults: [], locked: true },
   // ปฏิทิน: ทุกคนดูปฏิทิน (ตามขอบเขตของกลุ่ม) / ขอลา / สร้างกิจกรรมของตัวเองได้เสมอ — ผู้อนุมัติลา = หัวหน้าที่ผู้ลาระบุ
   { key: "leave.view_all", module: "leave", action: "view", name_th: "ดูใบลาของทุกคน / ส่งออกรายงานการลา", name_en: "View everyone's leave / export the leave report", defaults: ["admin"] },
-  { key: "leave.approve_any", module: "leave", action: "approve", name_th: "อนุมัติใบลาแทนผู้อนุมัติที่ระบุ", name_en: "Approve leave on behalf of the chosen approver", defaults: ["admin"] },
+  { key: "leave.approve_any", module: "leave", action: "approve", name_th: "อนุมัติใบลาแทนผู้อนุมัติที่ระบุ", name_en: "Approve leave on behalf of the chosen approver", defaults: [], locked: true },
   { key: "holidays.manage", module: "calendar", action: "manage", name_th: "จัดการวันหยุดบริษัท / ตั้งค่าการลา / กิจกรรมทั้งบริษัท", name_en: "Manage company holidays / leave settings / company-wide events", defaults: ["admin"] },
   // ห้องประชุม: ทุกคนดูปฏิทินห้อง / จอง / แก้-ยกเลิก-ลบการจองของตัวเองได้เสมอ
   { key: "meeting.manage_any", module: "meeting", action: "update", name_th: "แก้ไข / ยกเลิก / ลบการจองห้องประชุมของผู้อื่น", name_en: "Edit / cancel / delete other people's room bookings", defaults: ["admin"] },
@@ -146,3 +151,5 @@ export const PERMISSIONS: PermissionDef[] = DEFS.map((d) => ({ ...d, group: GROU
 export const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
 /** สิทธิ์ที่สงวนไว้ให้ผู้ดูแลระบบ (super_admin) มอบ/ถอด */
 export const LOCKED_KEYS = new Set(PERMISSIONS.filter((p) => p.locked).map((p) => p.key));
+/** ข้ามการตรวจ "ต้องมีสิทธิ์ที่มอบ" เฉพาะตอนตั้งตำแหน่ง */
+export const SELF_SCOPED_KEYS = new Set(PERMISSIONS.filter((p) => p.selfScoped).map((p) => p.key));

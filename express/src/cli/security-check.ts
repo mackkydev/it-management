@@ -1,6 +1,7 @@
 import { closePool, select } from "../db.js";
 import { config } from "../config.js";
 import { verifyHash } from "../lib/validator.js";
+import { passwordPolicy } from "../services/password-policy.js";
 import { secretGuard } from "../services/secret-guard.js";
 import { decryptVaultWithKey } from "../services/vault-crypto.js";
 
@@ -92,6 +93,12 @@ try {
   }
   if (!guard.ip_restrict) report("WARN", "จำกัด IP ตอนเปิดดูข้อมูลลับ", "ปิดอยู่ — แนะนำจำกัดเฉพาะ IP สำนักงาน / VPN");
   else report("OK", "จำกัด IP ตอนเปิดดูข้อมูลลับ", guard.allowed_ips.join(", "));
+
+  const policy = await passwordPolicy();
+  if (policy.lockout_attempts <= 0) report("WARN", "ล็อกบัญชีเมื่อ login ผิด", "ปิดอยู่ — เปิดที่หน้า ตั้งค่าระบบ → นโยบายรหัสผ่าน");
+  else report("OK", "ล็อกบัญชีเมื่อ login ผิด", `ผิด ${policy.lockout_attempts} ครั้ง = ล็อก ${policy.lockout_minutes} นาที`);
+  if (policy.expiry_days <= 0) report("WARN", "บังคับเปลี่ยนรหัสผ่าน", "ปิดอยู่ — แนะนำทุก 90–180 วัน (หน้า ตั้งค่าระบบ → นโยบายรหัสผ่าน)");
+  else report("OK", "บังคับเปลี่ยนรหัสผ่าน", `ทุก ${policy.expiry_days} วัน`);
 } finally {
   await closePool();
 }

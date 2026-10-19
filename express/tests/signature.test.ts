@@ -164,7 +164,9 @@ describe("signatures in IT tickets", () => {
     const admin = await makeUser({ role: "admin" });
     await exec("UPDATE it_tickets SET status = 'approved' WHERE uuid = ?", [ticket]);
     expect((await (await as(it_)).get(url)).status).toBe(404); // เห็นใบงานได้ แต่ไม่มีสิทธิ์ใช้ลายเซ็นคนอื่น
-    expect((await (await as(admin)).get(url)).status).toBe(200); // signature.use
+    // admin (เจ้าหน้าที่ IT) ไม่มี signature.use แล้ว — super_admin มี
+    expect((await (await as(admin)).get(url)).status).toBe(404);
+    expect((await (await as(await makeUser({ role: "super_admin" }))).get(url)).status).toBe(200); // signature.use
     expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'signature.used'")).toBe(1);
   });
 });

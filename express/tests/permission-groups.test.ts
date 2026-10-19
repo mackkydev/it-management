@@ -134,20 +134,25 @@ describe("grant rules (no privilege escalation)", () => {
     expect((await root.patch(`/api/v1/users/${second.id}`).send({ role: "admin" })).status).toBe(200);
   });
 
-  it("admins can change the shared PIN; every change notifies the other admins", async () => {
+  it("only super admins change the shared PIN; every change notifies the other admins", async () => {
     const deputyUser = await makeUser({ role: "admin", password: "Deputy-1234" });
-    const root = await makeUser({ role: "super_admin" });
+    const rootUser = await makeUser({ role: "super_admin", password: "Root-12345" });
     const other = await apiUser({ role: "admin" });
-    const res = await (await as(deputyUser)).put("/api/v1/secret-pin").send({ password: "Deputy-1234", pin: "246810", pin_confirmation: "246810" });
+    expect((await (await as(deputyUser)).put("/api/v1/secret-pin").send({ password: "Deputy-1234", pin: "246810", pin_confirmation: "246810" })).status).toBe(403);
+    const res = await (await as(rootUser)).put("/api/v1/secret-pin").send({ password: "Root-12345", pin: "246810", pin_confirmation: "246810" });
     expect(res.status).toBe(200);
-    for (const id of [root.id, other.id]) {
+    for (const id of [deputyUser.id, other.id]) {
       expect((await notices(id)).map((n) => JSON.parse(n.data))).toEqual([expect.objectContaining({ change: "pin", first_time: true })]);
     }
-    expect(await notices(deputyUser.id)).toHaveLength(0);
+    expect(await notices(rootUser.id)).toHaveLength(0);
   });
 
   it("menu visibility is part of access management (reserved)", async () => {
-    const deputy = await as(await makeUser({ role: "admin" }), "th");
+    // ตั้งค่าระบบ = super_admin เท่านั้น (locked) — ผู้ที่ super_admin มอบ settings.manage ให้ ยังแก้การมองเห็นเมนูไม่ได้
+    expect((await (await as(await makeUser({ role: "admin" }))).put("/api/v1/settings").send({ contract_notify_days: 20 })).status).toBe(403);
+    const deputyUser = await makeUser({ role: "admin" });
+    await exec("INSERT INTO user_permissions (user_id, permission_id, effect, created_at) SELECT ?, id, 'allow', NOW() FROM permissions WHERE \"key\" = 'settings.manage'", [deputyUser.id]);
+    const deputy = await as(deputyUser, "th");
     expect((await deputy.put("/api/v1/settings").send({ contract_notify_days: 20 })).status).toBe(200);
     expect((await deputy.put("/api/v1/settings").send({ ui_permissions: { "/vault": ["viewer"] } })).status).toBe(403);
     const root = await as(await makeUser({ role: "super_admin" }), "th");

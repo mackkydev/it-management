@@ -49,6 +49,7 @@ export default async function EditCredentialPage({ params }: PageProps<"/vault/[
         customCategories={categories.custom}
         canDelete={has(user, "vault.delete")}
         accessOptions={accessOptions}
+        canDisableReauth={has(user, "vault.all")}
       />
 
       {/* ประวัติการเข้าถึง (audit) */}

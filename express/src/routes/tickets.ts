@@ -11,10 +11,11 @@ import { person } from "../resources.js";
 import { getSetting } from "../services/settings.js";
 import { readStored, storeSignature, storeUpload, deleteTicketFiles } from "../services/ticket-files.js";
 import {
-  acceptors, actionsFor, canAccept, canForward, isTakeOver, closers, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel,
+  acceptors, actionsFor, canAccept, canForward, isTakeOver, closers, closersAmong, isSelfClose, withCloseInfo, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel,
 } from "../services/ticket-workflow.js";
 import { activeSignature, copySignatureTo, mimeOf, readSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
+import { usersWithPermissions } from "../services/permissions.js";
 import { markNoticesRead, notifyUsers, TICKET_ACTIVITY } from "../services/notifications.js";
 import { busyOf } from "../services/calendar.js";
 import { KPI_TICKET_STATUSES } from "../services/kpi.js";
@@ -51,7 +52,8 @@ async function findTicket(uuid: string): Promise<TicketRow> {
   if (!isUuid(uuid)) throw notFound();
   const t = await loadTicket("t.uuid = ?", uuid);
   if (!t) throw notFound();
-  return t;
+  // รออนุมัติผล: มีผู้อนุมัติผลที่ไม่ได้ทำงานใบนี้ไหม (canClose — ห้ามอนุมัติงานตัวเองถ้ามีคนอื่น)
+  return withCloseInfo(t);
 }
 
 /** ไฟล์ทั้งหมดใน input ของฟิลด์ที่เป็นรายการ (photos[] / documents[]) */
@@ -123,7 +125,8 @@ async function detail(t: TicketRow, viewer: UserRow) {
   );
 
   return {
-    ...summary(row, viewer),
+    // independent_closer มาจาก withCloseInfo (row อ่านจากฐานใหม่ ไม่มีค่านี้)
+    ...summary({ ...row, independent_closer: t.independent_closer }, viewer),
     details: row.details,
     department: row.department,
     division: row.division,
@@ -281,7 +284,7 @@ async function saveOnsite(t: TicketRow, userId: number, actorId: number, v: { st
 }
 
 async function respondDetail(req: Request, res: Response, ticketId: number, status = 200) {
-  const t = (await loadTicket("t.id = ?", ticketId))!;
+  const t = await withCloseInfo((await loadTicket("t.id = ?", ticketId))!);
   res.status(status).json({ data: await detail(t, me(req)) });
 }
 
@@ -320,11 +323,11 @@ const approvalsWhere = (u: UserRow) => {
     ? "(t.approver_id = ? OR t.approver_id IS NULL OR NOT EXISTS (SELECT 1 FROM users a WHERE a.id = t.approver_id AND a.is_active = true))"
     : "t.approver_id = ?";
   return {
-    sql: `t.status = 'pending_supervisor' AND (
+    sql: `t.status = 'pending_supervisor' AND t.requester_id <> ? AND (
       (t.current_step IS NULL AND ${legacy})
       OR (t.current_step IS NOT NULL AND EXISTS (SELECT 1 FROM it_ticket_approval_steps s
             WHERE s.it_ticket_id = t.id AND s.step_no = t.current_step AND JSON_CONTAINS(s.approver_ids, ?))))`,
-    params: [u.id, JSON.stringify([u.id])],
+    params: [u.id, u.id, JSON.stringify([u.id])],
   };
 };
 
@@ -380,11 +383,15 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
   if (can(u, "it_tickets.queue")) {
     // เฉพาะผู้ที่เกี่ยวข้องโดยตรง = คนเดียวกับผู้รับแจ้งเตือนใน notify (ผู้รับงาน / acceptors / closers)
     //   คิวงานของฉัน = ใบที่ฉันเป็นผู้รับงาน, คิวงาน IT = ใบที่ยังไม่มีผู้รับ (เจ้าหน้าที่ IT ที่รับงานได้) + รออนุมัติผล (หัวหน้า IT)
-    const [direct, heads] = await Promise.all([acceptors(), closers()]);
+    const [direct, heads, reviewers] = await Promise.all([acceptors(), closers(), usersWithPermissions(["it_tickets.queue", "it_tickets.close"])]);
     data["/it/tickets"] = await count("t.status IN ('approved', 'in_progress', 'pending_cancel') AND t.assignee_id = ?", [u.id]);
-    data["/it/queue"] =
-      (direct.some((x) => x.id === u.id) ? await count("t.status IN ('approved', 'pending_cancel') AND t.assignee_id IS NULL") : 0) +
-      (heads.some((x) => x.id === u.id) ? await count("t.status = 'pending_it_head'") : 0);
+    // รออนุมัติผล: นับใบที่ฉันเป็นผู้อนุมัติผล (ไม่นับงานที่ตัวเองทำ ยกเว้นไม่มีคนอื่น) — เงื่อนไขเดียวกับแจ้งเตือน resulted (closersFor)
+    let review = 0;
+    if (reviewers.some((x) => x.id === u.id)) {
+      const pending = await select<TicketRow>(`SELECT t.*, ${TICKET_APPROVAL_COLUMNS} FROM it_tickets t WHERE t.status = 'pending_it_head'`);
+      review = pending.filter((t) => closersAmong(t, heads, reviewers).some((x) => x.id === u.id)).length;
+    }
+    data["/it/queue"] = (direct.some((x) => x.id === u.id) ? await count("t.status IN ('approved', 'pending_cancel') AND t.assignee_id IS NULL") : 0) + review;
   }
   if (can(u, "kpi.use")) {
     data["/kpi"] = await count(
@@ -941,6 +948,9 @@ ticketRoutes.post("/tickets/:uuid/close", async (req, res) => {
     { comment: ["nullable", "string", "max:2000"], signature: ["required", "string", "max:500000"] },
     { locale: req.locale },
   );
+  // ไม่มีผู้อนุมัติผลคนอื่น → อนุมัติผลงานที่ตัวเองร่วมทำได้ แต่บันทึกไว้ในไทม์ไลน์ + audit
+  const selfClose = isSelfClose(u, t);
+  const comment = [selfClose ? trans(req.locale, "eam.ticket.self_closed") : null, (data.comment as string) ?? null].filter(Boolean).join(" — ") || null;
 
   await transaction(async () => {
     const now = nowDb();
@@ -955,8 +965,9 @@ ticketRoutes.post("/tickets/:uuid/close", async (req, res) => {
       "id = ?",
       [t.id],
     );
-    await log(t.id, u.id, "head_approved", (data.comment as string) ?? null);
+    await log(t.id, u.id, "head_approved", comment);
   });
+  if (selfClose) await audit(req, { action: "ticket.self_closed", subjectType: "ticket", subjectId: t.uuid, after: { ticket_no: t.ticket_no } });
   await notify({ ...t, status: "pending_requester", it_head_id: u.id }, "head_approved", u);
   await respondDetail(req, res, t.id);
 });

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { config } from "../config.js";
-import { exec, first, select, update } from "../db.js";
+import { first, select, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import type { UploadedFile } from "../lib/uploaded-file.js";
 import { trans } from "../lib/i18n.js";
@@ -15,6 +15,7 @@ import { ApiLoginError, callUpstream, loadConnection, loginWithApi, revokeApiSes
 import { audit } from "../services/audit.js";
 import { groupsOf } from "../services/permissions.js";
 import { checkCentralPin, secretGuard, verifyLoginPassword } from "../services/secret-guard.js";
+import { assertNotLocked, clearLoginFailures, passwordChangedNow, passwordPolicy, passwordStatus, recordLoginFailure } from "../services/password-policy.js";
 import { activeSignature, deactivateSignature, mimeOf, readSignature, saveSignature, SignatureError } from "../services/signatures.js";
 import type { Locale } from "../lib/i18n.js";
 import {
@@ -49,8 +50,12 @@ loginRoutes.post("/auth/login", limits.login, async (req, res) => {
     : await first<UserRow>("SELECT * FROM users WHERE LOWER(username) = LOWER(?)", [identifier]);
   // ข้อความเดียวกันทุกกรณี เพื่อไม่ให้เดาได้ว่ามีอีเมลนี้ในระบบหรือไม่
   // ช่องนี้ login ได้เฉพาะ LOCAL (API User ไม่มีรหัสผ่านในระบบเรา — login ผ่านต้นทางเท่านั้น)
-  if (!user || !isLocal(user) || !user.is_active || !verifyHash(String(data.password), user.password)) {
-    throw ValidationError.withMessages({ email: trans(req.locale, "eam.auth.failed") });
+  if (!user || !isLocal(user) || !user.is_active) throw ValidationError.withMessages({ email: trans(req.locale, "eam.auth.failed") });
+  // ล็อกชั่วคราวเมื่อ login ผิดติดกันครบตามนโยบาย (services/password-policy.ts) — ระหว่างล็อกรหัสผ่านถูกก็เข้าไม่ได้
+  assertNotLocked(req, user);
+  if (!verifyHash(String(data.password), user.password)) {
+    const locked = await recordLoginFailure(req, user);
+    throw ValidationError.withMessages({ email: trans(req.locale, locked ? "eam.auth.locked" : "eam.auth.failed", { minutes: locked }) });
   }
 
   // 2FA: รหัสผ่านถูกแล้ว → ขอรหัสจากแอป (verify) หรือบังคับตั้ง 2FA ก่อน (setup) — ยังไม่ออก token
@@ -62,6 +67,7 @@ loginRoutes.post("/auth/login", limits.login, async (req, res) => {
 
 /** ออก token ของเรา (รูปแบบ response เดียวกับ /auth/login เดิม) */
 async function issueLogin(user: UserRow, deviceName: string) {
+  await clearLoginFailures(user);
   const expiresAt = addMinutes(new Date(), config.tokenTtlMinutes);
   const token = await createToken(user.id, deviceName, expiresAt);
   return { token: token.plainText, token_type: "Bearer", expires_at: iso(toDbDateTime(expiresAt)), user: userResource((await findUser(user.id))!) };
@@ -77,6 +83,7 @@ async function challengeUser(req: import("express").Request, purpose: "verify" |
   if (!c || !user || !isLocal(user) || !user.is_active || !challengeValid(token, user)) {
     throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.challenge_expired") });
   }
+  assertNotLocked(req, user, "code");
   return user;
 }
 
@@ -104,7 +111,9 @@ loginRoutes.post("/auth/login/2fa", limits.twoFactor, async (req, res) => {
   const user = await challengeUser(req, purpose);
   const fail = async (): Promise<never> => {
     await audit(actorOf(req, user), { action: "auth.2fa_failed", subjectType: "user", subjectId: user.id });
-    throw ValidationError.withMessages({ code: trans(req.locale, "eam.two_factor.invalid") });
+    // รหัส 2FA ผิดนับรวมกับรหัสผ่านผิด (ล็อกบัญชีเดียวกัน)
+    const locked = await recordLoginFailure(req, user);
+    throw ValidationError.withMessages({ code: trans(req.locale, locked ? "eam.auth.locked" : "eam.two_factor.invalid", { minutes: locked }) });
   };
 
   if (purpose === "setup") {
@@ -241,6 +250,8 @@ authRoutes.get("/auth/me", async (req, res) => {
       groups: await groupsOf(u),
       // เมนู "รอฉันอนุมัติ" — แสดงเฉพาะผู้ที่มีงานอนุมัติได้จริง
       can_approve: await canApprove(u),
+      // วันหมดอายุรหัสผ่าน (LOCAL + เปิดบังคับเปลี่ยน) — หมดอายุแล้วหน้าเว็บพาไปหน้าเปลี่ยนรหัสผ่าน
+      ...passwordStatus(u, await passwordPolicy()),
       ...(external ? { external_connection: external } : {}),
     },
   });
@@ -420,7 +431,7 @@ authRoutes.put("/auth/password", limits.login, async (req, res) => {
     },
     { locale: req.locale },
   );
-  await exec("UPDATE users SET password = ?, updated_at = ? WHERE id = ?", [makeHash(req.input.password, config.bcryptRounds), nowDb(), u.id]);
+  await update("users", { password: makeHash(req.input.password, config.bcryptRounds), ...passwordChangedNow(), updated_at: nowDb() }, "id = ?", [u.id]);
   await deleteUserTokens(u.id, req.tokenId);
   res.status(204).end();
 });

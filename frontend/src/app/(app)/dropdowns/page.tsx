@@ -8,7 +8,7 @@ import { card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser, has } from "@/lib/auth";
-import { CREDENTIAL_CATEGORIES, type AppSettings, type OrgUnit } from "@/lib/types";
+import { CREDENTIAL_CATEGORIES, type OrgUnit } from "@/lib/types";
 import { TicketTypesForm } from "../ticket-types/ticket-types-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -22,7 +22,7 @@ const TABS = [
   { key: "vault_category", perm: "dropdowns.manage" },
   { key: "computer_type", perm: "dropdowns.manage" },
   { key: "brand", perm: "dropdowns.manage" },
-  { key: "ticket_types", perm: "settings.manage" },
+  { key: "ticket_types", perm: "dropdowns.manage" },
   { key: "meeting_purpose", perm: "meeting.rooms" },
   { key: "meeting_equipment", perm: "meeting.rooms" },
   { key: "vehicle_purpose", perm: "vehicle.manage" },
@@ -49,11 +49,11 @@ export default async function DropdownsPage({ searchParams }: PageProps<"/dropdo
 
   let body: React.ReactNode;
   if (tab === "ticket_types") {
-    const { data } = await apiFetch<{ data: AppSettings }>("/settings");
+    const { data } = await apiFetch<{ data: string[] }>("/ticket-other-types");
     body = (
       <div className="space-y-3">
         <p className="text-sm text-muted">{t("ticketTypes.subtitle")}</p>
-        <TicketTypesForm initial={data.ticket_other_types} />
+        <TicketTypesForm initial={data} />
       </div>
     );
   } else {

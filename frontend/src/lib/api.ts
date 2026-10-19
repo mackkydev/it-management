@@ -67,6 +67,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
 
   const body = await res.json().catch(() => ({}));
+  // รหัสผ่านหมดอายุ (นโยบายรหัสผ่าน) — API ตอบ 403 ทุก endpoint จนกว่าจะเปลี่ยนรหัสผ่าน
+  if (res.status === 403 && (body as { code?: string }).code === "password_expired") {
+    redirect("/password-expired");
+  }
   if (!res.ok) {
     throw new ApiError(res.status, body);
   }

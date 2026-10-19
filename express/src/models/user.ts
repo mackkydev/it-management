@@ -20,6 +20,10 @@ export interface UserRow {
   /** PIN กลาง: กรอกผิดติดกัน / ล็อกถึงเวลา (ตัวนับรายคน) */
   secret_pin_failures?: number;
   secret_pin_locked_until?: string | null;
+  /** login ผิดติดกัน / ล็อกถึงเวลา / เปลี่ยนรหัสผ่านล่าสุด (services/password-policy.ts) */
+  login_failures?: number;
+  login_locked_until?: string | null;
+  password_changed_at?: string | null;
   /** สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing */
   external_status: "active" | "disabled" | "missing" | null;
   is_active: boolean;

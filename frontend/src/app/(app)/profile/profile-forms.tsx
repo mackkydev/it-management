@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useRef, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   changePassword, deleteSignature, updateProfile, uploadSignature,
   type PasswordResult, type ProfileResult, type SignatureResult,
@@ -260,9 +261,17 @@ export function SignatureCard({ url }: { url: string | null }) {
   );
 }
 
-export function PasswordForm() {
+/** redirectTo = เปลี่ยนสำเร็จแล้วไปหน้านี้ (หน้ารหัสผ่านหมดอายุ → เข้าใช้งานต่อ) */
+export function PasswordForm({ redirectTo }: { redirectTo?: string } = {}) {
   const { t } = useI18n();
+  const router = useRouter();
   const [state, action, pending] = useActionState<PasswordResult, FormData>(changePassword, {});
+  useEffect(() => {
+    if (state.ok && redirectTo) {
+      router.replace(redirectTo);
+      router.refresh();
+    }
+  }, [state.ok, redirectTo, router]);
 
   return (
     <form action={action} className={`space-y-4 p-4 sm:p-6 ${card}`}>

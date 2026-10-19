@@ -88,6 +88,19 @@ export async function resetUserTwoFactor(id: number): Promise<ActionResult> {
   return { ok: true, message: t("users.twoFactor.resetDone") };
 }
 
+/** ปลดล็อกบัญชีที่ถูกล็อกเพราะ login ผิดหลายครั้ง (users.update — API บันทึก audit) */
+export async function unlockUserLogin(id: number): Promise<ActionResult> {
+  const { t } = await getI18n();
+  if (!Number.isInteger(id) || id <= 0) return { message: t("common.saveFailed") };
+  try {
+    await apiFetch(`/users/${id}/login-lock`, { method: "DELETE" });
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath(`/users/${id}/edit`);
+  return { ok: true, message: t("users.loginLock.unlocked") };
+}
+
 /** Local Admin ลบ (ปิดใช้งาน) ลายเซ็นของผู้ใช้ — API บันทึก audit */
 export async function deleteUserSignature(id: number): Promise<ActionResult> {
   const { t } = await getI18n();

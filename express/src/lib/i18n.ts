@@ -22,7 +22,11 @@ const eamTh = {
     self_delete: "ไม่สามารถลบบัญชีของตัวเองได้",
     has_history: "ลบไม่ได้ เพราะผู้ใช้นี้มีประวัติในระบบ (ถือครอง/บันทึกสินทรัพย์ หรือการโอนย้าย) — ให้ปิดใช้งานแทน",
   },
-  auth: { failed: "อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง" },
+  auth: {
+    failed: "อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง",
+    locked: "บัญชีถูกล็อกชั่วคราวเพราะเข้าสู่ระบบผิดหลายครั้ง — ลองใหม่ในอีก :minutes นาที หรือติดต่อผู้ดูแลระบบ",
+    password_expired: "รหัสผ่านหมดอายุ — กรุณาเปลี่ยนรหัสผ่านก่อนใช้งานต่อ",
+  },
   /** login ผ่านระบบต้นทาง (API User) — failed ใช้กับทุกกรณี "รหัสผิด/ไม่มีผู้ใช้" (ไม่บอกว่ามี username หรือไม่) */
   api_auth: {
     failed: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง",
@@ -100,6 +104,7 @@ const eamTh = {
     signature_invalid: "ลายเซ็นไม่ถูกต้อง กรุณาเซ็นใหม่",
     helpers_invalid: "ผู้ร่วมดำเนินการต้องเป็นเจ้าหน้าที่ IT ที่ใช้งานอยู่ และไม่ใช่ผู้รับงานเอง",
     took_over_from: "รับงานแทน :name",
+    self_closed: "อนุมัติผลงานที่ตัวเองร่วมทำ (ไม่มีผู้อนุมัติผลคนอื่น)",
     forward_same: "เจ้าหน้าที่คนนี้เป็นผู้รับงานของใบนี้อยู่แล้ว",
   },
   vault: {
@@ -107,6 +112,7 @@ const eamTh = {
     access_user_invalid: "ผู้ใช้ที่เลือกต้องเป็นผู้ใช้ที่ยังใช้งานอยู่",
     access_group_invalid: "ไม่พบกลุ่มสิทธิ์ที่เลือก",
     access_self: "จำกัดสิทธิ์แล้วคุณจะเปิดดูรายการนี้ไม่ได้ — เลือกตัวคุณเอง (หรือกลุ่มของคุณ) ไว้ด้วย",
+    reauth_locked: "ปิดการยืนยันตัวตนก่อนเปิดดูได้เฉพาะผู้ที่มีสิทธิ์ \"เห็นทุกรายการในคลังบัญชี\" (ผู้ดูแลระบบสูงสุด)",
   },
   secret_guard: {
     ip_blocked: "เปิดดูข้อมูลลับได้เฉพาะจากเครือข่ายที่อนุญาต (IP ของคุณ: :ip)",
@@ -347,7 +353,11 @@ const eamEn: Eam = {
     self_delete: "You cannot delete your own account.",
     has_history: "Cannot delete: this user has history (assets held/created or transfers). Deactivate the account instead.",
   },
-  auth: { failed: "Invalid e-mail/username or password." },
+  auth: {
+    failed: "Invalid e-mail/username or password.",
+    locked: "This account is temporarily locked after too many failed sign-ins — try again in :minutes minute(s) or contact an administrator.",
+    password_expired: "Your password has expired — please change it to continue.",
+  },
   api_auth: {
     failed: "Invalid username or password.",
     password_expired: "Your password has expired. Please change it in the source system.",
@@ -424,6 +434,7 @@ const eamEn: Eam = {
     signature_invalid: "Invalid signature. Please sign again.",
     helpers_invalid: "Co-workers must be active IT staff and not the assignee.",
     took_over_from: "Took over from :name",
+    self_closed: "Approved own work (no other reviewer available)",
     forward_same: "This staff member is already the assignee of this ticket.",
   },
   vault: {
@@ -431,6 +442,7 @@ const eamEn: Eam = {
     access_user_invalid: "Selected users must be active.",
     access_group_invalid: "The selected permission group was not found.",
     access_self: "With this restriction you could not open this entry — include yourself (or your group).",
+    reauth_locked: "Only users who can \"See every vault entry\" (super admins) can turn off re-authentication for an entry.",
   },
   secret_guard: {
     ip_blocked: "Secrets can only be viewed from allowed networks (your IP: :ip).",

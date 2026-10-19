@@ -81,7 +81,7 @@ function Dialog({ req, onClose }: { req: DialogRequest; onClose: (ok: boolean) =
 
   const title = req.title ?? (req.kind === "confirm" ? t("dialog.confirmTitle") : t("dialog.alertTitle"));
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => onClose(req.kind === "alert")}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-overlay p-4 backdrop-blur-sm" onClick={() => onClose(req.kind === "alert")}>
       <div
         role={req.kind === "confirm" ? "alertdialog" : "dialog"}
         aria-modal="true"

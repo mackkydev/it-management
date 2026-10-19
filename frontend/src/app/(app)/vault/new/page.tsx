@@ -27,7 +27,7 @@ export default async function NewCredentialPage() {
   return (
     <div className="space-y-5">
       <PageHeader icon={KeyIcon} title={t("vault.newTitle")} />
-      <CredentialForm branches={branches} customCategories={categories.custom} accessOptions={accessOptions} />
+      <CredentialForm branches={branches} customCategories={categories.custom} accessOptions={accessOptions} canDisableReauth={has(user, "vault.all")} />
     </div>
   );
 }

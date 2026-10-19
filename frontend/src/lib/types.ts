@@ -120,6 +120,12 @@ export interface User {
   signature_url?: string | null;
   /** เปิดการยืนยันตัวตน 2 ขั้นแล้ว */
   two_factor_enabled?: boolean;
+  /** ถูกล็อกการ login ถึงเวลานี้ (login ผิดหลายครั้ง) — null = ไม่ถูกล็อก */
+  login_locked_until?: string | null;
+  /** นโยบายรหัสผ่าน (GET /auth/me — LOCAL): วันหมดอายุ / หมดอายุแล้ว / ใกล้หมดอายุ */
+  password_expires_at?: string | null;
+  password_expired?: boolean;
+  password_warn?: boolean;
   is_active?: boolean;
   /** สายอนุมัติที่กำหนดรายบุคคล (null = จับคู่อัตโนมัติตามสาขา+แผนก) */
   approval_route_id?: number | null;
@@ -140,9 +146,20 @@ export interface Branch {
   tickets_count?: number;
 }
 
+/** นโยบายรหัสผ่าน (แก้ได้เฉพาะ access.manage) — 0 = ปิด */
+export interface PasswordPolicy {
+  lockout_attempts: number;
+  lockout_minutes: number;
+  expiry_days: number;
+  expiry_warn_days: number;
+  /** เปิดบังคับเปลี่ยนรหัสผ่านเมื่อไร (API ตั้งให้) */
+  since?: string | null;
+}
+
 export interface AppSettings {
   /** บังคับผู้ดูแลระบบใช้ 2FA (แก้ได้เฉพาะ access.manage) */
   two_factor_required?: boolean;
+  password_policy: PasswordPolicy;
   contract_notify_days: number;
   credential_notify_days: number;
   license_notify_days: number;
@@ -397,6 +414,7 @@ export interface AppNotification {
         subject: string;
         actor: string;
       }
+    | { kind: "account_locked"; subject_id: number; subject: string; attempts: number; minutes: number; ip: string | null }
     | {
         kind: "leave";
         event: "submitted" | "approved" | "rejected" | "cancelled";

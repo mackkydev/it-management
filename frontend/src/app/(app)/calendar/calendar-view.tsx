@@ -354,7 +354,7 @@ export function CalendarView({ month: initialMonth, initialItems, meta, branches
 
       {/* รายละเอียดรายการ */}
       {selected && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setSelected(null)}>
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-overlay p-4" onClick={() => setSelected(null)}>
           <div role="dialog" aria-modal="true" className={`w-full max-w-md space-y-3 p-5 shadow-xl ${card}`} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -419,7 +419,7 @@ export function CalendarView({ month: initialMonth, initialItems, meta, branches
 
       {/* ฟอร์มกิจกรรม */}
       {editing && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setEditing(null)}>
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-overlay p-4" onClick={() => setEditing(null)}>
           <div role="dialog" aria-modal="true" className={`w-full max-w-lg space-y-4 p-5 shadow-xl ${card}`} onClick={(e) => e.stopPropagation()}>
             <h3 className="font-semibold">{editing.id ? t("calendar.editEvent") : t("calendar.addEvent")}</h3>
             {error && (

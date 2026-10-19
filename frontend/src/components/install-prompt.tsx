@@ -259,7 +259,7 @@ function InstallSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center print:hidden" role="dialog" aria-modal="true" aria-labelledby="install-sheet-title">
-      <button type="button" aria-label={t("install.close")} onClick={onClose} className="absolute inset-0 cursor-pointer bg-black/40 backdrop-blur-[2px]" />
+      <button type="button" aria-label={t("install.close")} onClick={onClose} className="absolute inset-0 cursor-pointer bg-overlay backdrop-blur-[2px]" />
       <div className="install-anim relative w-full max-w-md animate-[install-sheet-in_250ms_ease-out] rounded-t-3xl bg-surface px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl ring-1 ring-line sm:mb-6 sm:rounded-3xl">
         <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-line" />
         <button

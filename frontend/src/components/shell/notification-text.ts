@@ -12,6 +12,9 @@ export function notificationText(n: AppNotification, t: TFunction, date: (iso: s
   if (n.data.kind === "access_changed") {
     return t(`notifications.access.${n.data.change}` as MessageKey, { actor: n.data.actor, subject: n.data.subject });
   }
+  if (n.data.kind === "account_locked") {
+    return t("notifications.accountLocked", { subject: n.data.subject, attempts: n.data.attempts, minutes: n.data.minutes });
+  }
   if (n.data.kind === "leave") {
     const period = n.data.start_on === n.data.end_on ? n.data.start_on : `${n.data.start_on} – ${n.data.end_on}`;
     return t(`notifications.leave.${n.data.event}` as MessageKey, { actor: n.data.actor, type: t(`leave.types.${n.data.leave_type}` as MessageKey), period, owner: n.data.owner ?? "" });
@@ -53,6 +56,8 @@ export function notificationHref(n: AppNotification): string {
     if (n.data.change === "user") return `/users/${n.data.subject_id}/permissions`;
     return n.data.change === "pin" ? "/vault" : "/role-permissions";
   }
+  // บัญชีถูกล็อก → หน้าแก้ไขผู้ใช้ (ปุ่มปลดล็อก)
+  if (n.data.kind === "account_locked") return `/users/${n.data.subject_id}/edit`;
   // ใบลา: ส่งมาให้อนุมัติ → หน้ารออนุมัติลา, ผลการอนุมัติ → ใบลาของฉัน
   if (n.data.kind === "leave") return n.data.event === "submitted" ? "/leave/approvals" : `/leave?open=${n.data.leave_id}`;
   // จองรถ: รอจัดรถ → หน้าจัดคิวรถ, อื่นๆ → การจองรถของฉัน

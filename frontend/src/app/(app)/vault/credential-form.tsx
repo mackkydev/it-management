@@ -15,6 +15,7 @@ import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
 import { OptionPicker } from "@/components/option-picker";
 import { quickAddOption } from "@/app/actions/dropdowns";
+import { Tooltip } from "@/components/tooltip";
 
 /**
  * canDelete = มีสิทธิ์ vault.delete (API ตรวจซ้ำ)
@@ -26,12 +27,15 @@ export function CredentialForm({
   customCategories = [],
   canDelete = false,
   accessOptions,
+  canDisableReauth = false,
 }: {
   credential?: Credential;
   branches: Branch[];
   customCategories?: string[];
   canDelete?: boolean;
   accessOptions: CredentialAccessOptions;
+  /** ปิด "ต้องยืนยันก่อนเปิดดู" ได้ (สิทธิ์ vault.all — API ตรวจซ้ำ) */
+  canDisableReauth?: boolean;
 }) {
   const { t, locale } = useI18n();
   const confirm = useConfirm();
@@ -50,6 +54,8 @@ export function CredentialForm({
   const [secret, setSecret] = useState("");
   // ต้องยืนยันตัวตน (รหัสผ่าน login / PIN กลาง) ก่อนเปิดดูรหัสของบัญชีนี้ — บัญชีใหม่ = เปิดไว้
   const [requireReauth, setRequireReauth] = useState(credential?.require_reauth ?? true);
+  // ปิดได้เฉพาะผู้มีสิทธิ์ vault.all — รายการที่ปิดไว้แล้วเปิดกลับได้ทุกคน
+  const reauthLocked = requireReauth && !canDisableReauth;
   const [accessMode, setAccessMode] = useState<"all" | "restricted">(credential?.access_mode ?? "all");
   const [accessUsers, setAccessUsers] = useState<number[]>((credential?.access_users ?? []).map((u) => u.id));
   const [accessGroups, setAccessGroups] = useState<string[]>(credential?.access_groups ?? []);
@@ -156,19 +162,22 @@ export function CredentialForm({
               className={`${cls("password")} font-mono`}
             />
             {/* สวิตช์รายบัญชี: เปิด = ต้องกรอกรหัสผ่าน login / PIN กลางก่อนกดดู, ปิด = กดดูได้เลย */}
-            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm" title={t("vault.form.requireReauthHint")}>
+            <Tooltip label={t(reauthLocked ? "vault.form.requireReauthLocked" : "vault.form.requireReauthHint")}>
+            <label className={`flex shrink-0 items-center gap-2 text-sm ${reauthLocked ? "cursor-not-allowed" : "cursor-pointer"}`}>
               <button
                 type="button"
                 role="switch"
                 aria-checked={requireReauth}
+                disabled={reauthLocked}
                 onClick={() => setRequireReauth((x) => !x)}
-                className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${requireReauth ? "bg-accent-500" : "bg-line"}`}
+                className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${requireReauth ? "bg-accent-500" : "bg-line"}`}
               >
                 <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${requireReauth ? "translate-x-5" : "translate-x-0"}`} />
               </button>
               <KeyIcon width={14} height={14} className={requireReauth ? "text-accent-500" : "text-faint"} />
               {t("vault.form.requireReauth")}
             </label>
+            </Tooltip>
           </div>,
           false,
           [isEdit && credential?.has_password ? t("vault.form.passwordKeep") : null, t(requireReauth ? "vault.form.requireReauthOn" : "vault.form.requireReauthOff")].filter(Boolean).join(" · "),

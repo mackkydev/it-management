@@ -744,6 +744,11 @@ model users {
   /// PIN กลาง (app_settings.secret_pin): กรอกผิดติดกัน 5 ครั้ง = ล็อก 15 นาที
   secret_pin_failures                                      Int                        @default(0) @db.SmallInt
   secret_pin_locked_until                                  DateTime?                  @db.DateTime(0)
+  /// login ผิดติดกัน (รหัสผ่าน / 2FA) — ครบ app_settings.password_policy.lockout_attempts = ล็อกถึง login_locked_until
+  login_failures                                           Int                        @default(0) @db.SmallInt
+  login_locked_until                                       DateTime?                  @db.DateTime(0)
+  /// เปลี่ยนรหัสผ่านล่าสุด (บังคับเปลี่ยนทุก password_policy.expiry_days วัน) — null = นับจากวันที่เปิดนโยบาย
+  password_changed_at                                      DateTime?                  @db.DateTime(0)
   /// สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing (null = ยังไม่เคยซิงค์) — ซิงค์ปิดใช้งาน/เปิดคืนเฉพาะที่ซิงค์เป็นคนปิด
   external_status                                          String?                    @db.VarChar(20)
   remember_token                                           String?                    @db.VarChar(100)

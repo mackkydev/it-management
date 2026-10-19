@@ -2,7 +2,7 @@ import type { Request } from "express";
 import { select } from "../db.js";
 import { trans, type Locale } from "../lib/i18n.js";
 import { me } from "../http.js";
-import { LOCKED_KEYS, PERMISSIONS } from "../models/permission.js";
+import { LOCKED_KEYS, PERMISSIONS, SELF_SCOPED_KEYS } from "../models/permission.js";
 import { can, isSuperAdmin, otherLocalSuperAdmins, type UserRow } from "../models/user.js";
 import { notifyUsers } from "./notifications.js";
 import { adminRecipients, SUPER_ADMIN_GROUP } from "./permissions.js";
@@ -65,7 +65,9 @@ export async function roleChangeError(
   if (role === SUPER_ADMIN_GROUP && !isSuperAdmin(actor)) return trans(locale, "eam.access.super_admin_only");
   // ลดตำแหน่ง super_admin บัญชี LOCAL คนสุดท้ายไม่ได้
   if (target && (await lastLocalSuperAdmin(target))) return trans(locale, "eam.access.last_super_admin");
-  return grantError(actor, [...(await groupKeys(role)), ...(target ? await groupKeys(target.role) : [])], locale);
+  // สิทธิ์ที่มีผลกับงานของผู้ได้รับเองเท่านั้น (SELF_SCOPED_KEYS เช่น อนุมัติใบของตัวเอง) ไม่ต้องถือไว้เองตอนตั้งตำแหน่ง
+  const keys = [...(await groupKeys(role)), ...(target ? await groupKeys(target.role) : [])].filter((k) => !SELF_SCOPED_KEYS.has(k));
+  return grantError(actor, keys, locale);
 }
 
 /** ผู้ใช้นี้เป็น super_admin บัญชี LOCAL ที่ใช้งานอยู่คนสุดท้ายหรือไม่ */

@@ -21,11 +21,13 @@ async function setup() {
   const userRow = await makeUser({ name: "ผู้ใช้ VPN", department: "ขาย", supervisor_id: chief.id, branch_id: branch });
   const manager = await as(managerUser, "th");
   const user = await as(userRow, "th");
-  await manager.put("/api/v1/settings").send({ secret_guard: { reauth: false } });
+  // ตั้งค่าระบบ = super_admin เท่านั้น
+  const root = await as(await makeUser({ role: "super_admin" }), "th");
+  await root.put("/api/v1/settings").send({ secret_guard: { reauth: false } });
   const vpn1 = (await manager.post("/api/v1/credentials").send({ title: "VPN-01", category: "VPN", username: "vpn01", password: "Vpn-Pass-1" })).body.data;
   const vpn2 = (await manager.post("/api/v1/credentials").send({ title: "VPN-02", category: "vpn", username: "vpn02", password: "Vpn-Pass-2" })).body.data;
   const other = (await manager.post("/api/v1/credentials").send({ title: "Firewall", category: "network", password: "x" })).body.data;
-  return { managerUser, userRow, manager, user, vpn1, vpn2, other };
+  return { managerUser, userRow, manager, user, vpn1, vpn2, other, root };
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>;
@@ -140,7 +142,9 @@ describe("VPN loans", () => {
     expect(await notices(s.userRow.id, "vpn.renewed")).toBe(1);
 
     // ผู้จัดการ IT อนุมัติผล → ขึ้น KPI ของเจ้าหน้าที่ (ประเภท Network Service)
-    expect((await s.manager.post(`/api/v1/tickets/${ticketId}/close`).send({ signature: SIG })).status).toBe(200);
+    // ผู้รับงานอนุมัติผลงานตัวเองไม่ได้เมื่อมีผู้อนุมัติผลคนอื่น (super_admin)
+    expect((await s.manager.post(`/api/v1/tickets/${ticketId}/close`).send({ signature: SIG })).status).toBe(403);
+    expect((await s.root.post(`/api/v1/tickets/${ticketId}/close`).send({ signature: SIG })).status).toBe(200);
     const rows = await kpiMonthRows(s.managerUser.id, localToday().slice(0, 7));
     expect(rows.find((r) => r.ticket?.id === ticketId)).toMatchObject({ service_type: "Network Service" });
   });

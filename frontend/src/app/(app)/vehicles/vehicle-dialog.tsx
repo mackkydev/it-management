@@ -80,7 +80,7 @@ export function VehicleDialog({
   const km = (n: number | null) => (n === null ? "-" : fmt.number(n));
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-overlay p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" className={`max-h-[90vh] w-full max-w-lg space-y-3 overflow-y-auto p-5 shadow-xl ${card}`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

@@ -101,3 +101,22 @@ describe("confirm on every view", () => {
     expect((await staff.post(`/api/v1/credentials/${id}/reveal`)).status).toBe(428);
   });
 });
+
+describe("per-entry re-authentication switch", () => {
+  it("only vault.all (super admins) can turn it off; anyone who edits can turn it back on or keep it off", async () => {
+    const staff = await as(await makeUser({ role: "admin" }), "th");
+    const root = await as(await makeUser({ role: "super_admin" }), "th");
+
+    const blocked = await staff.post("/api/v1/credentials").send({ title: "Router", category: "network", password: "x1", require_reauth: false });
+    expect(blocked.status).toBe(422);
+    expect(Object.keys(blocked.body.errors)).toEqual(["require_reauth"]);
+
+    const id = (await staff.post("/api/v1/credentials").send({ title: "Router", category: "network", password: "x1" })).body.data.id;
+    expect((await staff.put(`/api/v1/credentials/${id}`).send({ require_reauth: false })).status).toBe(422);
+    expect((await root.put(`/api/v1/credentials/${id}`).send({ require_reauth: false })).status).toBe(200);
+    // ปิดอยู่แล้ว → แก้ช่องอื่นพร้อมส่งค่าเดิมได้ / เปิดกลับได้
+    expect((await staff.put(`/api/v1/credentials/${id}`).send({ title: "Router 2", require_reauth: false })).status).toBe(200);
+    expect((await staff.put(`/api/v1/credentials/${id}`).send({ require_reauth: true })).status).toBe(200);
+    expect(Boolean(await scalar("SELECT require_reauth FROM credentials WHERE id = ?", [id]))).toBe(true);
+  });
+});

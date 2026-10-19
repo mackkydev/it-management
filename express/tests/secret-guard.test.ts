@@ -8,7 +8,7 @@ import { as, day, makeUser } from "./helpers.js";
 async function setup() {
   const head = await makeUser({ is_it_staff: true, is_it_head: true, name: "หัวหน้า IT" });
   const staff = await makeUser({ is_it_staff: true, name: "เจ้าหน้าที่ IT" });
-  const admin = await as(await makeUser({ role: "admin" }));
+  const admin = await as(await makeUser({ role: "super_admin" })); // ตั้งค่าระบบ / PIN กลาง = super_admin เท่านั้น
   const api = await as(staff);
   const id = (await api.post("/api/v1/credentials").send({ title: "Firewall", category: "network", username: "admin", password: "S3cret!pass" })).body.data.id;
   return { head, staff, admin, api, id };
@@ -143,7 +143,10 @@ describe("shared (central) PIN", () => {
 describe("per-credential confirmation switch", () => {
   it("an entry with require_reauth off can be viewed without confirming; turning it on asks again", async () => {
     const { api } = await setup();
-    const created = await api.post("/api/v1/credentials").send({ title: "WiFi guest", category: "network", password: "guest-1234", require_reauth: false });
+    // ปิดการยืนยันรายรายการได้เฉพาะผู้มีสิทธิ์ vault.all (ผู้ดูแลระบบสูงสุด)
+    expect((await api.post("/api/v1/credentials").send({ title: "WiFi guest", category: "network", password: "guest-1234", require_reauth: false })).status).toBe(422);
+    const root = await as(await makeUser({ role: "super_admin" }));
+    const created = await root.post("/api/v1/credentials").send({ title: "WiFi guest", category: "network", password: "guest-1234", require_reauth: false });
     expect(created.body.data.require_reauth).toBe(false);
     const id = created.body.data.id;
     expect((await api.post(`/api/v1/credentials/${id}/reveal`)).body.data.password).toBe("guest-1234");
