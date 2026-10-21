@@ -46,7 +46,7 @@ export interface VehicleBookingValues {
 }
 
 /** จองใหม่ (id = null) / แก้ไขการจอง */
-export async function saveVehicleBooking(id: string | null, v: VehicleBookingValues): Promise<ActionResult<keyof VehicleBookingValues> & { id?: string }> {
+export async function saveVehicleBooking(id: string | null, v: VehicleBookingValues): Promise<ActionResult<keyof VehicleBookingValues> & { id?: string; status?: VehicleBooking["status"] }> {
   const { t } = await getI18n();
   if (id !== null && !UUID_RE.test(id)) return { message: t("common.saveFailed") };
   try {
@@ -71,7 +71,7 @@ export async function saveVehicleBooking(id: string | null, v: VehicleBookingVal
       }),
     });
     refresh();
-    return { ok: true, id: res.data.id };
+    return { ok: true, id: res.data.id, status: res.data.status };
   } catch (e) {
     return toActionResult(e);
   }
@@ -87,6 +87,33 @@ export async function assignVehicle(id: string, vehicleId: number | null): Promi
     const res = await apiFetch<{ data: VehicleBooking }>(`/vehicle-bookings/${id}/vehicle`, { method: "PUT", body: JSON.stringify({ vehicle_id: vehicleId }) });
     refresh();
     return { ok: true, booking: res.data, message: t("vehicle.dispatch.assigned") };
+  } catch (e) {
+    return toActionResult(e);
+  }
+}
+
+/** ผู้จัดคิวรถอนุมัติ (เลือก/เปลี่ยนรถพร้อมกันได้ — vehicleId = null = ใช้รถเดิม) */
+export async function approveVehicleBooking(id: string, vehicleId: number | null): Promise<BookingResult> {
+  const { t } = await getI18n();
+  if (!UUID_RE.test(id) || (vehicleId !== null && !validId(vehicleId))) return { message: t("common.saveFailed") };
+  try {
+    const res = await apiFetch<{ data: VehicleBooking }>(`/vehicle-bookings/${id}/approve`, { method: "POST", body: JSON.stringify(vehicleId ? { vehicle_id: vehicleId } : {}) });
+    refresh();
+    return { ok: true, booking: res.data, message: t("vehicle.approval.approvedDone") };
+  } catch (e) {
+    return toActionResult(e);
+  }
+}
+
+/** ผู้จัดคิวรถไม่อนุมัติ (ต้องมีเหตุผล) */
+export async function rejectVehicleBooking(id: string, reason: string): Promise<ActionResult<"reason" | "status">> {
+  const { t } = await getI18n();
+  if (!UUID_RE.test(id)) return { message: t("common.saveFailed") };
+  if (!reason.trim()) return { errors: { reason: t("vehicle.approval.reasonRequired") }, message: t("common.checkInput") };
+  try {
+    await apiFetch(`/vehicle-bookings/${id}/reject`, { method: "POST", body: JSON.stringify({ reason: reason.trim() }) });
+    refresh();
+    return { ok: true, message: t("vehicle.approval.rejectedDone") };
   } catch (e) {
     return toActionResult(e);
   }

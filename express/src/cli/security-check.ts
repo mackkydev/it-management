@@ -51,6 +51,10 @@ try {
     const without = admins.filter((u) => !u.two_factor_confirmed_at);
     if (without.length) report("WARN", "2FA ของผู้ดูแลระบบ (LOCAL)", `ยังไม่เปิด: ${without.map((u) => u.email).join(", ")}`);
     else if (admins.length) report("OK", "2FA ของผู้ดูแลระบบ (LOCAL)", "เปิดครบทุกคน");
+    // super_admin ควรมีอย่างน้อย 2 คน (คนละคนจริง) ที่เปิด 2FA — คนหนึ่งไม่อยู่ / โทรศัพท์หาย ยังมีอีกคนเข้าได้ และได้รับแจ้งเตือนเมื่ออีกคน login
+    const supers = realSuper.filter((u) => u.two_factor_confirmed_at);
+    if (supers.length >= 2) report("OK", "super_admin ที่เปิด 2FA อย่างน้อย 2 คน", supers.map((u) => u.email).join(", "));
+    else report("WARN", "super_admin ที่เปิด 2FA อย่างน้อย 2 คน", `มี ${supers.length} คน — แนะนำ 2 คน (คนละคนจริง ไม่ใช้บัญชีร่วม) เก็บ recovery code ไว้ในที่ปลอดภัย`);
   }
 
   // 5) ค่าการตั้งค่า

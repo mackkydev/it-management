@@ -148,7 +148,7 @@ export async function expiryEnabled(): Promise<boolean> {
 }
 
 /** เงื่อนไข SQL "ยังไม่หมดอายุ" ของคอลัมน์ expires_on (alias.expires_on) */
-async function activeClause(alias: string): Promise<{ sql: string; params: unknown[] }> {
+export async function activeClause(alias: string): Promise<{ sql: string; params: unknown[] }> {
   if (!(await expiryEnabled())) return { sql: "1 = 1", params: [] };
   return { sql: `(${alias}.expires_on IS NULL OR ${alias}.expires_on >= ?)`, params: [localToday()] };
 }

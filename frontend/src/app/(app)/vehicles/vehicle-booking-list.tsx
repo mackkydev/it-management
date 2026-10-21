@@ -6,7 +6,7 @@ import { useState, useTransition } from "react";
 import { assignVehicle } from "@/app/actions/vehicles";
 import { AppSelect } from "@/components/app-select";
 import { useAlert } from "@/components/dialog-provider";
-import { EyeIcon, GaugeIcon, PencilIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
+import { CheckCircleIcon, EyeIcon, GaugeIcon, PencilIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
 import { btn, card, input, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { IDLE_TONE } from "@/lib/booking";
@@ -29,9 +29,26 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
 
   const toneFor = (b: VehicleBooking) => (b.vehicle ? toneOf(vehicles, b.vehicle.id) : IDLE_TONE);
   const status = (b: VehicleBooking) => {
+    const badge = (cls: string, text: string) => <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{text}</span>;
+    // รออนุมัติ / ไม่อนุมัติ (พร้อมเหตุผล) — สถานะของขั้นอนุมัติโดยผู้จัดคิวรถ
+    if (b.status === "pending") return badge(tone.warning.badge, t("vehicle.booking.statuses.pending"));
+    if (b.status === "rejected")
+      return (
+        <>
+          {badge(tone.danger.badge, t("vehicle.booking.statuses.rejected"))}
+          {b.reject_reason && <span className="mt-1 block max-w-64 whitespace-normal text-xs text-muted">{b.reject_reason}</span>}
+        </>
+      );
     const [cls, key] = b.status === "cancelled" ? [tone.idle.badge, "cancelled"] : b.is_over ? [tone.info.badge, "over"] : [tone.success.badge, "confirmed"];
-    return <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{t(`meeting.booking.statuses.${key as "confirmed" | "cancelled" | "over"}`)}</span>;
+    return badge(cls, t(`meeting.booking.statuses.${key as "confirmed" | "cancelled" | "over"}`));
   };
+  // แท็บรออนุมัติ: ไปหน้าอนุมัติ (เห็นคิวรถทั้งวัน เปลี่ยนรถ อนุมัติ/ไม่อนุมัติ)
+  const review = (b: VehicleBooking) => (
+    <Link href={`/vehicles/dispatch/${b.id}`} className={`${btn.primary} ${btn.sm} whitespace-nowrap`}>
+      <CheckCircleIcon width={14} height={14} />
+      {t("vehicle.dispatch.review")}
+    </Link>
+  );
   const vehicleCell = (b: VehicleBooking) => (
     <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${toneFor(b).bar}`}>{b.vehicle ? `${b.vehicle.name}${b.vehicle.plate_no ? ` · ${b.vehicle.plate_no}` : ""}` : t("vehicle.unassigned")}</span>
   );
@@ -77,15 +94,21 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
   };
   const actions = (b: VehicleBooking) => (
     <div className="flex flex-wrap justify-end gap-1.5">
+      {mode === "dispatch" && b.can_approve && review(b)}
       {mode === "mine" && b.can_edit && (
         <Link href={`/vehicles/bookings/${b.id}/edit`} className={`${btn.soft} ${btn.sm} whitespace-nowrap`}>
           <PencilIcon width={14} height={14} />
           {t("meeting.booking.edit")}
         </Link>
       )}
-      <button type="button" onClick={() => setSelected(b)} className={`${btn.secondary} ${btn.sm} whitespace-nowrap`}>
+      {/* ถึงเวลาใช้รถแล้วแต่ยังไม่บันทึกเลขไมล์ = ปุ่มกะพริบเตือน / บันทึกแล้ว = ดูรายละเอียดอย่างเดียว */}
+      <button
+        type="button"
+        onClick={() => setSelected(b)}
+        className={`${b.mileage_due && mode === "mine" ? `${btn.primary} animate-pulse` : btn.secondary} ${btn.sm} whitespace-nowrap`}
+      >
         {b.can_mileage && mode === "mine" ? <GaugeIcon width={14} height={14} /> : <EyeIcon width={14} height={14} />}
-        {b.can_mileage && mode === "mine" ? t("vehicle.mileage.record") : t("vehicle.detail.details")}
+        {b.can_mileage && mode === "mine" ? t(b.mileage_due ? "vehicle.mileage.recordNow" : "vehicle.mileage.record") : t("vehicle.detail.details")}
       </button>
     </div>
   );
@@ -120,7 +143,7 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
                   </span>
                 </td>
                 <td className={table.td}>
-                  {mode === "dispatch" && b.can_assign ? assignControl(b) : vehicleCell(b)}
+                  {mode === "dispatch" && b.can_assign && !b.can_approve ? assignControl(b) : vehicleCell(b)}
                   {mileage(b)}
                 </td>
                 {mode === "dispatch" && (
@@ -147,7 +170,7 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
             </div>
             <p className="text-sm">{periodText(b, fmt.date)}</p>
             {mode === "dispatch" && <p className="text-xs text-muted">{[b.user.name, b.branch?.name].filter(Boolean).join(" · ")}</p>}
-            {mode === "dispatch" && b.can_assign ? assignControl(b) : vehicleCell(b)}
+            {mode === "dispatch" && b.can_assign && !b.can_approve ? assignControl(b) : vehicleCell(b)}
             {mileage(b)}
             {actions(b)}
           </li>

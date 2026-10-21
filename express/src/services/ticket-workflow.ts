@@ -332,7 +332,9 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
       break;
   }
 
-  const ids = [...new Set(recipients.filter((r): r is Person => r !== null).map((r) => r.id))].filter((id) => !actor || id !== actor.id);
+  // อนุมัติใบของตัวเอง (ผู้แจ้ง = ผู้อนุมัติ) → แจ้งผู้แจ้งเองด้วย ให้ขึ้นกระดิ่ง/รอฉันอนุมัติ
+  const selfApproval = event === "submitted" && t.current_step === null && t.approver_id !== null && t.approver_id === t.requester_id;
+  const ids = [...new Set(recipients.filter((r): r is Person => r !== null).map((r) => r.id))].filter((id) => !actor || id !== actor.id || selfApproval);
   if (ids.length === 0) return;
   await notifyUsers(ids, TICKET_ACTIVITY, {
     kind: "ticket",

@@ -12,6 +12,9 @@ export function notificationText(n: AppNotification, t: TFunction, date: (iso: s
   if (n.data.kind === "access_changed") {
     return t(`notifications.access.${n.data.change}` as MessageKey, { actor: n.data.actor, subject: n.data.subject });
   }
+  if (n.data.kind === "super_admin_login") {
+    return t("notifications.superAdminLogin", { subject: n.data.subject, method: t(`notifications.loginMethod.${n.data.method}` as MessageKey), ip: n.data.ip ?? "-" });
+  }
   if (n.data.kind === "account_locked") {
     return t("notifications.accountLocked", { subject: n.data.subject, attempts: n.data.attempts, minutes: n.data.minutes });
   }
@@ -58,12 +61,15 @@ export function notificationHref(n: AppNotification): string {
   }
   // บัญชีถูกล็อก → หน้าแก้ไขผู้ใช้ (ปุ่มปลดล็อก)
   if (n.data.kind === "account_locked") return `/users/${n.data.subject_id}/edit`;
+  // ผู้ดูแลระบบสูงสุดเข้าสู่ระบบ → บันทึกการเปลี่ยนแปลง (ประวัติการเข้าสู่ระบบของบัญชีสูงสุด)
+  if (n.data.kind === "super_admin_login") return "/audit-logs?action=auth.super_admin_login";
   // ใบลา: ส่งมาให้อนุมัติ → หน้ารออนุมัติลา, ผลการอนุมัติ → ใบลาของฉัน
   if (n.data.kind === "leave") return n.data.event === "submitted" ? "/leave/approvals" : `/leave?open=${n.data.leave_id}`;
   // จองรถ: รอจัดรถ → หน้าจัดคิวรถ, อื่นๆ → การจองรถของฉัน
   if (n.data.kind === "vehicle") {
-    if (n.data.event === "requested") return "/vehicles/dispatch";
-    return n.data.event === "cancelled" ? "/vehicles/mine?status=cancelled" : "/vehicles/mine";
+    // รออนุมัติ → หน้าอนุมัติของการจองนั้น (เห็นคิวรถทั้งวัน), ไม่อนุมัติ/ยกเลิก → แท็บยกเลิก
+    if (n.data.event === "requested") return `/vehicles/dispatch/${n.data.vehicle_booking_id}`;
+    return n.data.event === "cancelled" || n.data.event === "rejected" ? "/vehicles/mine?status=cancelled" : "/vehicles/mine";
   }
   // ยืมอุปกรณ์: รอส่งมอบ → หน้าส่งมอบ/รับคืน, เกินกำหนด → ผู้จัดการไปแท็บเกินกำหนด (ผู้ยืมไปการยืมของฉัน — ลิงก์เดียวกัน redirect ตามสิทธิ์), อื่นๆ → การยืมของฉัน
   if (n.data.kind === "loan") {

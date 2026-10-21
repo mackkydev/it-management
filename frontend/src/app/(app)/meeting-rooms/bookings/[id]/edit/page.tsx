@@ -28,7 +28,7 @@ export default async function EditMeetingBookingPage({ params }: PageProps<"/mee
     apiFetch<{ data: MeetingRoom[] }>("/meeting-rooms").then((r) => r.data),
     apiFetch<{ data: { name: string }[] }>("/dropdown-options/meeting_purpose").then((r) => r.data.map((o) => o.name)),
     apiFetch<{ data: { name: string }[] }>("/dropdown-options/meeting_equipment").then((r) => r.data.map((o) => o.name)),
-    apiFetch<{ data: MeetingBooking[] }>(`/meeting-bookings?${new URLSearchParams({ from: booking.date, to: booking.date })}`).then((r) => r.data),
+    apiFetch<{ data: MeetingBooking[] }>(`/meeting-bookings?${new URLSearchParams({ from: booking.date, to: booking.end_date })}`).then((r) => r.data),
   ]);
   // ห้องที่ถูกปิดใช้งานภายหลัง — ยังแสดงห้องเดิมของการจองนี้ให้เลือกค้างไว้
   const roomList = rooms.some((r) => r.id === booking.room.id)
@@ -48,6 +48,7 @@ export default async function EditMeetingBookingPage({ params }: PageProps<"/mee
           equipment: booking.equipment,
           note: booking.note ?? "",
           date: booking.date,
+          end_date: booking.end_date,
           start_time: booking.start_time,
           end_time: booking.end_time,
         }}

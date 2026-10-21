@@ -61,6 +61,7 @@ export default async function EditVehicleBookingPage({ params }: PageProps<"/veh
         purposes={purposes}
         extras={extras}
         booker={{ name: booking.user.name, department: booking.department }}
+        lockVehicle={!booking.can_change_vehicle}
       />
     </div>
   );

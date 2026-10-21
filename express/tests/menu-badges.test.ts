@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { insert } from "../src/db.js";
+import { exec, insert } from "../src/db.js";
 import { nowDb } from "../src/lib/time.js";
 import { as, makeUser } from "./helpers.js";
 
@@ -33,11 +33,15 @@ describe("menu badges", () => {
     const badges = async (u: typeof staff) => (await (await as(u)).get("/api/v1/menu-badges")).body.data;
     expect(await badges(requester)).toEqual({ "/tickets": 1, "/tickets/approvals": 0, "/leave/approvals": 0, "/loans/mine": 0 });
     expect((await badges(approver))["/tickets/approvals"]).toBe(1);
-    // คิวงานของฉัน = ใบที่ฉันเป็นผู้รับงาน / คิวงาน IT = ใบที่ยังไม่มีผู้รับ (เจ้าหน้าที่ที่รับงานได้) + รออนุมัติผล (หัวหน้า IT)
-    // staff: งานของฉันกำลังทำ 1, รอรับงานที่ไม่มีผู้รับ 1 / KPI: เฉพาะที่ผู้จัดการ IT อนุมัติผลแล้ว (pending_requester, completed) และยังไม่กรอก = 2
-    expect(await badges(staff)).toMatchObject({ "/it/tickets": 1, "/it/queue": 1, "/kpi": 2 });
-    expect(await badges(otherStaff)).toMatchObject({ "/it/tickets": 1, "/it/queue": 1 }); // ใบที่ถูกเลือก / ใบที่ไม่มีผู้รับ
-    // หัวหน้า IT (manage_all): ไม่มีใบของตัวเอง — คิวงาน IT: รอรับงานที่ยังไม่มีผู้รับ 1 + รออนุมัติผล 1
-    expect(await badges(head)).toMatchObject({ "/it/tickets": 0, "/it/queue": 2 });
+    // คิวงานของฉัน = ใบที่ฉันเป็นผู้รับงาน / คิวงาน IT = ใบรอรับที่ไม่มีผู้รับ + ใบที่เลือกคนอื่นไว้แต่ยังไม่รับ (ผู้ที่รับงานแทนได้) + รออนุมัติผล (หัวหน้า IT)
+    // staff: งานของฉันกำลังทำ 1 / คิวงาน IT: ไม่มีผู้รับ 1 + เลือก otherStaff ไว้ 1 / KPI: เฉพาะที่ผู้จัดการ IT อนุมัติผลแล้ว (pending_requester, completed) และยังไม่กรอก = 2
+    expect(await badges(staff)).toMatchObject({ "/it/tickets": 1, "/it/queue": 2, "/kpi": 2 });
+    // ผู้ถูกเลือก: ใบนั้นนับที่คิวงานของฉันอย่างเดียว ไม่นับซ้ำที่คิวงาน IT
+    expect(await badges(otherStaff)).toMatchObject({ "/it/tickets": 1, "/it/queue": 1 });
+    // หัวหน้า IT (manage_all): ไม่มีใบของตัวเอง — คิวงาน IT: ไม่มีผู้รับ 1 + เลือกคนอื่นไว้ 1 + รออนุมัติผล 1
+    expect(await badges(head)).toMatchObject({ "/it/tickets": 0, "/it/queue": 3 });
+    // ไม่มีสิทธิ์รับงานแทน → ไม่นับใบที่เลือกคนอื่นไว้
+    await exec("INSERT INTO user_permissions (user_id, permission_id, effect, created_at) SELECT ?, id, 'deny', NOW() FROM permissions WHERE \"key\" = 'it_tickets.take_over'", [staff.id]);
+    expect((await badges(staff))["/it/queue"]).toBe(1);
   });
 });

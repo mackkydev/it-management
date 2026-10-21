@@ -83,10 +83,14 @@ export function TicketForm({
     t("tickets.vpn.mockLine", { start: from ? fmt.date(from) : t("tickets.vpn.blank"), end: to ? fmt.date(to) : t("tickets.vpn.blank") });
   const vpnMock = (from: string, to: string) => `${vpnLine(from, to)}\n${t("tickets.vpn.mockReason")}`;
 
-  // ผู้อนุมัติ: เลือกให้ตามสาย (ใบใหม่) / ผู้อนุมัติเดิมของขั้นปัจจุบัน (แก้ไข) ถ้าอยู่ในรายชื่อของสาขาที่เลือก
+  // ผู้มีสิทธิ์อนุมัติใบของตัวเอง (ผู้จัดการขึ้นไป): ไม่เลือกผู้อนุมัติ = ใบรอตัวเองอนุมัติ (API ตั้ง approver = ผู้แจ้ง)
+  const selfApprove = has(user, "tickets.approve_own");
+  // ผู้อนุมัติ: เลือกให้ตามสาย (ใบใหม่ — ผู้อนุมัติใบตัวเองได้ = ว่างไว้ / อนุมัติเอง) / ผู้อนุมัติเดิมของขั้นปัจจุบัน (แก้ไข) ถ้าอยู่ในรายชื่อของสาขาที่เลือก
   const preferredApprovers: Person[] = editing
     ? (editing.approval_steps.find((s) => s.step_no === editing.current_step)?.approvers ?? (editing.approver ? [editing.approver] : []))
-    : firstApprovers(plan);
+    : selfApprove
+      ? []
+      : firstApprovers(plan);
   const candidatesOf = (branchId: string) => options.approvers.filter((a) => String(a.branch_id) === branchId);
   const pickApprover = (branchId: string) => {
     const list = candidatesOf(branchId);
@@ -190,7 +194,8 @@ export function TicketForm({
 
   const approverOptions = candidatesOf(v.branch_id);
   const chosenApprover = approverOptions.find((a) => String(a.id) === v.approver_id);
-  const shownPlan = plan && withApprover(plan, chosenApprover);
+  const selfPlan: ApprovalPlan = { source: "legacy", route: null, steps: [], legacy_approver: { id: user.id, name: user.name } };
+  const shownPlan = selfApprove && !chosenApprover ? selfPlan : plan && withApprover(plan, chosenApprover);
 
   const validate = (): Errors => {
     const e: Errors = {};
@@ -449,7 +454,7 @@ export function TicketForm({
                 disabled={!v.branch_id || approverOptions.length === 0}
                 className={cls("approver_id")}
               >
-                <option value="">{t("tickets.form.approverByRoute")}</option>
+                <option value="">{t(selfApprove ? "tickets.form.approverSelf" : "tickets.form.approverByRoute")}</option>
                 {approverOptions.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name} ({t(`roles.${a.role}` as MessageKey)})
@@ -457,7 +462,13 @@ export function TicketForm({
                 ))}
               </AppSelect>,
               false,
-              !v.branch_id ? t("tickets.form.branchFirst") : approverOptions.length === 0 ? t("tickets.form.noApprover") : t("tickets.form.approverHint"),
+              !v.branch_id
+                ? t("tickets.form.branchFirst")
+                : selfApprove
+                  ? t("tickets.form.approverSelfHint")
+                  : approverOptions.length === 0
+                    ? t("tickets.form.noApprover")
+                    : t("tickets.form.approverHint"),
             )}
             {field(
               "details",

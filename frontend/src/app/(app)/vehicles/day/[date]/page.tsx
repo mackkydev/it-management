@@ -15,7 +15,7 @@ import { shiftDay } from "../../vehicle-utils";
 import { VehicleTimeline } from "./vehicle-timeline";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const DONE = ["created", "updated"] as const;
+const DONE = ["created", "updated", "requested"] as const;
 
 export async function generateMetadata({ params }: PageProps<"/vehicles/day/[date]">): Promise<Metadata> {
   const [{ t, fmt }, { date }] = await Promise.all([getI18n(), params]);
@@ -60,7 +60,7 @@ export default async function VehicleDayPage({ params, searchParams }: PageProps
       {done && (
         <p role="status" className={alert.success}>
           <CheckCircleIcon className="shrink-0" />
-          {t(done === "created" ? "vehicle.booking.created" : "vehicle.booking.updated")}
+          {t(done === "requested" ? "vehicle.booking.requested" : done === "created" ? "vehicle.booking.created" : "vehicle.booking.updated")}
         </p>
       )}
       <div className={`flex flex-wrap items-center gap-2 p-3 ${card}`}>

@@ -22,7 +22,8 @@ import { deleteStored, randomString, readStored, writeStored } from "../services
  *     GET /meeting-rooms/:id/images/:imageId — ทุกคนที่ login
  *   การจอง: GET /meeting-bookings?from=&to=&room_id= (ที่ยืนยันแล้ว), GET /meeting-bookings/mine?status=upcoming|past|cancelled,
  *     GET|PUT|DELETE /meeting-bookings/:uuid, POST /meeting-bookings, POST /meeting-bookings/:uuid/cancel
- *     ห้อง + ช่วงเวลาซ้อนกัน = 422 (ตรวจใน transaction + lock ต่อห้อง/วัน) — ชนกันพอดีขอบเวลา (09:00–10:00 กับ 10:00–11:00) ได้
+ *     จองหลายวันได้: date ถึง end_date (ช่วงเวลาเดียวกันทุกวัน, ≤ MAX_DAYS วัน — end_date ไม่ส่ง = วันเดียว)
+ *     ห้อง + วันที่คาบเกี่ยว + ช่วงเวลาซ้อนกัน = 422 (ตรวจใน transaction + lock ต่อห้อง) — ชนกันพอดีขอบเวลา (09:00–10:00 กับ 10:00–11:00) ได้
  *     แก้/ยกเลิก/ลบของผู้อื่น = meeting.manage_any (แจ้งเตือนเจ้าของการจอง)
  *   ขอบเขตตามสาขาต่อกลุ่ม (services/booking-scope.ts): branch = เห็น/จองห้องสาขาตัวเอง + ห้องใช้ร่วมกัน, จัดการได้เฉพาะห้องสาขาตัวเอง
  *     ขอบเขต all เลือกดูเฉพาะสาขาได้ด้วย ?branch_id= (GET /meeting-rooms, GET /meeting-bookings)
@@ -33,6 +34,8 @@ export const meetingRoutes = Router();
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const MAX_IMAGES = MAX_PHOTOS;
+/** จองต่อเนื่องได้ไม่เกินกี่วันต่อครั้ง */
+const MAX_DAYS = 31;
 const t = (req: Request, key: string, replace: Record<string, string | number> = {}) => trans(req.locale, key, replace);
 const managesRooms = (u: UserRow) => can(u, "meeting.rooms");
 const managesAny = (u: UserRow) => can(u, "meeting.manage_any");
@@ -323,6 +326,8 @@ interface BookingRow {
   purpose: string | null;
   note: string | null;
   booking_date: string;
+  /** วันสุดท้าย (null = ข้อมูลเดิม วันเดียว) */
+  end_date: string | null;
   start_time: string;
   end_time: string;
   status: string;
@@ -330,6 +335,10 @@ interface BookingRow {
   created_at: string | null;
   updated_at: string | null;
 }
+
+/** วันสุดท้ายของการจอง (ข้อมูลเดิมไม่มี end_date = วันเดียว) */
+const lastDay = (r: { booking_date: string; end_date: string | null }) => dateOnly(r.end_date) ?? dateOnly(r.booking_date)!;
+const LAST_DAY_SQL = "COALESCE(m.end_date, m.booking_date)";
 
 const BOOKING_SELECT = `SELECT m.*, r.name AS room_name, r.branch_id AS room_branch_id, u.name AS user_name
   FROM meeting_bookings m JOIN meeting_rooms r ON r.id = m.room_id LEFT JOIN users u ON u.id = m.user_id`;
@@ -345,7 +354,8 @@ async function bookingsJson(rows: BookingRow[], u: UserRow) {
   return rows.map((r) => {
     const date = dateOnly(r.booking_date)!;
     const mine = Number(r.user_id) === u.id;
-    const over = isOver(date, r.end_time);
+    // จบเมื่อพ้นเวลาสิ้นสุดของวันสุดท้าย
+    const over = isOver(lastDay(r), r.end_time);
     const active = r.status === "confirmed";
     const allowed = mine || managesBooking(u, s, r);
     return {
@@ -359,6 +369,7 @@ async function bookingsJson(rows: BookingRow[], u: UserRow) {
       equipment: equipment.filter((e) => Number(e.booking_id) === Number(r.id)).map((e) => e.name),
       note: r.note,
       date,
+      end_date: lastDay(r),
       start_time: r.start_time,
       end_time: r.end_time,
       status: r.status as "confirmed" | "cancelled",
@@ -390,8 +401,9 @@ meetingRoutes.get("/meeting-bookings", async (req, res) => {
   const from = String(f.from);
   const to = String(f.to) < from ? from : String(f.to);
   if ((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000 > 62) throw ValidationError.withMessages({ to: t(req, "eam.calendar.range_too_long") });
-  const where = ["m.deleted_at IS NULL", "m.status = 'confirmed'", "m.booking_date BETWEEN ? AND ?"];
-  const params: unknown[] = [from, to];
+  // การจองที่ช่วงวันคาบเกี่ยวช่วงที่ขอ (รวมจองหลายวัน)
+  const where = ["m.deleted_at IS NULL", "m.status = 'confirmed'", `m.booking_date <= ? AND ${LAST_DAY_SQL} >= ?`];
+  const params: unknown[] = [to, from];
   if (int(f.room_id)) (where.push("m.room_id = ?"), params.push(int(f.room_id)));
   // ห้องในขอบเขตสาขา (ของตัวเองเห็นเสมอเมื่อไม่ได้เลือกกรองสาขา)
   const w = branchWhere("r.branch_id", await scope(u), int(f.branch_id));
@@ -413,7 +425,7 @@ meetingRoutes.get("/meeting-bookings/mine", async (req, res) => {
   if (status === "cancelled") where.push("m.status = 'cancelled'");
   else {
     where.push("m.status = 'confirmed'");
-    const upcoming = "(m.booking_date > ? OR (m.booking_date = ? AND m.end_time > ?))";
+    const upcoming = `(${LAST_DAY_SQL} > ? OR (${LAST_DAY_SQL} = ? AND m.end_time > ?))`;
     where.push(status === "upcoming" ? upcoming : `NOT ${upcoming}`);
     params.push(today, today, now);
   }
@@ -442,6 +454,7 @@ async function bookingInput(req: Request, current: BookingRow | null, currentEqu
       "equipment.*": ["string", "max:100"],
       note: ["nullable", "string", "max:2000"],
       date: ["required", regex(DATE)],
+      end_date: ["nullable", regex(DATE)],
       start_time: ["required", regex(TIME)],
       end_time: ["required", regex(TIME)],
     },
@@ -454,10 +467,16 @@ async function bookingInput(req: Request, current: BookingRow | null, currentEqu
   const sameRoom = Number(current?.room_id) === roomId;
   if (!room || (!sameRoom && (!room.is_active || !canSeeBranch(await scope(me(req)), branchOf(room.branch_id))))) errors.room_id = t(req, "eam.meeting.room_invalid");
   const date = String(data.date);
+  const endDate = typeof data.end_date === "string" ? data.end_date : date;
   const start = String(data.start_time);
   const end = String(data.end_time);
+  const days = (Date.parse(endDate) - Date.parse(date)) / 86_400_000 + 1;
+  // แก้การจองหลายวันที่เริ่มไปแล้ว (วันแรกเดิม) = ตรวจเฉพาะวันสุดท้ายว่ายังไม่จบ
+  const startedBefore = current !== null && dateOnly(current.booking_date) === date;
   if (end <= start) errors.end_time = t(req, "eam.meeting.time_order");
-  else if (isOver(date, end)) errors.date = t(req, "eam.meeting.past");
+  else if (endDate < date) errors.end_date = t(req, "eam.meeting.end_date_order");
+  else if (days > MAX_DAYS) errors.end_date = t(req, "eam.meeting.too_long", { days: MAX_DAYS });
+  else if (isOver(startedBefore ? endDate : date, end)) errors.date = t(req, "eam.meeting.past");
 
   // ประเภท / อุปกรณ์ ต้องเป็นตัวเลือกที่เปิดใช้งาน (ค่าเดิมของการจองนี้คงไว้ได้แม้ถูกปิดใช้งานภายหลัง)
   const purpose = String(data.purpose).trim();
@@ -474,20 +493,24 @@ async function bookingInput(req: Request, current: BookingRow | null, currentEqu
     purpose,
     note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : null,
     booking_date: date,
+    end_date: endDate,
     start_time: start,
     end_time: end,
     equipment,
   };
 }
 
-/** ห้องเดียวกัน วันเดียวกัน ช่วงเวลาซ้อนกัน (ไม่นับที่ยกเลิก/ลบ และตัวเอง) — เรียกใน transaction หลัง lock */
-async function assertFree(req: Request, v: { room_id: number; booking_date: string; start_time: string; end_time: string }, exceptId: number | null) {
-  const clash = await first<{ title: string; start_time: string; end_time: string; user_name: string | null }>(
-    `SELECT m.title, m.start_time, m.end_time, u.name AS user_name FROM meeting_bookings m LEFT JOIN users u ON u.id = m.user_id
-      WHERE m.room_id = ? AND m.booking_date = ? AND m.status = 'confirmed' AND m.deleted_at IS NULL
+/**
+ * ห้องเดียวกัน ช่วงวันคาบเกี่ยวกัน และช่วงเวลาซ้อนกัน (ทุกวันของการจองใช้ช่วงเวลาเดียวกัน) — ไม่นับที่ยกเลิก/ลบ และตัวเอง
+ * เรียกใน transaction หลัง lock
+ */
+async function assertFree(req: Request, v: { room_id: number; booking_date: string; end_date: string; start_time: string; end_time: string }, exceptId: number | null) {
+  const clash = await first<{ title: string; booking_date: string; start_time: string; end_time: string; user_name: string | null }>(
+    `SELECT m.title, m.booking_date, m.start_time, m.end_time, u.name AS user_name FROM meeting_bookings m LEFT JOIN users u ON u.id = m.user_id
+      WHERE m.room_id = ? AND m.booking_date <= ? AND ${LAST_DAY_SQL} >= ? AND m.status = 'confirmed' AND m.deleted_at IS NULL
         AND m.start_time < ? AND m.end_time > ?${exceptId ? " AND m.id <> ?" : ""}
-      ORDER BY m.start_time LIMIT 1`,
-    exceptId ? [v.room_id, v.booking_date, v.end_time, v.start_time, exceptId] : [v.room_id, v.booking_date, v.end_time, v.start_time],
+      ORDER BY m.booking_date, m.start_time LIMIT 1`,
+    [v.room_id, v.end_date, v.booking_date, v.end_time, v.start_time, ...(exceptId ? [exceptId] : [])],
   );
   if (clash) {
     throw ValidationError.withMessages({
@@ -496,7 +519,8 @@ async function assertFree(req: Request, v: { room_id: number; booking_date: stri
   }
 }
 
-const lockKey = (roomId: number, date: string) => `meeting_room:${roomId}:${date}`;
+/** lock ต่อห้อง (จองหลายวันคาบเกี่ยวกันได้หลายวัน) */
+const lockKey = (roomId: number) => `meeting_room:${roomId}`;
 
 async function saveEquipment(bookingId: number, names: string[]) {
   await exec("DELETE FROM meeting_booking_equipment WHERE booking_id = ?", [bookingId]);
@@ -512,7 +536,7 @@ meetingRoutes.post("/meeting-bookings", async (req, res) => {
   const uuid = randomUUID();
   const { equipment, ...row } = v;
   const id = await transaction(async () => {
-    await lockNamed(lockKey(v.room_id, v.booking_date));
+    await lockNamed(lockKey(v.room_id));
     await assertFree(req, v, null);
     // ผู้จอง + แผนก = ผู้ที่ login (แผนกเก็บตามตอนจอง)
     const bookingId = await insert("meeting_bookings", { uuid, ...row, user_id: u.id, department: u.department, status: "confirmed", created_at: now, updated_at: now });
@@ -540,6 +564,7 @@ async function notifyOwner(u: UserRow, b: BookingRow, event: "updated" | "cancel
     title: b.title,
     room: b.room_name,
     date: dateOnly(b.booking_date),
+    end_date: lastDay(b),
     start_time: b.start_time,
     end_time: b.end_time,
   });
@@ -549,12 +574,12 @@ meetingRoutes.put("/meeting-bookings/:uuid", async (req, res) => {
   const u = me(req);
   const b = await findBooking(req);
   await assertOwner(u, b);
-  if (b.status !== "confirmed" || isOver(dateOnly(b.booking_date)!, b.end_time)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_editable") });
+  if (b.status !== "confirmed" || isOver(lastDay(b), b.end_time)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_editable") });
   const currentEquipment = (await select<{ name: string }>("SELECT name FROM meeting_booking_equipment WHERE booking_id = ?", [b.id])).map((e) => e.name);
   const v = await bookingInput(req, b, currentEquipment);
   const { equipment, ...row } = v;
   await transaction(async () => {
-    await lockNamed(lockKey(v.room_id, v.booking_date));
+    await lockNamed(lockKey(v.room_id));
     await assertFree(req, v, Number(b.id));
     await update("meeting_bookings", { ...row, updated_at: nowDb() }, "id = ?", [b.id]);
     await saveEquipment(Number(b.id), equipment);
@@ -563,7 +588,7 @@ meetingRoutes.put("/meeting-bookings/:uuid", async (req, res) => {
     action: "meeting_booking.updated",
     subjectType: "meeting_booking",
     subjectId: b.id,
-    before: { room_id: Number(b.room_id), title: b.title, attendees: Number(b.attendees), purpose: b.purpose, note: b.note, booking_date: dateOnly(b.booking_date), start_time: b.start_time, end_time: b.end_time, equipment: currentEquipment },
+    before: { room_id: Number(b.room_id), title: b.title, attendees: Number(b.attendees), purpose: b.purpose, note: b.note, booking_date: dateOnly(b.booking_date), end_date: lastDay(b), start_time: b.start_time, end_time: b.end_time, equipment: currentEquipment },
     after: auditView(v),
   });
   await notifyOwner(u, b, "updated");
@@ -575,7 +600,7 @@ meetingRoutes.post("/meeting-bookings/:uuid/cancel", async (req, res) => {
   const u = me(req);
   const b = await findBooking(req);
   await assertOwner(u, b);
-  if (b.status !== "confirmed" || isOver(dateOnly(b.booking_date)!, b.end_time)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_editable") });
+  if (b.status !== "confirmed" || isOver(lastDay(b), b.end_time)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_editable") });
   const now = nowDb();
   await update("meeting_bookings", { status: "cancelled", cancelled_at: now, cancelled_by: u.id, updated_at: now }, "id = ?", [b.id]);
   await audit(req, { action: "meeting_booking.cancelled", subjectType: "meeting_booking", subjectId: b.id, before: { status: b.status } });
@@ -589,9 +614,9 @@ meetingRoutes.delete("/meeting-bookings/:uuid", async (req, res) => {
   const u = me(req);
   const b = await findBooking(req);
   await assertOwner(u, b);
-  if (b.status === "confirmed" && isOver(dateOnly(b.booking_date)!, b.end_time)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_deletable") });
+  if (b.status === "confirmed" && isOver(lastDay(b), b.end_time)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_deletable") });
   await update("meeting_bookings", { deleted_at: nowDb() }, "id = ?", [b.id]);
-  await audit(req, { action: "meeting_booking.deleted", subjectType: "meeting_booking", subjectId: b.id, before: { title: b.title, booking_date: dateOnly(b.booking_date), start_time: b.start_time, end_time: b.end_time, status: b.status } });
+  await audit(req, { action: "meeting_booking.deleted", subjectType: "meeting_booking", subjectId: b.id, before: { title: b.title, booking_date: dateOnly(b.booking_date), end_date: lastDay(b), start_time: b.start_time, end_time: b.end_time, status: b.status } });
   if (b.status === "confirmed") await notifyOwner(u, b, "deleted");
   res.status(204).end();
 });

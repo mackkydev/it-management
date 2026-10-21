@@ -20,6 +20,7 @@ const eamTh = {
   user: {
     self_lock: "ไม่สามารถลดบทบาทหรือปิดใช้งานบัญชีของตัวเองได้",
     self_delete: "ไม่สามารถลบบัญชีของตัวเองได้",
+    branch_scope: "สิทธิ์จัดการผู้ใช้ของคุณจำกัดเฉพาะสาขาของคุณ — เลือกสาขาอื่นไม่ได้",
     has_history: "ลบไม่ได้ เพราะผู้ใช้นี้มีประวัติในระบบ (ถือครอง/บันทึกสินทรัพย์ หรือการโอนย้าย) — ให้ปิดใช้งานแทน",
   },
   auth: {
@@ -94,9 +95,14 @@ const eamTh = {
     locked: "สิทธิ์ :items สงวนไว้ให้ผู้ดูแลระบบสูงสุด (super_admin) มอบ/ถอดเท่านั้น",
     last_super_admin: "ต้องมีผู้ดูแลระบบสูงสุด (super_admin) บัญชี LOCAL ที่ใช้งานอยู่อย่างน้อย 1 คน (ใช้เข้าระบบเมื่อระบบต้นทางล่ม)",
     invalid_group: "กลุ่มสิทธิ์ไม่ถูกต้อง",
+    invalid_user: "ไม่พบผู้ใช้ หรือผู้ใช้ถูกปิดใช้งาน",
     invalid_date: "รูปแบบวันที่ไม่ถูกต้อง",
     expires_past: "วันหมดอายุต้องไม่ก่อนวันนี้",
     group_system: "ลบกลุ่มตามตำแหน่งไม่ได้ (เปลี่ยนชื่อได้)",
+    group_forbidden: "ไม่มีสิทธิ์แก้สิทธิ์ของกลุ่ม",
+    group_higher: "แก้ได้เฉพาะกลุ่มที่ต่ำกว่าตำแหน่งของคุณ — กลุ่มระดับเดียวกันหรือสูงกว่าให้ผู้ดูแลระบบสูงสุดแก้",
+    group_own: "แก้สิทธิ์ของกลุ่มที่ตัวเองอยู่ไม่ได้",
+    scope_invalid: "ขอบเขตไม่ถูกต้อง (ทุกสาขา / สาขาตัวเอง)",
     group_name_taken: "มีกลุ่มชื่อนี้อยู่แล้ว",
   },
   branch: { in_use: "ลบไม่ได้ เพราะยังมีผู้ใช้หรือใบแจ้งงานในสาขานี้ — ให้ปิดใช้งานแทน" },
@@ -105,6 +111,7 @@ const eamTh = {
     helpers_invalid: "ผู้ร่วมดำเนินการต้องเป็นเจ้าหน้าที่ IT ที่ใช้งานอยู่ และไม่ใช่ผู้รับงานเอง",
     took_over_from: "รับงานแทน :name",
     self_closed: "อนุมัติผลงานที่ตัวเองร่วมทำ (ไม่มีผู้อนุมัติผลคนอื่น)",
+    self_approved: "อนุมัติใบแจ้งงานของตัวเอง",
     forward_same: "เจ้าหน้าที่คนนี้เป็นผู้รับงานของใบนี้อยู่แล้ว",
   },
   vault: {
@@ -176,6 +183,10 @@ const eamTh = {
     overlap: "รถ :vehicle ถูกจองช่วง :period แล้ว (โดย :name)",
     transfer_same: "รถคันนี้อยู่สาขานี้อยู่แล้ว",
     branch_locked: "เปลี่ยนสาขาของรถที่หน้าแก้ไขไม่ได้ — ใช้ปุ่ม \"ย้ายสาขา\" (เก็บประวัติการย้าย)",
+    need_vehicle: "เลือกรถก่อนอนุมัติ",
+    vehicle_locked: "การจองที่อนุมัติแล้วเปลี่ยนรถไม่ได้ — ติดต่อผู้จัดคิวรถให้เปลี่ยนให้",
+    mileage_locked: "บันทึกเลขไมล์ของการจองนี้แล้ว — แก้ไขได้เฉพาะผู้จัดคิวรถ",
+    not_pending: "การจองนี้ไม่ได้รออนุมัติแล้ว (อนุมัติ / ไม่อนุมัติ / ยกเลิกไปแล้ว หรือเลยเวลาแล้ว)",
   },
   loan: {
     device_invalid: "เลือกอุปกรณ์ที่ให้ยืมได้ (สินทรัพย์ที่ฝ่าย IT ถือครอง ใช้งาน/เก็บในคลัง)",
@@ -217,6 +228,8 @@ const eamTh = {
     local_only: "บัญชีที่เข้าสู่ระบบผ่านระบบต้นทาง ตั้งการยืนยันตัวตนที่ระบบต้นทาง",
   },
   meeting: {
+    end_date_order: "วันสิ้นสุดต้องไม่ก่อนวันที่เริ่ม",
+    too_long: "จองต่อเนื่องได้ไม่เกิน :days วันต่อครั้ง",
     room_duplicate: "มีห้องประชุมชื่อนี้แล้ว",
     branch_invalid: "ไม่พบสาขาที่เลือก",
     seats_invalid: "กรอกที่นั่งอย่างน้อย 1 แถว — แต่ละแถวต้องมีชื่อ (ไม่เกิน 50 ตัวอักษร) และจำนวน 1–9999",
@@ -251,6 +264,7 @@ const eamTh = {
     kpi_row: ":type (:unit)",
   },
   holiday: {
+    branch_scope: "สิทธิ์จัดการวันหยุดของคุณจำกัดเฉพาะสาขาตัวเอง — แก้ได้เฉพาะชุดวันหยุดของสาขาคุณและคนในสาขา",
     duplicate: "ปฏิทินวันหยุดชุดนี้มีวันหยุดวันที่นี้แล้ว",
     sheet: "วันหยุดบริษัท",
     col_date: "วันที่",
@@ -351,6 +365,7 @@ const eamEn: Eam = {
   user: {
     self_lock: "You cannot demote or deactivate your own account.",
     self_delete: "You cannot delete your own account.",
+    branch_scope: "Your user-management permission is limited to your own branch — another branch cannot be chosen.",
     has_history: "Cannot delete: this user has history (assets held/created or transfers). Deactivate the account instead.",
   },
   auth: {
@@ -424,9 +439,14 @@ const eamEn: Eam = {
     locked: ":items is reserved: only super admins can grant or remove it.",
     last_super_admin: "At least one active LOCAL super admin is required (to sign in when the source system is down).",
     invalid_group: "Invalid permission group.",
+    invalid_user: "User not found or inactive",
     invalid_date: "Invalid date.",
     expires_past: "The expiry date cannot be in the past.",
     group_system: "Role groups cannot be deleted (they can be renamed).",
+    group_forbidden: "You are not allowed to edit group permissions.",
+    group_higher: "You can only edit groups below your own role — groups at your level or above are edited by a super admin.",
+    group_own: "You cannot edit the permissions of a group you belong to.",
+    scope_invalid: "Invalid scope (all branches / own branch).",
     group_name_taken: "A group with this name already exists.",
   },
   branch: { in_use: "Cannot delete: users or tickets still belong to this branch. Deactivate it instead." },
@@ -435,6 +455,7 @@ const eamEn: Eam = {
     helpers_invalid: "Co-workers must be active IT staff and not the assignee.",
     took_over_from: "Took over from :name",
     self_closed: "Approved own work (no other reviewer available)",
+    self_approved: "Approved own ticket",
     forward_same: "This staff member is already the assignee of this ticket.",
   },
   vault: {
@@ -506,6 +527,10 @@ const eamEn: Eam = {
     overlap: "Vehicle :vehicle is already booked :period (by :name).",
     transfer_same: "This vehicle is already at that branch.",
     branch_locked: "The branch cannot be changed on the edit form — use \"Move to branch\" (keeps the move history).",
+    need_vehicle: "Choose a vehicle before approving.",
+    vehicle_locked: "The vehicle of an approved booking cannot be changed — ask the dispatcher to change it.",
+    mileage_locked: "Mileage for this booking has already been recorded — only the dispatcher can change it.",
+    not_pending: "This booking is no longer awaiting approval (approved, rejected, cancelled or already over).",
   },
   loan: {
     device_invalid: "Choose a lendable device (an asset held by IT staff, in use or in storage).",
@@ -547,6 +572,8 @@ const eamEn: Eam = {
     local_only: "Accounts that sign in through the upstream system manage verification there.",
   },
   meeting: {
+    end_date_order: "The end date cannot be before the start date.",
+    too_long: "A booking can cover at most :days days.",
     room_duplicate: "A meeting room with this name already exists.",
     branch_invalid: "The selected branch was not found.",
     seats_invalid: "Add at least one seating row — each row needs a name (up to 50 characters) and a count of 1–9999.",
@@ -581,6 +608,7 @@ const eamEn: Eam = {
     kpi_row: ":type (:unit)",
   },
   holiday: {
+    branch_scope: "Your holiday permission is limited to your own branch — you can only manage your branch holiday calendar and people in your branch.",
     duplicate: "This holiday calendar already has a holiday on this date.",
     sheet: "Company holidays",
     col_date: "Date",

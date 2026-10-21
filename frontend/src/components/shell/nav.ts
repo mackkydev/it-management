@@ -174,8 +174,10 @@ export const NAV: NavGroup[] = [
       { label: "nav.notificationSettings", href: "/settings", icon: SettingsIcon, visible: perm("settings.manage") },
       { label: "nav.approvalRoutes", href: "/approval-routes", icon: GitBranchIcon, visible: perm("approval_routes.manage") },
       { label: "nav.announcements", href: "/announcements", icon: BellIcon, visible: perm("announcements.manage") },
-      { label: "nav.permissions", href: "/permissions", icon: ShieldIcon, visible: perm("access.manage") },
-      { label: "nav.rolePermissions", href: "/role-permissions", icon: ShieldIcon, visible: (u) => has(u, "access.manage") || has(u, "access.assign") },
+      { label: "nav.permissions", href: "/permissions", icon: ShieldIcon, visible: (u) => has(u, "access.manage") || has(u, "access.groups") },
+      { label: "nav.rolePermissions", href: "/role-permissions", icon: ShieldIcon, visible: (u) => has(u, "access.manage") || has(u, "access.groups") || has(u, "access.assign") },
+      // สมาชิกกลุ่ม + สิทธิ์ที่มอบรายคน (ดู / แก้วันหมดอายุ / ยกเลิก)
+      { label: "nav.accessReview", href: "/access-review", icon: ShieldIcon, visible: perm("access.assign") },
       { label: "nav.apiConnections", href: "/api-connections", icon: GitBranchIcon, visible: isLocalSuperAdmin },
       { label: "nav.auditLogs", href: "/audit-logs", icon: HistoryIcon, visible: perm("audit_logs.view") },
     ],

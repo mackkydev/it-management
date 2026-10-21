@@ -12,6 +12,7 @@ import { deactivateSignature } from "../services/signatures.js";
 import { disableTwoFactor } from "../services/two-factor.js";
 import { lastLocalSuperAdmin, notifyAccessChange, roleChangeError } from "../services/access-control.js";
 import { audit } from "../services/audit.js";
+import { canFor, scopeOf, scopeWhere } from "../services/manage-scope.js";
 import { loginLockedMinutes, passwordChangedNow } from "../services/password-policy.js";
 import { userResource } from "../resources.js";
 
@@ -20,6 +21,20 @@ export const userRoutes = Router();
 
 /** จัดการผู้ใช้ได้ (หน้าจัดการ / ดูรายละเอียด) */
 const editsUsers = (u: UserRow) => can(u, "users.create") || can(u, "users.update") || can(u, "users.delete");
+/** สิทธิ์จัดการผู้ใช้ — ขอบเขตตามสาขาต่อกลุ่ม (services/manage-scope.ts) */
+const USER_KEYS = ["users.update", "users.create", "users.delete"] as const;
+
+/** เงื่อนไข SQL ผู้ใช้ที่จัดการได้ (กว้างสุดของ users.create / update / delete ที่มี) */
+async function manageableWhere(actor: UserRow): Promise<{ sql: string; params: unknown[] }> {
+  const parts = await Promise.all(USER_KEYS.map((k) => scopeWhere(actor, k, "u.branch_id")));
+  return parts.find((p) => p.sql === "1 = 1") ?? parts.find((p) => p.sql !== "1 = 0") ?? { sql: "1 = 0", params: [] };
+}
+
+/** ผู้ใช้นี้อยู่ในขอบเขตการจัดการ (สาขา) ของสิทธิ์ key — ไม่อยู่ = 404 (เหมือนไม่มีผู้ใช้นี้) */
+async function assertInScope(actor: UserRow, target: UserRow, key: (typeof USER_KEYS)[number]) {
+  if (actor.id !== target.id && !(await canFor(actor, key, target.branch_id))) throw notFound();
+}
+
 /** แก้บัญชีผู้ดูแลระบบ (super_admin) ได้เฉพาะผู้ดูแลระบบ */
 const superAdminTarget = (actor: UserRow, target: UserRow) => target.id !== actor.id && target.role === "super_admin" && !isSuperAdmin(actor);
 
@@ -88,6 +103,10 @@ userRoutes.get("/users", async (req, res) => {
     const params = [...s.params];
     if (f.role) (where.push("u.role = ?"), params.push(f.role));
     if (f.status) (where.push("u.is_active = ?"), params.push(f.status === "active"));
+    // HR / ผู้ดูแลประจำสาขา (ขอบเขตสาขาตัวเอง) เห็นเฉพาะผู้ใช้ในสาขาตัวเอง
+    const scope = await manageableWhere(u);
+    where.push(scope.sql);
+    params.push(...scope.params);
     const whereSql = where.join(" AND ");
 
     const total = Number(await scalar(`SELECT COUNT(*) FROM users u WHERE ${whereSql}`, params));
@@ -122,6 +141,10 @@ userRoutes.get("/users/:id", async (req, res) => {
   const target = await routeUser(req);
   const u = me(req);
   authorize(editsUsers(u) || u.id === target.id);
+  if (u.id !== target.id) {
+    const inScope = await Promise.all(USER_KEYS.map((k) => canFor(u, k, target.branch_id)));
+    if (!inScope.some(Boolean)) throw notFound();
+  }
   res.json({ data: managed(await loadManaged(target.id), u.id), meta: { can_delete: !(await hasHistory(target.id)) } });
 });
 
@@ -133,6 +156,9 @@ async function validatedUser(req: Request, target: UserRow | null) {
   const actor = me(req);
   if (!can(actor, target ? "users.update" : "users.create")) throw forbidden();
   if (target && superAdminTarget(actor, target)) throw forbidden();
+  if (target) await assertInScope(actor, target, "users.update");
+  // ขอบเขตสาขาตัวเอง: ผู้ใช้ที่เพิ่ม/แก้ต้องอยู่สาขาของผู้ทำ (ย้ายไปสาขาอื่นไม่ได้)
+  const branchOnly = (await scopeOf(actor, target ? "users.update" : "users.create")) === "branch";
   const s = target ? ["sometimes"] : [];
   const input = req.input;
   // API User: อีเมลว่างได้ (ต้นทางไม่ส่งมา), ไม่มีรหัสผ่าน — ตำแหน่งได้ทุกระดับเหมือนผู้ใช้ LOCAL (กำหนดในโปรแกรม IT)
@@ -160,6 +186,7 @@ async function validatedUser(req: Request, target: UserRow | null) {
       // กันล็อกตัวเองออกจากระบบ: ห้ามเปลี่ยนตำแหน่งหรือปิดใช้งานบัญชีตัวเอง / ต้องเหลือ super_admin บัญชี LOCAL อย่างน้อย 1 คน
       after: async ({ errors }) => {
         if (isApi && typeof input.password === "string" && input.password !== "") errors.add("password", trans(req.locale, "eam.access.api_no_password"));
+        if (branchOnly && "branch_id" in input && Number(input.branch_id) !== Number(actor.branch_id)) errors.add("branch_id", trans(req.locale, "eam.user.branch_scope"));
         if (target && target.id === actor.id) {
           if ("role" in input && input.role !== target.role) errors.add("role", trans(req.locale, "eam.user.self_lock"));
           if ("is_active" in input && !bool(input.is_active)) errors.add("is_active", trans(req.locale, "eam.user.self_lock"));
@@ -187,6 +214,8 @@ function orgColumns(data: Record<string, unknown>) {
 
 userRoutes.post("/users", async (req, res) => {
   const data = await validatedUser(req, null);
+  // ขอบเขตสาขาตัวเอง + ไม่ได้เลือกสาขา = สาขาของผู้เพิ่ม
+  if (!("branch_id" in data) && (await scopeOf(me(req), "users.create")) === "branch") data.branch_id = me(req).branch_id;
   const now = nowDb();
   const id = await insert("users", {
     name: data.name,
@@ -248,6 +277,7 @@ userRoutes.delete("/users/:id", async (req, res) => {
   const target = await routeUser(req);
   const u = me(req);
   authorize(can(u, "users.delete") && !superAdminTarget(u, target));
+  await assertInScope(u, target, "users.delete");
   if (u.id === target.id) throw ValidationError.withMessages({ user: trans(req.locale, "eam.user.self_delete") });
   if (await lastLocalSuperAdmin(target)) throw ValidationError.withMessages({ user: trans(req.locale, "eam.access.last_super_admin") });
   if (await hasHistory(target.id)) throw ValidationError.withMessages({ user: trans(req.locale, "eam.user.has_history") });
@@ -277,6 +307,7 @@ userRoutes.delete("/users/:id/2fa", async (req, res) => {
 userRoutes.delete("/users/:id/login-lock", async (req, res) => {
   const target = await routeUser(req);
   authorize(can(me(req), "users.update") && !superAdminTarget(me(req), target));
+  await assertInScope(me(req), target, "users.update");
   if (!loginLockedMinutes(target) && !Number(target.login_failures ?? 0)) throw notFound();
   await update("users", { login_failures: 0, login_locked_until: null }, "id = ?", [target.id]);
   await audit(req, { action: "auth.unlocked", subjectType: "user", subjectId: target.id, before: { until: target.login_locked_until ?? null, failures: Number(target.login_failures ?? 0) } });
@@ -287,6 +318,7 @@ userRoutes.delete("/users/:id/login-lock", async (req, res) => {
 userRoutes.delete("/users/:id/signature", async (req, res) => {
   const target = await routeUser(req);
   authorize(can(me(req), "users.update") && !superAdminTarget(me(req), target));
+  await assertInScope(me(req), target, "users.update");
   if (!(await deactivateSignature(target.id, req, true))) throw notFound();
   res.status(204).end();
 });

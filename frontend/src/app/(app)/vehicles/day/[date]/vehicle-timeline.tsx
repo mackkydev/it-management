@@ -26,7 +26,22 @@ const hm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${Stri
  * ไทม์ไลน์การจองรถของวัน (00:00–24:00) — แถวละ 1 คัน + แถว "รอจัดรถ" (การจองที่ยังไม่ระบุรถ)
  * การจองหลายวันแสดงเฉพาะส่วนของวันนั้น, คลิกช่องว่าง = จองคันนั้นตั้งแต่เวลานั้น (ปัดลงชั่วโมง), คลิกแถบ = รายละเอียด
  */
-export function VehicleTimeline({ date, vehicles, bookings, canDispatch, bookable = true }: { date: string; vehicles: Vehicle[]; bookings: VehicleBooking[]; canDispatch: boolean; bookable?: boolean }) {
+export function VehicleTimeline({
+  date,
+  vehicles,
+  bookings,
+  canDispatch,
+  bookable = true,
+  highlight,
+}: {
+  date: string;
+  vehicles: Vehicle[];
+  bookings: VehicleBooking[];
+  canDispatch: boolean;
+  bookable?: boolean;
+  /** การจองที่กำลังพิจารณา (หน้าอนุมัติ) — เน้นกรอบ */
+  highlight?: string;
+}) {
   const { t, fmt } = useI18n();
   const router = useRouter();
   const [selected, setSelected] = useState<VehicleBooking | null>(null);
@@ -53,6 +68,9 @@ export function VehicleTimeline({ date, vehicles, bookings, canDispatch, bookabl
   const book = (vehicleId: number, min: number) =>
     router.push(`/vehicles/book?${new URLSearchParams({ date, vehicle: String(vehicleId), start: hm(min), end: hm(Math.min(min + 2 * 60, 23 * 60 + 30)) })}`);
   const tone = (b: VehicleBooking) => (b.vehicle ? toneOf(vehicles, b.vehicle.id) : IDLE_TONE);
+  // รออนุมัติ = แถบจาง เส้นประ / การจองที่กำลังพิจารณา = กรอบเน้น
+  const extra = (b: VehicleBooking) =>
+    `${b.status === "pending" ? "opacity-60 outline-1 outline-dashed outline-current" : ""} ${b.id === highlight ? "!opacity-100 ring-2 ring-accent-500" : ""}`;
 
   const head = (v: Vehicle | null) => {
     if (!v)
@@ -142,7 +160,7 @@ export function VehicleTimeline({ date, vehicles, bookings, canDispatch, bookabl
                     type="button"
                     onClick={(ev) => (ev.stopPropagation(), setSelected(b))}
                     onMouseMove={(ev) => ev.stopPropagation()}
-                    className={`absolute z-10 cursor-pointer overflow-hidden rounded-md px-2 text-left ring-1 ring-inset ${stack} ${tone(b).bar}`}
+                    className={`absolute z-10 cursor-pointer overflow-hidden rounded-md px-2 text-left ring-1 ring-inset ${stack} ${tone(b).bar} ${extra(b)}`}
                     style={{ left: `${pct(s)}%`, width: `${pct(e - s)}%` }}
                   >
                     <span className="block truncate text-xs font-semibold leading-5">{b.details}</span>
@@ -167,7 +185,7 @@ export function VehicleTimeline({ date, vehicles, bookings, canDispatch, bookabl
               <p className="text-xs text-muted">{t("meeting.free")}</p>
             ) : (
               r.list.map((b) => (
-                <button key={b.id} type="button" onClick={() => setSelected(b)} className={`block w-full cursor-pointer rounded-lg px-2.5 py-1.5 text-left ring-1 ring-inset ${tone(b).bar}`}>
+                <button key={b.id} type="button" onClick={() => setSelected(b)} className={`block w-full cursor-pointer rounded-lg px-2.5 py-1.5 text-left ring-1 ring-inset ${tone(b).bar} ${extra(b)}`}>
                   <span className="block text-xs font-semibold">
                     {b.start_on === date ? b.start_time : "…"}–{b.end_on === date ? b.end_time : "…"} · {b.details}
                   </span>

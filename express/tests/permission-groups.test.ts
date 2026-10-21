@@ -104,7 +104,10 @@ describe("grant rules (no privilege escalation)", () => {
     expect(missing.status).toBe(422);
     expect(missing.body.errors.overrides[0]).toContain("KPI");
 
-    // แก้ตารางสิทธิ์ของกลุ่ม / สร้างกลุ่ม = access.manage (สงวนไว้ให้ super_admin)
+    // admin แก้ได้เฉพาะกลุ่มที่ต่ำกว่า (access.groups — tests/group-admin.test.ts) — กลุ่มระดับเดียวกันไม่ได้
+    expect((await deputy.put("/api/v1/permissions/roles/admin").send({ keys: [] })).status).toBe(422);
+    // ไม่มีทั้ง access.groups และ access.manage = แก้ตารางสิทธิ์ / สร้างกลุ่มไม่ได้
+    await (await as(root)).put(`/api/v1/users/${deputyUser.id}/permissions`).send({ overrides: { "access.groups": "deny" } });
     expect((await deputy.put("/api/v1/permissions/roles/viewer").send({ keys: [] })).status).toBe(403);
     expect((await deputy.post("/api/v1/permission-groups").send({ name_th: "x", name_en: "x" })).status).toBe(403);
     // super_admin มอบสิทธิ์ที่สงวนไว้ได้ → ผู้ได้รับแก้ตารางสิทธิ์ได้ แต่ยังมอบสิทธิ์ที่สงวนไว้ต่อไม่ได้

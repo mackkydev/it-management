@@ -11,6 +11,8 @@ import { me } from "../http.js";
 import { can, rolesAbove, type UserRow } from "../models/user.js";
 import { cellValue, toIsoDate } from "../services/asset-import.js";
 import { normDept, planFor } from "../services/approval-routes.js";
+import { editableGroupKeys, keepLockedGroups } from "../services/access-control.js";
+import { canFor, scopeOf, scopeWhere } from "../services/manage-scope.js";
 import { audit } from "../services/audit.js";
 import {
   allowedScopes, busyOf, calendarItems, datesBetween, findUserByCalendarToken, holidayCalendarFor, leaveDays, weekdayRuns, leaveSettings, LEAVE_TYPES, LEAVE_UNITS, maxScope,
@@ -41,6 +43,19 @@ export const publicCalendarRoutes = Router();
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const manages = (u: UserRow) => can(u, "holidays.manage");
+/**
+ * ขอบเขตการจัดการตามสาขา (services/manage-scope.ts) ของ holidays.manage:
+ * สาขาตัวเอง = วันหยุดในชุดของสาขาตัวเอง + โควตา/กิจกรรมของคนในสาขา — ตั้งค่าการลา / ชุดวันหยุด / กิจกรรมทั้งบริษัท = ทุกสาขาเท่านั้น
+ */
+const managesAll = async (u: UserRow) => (await scopeOf(u, "holidays.manage")) === "all";
+async function managesCalendar(u: UserRow, calendarId: number): Promise<boolean> {
+  const scope = await scopeOf(u, "holidays.manage");
+  if (scope === "all") return true;
+  return scope === "branch" && Boolean(u.branch_id) && calendarId === (await holidayCalendarFor(Number(u.branch_id)));
+}
+async function assertCalendar(req: Request, calendarId: number) {
+  if (!(await managesCalendar(me(req), calendarId))) throw ValidationError.withMessages({ calendar_id: t(req, "eam.holiday.branch_scope") });
+}
 const t = (req: Request, key: string, replace: Record<string, string | number> = {}) => trans(req.locale, key, replace);
 
 /* ---------------------------------------------------------------- ปฏิทิน */
@@ -105,7 +120,7 @@ async function eventInput(req: Request, u: UserRow) {
     end_on: data.end_on,
     note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : null,
     // แสดงทั้งบริษัทได้เฉพาะผู้จัดการวันหยุด/ปฏิทิน
-    all_company: manages(u) && (data.all_company === true || data.all_company === "1" || data.all_company === 1),
+    all_company: (await managesAll(u)) && (data.all_company === true || data.all_company === "1" || data.all_company === 1),
     skip_weekends: hasWeekend,
   };
 }
@@ -124,7 +139,9 @@ async function ownEvent(req: Request) {
   const e = await first<{ id: number; type: string; created_by: number | null }>("SELECT id, type, created_by FROM calendar_events WHERE id = ? AND type = 'event'", [id]);
   if (!e) throw notFound();
   const u = me(req);
-  authorize(Number(e.created_by) === u.id || manages(u));
+  // กิจกรรมของคนอื่น: ผู้จัดการวันหยุด (ขอบเขตสาขาตัวเอง = เฉพาะของคนในสาขา)
+  const creator = e.created_by ? await first<{ branch_id: number | null }>("SELECT branch_id FROM users WHERE id = ?", [e.created_by]) : null;
+  authorize(Number(e.created_by) === u.id || (await canFor(u, "holidays.manage", creator?.branch_id)));
   return { e, u };
 }
 
@@ -145,14 +162,16 @@ calendarRoutes.delete("/calendar/events/:id", async (req, res) => {
 
 /* ---------------------------------------------------------------- ขอบเขตต่อกลุ่ม */
 
+// ตั้งได้ = access.manage (ทุกกลุ่ม) / access.groups (เฉพาะกลุ่มที่ต่ำกว่า — กลุ่มอื่นคงค่าเดิม: keepLockedGroups)
 calendarRoutes.get("/calendar/scope", async (req, res) => {
-  authorize(can(me(req), "access.manage"));
+  authorize(can(me(req), "access.manage") || can(me(req), "access.groups"));
   res.json({ data: { calendar: await scopeSettings("calendar"), leave: await scopeSettings("leave") } });
 });
 
 calendarRoutes.put("/calendar/scope", async (req, res) => {
   const u = me(req);
-  authorize(can(u, "access.manage"));
+  authorize(can(u, "access.manage") || can(u, "access.groups"));
+  const editable = await editableGroupKeys(u, req.locale);
   const groups = (await select<{ key: string }>('SELECT "key" FROM permission_groups')).map((g) => g.key);
   // scopes = ปฏิทิน (กิจกรรม/หน้างาน), leave_scopes = วันลาของคนอื่น — ส่งมาอย่างใดอย่างหนึ่งหรือทั้งคู่
   const parse = (input: unknown, field: string): Record<string, Scope> | null => {
@@ -171,8 +190,9 @@ calendarRoutes.put("/calendar/scope", async (req, res) => {
     if (!next) continue;
     const before = await scopeSettings(kind);
     const key = kind === "calendar" ? "calendar_scope" : "leave_scope";
-    await putSetting(key, next, u.id);
-    await audit(req, { action: `${key}.updated`, subjectType: "app_setting", subjectId: key, before, after: next });
+    const value = keepLockedGroups(editable, before, next);
+    await putSetting(key, value, u.id);
+    await audit(req, { action: `${key}.updated`, subjectType: "app_setting", subjectId: key, before, after: value });
   }
   res.json({ data: { calendar: await scopeSettings("calendar"), leave: await scopeSettings("leave") } });
 });
@@ -219,16 +239,18 @@ interface LeaveRow {
   id: number; uuid: string; user_id: number; leave_type: LeaveType; unit: LeaveUnit; start_on: string; end_on: string;
   start_time: string | null; end_time: string | null; days: string; reason: string | null; approver_id: number | null; status: string;
   decided_at: string | null; decision_note: string | null; created_at: string | null;
-  user_name: string; approver_name: string | null; user_department: string | null; branch_name: string | null;
+  user_name: string; approver_name: string | null; user_department: string | null; branch_name: string | null; user_branch_id: number | null;
 }
-const LEAVE_SELECT = `SELECT l.*, o.name AS user_name, o.department AS user_department, b.name AS branch_name, a.name AS approver_name
+const LEAVE_SELECT = `SELECT l.*, o.name AS user_name, o.department AS user_department, o.branch_id AS user_branch_id, b.name AS branch_name, a.name AS approver_name
   FROM leave_requests l JOIN users o ON o.id = l.user_id LEFT JOIN users a ON a.id = l.approver_id LEFT JOIN branches b ON b.id = o.branch_id`;
 
 async function leaveJson(l: LeaveRow, viewer: UserRow) {
   const files = await select<{ id: number; original_name: string; mime: string | null; size: number | null }>("SELECT id, original_name, mime, size FROM leave_files WHERE leave_id = ? ORDER BY id", [l.id]);
   const today = localToday();
   const isOwner = viewer.id === Number(l.user_id);
-  const isApprover = viewer.id === Number(l.approver_id) || can(viewer, "leave.approve_any");
+  // อนุมัติแทน (leave.approve_any) ตามขอบเขตสาขาของกลุ่ม
+  const onBehalf = await canFor(viewer, "leave.approve_any", l.user_branch_id);
+  const isApprover = viewer.id === Number(l.approver_id) || onBehalf;
   return {
     id: l.uuid,
     user: { id: Number(l.user_id), name: l.user_name, department: l.user_department, branch: l.branch_name },
@@ -247,7 +269,7 @@ async function leaveJson(l: LeaveRow, viewer: UserRow) {
     created_at: iso(l.created_at),
     files: files.map((f) => ({ id: Number(f.id), name: f.original_name, mime: f.mime, size: f.size })),
     can_decide: l.status === "pending" && isApprover && !isOwner,
-    can_cancel: (isOwner || can(viewer, "leave.approve_any")) && (l.status === "pending" || (l.status === "approved" && dateOnly(l.start_on)! > today)),
+    can_cancel: (isOwner || onBehalf) && (l.status === "pending" || (l.status === "approved" && dateOnly(l.start_on)! > today)),
   };
 }
 
@@ -257,7 +279,8 @@ async function findLeave(req: Request) {
   const l = await first<LeaveRow>(`${LEAVE_SELECT} WHERE l.uuid = ?`, [uuid]);
   if (!l) throw notFound();
   const u = me(req);
-  const allowed = u.id === Number(l.user_id) || u.id === Number(l.approver_id) || can(u, "leave.view_all") || can(u, "leave.approve_any");
+  const allowed =
+    u.id === Number(l.user_id) || u.id === Number(l.approver_id) || (await canFor(u, "leave.view_all", l.user_branch_id)) || (await canFor(u, "leave.approve_any", l.user_branch_id));
   if (!allowed) throw notFound();
   return { l, u };
 }
@@ -342,7 +365,8 @@ calendarRoutes.get("/leave/balance", async (req, res) => {
   const u = me(req);
   const f = await validate(req.input, { year: ["nullable", "integer", "min:2000", "max:2100"], user_id: ["nullable", "integer"] }, { locale: req.locale });
   const userId = int(f.user_id) ?? u.id;
-  authorize(userId === u.id || can(u, "leave.view_all"));
+  const target = userId === u.id ? null : await first<{ branch_id: number | null }>("SELECT branch_id FROM users WHERE id = ?", [userId]);
+  authorize(userId === u.id || (target !== null && (await canFor(u, "leave.view_all", target.branch_id))));
   res.json({ data: await balanceOf(userId, int(f.year) ?? Number(localToday().slice(0, 4)), await leaveSettings()) });
 });
 
@@ -452,6 +476,10 @@ async function leaveList(req: Request, u: UserRow) {
   const params: unknown[] = [];
   if (f.scope === "all") {
     authorize(can(u, "leave.view_all"));
+    // ขอบเขตสาขาตัวเอง = เฉพาะใบลาของคนในสาขา
+    const scope = await scopeWhere(u, "leave.view_all", "o.branch_id");
+    where.push(scope.sql);
+    params.push(...scope.params);
     if (int(f.user_id)) (where.push("l.user_id = ?"), params.push(int(f.user_id)));
   } else (where.push("l.user_id = ?"), params.push(u.id));
   if (f.status) (where.push("l.status = ?"), params.push(f.status));
@@ -470,11 +498,12 @@ calendarRoutes.get("/leave/approvals", async (req, res) => {
   const u = me(req);
   const f = await validate(req.input, { status: ["nullable", "in:pending,decided"] }, { locale: req.locale });
   const decided = f.status === "decided";
-  const any = can(u, "leave.approve_any");
+  // อนุมัติแทน = ทุกใบที่รออนุมัติในขอบเขต (ทุกสาขา / สาขาตัวเอง)
+  const any = await scopeWhere(u, "leave.approve_any", "o.branch_id");
   const rows = await select<LeaveRow>(
-    `${LEAVE_SELECT} WHERE ${decided ? "l.status IN ('approved', 'rejected') AND l.approver_id = ?" : `l.status = 'pending' AND (l.approver_id = ?${any ? " OR 1 = 1" : ""})`}
+    `${LEAVE_SELECT} WHERE ${decided ? "l.status IN ('approved', 'rejected') AND l.approver_id = ?" : `l.status = 'pending' AND (l.approver_id = ? OR ${any.sql})`}
       ORDER BY l.start_on ${decided ? "DESC" : "ASC"}, l.id LIMIT 300`,
-    [u.id],
+    decided ? [u.id] : [u.id, ...any.params],
   );
   res.json({ data: await Promise.all(rows.filter((r) => Number(r.user_id) !== u.id || decided).map((r) => leaveJson(r, u))) });
 });
@@ -521,7 +550,8 @@ calendarRoutes.get("/leave/settings", async (req, res) => {
 
 calendarRoutes.put("/leave/settings", async (req, res) => {
   const u = me(req);
-  authorize(manages(u));
+  // ใช้ทั้งบริษัท — ขอบเขตทุกสาขาเท่านั้น
+  authorize(await managesAll(u));
   const data = await validate(
     req.input,
     {
@@ -547,9 +577,10 @@ calendarRoutes.put("/leave/settings", async (req, res) => {
 calendarRoutes.get("/leave/quotas", async (req, res) => {
   authorize(manages(me(req)));
   const f = await validate(req.input, { year: ["required", "integer", "min:2000", "max:2100"] }, { locale: req.locale });
+  const scope = await scopeWhere(me(req), "holidays.manage", "u.branch_id");
   const rows = await select<{ user_id: number; name: string; leave_type: string; days: string }>(
-    "SELECT q.user_id, u.name, q.leave_type, q.days FROM leave_quota_overrides q JOIN users u ON u.id = q.user_id WHERE q.year = ? ORDER BY u.name, q.leave_type",
-    [int(f.year)],
+    `SELECT q.user_id, u.name, q.leave_type, q.days FROM leave_quota_overrides q JOIN users u ON u.id = q.user_id WHERE q.year = ? AND ${scope.sql} ORDER BY u.name, q.leave_type`,
+    [int(f.year), ...scope.params],
   );
   res.json({ data: rows.map((r) => ({ user: { id: Number(r.user_id), name: r.name }, leave_type: r.leave_type, days: Number(r.days) })) });
 });
@@ -567,6 +598,9 @@ calendarRoutes.put("/leave/quotas", async (req, res) => {
     },
     { locale: req.locale },
   );
+  // โควตารายคน = เฉพาะคนในขอบเขต (สาขาตัวเอง)
+  const owner = await first<{ branch_id: number | null }>("SELECT branch_id FROM users WHERE id = ?", [int(data.user_id)]);
+  if (!owner || !(await canFor(u, "holidays.manage", owner.branch_id))) throw ValidationError.withMessages({ user_id: t(req, "eam.holiday.branch_scope") });
   const key = [int(data.user_id), int(data.year), data.leave_type];
   if (data.days === null || data.days === undefined || data.days === "") {
     await exec("DELETE FROM leave_quota_overrides WHERE user_id = ? AND year = ? AND leave_type = ?", key);
@@ -591,7 +625,7 @@ calendarRoutes.get("/leave/:uuid", async (req, res) => {
 
 async function decide(req: Request, res: Response, approve: boolean) {
   const { l, u } = await findLeave(req);
-  authorize((u.id === Number(l.approver_id) || can(u, "leave.approve_any")) && u.id !== Number(l.user_id));
+  authorize((u.id === Number(l.approver_id) || (await canFor(u, "leave.approve_any", l.user_branch_id))) && u.id !== Number(l.user_id));
   const data = await validate(req.input, { note: [approve ? "nullable" : "required", "string", "max:2000"] }, { locale: req.locale });
   if (l.status !== "pending") throw ValidationError.withMessages({ status: t(req, "eam.leave.not_pending") });
   const status = approve ? "approved" : "rejected";
@@ -697,7 +731,8 @@ async function saveHolidayCalendar(id: number, v: { branch_ids: number[]; is_def
 
 calendarRoutes.post("/holiday-calendars", async (req, res) => {
   const u = me(req);
-  authorize(manages(u));
+  // ชุดวันหยุด (และสาขาที่ใช้ชุด) = ทุกสาขาเท่านั้น
+  authorize(await managesAll(u));
   const v = await holidayCalendarInput(req);
   const now = nowDb();
   let id = 0;
@@ -712,7 +747,7 @@ calendarRoutes.post("/holiday-calendars", async (req, res) => {
 });
 
 calendarRoutes.put("/holiday-calendars/:id", async (req, res) => {
-  authorize(manages(me(req)));
+  authorize(await managesAll(me(req)));
   const id = Number(req.params.id) || 0;
   const cal = await first<HolidayCalendarRow>("SELECT * FROM holiday_calendars WHERE id = ?", [id]);
   if (!cal) throw notFound();
@@ -727,7 +762,7 @@ calendarRoutes.put("/holiday-calendars/:id", async (req, res) => {
 
 /** ลบชุด (ไม่ใช่ชุดตั้งต้น) — วันหยุดในชุดถูกลบด้วย, สาขาที่ใช้ชุดนี้กลับไปใช้ชุดตั้งต้น */
 calendarRoutes.delete("/holiday-calendars/:id", async (req, res) => {
-  authorize(manages(me(req)));
+  authorize(await managesAll(me(req)));
   const id = Number(req.params.id) || 0;
   const cal = await first<HolidayCalendarRow>("SELECT * FROM holiday_calendars WHERE id = ?", [id]);
   if (!cal) throw notFound();
@@ -756,13 +791,15 @@ calendarRoutes.get("/holidays", async (req, res) => {
     : [];
   res.json({
     data: rows.map((r) => ({ id: Number(r.id), date: dateOnly(r.date), name: r.name, calendar_id: calendarId })),
-    meta: { year, calendar_id: calendarId, calendars, can_manage: manages(me(req)) },
+    // can_manage = แก้วันหยุดของชุดนี้ได้ · can_manage_all = ตั้งค่าการลา / ชุดวันหยุด (ขอบเขตทุกสาขา)
+    meta: { year, calendar_id: calendarId, calendars, can_manage: calendarId ? await managesCalendar(me(req), calendarId) : false, can_manage_all: await managesAll(me(req)) },
   });
 });
 
 async function holidayInput(req: Request, ignoreId?: number) {
   const data = await validate(req.input, { date: ["required", regex(DATE)], name: ["required", "string", "max:255"] }, { locale: req.locale });
   const calendarId = await calendarParam(req, req.input.calendar_id);
+  await assertCalendar(req, calendarId);
   const dup = await first<{ id: number }>("SELECT id FROM company_holidays WHERE calendar_id = ? AND date = ?", [calendarId, data.date]);
   if (dup && Number(dup.id) !== ignoreId) throw ValidationError.withMessages({ date: t(req, "eam.holiday.duplicate") });
   return { calendar_id: calendarId, date: String(data.date), name: String(data.name).trim() };
@@ -784,6 +821,7 @@ calendarRoutes.post("/holidays/copy-year", async (req, res) => {
   authorize(manages(u));
   const data = await validate(req.input, { from: ["required", "integer", "min:2000", "max:2100"], to: ["required", "integer", "min:2000", "max:2100"] }, { locale: req.locale });
   const calendarId = await calendarParam(req, req.input.calendar_id);
+  await assertCalendar(req, calendarId);
   const rows = await select<{ date: string; name: string }>("SELECT date, name FROM company_holidays WHERE calendar_id = ? AND YEAR(date) = ?", [calendarId, int(data.from)]);
   let created = 0;
   const now = nowDb();
@@ -860,6 +898,9 @@ calendarRoutes.post("/holidays/import", async (req, res) => {
   }
   const calendars = await holidayCalendars();
   const findCalendar = (v: string) => calendars.find((c) => c.name.trim().toLowerCase() === v.trim().toLowerCase());
+  // ชุดที่ผู้นำเข้าแก้ได้ (ขอบเขตสาขาตัวเอง = ชุดของสาขาตัวเองเท่านั้น)
+  const allowedCalendars = new Set<number>();
+  for (const c of calendars) if (await managesCalendar(u, Number(c.id))) allowedCalendars.add(Number(c.id));
   const ws = wb.worksheets[0];
   const rows: { row: number; calendar_id: number; date: string; name: string }[] = [];
   const errors: { row: number; message: string }[] = [];
@@ -879,6 +920,7 @@ calendarRoutes.post("/holidays/import", async (req, res) => {
       const value = calText === null || calText instanceof Date ? "" : calText.trim();
       return void errors.push({ row: n, message: value ? t(req, "eam.holiday.calendar_unknown", { value }) : t(req, "eam.holiday.calendar_required") });
     }
+    if (!allowedCalendars.has(cal.id)) return void errors.push({ row: n, message: t(req, "eam.holiday.branch_scope") });
     const key = `${cal.id}|${date}`;
     if (seen.has(key)) return void errors.push({ row: n, message: t(req, "eam.holiday.duplicate_row", { row: seen.get(key)! }) });
     seen.set(key, n);
@@ -911,6 +953,7 @@ calendarRoutes.put("/holidays/:id", async (req, res) => {
   if (!(await first("SELECT 1 FROM company_holidays WHERE id = ?", [id]))) throw notFound();
   // แก้วันที่ / ชื่อ (ย้ายชุดได้ถ้าส่ง calendar_id — ไม่ส่ง = ชุดเดิม)
   const cur = (await first<{ calendar_id: number }>("SELECT calendar_id FROM company_holidays WHERE id = ?", [id]))!;
+  await assertCalendar(req, Number(cur.calendar_id));
   req.input.calendar_id = req.input.calendar_id ?? cur.calendar_id;
   const v = await holidayInput(req, id);
   await update("company_holidays", { ...v, updated_at: nowDb() }, "id = ?", [id]);
@@ -921,7 +964,9 @@ calendarRoutes.put("/holidays/:id", async (req, res) => {
 calendarRoutes.delete("/holidays/:id", async (req, res) => {
   authorize(manages(me(req)));
   const id = Number(req.params.id) || 0;
-  if (!(await first("SELECT 1 FROM company_holidays WHERE id = ?", [id]))) throw notFound();
+  const cur = await first<{ calendar_id: number }>("SELECT calendar_id FROM company_holidays WHERE id = ?", [id]);
+  if (!cur) throw notFound();
+  await assertCalendar(req, Number(cur.calendar_id));
   await exec("DELETE FROM company_holidays WHERE id = ?", [id]);
   await audit(req, { action: "holiday.deleted", subjectType: "company_holiday", subjectId: id });
   res.status(204).end();

@@ -31,6 +31,7 @@ export function VehicleBookingForm({
   purposes,
   extras,
   booker,
+  lockVehicle = false,
 }: {
   id: string | null;
   initial: VehicleBookingValues;
@@ -40,6 +41,8 @@ export function VehicleBookingForm({
   purposes: string[];
   extras: string[];
   booker: { name: string; department: string | null };
+  /** อนุมัติแล้ว — ผู้จองเปลี่ยนรถไม่ได้ (API ตรวจซ้ำ) */
+  lockVehicle?: boolean;
 }) {
   const { t, fmt } = useI18n();
   const router = useRouter();
@@ -105,7 +108,7 @@ export function VehicleBookingForm({
   const vehicleRange = vehicle ? others.filter((b) => b.vehicle!.id === vehicle.id) : [];
   const overSeats = vehicle && Number(v.passengers) > vehicle.seats;
   // ยังไม่ได้เลือกวันเวลาเริ่มต้น-สิ้นสุด (หรือกำลังโหลดการจองของช่วงนั้น) = ยังเลือกรถไม่ได้ — ต้องรู้ช่วงเวลาก่อนจึงตรวจรถว่างได้
-  const vehicleLocked = !timesOk || checking;
+  const vehicleLocked = !timesOk || checking || lockVehicle;
   const timeOptions = [...new Set([...TIME_OPTIONS, initial.start_time, initial.end_time].filter(Boolean))].sort();
 
   const submit = () => {
@@ -122,7 +125,8 @@ export function VehicleBookingForm({
     if (Object.keys(e).length) return;
     start(async () => {
       const res = await saveVehicleBooking(id, v);
-      if (res.ok) return router.push(`/vehicles/day/${v.start_on}?done=${id ? "updated" : "created"}`);
+      // รออนุมัติ (จองใหม่ / แก้เวลา-รถของที่อนุมัติแล้ว) = แจ้งว่าส่งคำขอแล้ว
+      if (res.ok) return router.push(`/vehicles/day/${v.start_on}?done=${res.status === "pending" ? "requested" : id ? "updated" : "created"}`);
       setErrors(res.errors ?? {});
       setMessage(res.message ?? "");
       reloadRange(v.start_on, v.end_on);
@@ -224,7 +228,11 @@ export function VehicleBookingForm({
               </AppSelect>
             </div>
             {err("vehicle_id")}
-            {!timesOk && <p className="mt-1 text-xs text-muted">{t("vehicle.form.vehicleNeedsTime")}</p>}
+            {lockVehicle ? (
+              <p className="mt-1 text-xs text-muted">{t("vehicle.form.vehicleLockedHint")}</p>
+            ) : (
+              !timesOk && <p className="mt-1 text-xs text-muted">{t("vehicle.form.vehicleNeedsTime")}</p>
+            )}
           </div>
 
           {/* รถว่างไหมในช่วงที่เลือก */}
@@ -366,9 +374,11 @@ export function VehicleBookingForm({
                   type="number"
                   min={0}
                   inputMode="numeric"
-                  value={v.start_mileage}
-                  onChange={(e) => (set("start_mileage", e.target.value), setAutoMileage(false))}
-                  className={cls("start_mileage")}
+                  // อ่านอย่างเดียว — ดึงจากเลขไมล์ล่าสุดของรถ (เลขไมล์สิ้นสุดที่บันทึกตอนคืนรถครั้งก่อน)
+                  value={vehicle.mileage != null ? String(vehicle.mileage) : v.start_mileage}
+                  readOnly
+                  disabled
+                  className={`${cls("start_mileage")} disabled:cursor-not-allowed disabled:opacity-60`}
                 />
                 {err("start_mileage")}
                 {vehicle.mileage !== null && (
@@ -389,7 +399,9 @@ export function VehicleBookingForm({
                   inputMode="numeric"
                   value={v.end_mileage}
                   onChange={(e) => set("end_mileage", e.target.value)}
-                  className={cls("end_mileage")}
+                  // เลขไมล์สิ้นสุดบันทึกหลังใช้งานที่ "การจองรถของฉัน" (บันทึกได้ครั้งเดียว)
+                  disabled
+                  className={`${cls("end_mileage")} disabled:cursor-not-allowed disabled:opacity-60`}
                 />
                 {err("end_mileage")}
                 <p className="mt-1 text-xs text-muted">{t("vehicle.form.mileageHint")}</p>

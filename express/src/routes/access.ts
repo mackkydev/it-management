@@ -10,7 +10,7 @@ import { bool, int, validate, type ErrorBag } from "../lib/validator.js";
 import { me, pageParam, paginated } from "../http.js";
 import { LOCKED_KEYS, MODULES, PERMISSION_KEYS, PERMISSIONS } from "../models/permission.js";
 import { can, findUser, hasHistory, isSuperAdmin, ROLES, type UserRow } from "../models/user.js";
-import { grantError, groupKeys, lastLocalSuperAdmin, notifyAccessChange, roleChangeError, targetError } from "../services/access-control.js";
+import { editableGroupKeys, grantError, groupEditError, groupKeys, lastLocalSuperAdmin, notifyAccessChange, roleChangeError, targetError } from "../services/access-control.js";
 import { ADMIN_ROLES, loadConnection } from "../services/api-auth.js";
 import { audit } from "../services/audit.js";
 import { audiencePermissions, expiryEnabled, groupsOf, listGroups, permissionsOf, SUPER_ADMIN_GROUP } from "../services/permissions.js";
@@ -19,10 +19,11 @@ import { putSetting } from "../services/settings.js";
 /**
  * สิทธิ์การใช้งาน / API User / audit log
  *   GET    /permissions                    รายการสิทธิ์ (ระบบงาน × การกระทำ) + กลุ่ม + สิทธิ์ของแต่ละกลุ่ม
- *   PUT    /permissions/roles/{group}      { keys } กำหนดสิทธิ์ทั้งชุดของกลุ่ม (access.manage)
- *   POST   /permission-groups              { name_th, name_en } สร้างกลุ่ม (access.manage)
- *   PUT    /permission-groups/{key}        { name_th, name_en } เปลี่ยนชื่อกลุ่ม (access.manage)
- *   DELETE /permission-groups/{key}        ลบกลุ่มที่สร้างเอง (access.manage)
+ *   PUT    /permissions/roles/{group}      { keys } กำหนดสิทธิ์ทั้งชุดของกลุ่ม (access.manage / access.groups — กลุ่มที่ต่ำกว่า)
+ *   POST   /permission-groups              { name_th, name_en } สร้างกลุ่ม (access.manage / access.groups)
+ *   PUT    /permission-groups/{key}        { name_th, name_en } เปลี่ยนชื่อกลุ่ม (access.manage / access.groups — กลุ่มที่ต่ำกว่า)
+ *   DELETE /permission-groups/{key}        ลบกลุ่มที่สร้างเอง (access.manage / access.groups — ต้องถอดสิทธิ์ทั้งหมดของกลุ่มได้)
+ *   access.groups (admin): แก้ได้เฉพาะกลุ่มที่ต่ำกว่าตำแหน่งตัวเองและไม่ได้อยู่เอง (groupEditError) + สิทธิ์ที่ตัวเองมี (grantError)
  *   PUT    /permission-expiry              { enabled } สวิตช์วันหมดอายุของสิทธิ์ (access.manage)
  *   GET    /users/{id}/permissions         ตำแหน่ง + กลุ่มที่มอบเพิ่ม + เพิ่ม/ถอดรายคน + สิทธิ์จริง (access.assign)
  *   PUT    /users/{id}/permissions         { role?, groups?: [{ key, expires_on }], overrides?: { key: { effect, expires_on } | "inherit" } } (access.assign)
@@ -37,6 +38,13 @@ export const accessRoutes = Router();
 const guard = (req: Request, key: string) => {
   const u = me(req);
   authorize(can(u, key));
+  return u;
+};
+
+/** แก้ตารางสิทธิ์ / กลุ่มได้: access.manage (ทุกกลุ่ม) หรือ access.groups (กลุ่มที่ต่ำกว่า) */
+const groupGuard = (req: Request) => {
+  const u = me(req);
+  authorize(can(u, "access.manage") || can(u, "access.groups"));
   return u;
 };
 
@@ -102,11 +110,17 @@ export async function permissionView(u: UserRow, viewer?: UserRow, locale: impor
 
 accessRoutes.get("/permissions", async (req, res) => {
   const u = me(req);
-  authorize(can(u, "access.assign") || can(u, "access.manage"));
+  authorize(can(u, "access.assign") || can(u, "access.manage") || can(u, "access.groups"));
+  const groups = await listGroups();
+  // กลุ่มที่ผู้ดูแก้ตารางสิทธิ์ / ตั้งค่ารายกลุ่มได้ (super_admin แก้ไม่ได้ — ทุกสิทธิ์เสมอ)
+  const allowed = await editableGroupKeys(u, req.locale);
+  const editable = groups.map((g) => g.key).filter((k) => k !== SUPER_ADMIN_GROUP && (!allowed || allowed.has(k)));
   res.json({
     data: PERMISSIONS.map(({ key, group, module, action, name_th, name_en, locked }) => ({ key, group, module, action, name_th, name_en, locked: Boolean(locked) })),
     modules: MODULES,
-    groups: await listGroups(),
+    groups,
+    editable_groups: editable,
+    can_create_group: can(u, "access.manage") || can(u, "access.groups"),
     role_permissions: await audiencePermissions(),
     expiry_enabled: await expiryEnabled(),
   });
@@ -114,9 +128,11 @@ accessRoutes.get("/permissions", async (req, res) => {
 
 /** PUT /permissions/roles/{group} { keys: [...] } — กำหนดสิทธิ์ทั้งชุดของกลุ่ม (super_admin ผ่านทุกสิทธิ์ — แก้ไม่ได้) */
 accessRoutes.put("/permissions/roles/:group", async (req, res) => {
-  const u = guard(req, "access.manage");
-  const group = await first<{ key: string; name_th: string }>('SELECT "key", name_th FROM permission_groups WHERE "key" = ?', [String(req.params.group)]);
+  const u = groupGuard(req);
+  const group = await first<{ key: string; name_th: string; is_system: boolean }>('SELECT "key", name_th, is_system FROM permission_groups WHERE "key" = ?', [String(req.params.group)]);
   if (!group || group.key === SUPER_ADMIN_GROUP) throw notFound();
+  const blocked = await groupEditError(u, { key: group.key, is_system: Boolean(group.is_system) }, req.locale);
+  if (blocked) throw ValidationError.withMessages({ keys: blocked });
   const keys = Array.isArray(req.input.keys) ? [...new Set((req.input.keys as unknown[]).map(String))] : null;
   if (!keys || keys.some((k) => !PERMISSION_KEYS.includes(k))) throw ValidationError.withMessages({ keys: trans(req.locale, "eam.access.invalid_override") });
 
@@ -152,7 +168,7 @@ async function nameTaken(errors: ErrorBag, input: Record<string, unknown>, local
 }
 
 accessRoutes.post("/permission-groups", async (req, res) => {
-  guard(req, "access.manage");
+  groupGuard(req);
   const data = await validate(req.input, groupRules, { locale: req.locale, after: ({ errors }) => nameTaken(errors, req.input, req.locale) });
   const key = `g_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`.slice(0, 20);
   const order = Number(await scalar("SELECT COALESCE(MAX(sort_order), 10) + 1 FROM permission_groups"));
@@ -167,9 +183,11 @@ accessRoutes.post("/permission-groups", async (req, res) => {
 });
 
 accessRoutes.put("/permission-groups/:key", async (req, res) => {
-  guard(req, "access.manage");
-  const current = await first<{ key: string; name_th: string; name_en: string }>('SELECT "key", name_th, name_en FROM permission_groups WHERE "key" = ?', [String(req.params.key)]);
+  const u = groupGuard(req);
+  const current = await first<{ key: string; name_th: string; name_en: string; is_system: boolean }>('SELECT "key", name_th, name_en, is_system FROM permission_groups WHERE "key" = ?', [String(req.params.key)]);
   if (!current) throw notFound();
+  const blocked = await groupEditError(u, { key: current.key, is_system: Boolean(current.is_system) }, req.locale);
+  if (blocked) throw ValidationError.withMessages({ name_th: blocked });
   const data = await validate(req.input, groupRules, { locale: req.locale, after: ({ errors }) => nameTaken(errors, req.input, req.locale, current.key) });
   const after = { name_th: String(data.name_th).trim(), name_en: String(data.name_en).trim() };
   await update("permission_groups", { ...after, updated_at: nowDb() }, '"key" = ?', [current.key]);
@@ -182,12 +200,15 @@ accessRoutes.put("/permission-groups/:key", async (req, res) => {
 
 /** ลบได้เฉพาะกลุ่มที่สร้างเอง — สมาชิกหลุดจากกลุ่ม (สิทธิ์ของกลุ่มหายไปทันที) */
 accessRoutes.delete("/permission-groups/:key", async (req, res) => {
-  guard(req, "access.manage");
+  const u = groupGuard(req);
   const current = await first<{ key: string; name_th: string; name_en: string; is_system: boolean }>('SELECT "key", name_th, name_en, is_system FROM permission_groups WHERE "key" = ?', [String(req.params.key)]);
   if (!current) throw notFound();
   if (current.is_system) throw ValidationError.withMessages({ key: trans(req.locale, "eam.access.group_system") });
   const members = (await select<{ user_id: number }>("SELECT user_id FROM user_groups WHERE group_key = ?", [current.key])).map((r) => Number(r.user_id));
   const keys = await groupKeys(current.key);
+  // ลบกลุ่ม = ถอดสิทธิ์ทั้งหมดของกลุ่มจากสมาชิก — ต้องเป็นสิทธิ์ที่ผู้ลบถอดได้
+  const blocked = (await groupEditError(u, { key: current.key, is_system: false }, req.locale)) ?? grantError(u, keys, req.locale);
+  if (blocked) throw ValidationError.withMessages({ key: blocked });
   await transaction(async () => {
     await exec("DELETE FROM role_permissions WHERE role = ?", [current.key]);
     await exec('DELETE FROM permission_groups WHERE "key" = ?', [current.key]);
@@ -335,6 +356,238 @@ accessRoutes.put("/users/:id/permissions", async (req, res) => {
     await notifyAccessChange(req, "user", { id: t.id, name: t.name }, { role: before.role !== after.role ? after.role : undefined });
   }
   res.json({ data: await permissionView(fresh, u, req.locale) });
+});
+
+/* ---------------------------------------------------------------- สมาชิกกลุ่ม / รายงานสิทธิ์พิเศษรายคน (หน้า /access-review) */
+
+/**
+ * GET    /permission-groups/{key}/members          สมาชิกที่มอบเพิ่ม (user_groups) + ผู้ที่อยู่ตามตำแหน่ง (กลุ่มตามตำแหน่ง — อ่านอย่างเดียว) (access.assign)
+ * POST   /permission-groups/{key}/members          { user_ids, expires_on } เพิ่มสมาชิก (ข้ามคนที่อยู่แล้ว)
+ * PATCH  /permission-groups/{key}/members/{user}   { expires_on } แก้วันหมดอายุ
+ * DELETE /permission-groups/{key}/members/{user}   เอาออกจากกลุ่ม
+ * GET    /access-exceptions                        ทุกการมอบรายคน: กลุ่มที่มอบเพิ่ม + อนุญาต/ไม่อนุญาตรายข้อ (ผู้มอบ / วันหมดอายุ / ยกเลิกได้ไหม)
+ * กติกาเดียวกับหน้าสิทธิ์รายคน: แก้ตัวเอง / บัญชี super_admin ไม่ได้ (targetError), มอบ/ถอดได้เฉพาะสิทธิ์ที่ตัวเองมี (grantError)
+ * — ทุกการเปลี่ยน audit user.permissions_updated (ก่อน-หลังของผู้ใช้คนนั้น) + แจ้งเตือนผู้ดูแลระบบ
+ */
+type MemberRow = {
+  user_id: number;
+  name: string;
+  email: string | null;
+  role: string;
+  department: string | null;
+  is_active: boolean;
+  branch: string | null;
+  expires_on: string | null;
+  created_at: string | null;
+  creator_id: number | null;
+  creator_name: string | null;
+};
+
+async function findGroup(key: string) {
+  const g = (await listGroups()).find((x) => x.key === key);
+  if (!g || g.key === SUPER_ADMIN_GROUP) throw notFound();
+  return g;
+}
+
+/** เพิ่ม / แก้วันหมดอายุ / เอาออก (expires = undefined) — คืนข้อความผิดพลาด (null = ทำแล้ว หรือไม่มีอะไรเปลี่ยน) */
+async function changeMembership(req: Request, actor: UserRow, user: UserRow, key: string, expires: string | null | undefined): Promise<string | null> {
+  const loc = req.locale;
+  const blocked = targetError(actor, user, loc) ?? grantError(actor, await groupKeys(key), loc);
+  if (blocked) return blocked;
+  const before = await assignedGroupsOf(user.id);
+  const current = before.find((g) => g.key === key);
+  if (expires === undefined) {
+    if (!current) return null;
+    await exec("DELETE FROM user_groups WHERE user_id = ? AND group_key = ?", [user.id, key]);
+  } else if (current) {
+    if (current.expires_on === expires) return null;
+    await exec("UPDATE user_groups SET expires_on = ? WHERE user_id = ? AND group_key = ?", [expires, user.id, key]);
+  } else {
+    await exec("INSERT INTO user_groups (user_id, group_key, expires_on, created_by, created_at) VALUES (?, ?, ?, ?, ?)", [user.id, key, expires, actor.id, nowDb()]);
+  }
+  const overrides = await overridesOf(user.id);
+  await audit(req, {
+    action: "user.permissions_updated",
+    subjectType: "user",
+    subjectId: user.id,
+    before: { role: user.role, groups: before, overrides },
+    after: { role: user.role, groups: await assignedGroupsOf(user.id), overrides },
+  });
+  await notifyAccessChange(req, "user", { id: user.id, name: user.name });
+  return null;
+}
+
+/** วันหมดอายุจาก input ("" / null = ไม่หมดอายุ) — ย้อนหลังไม่ได้ ยกเว้นเป็นค่าเดิม */
+function expiresInput(req: Request, value: unknown, current: string | null | undefined): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const v = String(value);
+  if (!ISO_DATE.test(v) || Number.isNaN(Date.parse(v))) throw ValidationError.withMessages({ expires_on: trans(req.locale, "eam.access.invalid_date") });
+  if (v < localToday() && v !== current) throw ValidationError.withMessages({ expires_on: trans(req.locale, "eam.access.expires_past") });
+  return v;
+}
+
+accessRoutes.get("/permission-groups/:key/members", async (req, res) => {
+  const u = guard(req, "access.assign");
+  const group = await findGroup(String(req.params.key));
+  const rows = await select<MemberRow>(
+    `SELECT u.id AS user_id, u.name, u.email, u.role, u.department, u.is_active, b.name AS branch, ug.expires_on, ug.created_at, c.id AS creator_id, c.name AS creator_name
+       FROM user_groups ug JOIN users u ON u.id = ug.user_id
+       LEFT JOIN branches b ON b.id = u.branch_id LEFT JOIN users c ON c.id = ug.created_by
+      WHERE ug.group_key = ? ORDER BY u.name, u.id`,
+    [group.key],
+  );
+  const byRole = (ROLES as readonly string[]).includes(group.key)
+    ? await select<{ id: number; name: string; email: string | null; department: string | null; branch: string | null }>(
+        `SELECT u.id, u.name, u.email, u.department, b.name AS branch FROM users u LEFT JOIN branches b ON b.id = u.branch_id
+          WHERE u.role = ? AND u.is_active = true ORDER BY u.name, u.id LIMIT 1000`,
+        [group.key],
+      )
+    : [];
+  const canManage = grantError(u, await groupKeys(group.key), req.locale) === null;
+  const today = localToday();
+  const assigned = new Set(rows.map((r) => Number(r.user_id)));
+  const editable = (id: number, role: string) => targetError(u, { id, role: role as UserRow["role"] }, req.locale) === null;
+  const options = canManage
+    ? (await select<{ id: number; name: string; department: string | null; role: string }>("SELECT id, name, department, role FROM users WHERE is_active = true ORDER BY name LIMIT 2000"))
+        .filter((x) => !assigned.has(Number(x.id)) && editable(Number(x.id), x.role))
+        .map((x) => ({ id: Number(x.id), name: x.department ? `${x.name} (${x.department})` : x.name }))
+    : [];
+  res.json({
+    data: {
+      group: { key: group.key, name_th: group.name_th, name_en: group.name_en, is_system: group.is_system },
+      members: rows.map((r) => ({
+        user: { id: Number(r.user_id), name: r.name, email: r.email, role: r.role, department: r.department, branch: r.branch, is_active: Boolean(r.is_active) },
+        expires_on: dateOnly(r.expires_on),
+        expired: r.expires_on !== null && dateOnly(r.expires_on)! < today,
+        granted_by: r.creator_id ? { id: Number(r.creator_id), name: r.creator_name } : null,
+        granted_at: iso(r.created_at),
+        can_edit: canManage && editable(Number(r.user_id), r.role),
+      })),
+      // ผู้ที่อยู่กลุ่มนี้เพราะตำแหน่ง (กลุ่มตามตำแหน่ง) — เปลี่ยนที่หน้าผู้ใช้
+      role_members: byRole.map((r) => ({ id: Number(r.id), name: r.name, email: r.email, department: r.department, branch: r.branch })),
+      can_manage: canManage,
+      // ผู้ใช้ที่เพิ่มได้: ใช้งานอยู่ ยังไม่อยู่ในกลุ่ม ไม่ใช่ตัวเอง (และไม่ใช่ super_admin ถ้าผู้ทำไม่ใช่ super_admin)
+      user_options: options,
+      expiry_enabled: await expiryEnabled(),
+    },
+  });
+});
+
+accessRoutes.post("/permission-groups/:key/members", async (req, res) => {
+  const u = guard(req, "access.assign");
+  const group = await findGroup(String(req.params.key));
+  const data = await validate(req.input, { user_ids: ["required", "array", "min:1", "max:200"], "user_ids.*": ["integer"] }, { locale: req.locale });
+  const expires = expiresInput(req, req.input.expires_on, undefined);
+  const ids = [...new Set(Object.values(data.user_ids as Record<string, unknown>).map(Number))];
+  const failed: string[] = [];
+  let added = 0;
+  for (const id of ids) {
+    const user = await findUser(id);
+    if (!user || !user.is_active) {
+      failed.push(trans(req.locale, "eam.access.invalid_user"));
+      continue;
+    }
+    if ((await assignedGroupsOf(id)).some((g) => g.key === group.key)) continue;
+    const e = await changeMembership(req, u, user, group.key, expires);
+    if (e) failed.push(`${user.name}: ${e}`);
+    else added++;
+  }
+  if (failed.length && added === 0) throw ValidationError.withMessages({ user_ids: failed });
+  res.status(201).json({ data: { added, failed } });
+});
+
+async function memberTarget(req: Request) {
+  const u = guard(req, "access.assign");
+  const group = await findGroup(String(req.params.key));
+  const user = /^\d+$/.test(String(req.params.user)) ? await findUser(Number(req.params.user)) : null;
+  const current = user ? (await assignedGroupsOf(user.id)).find((g) => g.key === group.key) : undefined;
+  if (!user || !current) throw notFound();
+  return { u, group, user, current };
+}
+
+accessRoutes.patch("/permission-groups/:key/members/:user", async (req, res) => {
+  const { u, group, user, current } = await memberTarget(req);
+  const expires = expiresInput(req, req.input.expires_on, current.expires_on);
+  const e = await changeMembership(req, u, user, group.key, expires);
+  if (e) throw ValidationError.withMessages({ user: e });
+  res.status(204).end();
+});
+
+accessRoutes.delete("/permission-groups/:key/members/:user", async (req, res) => {
+  const { u, group, user } = await memberTarget(req);
+  const e = await changeMembership(req, u, user, group.key, undefined);
+  if (e) throw ValidationError.withMessages({ user: e });
+  res.status(204).end();
+});
+
+type ExceptionSource = {
+  user_id: number;
+  key: string;
+  kind: "group" | "allow" | "deny";
+  expires_on: string | null;
+  created_at: string | null;
+  creator_id: number | null;
+  creator_name: string | null;
+};
+
+accessRoutes.get("/access-exceptions", async (req, res) => {
+  const u = guard(req, "access.assign");
+  const loc = req.locale;
+  const groups = new Map((await listGroups()).map((g) => [g.key, g]));
+  const sources: ExceptionSource[] = [
+    ...(
+      await select<Omit<ExceptionSource, "kind"> & { kind: string }>(
+        `SELECT ug.user_id, ug.group_key AS "key", 'group' AS kind, ug.expires_on, ug.created_at, c.id AS creator_id, c.name AS creator_name
+           FROM user_groups ug LEFT JOIN users c ON c.id = ug.created_by`,
+      )
+    ).map((r) => ({ ...r, kind: "group" as const })),
+    ...(
+      await select<Omit<ExceptionSource, "kind"> & { kind: string }>(
+        `SELECT up.user_id, p."key", up.effect AS kind, up.expires_on, up.created_at, c.id AS creator_id, c.name AS creator_name
+           FROM user_permissions up JOIN permissions p ON p.id = up.permission_id LEFT JOIN users c ON c.id = up.created_by`,
+      )
+    ).map((r) => ({ ...r, kind: (r.kind === "deny" ? "deny" : "allow") as "allow" | "deny" })),
+  ];
+  const userIds = [...new Set(sources.map((r) => Number(r.user_id)))];
+  const users = new Map(
+    (userIds.length
+      ? await select<{ id: number; name: string; email: string | null; role: string; department: string | null; is_active: boolean }>(
+          "SELECT id, name, email, role, department, is_active FROM users WHERE id IN (?)",
+          [userIds],
+        )
+      : []
+    ).map((x) => [Number(x.id), x]),
+  );
+  const groupKeyCache = new Map<string, string[]>();
+  const keysOf = async (key: string) => {
+    if (!groupKeyCache.has(key)) groupKeyCache.set(key, await groupKeys(key));
+    return groupKeyCache.get(key)!;
+  };
+  const perms = new Map(PERMISSIONS.map((p) => [p.key, p]));
+  const today = localToday();
+  const items = [];
+  for (const r of sources) {
+    const user = users.get(Number(r.user_id));
+    const def = r.kind === "group" ? groups.get(r.key) : perms.get(r.key);
+    if (!user || !def) continue;
+    const blocked =
+      targetError(u, { id: Number(user.id), role: user.role as UserRow["role"] }, loc) ?? grantError(u, r.kind === "group" ? await keysOf(r.key) : [r.key], loc);
+    const expires = dateOnly(r.expires_on);
+    items.push({
+      kind: r.kind,
+      key: r.key,
+      name_th: def.name_th,
+      name_en: def.name_en,
+      user: { id: Number(user.id), name: user.name, email: user.email, role: user.role, department: user.department, is_active: Boolean(user.is_active) },
+      expires_on: expires,
+      expired: expires !== null && expires < today,
+      granted_by: r.creator_id ? { id: Number(r.creator_id), name: r.creator_name } : null,
+      granted_at: iso(r.created_at),
+      can_revoke: blocked === null,
+    });
+  }
+  items.sort((a, b) => a.user.name.localeCompare(b.user.name, "th") || a.kind.localeCompare(b.kind) || a.key.localeCompare(b.key));
+  res.json({ data: items, expiry_enabled: await expiryEnabled() });
 });
 
 /* ---------------------------------------------------------------- API User */

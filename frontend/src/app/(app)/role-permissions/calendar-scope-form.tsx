@@ -9,10 +9,20 @@ import { useI18n } from "@/i18n/client";
 import { CALENDAR_SCOPES, type CalendarScope, type PermissionGroupRow } from "@/lib/types";
 
 /**
- * ขอบเขตการมองเห็นต่อกลุ่ม (ผู้ดูแลระบบสูงสุด) — ไม่ตั้ง = แผนกของตัวเอง
+ * ขอบเขตการมองเห็นต่อกลุ่ม — ไม่ตั้ง = แผนกของตัวเอง · ตั้งได้เฉพาะกลุ่มใน editable (admin = กลุ่มที่ต่ำกว่า, อื่นๆ อ่านอย่างเดียว)
  * kind = calendar: กิจกรรม / งานหน้างาน · leave: วันลาของคนอื่น (ตั้งแยกกัน)
  */
-export function CalendarScopeForm({ groups, initial, kind = "calendar" }: { groups: PermissionGroupRow[]; initial: Record<string, CalendarScope>; kind?: "calendar" | "leave" }) {
+export function CalendarScopeForm({
+  groups,
+  initial,
+  kind = "calendar",
+  editable: canEdit,
+}: {
+  groups: PermissionGroupRow[];
+  initial: Record<string, CalendarScope>;
+  kind?: "calendar" | "leave";
+  editable: string[];
+}) {
   const { t, locale } = useI18n();
   const editable = groups.filter((g) => g.key !== "super_admin");
   const [scopes, setScopes] = useState<Record<string, CalendarScope>>(() => Object.fromEntries(editable.map((g) => [g.key, initial[g.key] ?? "department"])));
@@ -38,7 +48,7 @@ export function CalendarScopeForm({ groups, initial, kind = "calendar" }: { grou
         {editable.map((g) => (
           <label key={g.key} className="text-sm">
             <span className="mb-1 block font-medium">{locale === "th" ? g.name_th : g.name_en}</span>
-            <AppSelect value={scopes[g.key]} onValueChange={(v) => (setScopes({ ...scopes, [g.key]: v as CalendarScope }), setResult({}))} className={input}>
+            <AppSelect value={scopes[g.key]} disabled={!canEdit.includes(g.key)} onValueChange={(v) => (setScopes({ ...scopes, [g.key]: v as CalendarScope }), setResult({}))} className={input}>
               {CALENDAR_SCOPES.map((s) => (
                 <option key={s} value={s}>
                   {t(`calendar.scopes.${s}`)}

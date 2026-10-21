@@ -13,10 +13,10 @@ const SCOPES: BookingScope[] = ["all", "branch"];
 type Settings = Record<BookingKind, Record<string, BookingScope>>;
 
 /**
- * ห้องประชุม / รถ ตามสาขา ต่อกลุ่ม (ผู้ดูแลระบบสูงสุด) — ไม่ตั้ง = ทุกสาขา
+ * ห้องประชุม / รถ ตามสาขา ต่อกลุ่ม — ไม่ตั้ง = ทุกสาขา · ตั้งได้เฉพาะกลุ่มใน editable (admin = กลุ่มที่ต่ำกว่า)
  * จอกว้าง = ตาราง กลุ่ม × (ห้องประชุม, รถ) / มือถือ = การ์ดต่อกลุ่ม
  */
-export function BookingScopeForm({ groups, initial }: { groups: PermissionGroupRow[]; initial: Settings }) {
+export function BookingScopeForm({ groups, initial, editable: canEdit }: { groups: PermissionGroupRow[]; initial: Settings; editable: string[] }) {
   const { t, locale } = useI18n();
   const editable = groups.filter((g) => g.key !== "super_admin");
   const [scopes, setScopes] = useState<Settings>(() => ({
@@ -29,6 +29,7 @@ export function BookingScopeForm({ groups, initial }: { groups: PermissionGroupR
   const select = (kind: BookingKind, key: string) => (
     <AppSelect
       value={scopes[kind][key]}
+      disabled={!canEdit.includes(key)}
       onValueChange={(v) => (setScopes((s) => ({ ...s, [kind]: { ...s[kind], [key]: v as BookingScope } })), setResult({}))}
       aria-label={t(`bookingScope.${kind}`)}
       className={input}

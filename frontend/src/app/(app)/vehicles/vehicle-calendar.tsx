@@ -179,7 +179,7 @@ export function VehicleCalendar({ month: initialMonth, initialBookings, vehicles
               </Link>
               <div className="space-y-1.5">
                 {byDay.get(d)!.map((b) => (
-                  <button key={b.id} type="button" onClick={() => setSelected(b)} className={`block w-full cursor-pointer truncate rounded-lg px-2 py-1 text-left text-xs font-medium ring-1 ring-inset ${tone(b).bar}`}>
+                  <button key={b.id} type="button" onClick={() => setSelected(b)} className={`block w-full cursor-pointer truncate rounded-lg px-2 py-1 text-left text-xs font-medium ring-1 ring-inset ${tone(b).bar} ${b.status === "pending" ? "opacity-60 outline-1 outline-dashed outline-current" : ""}`}>
                     {line(b)}
                   </button>
                 ))}

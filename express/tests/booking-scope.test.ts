@@ -35,11 +35,15 @@ async function setup() {
 }
 
 describe("booking scope by branch", () => {
-  it("only access.manage sets the scope per group; groups not set see every branch", async () => {
+  it("access.manage sets the scope of every group (admin = only lower groups); groups not set see every branch", async () => {
     const { root, adminA, viewerA } = await setup();
     expect((await viewerA.get("/api/v1/booking-scope/me?kind=vehicle")).body.data).toMatchObject({ scope: "all" });
     const body = { meeting: { viewer: "branch", admin: "branch" }, vehicle: { viewer: "branch" } };
-    expect((await adminA.put("/api/v1/booking-scope").send(body)).status).toBe(403);
+    // admin (access.groups): กลุ่มของตัวเอง (admin) ไม่ถูกเปลี่ยน
+    const lower = await adminA.put("/api/v1/booking-scope").send(body);
+    expect(lower.status).toBe(200);
+    expect(lower.body.data).toEqual({ meeting: { viewer: "branch" }, vehicle: { viewer: "branch" } });
+    expect((await viewerA.put("/api/v1/booking-scope").send(body)).status).toBe(403);
     expect((await root.put("/api/v1/booking-scope").send({ meeting: { viewer: "nowhere" } })).status).toBe(422);
     expect((await root.put("/api/v1/booking-scope").send({ meeting: { no_such_group: "branch" } })).status).toBe(422);
     const saved = await root.put("/api/v1/booking-scope").send(body);
@@ -49,7 +53,7 @@ describe("booking scope by branch", () => {
     expect((await viewerA.get("/api/v1/booking-scope/me?kind=vehicle")).body.data.scope).toBe("branch");
     expect((await adminA.get("/api/v1/booking-scope/me?kind=vehicle")).body.data.scope).toBe("all");
     expect((await root.get("/api/v1/booking-scope/me?kind=meeting")).body.data.branches.length).toBeGreaterThanOrEqual(2);
-    expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'booking_scope.updated'")).toBe(1);
+    expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'booking_scope.updated'")).toBe(2); // admin (กลุ่มที่ต่ำกว่า) + root
   });
 
   it("meeting rooms: branch scope sees own branch + shared rooms, books only those, manages only own branch", async () => {

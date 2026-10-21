@@ -415,6 +415,7 @@ export interface AppNotification {
         actor: string;
       }
     | { kind: "account_locked"; subject_id: number; subject: string; attempts: number; minutes: number; ip: string | null }
+    | { kind: "super_admin_login"; subject_id: number; subject: string; method: "password" | "two_factor" | "recovery_code" | "api"; ip: string | null }
     | {
         kind: "leave";
         event: "submitted" | "approved" | "rejected" | "cancelled";
@@ -428,7 +429,7 @@ export interface AppNotification {
     | {
         // จองรถ: requested = มีการจองที่ยังไม่ระบุรถ (ถึงผู้จัดคิวรถ), assigned/updated/cancelled/deleted = ผู้จัดคิวทำกับการจองของเรา
         kind: "vehicle";
-        event: "requested" | "assigned" | "updated" | "cancelled" | "deleted";
+        event: "requested" | "assigned" | "approved" | "rejected" | "updated" | "cancelled" | "deleted";
         vehicle_booking_id: string;
         actor: string;
         vehicle: string | null;
@@ -823,12 +824,18 @@ export interface PermissionGroupRow {
 }
 
 /** GET /permissions */
+/** ขอบเขตการจัดการตามสาขาต่อกลุ่ม (express services/manage-scope.ts) — ไม่ตั้ง = ทุกสาขา */
+export type ManageScope = "all" | "branch";
+
 export interface PermissionCatalog {
   data: PermissionDef[];
   modules: PermissionModule[];
   groups: PermissionGroupRow[];
   role_permissions: Record<string, string[]>;
   expiry_enabled: boolean;
+  /** กลุ่มที่ผู้ดูแก้ตารางสิทธิ์ / ชื่อ / ลบได้ (access.manage = ทุกกลุ่ม, access.groups = กลุ่มที่ต่ำกว่า) */
+  editable_groups: string[];
+  can_create_group: boolean;
 }
 
 export type OverrideEffect = "allow" | "deny";
@@ -1145,6 +1152,8 @@ export interface MeetingBooking {
   equipment: string[];
   note: string | null;
   date: string;
+  /** วันสุดท้าย (จองหลายวัน — ช่วงเวลาเดียวกันทุกวัน; วันเดียว = date) */
+  end_date: string;
   start_time: string;
   end_time: string;
   status: "confirmed" | "cancelled";
@@ -1185,7 +1194,8 @@ export interface Vehicle {
 /** GET /vehicle-bookings — หลายวันได้ (start_on + start_time ถึง end_on + end_time), vehicle = null คือรอผู้จัดคิวรถเลือกรถ */
 export interface VehicleBooking {
   id: string;
-  vehicle: { id: number; name: string; plate_no: string | null } | null;
+  /** mileage = เลขไมล์ล่าสุดของคัน (เลขไมล์เริ่มต้นตอนบันทึก) */
+  vehicle: { id: number; name: string; plate_no: string | null; mileage?: number | null } | null;
   /** สาขาที่ขอใช้รถ (ยังไม่ระบุรถ = ผู้จัดคิวของสาขานี้เลือกรถ) */
   branch: { id: number; name: string } | null;
   user: { id: number; name: string };
@@ -1201,10 +1211,16 @@ export interface VehicleBooking {
   end_time: string;
   start_mileage: number | null;
   end_mileage: number | null;
-  status: "confirmed" | "cancelled";
+  /** pending = รอผู้จัดคิวรถอนุมัติ, rejected = ไม่อนุมัติ (reject_reason) */
+  status: "pending" | "confirmed" | "rejected" | "cancelled";
   is_over: boolean;
   assigned_by: string | null;
   assigned_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
+  reject_reason: string | null;
   cancelled_at: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -1213,6 +1229,12 @@ export interface VehicleBooking {
   can_delete: boolean;
   can_mileage: boolean;
   can_assign: boolean;
+  /** ผู้จัดคิวรถของสาขานั้น — อนุมัติ / ไม่อนุมัติการจองที่รออนุมัติ */
+  can_approve: boolean;
+  /** ผู้จองเปลี่ยนรถได้ก่อนอนุมัติเท่านั้น (ผู้จัดคิวได้เสมอ) */
+  can_change_vehicle: boolean;
+  /** ถึงเวลาใช้รถแล้วแต่ผู้จองยังไม่บันทึกเลขไมล์สิ้นสุด */
+  mileage_due: boolean;
 }
 
 /** GET /vehicles/{id}/mileage — ประวัติเลขไมล์จากการจอง */
@@ -1349,4 +1371,41 @@ export interface VpnAccount {
   expires_at: string | null;
   holder: string | null;
   holder_until: string | null;
+}
+
+/* ---------------- ตรวจสอบสิทธิ์ (/access-review) ---------------- */
+
+/** ผู้ให้ / เวลาให้ / วันหมดอายุของการมอบรายคน */
+interface AccessGrantMeta {
+  expires_on: string | null;
+  /** เลยวันหมดอายุแล้ว (มีผลเมื่อเปิดสวิตช์วันหมดอายุของสิทธิ์) */
+  expired: boolean;
+  granted_by: { id: number; name: string } | null;
+  granted_at: string | null;
+}
+
+export interface GroupMember extends AccessGrantMeta {
+  user: { id: number; name: string; email: string | null; role: Role; department: string | null; branch: string | null; is_active: boolean };
+  can_edit: boolean;
+}
+
+/** GET /permission-groups/{key}/members */
+export interface GroupMembersView {
+  group: { key: string; name_th: string; name_en: string; is_system: boolean };
+  members: GroupMember[];
+  /** ผู้ที่อยู่กลุ่มนี้ตามตำแหน่ง (กลุ่มตามตำแหน่ง — อ่านอย่างเดียว) */
+  role_members: { id: number; name: string; email: string | null; department: string | null; branch: string | null }[];
+  can_manage: boolean;
+  user_options: { id: number; name: string }[];
+  expiry_enabled: boolean;
+}
+
+/** GET /access-exceptions — กลุ่มที่มอบเพิ่ม (group) / อนุญาต (allow) / ไม่อนุญาต (deny) รายคน */
+export interface AccessException extends AccessGrantMeta {
+  kind: "group" | "allow" | "deny";
+  key: string;
+  name_th: string;
+  name_en: string;
+  user: { id: number; name: string; email: string | null; role: Role; department: string | null; is_active: boolean };
+  can_revoke: boolean;
 }

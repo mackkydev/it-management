@@ -79,13 +79,13 @@ export async function saveTicketOtherTypes(items: string[]): Promise<ItResult> {
 
 /* ---------------- สิทธิ์การใช้งาน (admin) ---------------- */
 
-/** บันทึกการมองเห็นเมนู/ปุ่ม + ลำดับเมนู + ชื่อเมนูที่แก้เอง (PUT /settings เฉพาะ 3 คีย์นี้) */
+/** บันทึกการมองเห็นเมนู/ปุ่ม + ลำดับเมนู + ชื่อเมนูที่แก้เอง (PUT /ui-config — admin แก้ได้เฉพาะกลุ่มที่ต่ำกว่า) */
 export async function saveUiConfig(values: Pick<UiConfig, "ui_permissions" | "menu_order" | "menu_labels">): Promise<ItResult> {
   const { t } = await getI18n();
   // ไม่บันทึกรายการที่ไม่ได้ซ่อนกลุ่มไหนเลย
   const ui_permissions = Object.fromEntries(Object.entries(values.ui_permissions).filter(([, denied]) => denied.length > 0));
   try {
-    await apiFetch("/settings", { method: "PUT", body: JSON.stringify({ ui_permissions, menu_order: values.menu_order, menu_labels: values.menu_labels }) });
+    await apiFetch("/ui-config", { method: "PUT", body: JSON.stringify({ ui_permissions, menu_order: values.menu_order, menu_labels: values.menu_labels }) });
   } catch (e) {
     return toActionResult(e);
   }

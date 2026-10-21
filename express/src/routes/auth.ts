@@ -12,6 +12,7 @@ import { me } from "../http.js";
 import { can, findUser, isLocal, roleRank, type UserRow } from "../models/user.js";
 import { userResource } from "../resources.js";
 import { ApiLoginError, callUpstream, loadConnection, loginWithApi, revokeApiSession } from "../services/api-auth.js";
+import { notifySuperAdminLogin, type LoginMethod } from "../services/access-control.js";
 import { audit } from "../services/audit.js";
 import { groupsOf } from "../services/permissions.js";
 import { checkCentralPin, secretGuard, verifyLoginPassword } from "../services/secret-guard.js";
@@ -62,12 +63,13 @@ loginRoutes.post("/auth/login", limits.login, async (req, res) => {
   if (twoFactorEnabled(user)) return void res.json({ two_factor: "verify", challenge: signChallenge(user, "verify") });
   if (await twoFactorRequiredFor(user)) return void res.json({ two_factor: "setup", challenge: signChallenge(user, "setup") });
 
-  res.json(await issueLogin(user, String(data.device_name)));
+  res.json(await issueLogin(req, user, String(data.device_name), "password"));
 });
 
-/** ออก token ของเรา (รูปแบบ response เดียวกับ /auth/login เดิม) */
-async function issueLogin(user: UserRow, deviceName: string) {
+/** ออก token ของเรา (รูปแบบ response เดียวกับ /auth/login เดิม) — method = วิธียืนยันตัวตน (แจ้งเตือนเมื่อ super_admin เข้าสู่ระบบ) */
+async function issueLogin(req: import("express").Request, user: UserRow, deviceName: string, method: LoginMethod) {
   await clearLoginFailures(user);
+  await notifySuperAdminLogin(req, user, method);
   const expiresAt = addMinutes(new Date(), config.tokenTtlMinutes);
   const token = await createToken(user.id, deviceName, expiresAt);
   return { token: token.plainText, token_type: "Bearer", expires_at: iso(toDbDateTime(expiresAt)), user: userResource((await findUser(user.id))!) };
@@ -121,7 +123,7 @@ loginRoutes.post("/auth/login/2fa", limits.twoFactor, async (req, res) => {
     const codes = await confirmSetup(user, String(data.code));
     if (!codes) return fail();
     await audit(actorOf(req, user), { action: "two_factor.enabled", subjectType: "user", subjectId: user.id });
-    return void res.json({ ...(await issueLogin(user, String(data.device_name))), recovery_codes: codes });
+    return void res.json({ ...(await issueLogin(req, user, String(data.device_name), "two_factor")), recovery_codes: codes });
   }
 
   if (!twoFactorEnabled(user)) return fail();
@@ -129,7 +131,7 @@ loginRoutes.post("/auth/login/2fa", limits.twoFactor, async (req, res) => {
     if (!(await consumeRecoveryCode(user, String(data.recovery_code)))) return fail();
     await audit(actorOf(req, user), { action: "two_factor.recovery_used", subjectType: "user", subjectId: user.id, after: { left: recoveryCodesLeft((await findUser(user.id))!) } });
   } else if (!data.code || !(await verifyUserTotp(user, String(data.code)))) return fail();
-  res.json(await issueLogin(user, String(data.device_name)));
+  res.json(await issueLogin(req, user, String(data.device_name), data.recovery_code ? "recovery_code" : "two_factor"));
 });
 
 /* ---------------------------------------------------------------- API User (login ผ่านระบบต้นทาง) */
@@ -209,6 +211,7 @@ loginRoutes.post("/auth/api-login", limits.apiLogin, async (req, res) => {
     const conn = await loadConnection(Number(data.connection_id));
     if (!conn) throw new ApiLoginError("connection_disabled");
     const session = await loginWithApi(conn, String(data.username), String(data.password), String(data.device_name), req);
+    await notifySuperAdminLogin(req, session.user, "api");
     res.json({ token: session.plainText, token_type: "Bearer", expires_at: iso(toDbDateTime(session.expiresAt)), user: userResource(session.user) });
   } catch (e) {
     if (!(e instanceof ApiLoginError)) throw e;

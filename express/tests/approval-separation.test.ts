@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { first, insert, scalar } from "../src/db.js";
 import { nowDb } from "../src/lib/time.js";
-import { as, makeUser, SIG } from "./helpers.js";
+import { as, makeBranch, makeUser, SIG } from "./helpers.js";
 
 /**
  * แยกหน้าที่การอนุมัติ:
@@ -109,5 +109,51 @@ describe("admin (IT staff) defaults", () => {
     const target = await makeUser();
     const res = await assigner.put(`/api/v1/users/${target.id}/permissions`).send({ overrides: { "settings.manage": "allow" } });
     expect([403, 422]).toContain(res.status);
+  });
+});
+
+describe("managers approve their own tickets by default (no approver chosen)", () => {
+  it("leaving the approver empty sends the ticket to the requester: bell, Awaiting my approval, badge, timeline note", async () => {
+    const branch = await makeBranch({ code: "SELF" });
+    const boss = await makeUser({ role: "division_manager", branch_id: branch, name: "ผู้จัดการฝ่าย" });
+    const managerUser = await makeUser({ role: "manager", branch_id: branch, supervisor_id: boss.id, name: "ผู้จัดการขาย" });
+    const root = await makeUser({ role: "super_admin" });
+    const manager = await as(managerUser, "th");
+
+    const it_ = await makeUser({ is_it_staff: true });
+    const created = await manager.post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "ติดตั้งโปรแกรม", assignee_id: it_.id });
+    expect(created.status).toBe(201);
+    const id = created.body.data.id as string;
+    const row = await first<{ approver_id: number; current_step: number | null }>("SELECT approver_id, current_step FROM it_tickets WHERE uuid = ?", [id]);
+    // แบบ ก: อนุมัติเองเสมอ แม้มีหัวหน้าตามสาย — หัวหน้า / super_admin ไม่ได้แจ้งเตือน
+    expect(row).toEqual({ approver_id: managerUser.id, current_step: null });
+    const submitted = (userId: number) => scalar("SELECT COUNT(*) FROM notifications WHERE notifiable_id = ? AND data LIKE '%\"submitted\"%'", [userId]).then(Number);
+    expect(await submitted(managerUser.id)).toBe(1);
+    expect(await submitted(boss.id)).toBe(0);
+    expect(await submitted(root.id)).toBe(0);
+    expect((await manager.get("/api/v1/tickets?scope=approvals")).body.data.map((t: { id: string }) => t.id)).toEqual([id]);
+    expect((await manager.get("/api/v1/menu-badges")).body.data["/tickets/approvals"]).toBe(1);
+    // super_admin (approve_any) ไม่เห็นใบนี้ในรายการรออนุมัติ
+    expect((await (await as(root)).get("/api/v1/tickets?scope=approvals")).body.data.map((t: { id: string }) => t.id)).not.toContain(id);
+
+    expect((await manager.post(`/api/v1/tickets/${id}/approve`).send({ comment: "ด่วน" })).status).toBe(200);
+    const event = await first<{ comment: string }>("SELECT e.comment FROM it_ticket_events e JOIN it_tickets t ON t.id = e.it_ticket_id WHERE t.uuid = ? AND e.action = 'approved'", [id]);
+    expect(event!.comment).toBe("อนุมัติใบแจ้งงานของตัวเอง — ด่วน");
+    expect((await manager.get("/api/v1/menu-badges")).body.data["/tickets/approvals"]).toBe(0);
+  });
+
+  it("choosing an approver still sends it to that person; staff without approve_own keep the normal route", async () => {
+    const branch = await makeBranch({ code: "PICK" });
+    const boss = await makeUser({ role: "admin", branch_id: branch }); // ตำแหน่งสูงกว่าผู้จัดการ
+    const managerUser = await makeUser({ role: "manager", branch_id: branch });
+    const it_ = await makeUser({ is_it_staff: true });
+    const created = await (await as(managerUser)).post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x", approver_id: boss.id, assignee_id: it_.id });
+    expect(created.body.errors ?? null).toBeNull();
+    expect(Number(await scalar("SELECT approver_id FROM it_tickets WHERE uuid = ?", [created.body.data.id]))).toBe(boss.id);
+
+    const staff = await makeUser({ branch_id: branch, supervisor_id: managerUser.id });
+    const own = await (await as(staff)).post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x", assignee_id: it_.id });
+    expect(own.body.errors ?? null).toBeNull();
+    expect(Number(await scalar("SELECT approver_id FROM it_tickets WHERE uuid = ?", [own.body.data.id]))).toBe(managerUser.id);
   });
 });

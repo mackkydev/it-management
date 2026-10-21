@@ -178,3 +178,31 @@ describe("meeting rooms", () => {
     expect((await admin.delete(`/api/v1/dropdown-options/meeting_purpose/${purpose.id}`)).status).toBe(422);
   });
 });
+
+describe("multi-day meeting bookings", () => {
+  it("one booking can span several days at the same time each day; overlaps are checked on every day", async () => {
+    await seedOptions();
+    const room = await makeRoom();
+    const alice = await as(await makeUser({ name: "Alice" }), "th");
+    const bob = await as(await makeUser({ name: "Bob" }), "th");
+
+    const created = await alice.post("/api/v1/meeting-bookings").send(booking(room, "09:00", "12:00", { date: day(1), end_date: day(3) }));
+    expect(created.status).toBe(201);
+    expect(created.body.data).toMatchObject({ date: day(1), end_date: day(3), start_time: "09:00", end_time: "12:00" });
+    // ไม่ส่ง end_date = วันเดียว
+    const single = (await bob.post("/api/v1/meeting-bookings").send(booking(room, "13:00", "14:00", { date: day(2) }))).body.data;
+    expect(single).toMatchObject({ date: day(2), end_date: day(2) });
+
+    // ชนกับวันกลางของการจองหลายวัน = 422 / ต่างเวลา = ได้
+    expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "10:00", "11:00", { date: day(2) }))).status).toBe(422);
+    expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "11:00", "13:00", { date: day(3), end_date: day(4) }))).status).toBe(422);
+    // วันสิ้นสุดก่อนวันเริ่ม / ยาวเกิน
+    expect(Object.keys((await bob.post("/api/v1/meeting-bookings").send(booking(room, "15:00", "16:00", { date: day(5), end_date: day(4) }))).body.errors)).toEqual(["end_date"]);
+    expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "15:00", "16:00", { date: day(5), end_date: day(40) }))).status).toBe(422);
+
+    // ปฏิทิน: เห็นการจองหลายวันในทุกวันที่คาบเกี่ยว
+    const ofDay = async (d: string) => (await bob.get(`/api/v1/meeting-bookings?from=${d}&to=${d}`)).body.data.map((b: { id: string }) => b.id);
+    expect(await ofDay(day(3))).toEqual([created.body.data.id]);
+    expect(await ofDay(day(4))).toEqual([]);
+  });
+});

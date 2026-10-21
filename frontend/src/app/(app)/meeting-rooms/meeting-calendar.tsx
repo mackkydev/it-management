@@ -18,6 +18,12 @@ import { toneOf } from "./meeting-utils";
  * ปฏิทินเดือนของห้องประชุม — ช่องวันแสดงการจอง (สีตามห้อง), ชี้ = รายการจองของวันนั้น,
  * คลิกวัน = ไทม์ไลน์รายห้องของวันนั้น, + / คลิกขวาที่วัน = จองวันนั้น (วันที่ผ่านไปแล้วจองไม่ได้)
  */
+const nextDay = (d: string) => {
+  const x = new Date(`${d}T00:00:00Z`);
+  x.setUTCDate(x.getUTCDate() + 1);
+  return x.toISOString().slice(0, 10);
+};
+
 export function MeetingCalendar({ month: initialMonth, initialBookings, rooms, canBook = true }: { month: string; initialBookings: MeetingBooking[]; rooms: MeetingRoom[]; canBook?: boolean }) {
   const { t, fmt, locale } = useI18n();
   const router = useRouter();
@@ -30,7 +36,10 @@ export function MeetingCalendar({ month: initialMonth, initialBookings, rooms, c
   const grid = useMemo(() => monthGrid(month), [month]);
   const byDay = useMemo(() => {
     const map = new Map<string, MeetingBooking[]>();
-    for (const b of bookings) map.set(b.date, [...(map.get(b.date) ?? []), b]);
+    // จองหลายวัน = แสดงทุกวันในช่วง
+    for (const b of bookings) {
+      for (let d = b.date; d <= (b.end_date || b.date); d = nextDay(d)) map.set(d, [...(map.get(d) ?? []), b]);
+    }
     return map;
   }, [bookings]);
   const intl = locale === "th" ? "th-TH" : "en-GB";

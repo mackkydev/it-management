@@ -15,13 +15,14 @@ import {
 } from "../services/ticket-workflow.js";
 import { activeSignature, copySignatureTo, mimeOf, readSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
+import { scopeWhere } from "../services/manage-scope.js";
 import { usersWithPermissions } from "../services/permissions.js";
 import { markNoticesRead, notifyUsers, TICKET_ACTIVITY } from "../services/notifications.js";
 import { busyOf } from "../services/calendar.js";
 import { KPI_TICKET_STATUSES } from "../services/kpi.js";
 import { OWN_SQL } from "./assets.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
-import { unassignedVehicleBookings } from "./vehicles.js";
+import { pendingVehicleBookings } from "./vehicles.js";
 import { loanBadges } from "./loans.js";
 import {
   announceVpnRequest, applyVpnTicketOutcome, closeVpnRequest, isVpnRequestType, pendingVpnRequest, syncVpnRequest, vpnBadges, vpnOfTicket, VPN_REQUEST_TYPE,
@@ -323,7 +324,7 @@ const approvalsWhere = (u: UserRow) => {
     ? "(t.approver_id = ? OR t.approver_id IS NULL OR NOT EXISTS (SELECT 1 FROM users a WHERE a.id = t.approver_id AND a.is_active = true))"
     : "t.approver_id = ?";
   return {
-    sql: `t.status = 'pending_supervisor' AND t.requester_id <> ? AND (
+    sql: `t.status = 'pending_supervisor' AND (t.requester_id <> ? OR (t.current_step IS NULL AND t.approver_id = t.requester_id)) AND (
       (t.current_step IS NULL AND ${legacy})
       OR (t.current_step IS NOT NULL AND EXISTS (SELECT 1 FROM it_ticket_approval_steps s
             WHERE s.it_ticket_id = t.id AND s.step_no = t.current_step AND JSON_CONTAINS(s.approver_ids, ?))))`,
@@ -391,7 +392,16 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
       const pending = await select<TicketRow>(`SELECT t.*, ${TICKET_APPROVAL_COLUMNS} FROM it_tickets t WHERE t.status = 'pending_it_head'`);
       review = pending.filter((t) => closersAmong(t, heads, reviewers).some((x) => x.id === u.id)).length;
     }
-    data["/it/queue"] = (direct.some((x) => x.id === u.id) ? await count("t.status IN ('approved', 'pending_cancel') AND t.assignee_id IS NULL") : 0) + review;
+    // รอรับงาน: ใบที่ยังไม่มีผู้รับ + ใบที่ผู้แจ้งเลือกเจ้าหน้าที่คนอื่นไว้แต่ยังไม่รับ (เฉพาะผู้ที่รับงานแทนได้ — it_tickets.take_over)
+    //   ผู้ถูกเลือกเห็นใบนั้นที่ "คิวงานของฉัน" อย่างเดียว (ไม่นับซ้ำที่คิวงาน IT) — ตัวเลขเมนูเท่านั้น ไม่แจ้งเตือนที่กระดิ่ง
+    const canTakeOver = can(u, "it_tickets.take_over") || can(u, "it_tickets.manage_all");
+    const waiting = direct.some((x) => x.id === u.id)
+      ? await count(
+          `((t.status IN ('approved', 'pending_cancel') AND t.assignee_id IS NULL)${canTakeOver ? " OR (t.status = 'approved' AND t.assignee_id <> ?)" : ""})`,
+          canTakeOver ? [u.id] : [],
+        )
+      : 0;
+    data["/it/queue"] = waiting + review;
   }
   if (can(u, "kpi.use")) {
     data["/kpi"] = await count(
@@ -401,17 +411,18 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
     );
   }
   // ใบลาที่รอฉันอนุมัติ
+  // ผู้อนุมัติที่ระบุ (= ผู้รับแจ้งเตือน) — approve_any นับเพิ่มเฉพาะใบที่ผู้อนุมัติไม่มี/ปิดใช้งาน ในขอบเขตสาขาของกลุ่ม (หน้ารออนุมัติยังแสดงทุกใบในขอบเขต)
+  const leaveAny = await scopeWhere(u, "leave.approve_any", "o.branch_id");
   data["/leave/approvals"] = Number(
     await scalar(
-      // ผู้อนุมัติที่ระบุ (= ผู้รับแจ้งเตือน) — approve_any นับเพิ่มเฉพาะใบที่ผู้อนุมัติไม่มี/ปิดใช้งาน (หน้ารออนุมัติยังแสดงทุกใบ)
-      `SELECT COUNT(*) FROM leave_requests l WHERE l.status = 'pending' AND l.user_id <> ? AND (l.approver_id = ?${
-        can(u, "leave.approve_any") ? " OR l.approver_id IS NULL OR NOT EXISTS (SELECT 1 FROM users a WHERE a.id = l.approver_id AND a.is_active = true)" : ""
+      `SELECT COUNT(*) FROM leave_requests l JOIN users o ON o.id = l.user_id WHERE l.status = 'pending' AND l.user_id <> ? AND (l.approver_id = ?${
+        can(u, "leave.approve_any") ? ` OR ((l.approver_id IS NULL OR NOT EXISTS (SELECT 1 FROM users a WHERE a.id = l.approver_id AND a.is_active = true)) AND ${leaveAny.sql})` : ""
       })`,
-      [u.id, u.id],
+      [u.id, u.id, ...(can(u, "leave.approve_any") ? leaveAny.params : [])],
     ),
   );
   // การจองรถที่ยังไม่ระบุรถ (ผู้จัดคิวรถ) — ผู้รับแจ้งเตือน "รอจัดรถ" = ผู้มีสิทธิ์ vehicle.dispatch เหมือนกัน
-  if (can(u, "vehicle.dispatch")) data["/vehicles/dispatch"] = await unassignedVehicleBookings(u);
+  if (can(u, "vehicle.dispatch")) data["/vehicles/dispatch"] = await pendingVehicleBookings(u);
   // ยืมอุปกรณ์ IT: ของฉันที่เกินกำหนดคืน / ผู้จัดการ: รอส่งมอบที่ถึงวันแล้ว + เกินกำหนดคืน
   Object.assign(data, await loanBadges(u));
   // VPN รวมกับตัวเลขเดิมของ /loans/mine
@@ -635,7 +646,9 @@ ticketRoutes.post("/tickets", async (req, res) => {
 
   const chosen = await chosenApprover(req, data);
   const vpnInput = vpnRequestInput(req, data);
-  const routePlan = await planFor(u);
+  // ผู้มีสิทธิ์อนุมัติใบของตัวเอง (ผู้จัดการขึ้นไป) ไม่เลือกผู้อนุมัติ = อนุมัติเอง (ไม่ใช้สายอนุมัติ/หัวหน้า) — แจ้งเตือน + "รอฉันอนุมัติ" ของตัวเอง
+  const selfApprove = !chosen && can(u, "tickets.approve_own");
+  const routePlan = selfApprove ? { source: "legacy" as const, route: null, steps: [], legacy_approver: { id: u.id, name: u.name } } : await planFor(u);
   const plan = chosen ? withChosenApprover(routePlan, chosen) : routePlan;
   const ticketId = await transaction(async () => {
     const type = String(data.type);
@@ -662,7 +675,7 @@ ticketRoutes.post("/tickets", async (req, res) => {
       status: "pending_supervisor",
       requester_id: u.id,
       // ระบบเดิม: หัวหน้าตามสายบังคับบัญชา (null = admin อนุมัติ) — สายอนุมัติ: ใส่ผู้อนุมัติขั้นสุดท้ายตอนอนุมัติครบ
-      approver_id: plan.source === "legacy" ? (chosen?.id ?? u.supervisor_id) : null,
+      approver_id: plan.source === "legacy" ? (chosen?.id ?? (selfApprove ? u.id : u.supervisor_id)) : null,
       requested_at: now,
       created_at: now,
       updated_at: now,
@@ -750,7 +763,9 @@ ticketRoutes.post("/tickets/:uuid/approve", async (req, res) => {
   authorize(canApprove(u, t));
   const data = await validate(req.input, { comment: ["nullable", "string", "max:2000"] }, { locale: req.locale });
 
-  const comment = (data.comment as string) ?? null;
+  // อนุมัติใบของตัวเอง (tickets.approve_own) — บันทึกในไทม์ไลน์ให้ตรวจย้อนหลังได้
+  const own = u.id === t.requester_id ? trans(req.locale, "eam.ticket.self_approved") : null;
+  const comment = [own, (data.comment as string) ?? null].filter(Boolean).join(" — ") || null;
 
   // สายอนุมัติ: ปิดขั้นปัจจุบัน แล้วไปขั้นถัดไปที่ยังรออยู่ — ถ้าไม่มีแล้วจึงอนุมัติใบงาน
   const next = t.current_step !== null ? (await ticketSteps(t.id)).find((s) => s.step_no > t.current_step! && s.status === "pending") : undefined;
@@ -1065,6 +1080,10 @@ async function updateTicket(req: Request, res: Response) {
         approverChanged = true;
         await update("it_tickets", { approver_id: chosen.id }, "id = ?", [t.id]);
       }
+    } else if ("approver_id" in data && t.current_step === null && t.approver_id !== u.id && can(u, "tickets.approve_own")) {
+      // ไม่เลือกผู้อนุมัติ (ผู้จัดการขึ้นไป) = อนุมัติเอง
+      approverChanged = true;
+      await update("it_tickets", { approver_id: u.id }, "id = ?", [t.id]);
     }
     await log(t.id, u.id, "edited");
   });

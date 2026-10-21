@@ -44,9 +44,11 @@ describe("permissions", () => {
       expect([...(await permissionsOf(sample))].sort()).toEqual(expected.sort());
     }
     // ผู้ดูแลระบบ (admin = เจ้าหน้าที่ IT) = ทุกอย่าง ยกเว้นสิทธิ์ที่สงวนไว้ (locked: จัดการสิทธิ์ / อนุมัติแทน / ลายเซ็นคนอื่น / ตั้งค่าระบบ / PIN กลาง),
-    // KPI ของคนอื่น, เห็นทุกรายการในคลังบัญชี และอนุมัติใบของตัวเอง (ผู้จัดการ)
+    // KPI ของคนอื่น, เห็นทุกรายการในคลังบัญชี และอนุมัติใบของตัวเอง (ผู้จัดการ) — ยกเว้น access.groups (สงวนไว้ แต่ admin ได้ตั้งต้น: แก้สิทธิ์กลุ่มที่ต่ำกว่า)
     const superOnly = ["kpi.view_all", "kpi.edit_all", "vault.all", "tickets.approve_own"];
-    expect([...(await permissionsOf(await makeUser({ role: "admin" })))].sort()).toEqual(PERMISSIONS.filter((p) => !p.locked && !superOnly.includes(p.key)).map((p) => p.key).sort());
+    expect([...(await permissionsOf(await makeUser({ role: "admin" })))].sort()).toEqual(
+      PERMISSIONS.filter((p) => (!p.locked || p.key === "access.groups") && !superOnly.includes(p.key)).map((p) => p.key).sort(),
+    );
   });
 
   it("re-running the seeder never overwrites what an admin changed", async () => {

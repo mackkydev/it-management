@@ -6,7 +6,7 @@ import { assignVehicle, cancelVehicleBooking, deleteVehicleBooking, saveMileage 
 import { AppSelect } from "@/components/app-select";
 import { useAlert, useConfirm } from "@/components/dialog-provider";
 import { CarIcon, GaugeIcon, PencilIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
-import { btn, card, input, inputError } from "@/components/ui";
+import { btn, card, input, inputError, tone as toneCls } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { Tone } from "@/lib/booking";
 import type { Vehicle, VehicleBooking } from "@/lib/types";
@@ -34,7 +34,9 @@ export function VehicleDialog({
   const showAlert = useAlert();
   const [b, setB] = useState(initial);
   const [pending, start] = useTransition();
-  const [mileage, setMileage] = useState({ start: b.start_mileage?.toString() ?? "", end: b.end_mileage?.toString() ?? "" });
+  // เลขไมล์เริ่มต้น = เลขไมล์ล่าสุดของคัน (ยังไม่บันทึก) / ค่าที่บันทึกไว้ (บันทึกแล้ว) — อ่านอย่างเดียว
+  const startOf = (x: VehicleBooking) => (x.end_mileage === null ? (x.vehicle?.mileage ?? x.start_mileage) : x.start_mileage);
+  const [mileage, setMileage] = useState({ start: startOf(b)?.toString() ?? "", end: b.end_mileage?.toString() ?? "" });
   const [mileageError, setMileageError] = useState("");
   const [vehicleId, setVehicleId] = useState(b.vehicle ? String(b.vehicle.id) : "");
   const [assignError, setAssignError] = useState("");
@@ -50,7 +52,8 @@ export function VehicleDialog({
     });
   };
   const recordMileage = () => {
-    if (mileage.start && mileage.end && Number(mileage.end) < Number(mileage.start)) return setMileageError(t("vehicle.form.validate.mileage"));
+    if (!mileage.end) return setMileageError(t("vehicle.mileage.endRequired"));
+    if (mileage.start && Number(mileage.end) < Number(mileage.start)) return setMileageError(t("vehicle.form.validate.mileage"));
     start(async () => {
       const res = await saveMileage(b.id, mileage.start, mileage.end);
       if (res.booking) {
@@ -65,7 +68,7 @@ export function VehicleDialog({
       const res = await assignVehicle(b.id, vehicleId ? Number(vehicleId) : null);
       if (res.booking) {
         setB(res.booking);
-        setMileage({ start: res.booking.start_mileage?.toString() ?? "", end: res.booking.end_mileage?.toString() ?? "" });
+        setMileage({ start: startOf(res.booking)?.toString() ?? "", end: res.booking.end_mileage?.toString() ?? "" });
         setAssignError("");
         onChanged();
       } else setAssignError(res.errors?.vehicle_id ?? res.message ?? "");
@@ -94,6 +97,20 @@ export function VehicleDialog({
             <XIcon width={14} height={14} />
           </button>
         </div>
+        {/* ขั้นอนุมัติโดยผู้จัดคิวรถ */}
+        {b.status === "pending" && (
+          <div className={`flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs ${toneCls.warning.badge}`}>
+            <span>{t("vehicle.approval.pendingNote")}</span>
+            {b.can_approve && (
+              <Link href={`/vehicles/dispatch/${b.id}`} className="cursor-pointer font-semibold underline underline-offset-2">
+                {t("vehicle.approval.openReview")}
+              </Link>
+            )}
+          </div>
+        )}
+        {b.status === "rejected" && (
+          <p className={`rounded-xl px-3 py-2 text-xs ${toneCls.danger.badge}`}>{t("vehicle.approval.rejectedNote", { reason: b.reject_reason ?? "-" })}</p>
+        )}
         <dl className="divide-y divide-line">
           {row(t("vehicle.detail.when"), period)}
           {row(t("meeting.detail.booker"), b.user.name)}
@@ -110,6 +127,7 @@ export function VehicleDialog({
                 : `${km(b.start_mileage)} → ${km(b.end_mileage)}`,
             )}
           {b.assigned_by && row(t("vehicle.detail.assignedBy"), b.assigned_by)}
+          {b.approved_by && row(t("vehicle.approval.approvedBy"), b.approved_by)}
         </dl>
 
         {/* ผู้จัดคิวรถ: เลือก / เปลี่ยนรถ */}
@@ -136,27 +154,39 @@ export function VehicleDialog({
           </div>
         )}
 
-        {/* บันทึกเลขไมล์ (ระหว่าง / หลังใช้งาน) */}
-        {b.can_mileage && (
-          <div className="space-y-1.5 rounded-xl bg-subtle/60 p-3">
+        {/* บันทึกเลขไมล์ (ระหว่าง / หลังใช้งาน) — ผู้จองบันทึกได้ครั้งเดียว, บันทึกแล้วแสดงแบบอ่านอย่างเดียว */}
+        {(b.can_mileage || (b.status === "confirmed" && b.end_mileage !== null)) && (
+          <div className={`space-y-1.5 rounded-xl p-3 ${b.mileage_due ? `animate-pulse ring-2 ${toneCls.warning.badge}` : "bg-subtle/60"}`}>
             <p className="flex items-center gap-1.5 text-xs font-medium text-muted">
               <GaugeIcon width={14} height={14} />
               {t("vehicle.mileage.title")}
+              {b.mileage_due && <span className="font-semibold">· {t("vehicle.mileage.due")}</span>}
             </p>
             <div className="flex flex-wrap items-end gap-2">
               <label className="min-w-0 flex-1 text-xs">
                 <span className="mb-1 block text-muted">{t("vehicle.form.startMileage")}</span>
-                <input type="number" min={0} inputMode="numeric" value={mileage.start} onChange={(e) => (setMileage({ ...mileage, start: e.target.value }), setMileageError(""))} className={`${input} ${mileageError ? inputError : ""}`} />
+                <input type="number" value={mileage.start} readOnly disabled className={`${input} disabled:cursor-not-allowed disabled:opacity-60`} />
               </label>
               <label className="min-w-0 flex-1 text-xs">
                 <span className="mb-1 block text-muted">{t("vehicle.form.endMileage")}</span>
-                <input type="number" min={0} inputMode="numeric" value={mileage.end} onChange={(e) => (setMileage({ ...mileage, end: e.target.value }), setMileageError(""))} className={`${input} ${mileageError ? inputError : ""}`} />
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  value={mileage.end}
+                  disabled={!b.can_mileage}
+                  onChange={(e) => (setMileage({ ...mileage, end: e.target.value }), setMileageError(""))}
+                  className={`${input} ${mileageError ? inputError : ""} disabled:cursor-not-allowed disabled:opacity-60`}
+                />
               </label>
-              <button type="button" disabled={pending} onClick={recordMileage} className={`${btn.primary} ${btn.sm} mb-0.5`}>
-                {pending ? <SpinnerIcon width={14} height={14} /> : <SaveIcon width={14} height={14} />}
-                {t("common.save")}
-              </button>
+              {b.can_mileage && (
+                <button type="button" disabled={pending} onClick={recordMileage} className={`${btn.primary} ${btn.sm} mb-0.5 disabled:cursor-not-allowed`}>
+                  {pending ? <SpinnerIcon width={14} height={14} /> : <SaveIcon width={14} height={14} />}
+                  {t("common.save")}
+                </button>
+              )}
             </div>
+            <p className="text-xs text-muted">{t(b.can_mileage ? "vehicle.mileage.onceHint" : "vehicle.mileage.recorded")}</p>
             {mileageError && <p className="text-xs font-medium text-red-500">{mileageError}</p>}
           </div>
         )}

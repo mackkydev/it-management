@@ -23,16 +23,17 @@ function defaultNames(): Record<string, { th: string; en: string }> {
   return Object.fromEntries(NAV.flatMap((g) => [[g.id, both(g.label)], ...g.items.map((i) => [i.href, both(i.label)])]));
 }
 
-/** ตั้งค่าระบบ → สิทธิ์การใช้งาน (access.manage): การมองเห็นเมนู/ปุ่มตามกลุ่มสิทธิ์ + ลำดับเมนู */
+/** ตั้งค่าระบบ → สิทธิ์การใช้งาน: การมองเห็นเมนู/ปุ่มตามกลุ่มสิทธิ์ + ลำดับเมนู (access.manage = ทุกกลุ่ม, access.groups = เฉพาะกลุ่มที่ต่ำกว่า) */
 export default async function PermissionsPage() {
   const user = await getCurrentUser();
-  if (!has(user, "access.manage")) redirect("/tickets");
+  const canManage = has(user, "access.manage");
+  if (!canManage && !has(user, "access.groups")) redirect("/tickets");
   const [config, { t }, catalog] = await Promise.all([getUiConfig(), getI18n(), apiFetch<PermissionCatalog>("/permissions")]);
 
   return (
     <div className="space-y-5">
       <PageHeader icon={ShieldIcon} title={t("permissions.title")} subtitle={t("permissions.subtitle")} />
-      <PermissionsForm initial={config} groups={catalog.groups} defaultNames={defaultNames()} />
+      <PermissionsForm initial={config} groups={catalog.groups} defaultNames={defaultNames()} editable={canManage ? null : catalog.editable_groups} />
     </div>
   );
 }

@@ -59,7 +59,7 @@ export default async function BookMeetingRoomPage({ searchParams }: PageProps<"/
       ) : (
         <BookingForm
           id={null}
-          initial={{ room_id: room, title: "", attendees: "", purpose: purposes.length === 1 ? purposes[0] : "", equipment: [], note: "", date, start_time: start, end_time: end }}
+          initial={{ room_id: room, title: "", attendees: "", purpose: purposes.length === 1 ? purposes[0] : "", equipment: [], note: "", date, end_date: date, start_time: start, end_time: end }}
           initialDay={day}
           rooms={rooms}
           purposes={purposes}

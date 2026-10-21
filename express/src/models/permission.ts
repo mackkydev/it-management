@@ -128,6 +128,8 @@ const DEFS: Def[] = [
   { key: "approval_routes.manage", module: "approval_routes", action: "manage", name_th: "จัดการสายอนุมัติ", name_en: "Manage approval routes", defaults: ["admin"] },
   { key: "audit_logs.view", module: "audit", action: "view", name_th: "ดูบันทึกการเปลี่ยนแปลง (audit log)", name_en: "View the audit log", defaults: ["admin"] },
   { key: "access.assign", module: "access", action: "other", name_th: "มอบตำแหน่ง/กลุ่ม/สิทธิ์ให้ผู้ใช้ (เฉพาะสิทธิ์ที่ตัวเองมี)", name_en: "Assign roles / groups / permissions to users (only ones held)", defaults: ["admin"] },
+  // ผู้ดูแลระบบ (admin): แก้ตารางสิทธิ์ / สร้าง-เปลี่ยนชื่อ-ลบกลุ่มที่ต่ำกว่าตำแหน่งตัวเอง (กลุ่มตามตำแหน่งที่ต่ำกว่า + กลุ่มที่สร้างเองที่ตัวเองไม่ได้อยู่) — groupEditError ใน services/access-control.ts
+  { key: "access.groups", module: "access", action: "other", name_th: "แก้สิทธิ์ของกลุ่มที่ต่ำกว่าตัวเอง / สร้าง-ลบกลุ่มที่สร้างเอง (เฉพาะสิทธิ์ที่ตัวเองมี)", name_en: "Edit permissions of lower groups / create-delete custom groups (only permissions held)", defaults: ["admin"], locked: true },
   { key: "access.manage", module: "access", action: "manage", name_th: "กำหนดสิทธิ์ของกลุ่ม / สร้างกลุ่ม / การมองเห็นเมนู / วันหมดอายุของสิทธิ์", name_en: "Edit group permissions / groups / menu visibility / permission expiry", defaults: [], locked: true },
   // PIN กลาง: ผู้ดูแลระบบ (admin)แก้ได้ — ทุกครั้งแจ้งเตือนผู้ดูแลระบบสูงสุด + ผู้ดูแลระบบทุกคน (routes/it-data.ts)
   { key: "secrets.pin_manage", module: "security", action: "update", name_th: "ตั้ง/เปลี่ยน PIN กลางสำหรับเปิดดูรหัสผ่าน / License key (แจ้งเตือนผู้ดูแลระบบทุกคน)", name_en: "Set / change the shared PIN for viewing secrets (notifies all admins)", defaults: [], locked: true },

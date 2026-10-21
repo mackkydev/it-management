@@ -37,6 +37,8 @@ export interface BookingValues {
   equipment: string[];
   note: string;
   date: string;
+  /** วันสุดท้าย (ว่าง / เท่ากับ date = วันเดียว) */
+  end_date: string;
   start_time: string;
   end_time: string;
 }
@@ -56,6 +58,7 @@ export async function saveBooking(id: string | null, v: BookingValues): Promise<
         equipment: v.equipment,
         note: v.note.trim() || null,
         date: v.date,
+        end_date: v.end_date && v.end_date >= v.date ? v.end_date : v.date,
         start_time: v.start_time,
         end_time: v.end_time,
       }),

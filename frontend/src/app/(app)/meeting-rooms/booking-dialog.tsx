@@ -47,7 +47,7 @@ export function BookingDialog({ booking: b, tone, onClose, onChanged }: { bookin
           </button>
         </div>
         <dl className="divide-y divide-line">
-          {row(t("meeting.detail.when"), `${fmt.date(b.date)} · ${t("meeting.timeRange", { start: b.start_time, end: b.end_time })}`)}
+          {row(t("meeting.detail.when"), `${b.end_date > b.date ? `${fmt.date(b.date)} – ${fmt.date(b.end_date)}` : fmt.date(b.date)} · ${t("meeting.timeRange", { start: b.start_time, end: b.end_time })}`)}
           {row(t("meeting.detail.booker"), b.user.name)}
           {row(t("meeting.detail.department"), b.department || t("meeting.detail.none"))}
           {row(t("meeting.detail.attendees"), t("meeting.detail.attendeesValue", { n: fmt.number(b.attendees) }))}

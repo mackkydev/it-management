@@ -51,10 +51,20 @@ export function BookingForm({
     setV((p) => ({ ...p, [k]: value }));
     if (errors[k]) setErrors((e) => ({ ...e, [k]: undefined }));
   };
+  // วันเริ่ม/วันสิ้นสุด: วันสิ้นสุดก่อนวันเริ่ม = ขยับตาม (จองวันเดียว) — โหลดการจองของทุกวันในช่วงไว้ตรวจเวลาว่าง
+  const loadRange = (from: string, to: string) => startCheck(async () => setDay(await loadBookings(from, to)));
   const setDate = (d: string) => {
-    set("date", d);
-    if (d) startCheck(async () => setDay(await loadBookings(d, d)));
+    const end = !v.end_date || v.end_date < d ? d : v.end_date;
+    setV((p) => ({ ...p, date: d, end_date: end }));
+    setErrors((e) => ({ ...e, date: undefined, end_date: undefined }));
+    if (d) loadRange(d, end);
   };
+  const setEndDate = (d: string) => {
+    const end = d && d >= v.date ? d : v.date;
+    set("end_date", end);
+    if (v.date) loadRange(v.date, end);
+  };
+  const multiDay = Boolean(v.end_date && v.end_date > v.date);
 
   const room = rooms.find((r) => String(r.id) === v.room_id) ?? null;
   // การจองอื่นของวันนั้น (ไม่นับตัวเอง)
@@ -74,6 +84,7 @@ export function BookingForm({
     if (!v.title.trim()) e.title = t("meeting.form.validate.title");
     if (!(Number(v.attendees) >= 1)) e.attendees = t("meeting.form.validate.attendees");
     if (!v.date) e.date = t("meeting.form.validate.date");
+    if (v.end_date && v.end_date < v.date) e.end_date = t("meeting.form.validate.endDate");
     if (!v.start_time || !v.end_time) e.end_time = t("meeting.form.validate.time");
     else if (v.end_time <= v.start_time) e.end_time = t("meeting.form.validate.timeOrder");
     if (!v.purpose) e.purpose = t("meeting.form.validate.purpose");
@@ -129,10 +140,16 @@ export function BookingForm({
               </AppSelect>
               {err("room_id")}
             </div>
-            <div className="sm:col-span-2">
+            <div>
               {label("date", t("meeting.form.date"), true)}
               <DateInput id="date" value={v.date} min={id ? undefined : today} onChange={setDate} className={cls("date")} />
               {err("date")}
+            </div>
+            <div>
+              {label("end_date", t("meeting.form.endDate"))}
+              <DateInput id="end_date" value={v.end_date} min={v.date || today} onChange={setEndDate} className={cls("end_date")} />
+              {err("end_date")}
+              {!errors.end_date && <p className="mt-1 text-xs text-muted">{t(multiDay ? "meeting.form.endDateMulti" : "meeting.form.endDateHint")}</p>}
             </div>
             <div>
               {label("start_time", t("meeting.form.start"), true)}
@@ -160,10 +177,19 @@ export function BookingForm({
           {room && v.date && (
             <div className="space-y-2 rounded-xl bg-subtle/60 p-3">
               <p className="flex items-center gap-2 text-xs font-medium text-muted">
-                {t("meeting.form.dayBookings")}
+                {t(multiDay ? "meeting.form.rangeBookings" : "meeting.form.dayBookings")}
                 {checking && <SpinnerIcon width={12} height={12} className="text-accent-400" />}
               </p>
               <div className="relative h-9 rounded-lg bg-surface ring-1 ring-line">
+                {/* เส้นทุกครึ่งชั่วโมง (ชั่วโมงเต็มเข้มกว่า) */}
+                {Array.from({ length: (hTo - hFrom) * 2 - 1 }, (_, i) => i + 1).map((i) => (
+                  <span
+                    key={i}
+                    aria-hidden="true"
+                    className={`absolute inset-y-0 border-l ${i % 2 === 0 ? "border-line" : "border-dashed border-line-soft"}`}
+                    style={{ left: `${((i * 30) / span) * 100}%` }}
+                  />
+                ))}
                 {roomDay.map((b) => (
                   <span
                     key={b.id}
@@ -181,9 +207,17 @@ export function BookingForm({
                   />
                 )}
               </div>
-              <div className="flex justify-between text-[10px] tabular-nums text-faint">
-                <span>{String(hFrom).padStart(2, "0")}:00</span>
-                <span>{String(hTo).padStart(2, "0")}:00</span>
+              {/* เวลาทุก 1 ชั่วโมง */}
+              <div className="relative h-3 text-[10px] tabular-nums text-faint">
+                {Array.from({ length: hTo - hFrom + 1 }, (_, i) => hFrom + i).map((h, i, all) => (
+                  <span
+                    key={h}
+                    className={`absolute top-0 ${i === 0 ? "" : i === all.length - 1 ? "-translate-x-full" : "-translate-x-1/2"}`}
+                    style={{ left: `${((h - hFrom) * 60 * 100) / span}%` }}
+                  >
+                    {String(h).padStart(2, "0")}:00
+                  </span>
+                ))}
               </div>
               {checking ? (
                 <p className="text-xs text-muted">{t("meeting.form.checking")}</p>

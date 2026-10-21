@@ -1221,6 +1221,8 @@ model meeting_bookings {
   purpose                   String?                     @db.VarChar(100)
   note                      String?                     @db.Text
   booking_date              DateTime                    @db.Date
+  /// จองหลายวัน: วันสุดท้าย (ช่วงเวลาเดียวกันทุกวัน) — null = วันเดียว (ข้อมูลเดิม)
+  end_date                  DateTime?                   @db.Date
   start_time                String                      @db.VarChar(5)
   end_time                  String                      @db.VarChar(5)
   status                    String                      @default("confirmed") @db.VarChar(20)
@@ -1234,6 +1236,7 @@ model meeting_bookings {
   meeting_booking_equipment meeting_booking_equipment[]
 
   @@index([room_id, booking_date], map: "meeting_bookings_room_id_booking_date_index")
+  @@index([room_id, end_date], map: "meeting_bookings_room_id_end_date_index")
   @@index([booking_date], map: "meeting_bookings_booking_date_index")
   @@index([user_id], map: "meeting_bookings_user_id_index")
 }
@@ -1329,6 +1332,12 @@ model vehicle_bookings {
   assigned_at            DateTime?                @db.DateTime(0)
   cancelled_at           DateTime?                @db.DateTime(0)
   cancelled_by           BigInt?
+  /// การอนุมัติโดยผู้จัดคิวรถ: status pending (รออนุมัติ) → confirmed (อนุมัติ) / rejected (ไม่อนุมัติ + เหตุผล)
+  approved_by            BigInt?
+  approved_at            DateTime?                @db.DateTime(0)
+  rejected_by            BigInt?
+  rejected_at            DateTime?                @db.DateTime(0)
+  reject_reason          String?                  @db.VarChar(1000)
   created_at             DateTime?                @db.DateTime(0)
   updated_at             DateTime?                @db.DateTime(0)
   deleted_at             DateTime?                @db.DateTime(0)

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { deleteGroup, savePermissionExpiry, saveGroup, saveRolePermissions } from "@/app/actions/access";
 import { useConfirm } from "@/components/dialog-provider";
-import { AlertIcon, CheckCircleIcon, PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { AlertIcon, CheckCircleIcon, LockIcon, PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { PermissionMatrix } from "@/components/permission-matrix";
 import { alert, btn, card, input as inputBase, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
@@ -14,9 +14,10 @@ const SUPER = "super_admin";
 
 /**
  * สิทธิ์ตามกลุ่ม: เลือกกลุ่ม → ตาราง ระบบงาน × การกระทำ (ติ๊ก = กลุ่มได้สิทธิ์) — บันทึกเฉพาะกลุ่มที่เปลี่ยน
- * super_admin = ทุกสิทธิ์ (แก้ไม่ได้) · สิทธิ์ที่สงวนไว้ (แม่กุญแจ) ติ๊กได้เฉพาะผู้ดูแลระบบ · ไม่มี access.manage = ดูอย่างเดียว
+ * super_admin = ทุกสิทธิ์ (แก้ไม่ได้) · สิทธิ์ที่สงวนไว้ (แม่กุญแจ) ติ๊กได้เฉพาะผู้ดูแลระบบ
+ * แก้ได้เฉพาะกลุ่มใน catalog.editable_groups (access.groups = กลุ่มที่ต่ำกว่า และติ๊กได้เฉพาะสิทธิ์ที่ตัวเองมี) · สวิตช์วันหมดอายุ = access.manage
  */
-export function RoleMatrix({ catalog, canManage, superAdmin }: { catalog: PermissionCatalog; canManage: boolean; superAdmin: boolean }) {
+export function RoleMatrix({ catalog, canManage, superAdmin, held }: { catalog: PermissionCatalog; canManage: boolean; superAdmin: boolean; held: string[] }) {
   const { t, locale } = useI18n();
   const confirm = useConfirm();
   const router = useRouter();
@@ -27,12 +28,17 @@ export function RoleMatrix({ catalog, canManage, superAdmin }: { catalog: Permis
   const [selected, setSelected] = useState(() => catalog.groups.find((g) => g.key !== SUPER)?.key ?? SUPER);
   const [expiry, setExpiry] = useState(catalog.expiry_enabled);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  // กลุ่มที่แก้ได้ (กลุ่มใหม่ที่สร้างเองแก้ได้เสมอ) + สิทธิ์ที่ติ๊กได้ (ไม่ใช่ super_admin = เฉพาะสิทธิ์ที่ตัวเองมี และไม่ใช่สิทธิ์ที่สงวนไว้)
+  const [editable, setEditable] = useState(() => new Set(catalog.editable_groups));
+  const holds = useMemo(() => new Set(held), [held]);
+  const canTick = (p: { key: string; locked: boolean }) => superAdmin || (!p.locked && holds.has(p.key));
   const [pending, start] = useTransition();
   // ฟอร์มสร้าง/เปลี่ยนชื่อกลุ่ม (key null = กลุ่มใหม่)
   const [editing, setEditing] = useState<{ key: string | null; name_th: string; name_en: string; errors: Record<string, string> } | null>(null);
 
   const name = (g: { name_th: string; name_en: string }) => (locale === "th" ? g.name_th : g.name_en);
   const current = groups.find((g) => g.key === selected);
+  const canEditCurrent = editable.has(selected);
   const set = state[selected] ?? new Set<string>();
   const dirty = useMemo(
     () => Object.keys(state).filter((g) => g !== SUPER && (state[g].size !== (saved[g]?.size ?? 0) || [...state[g]].some((k) => !saved[g]?.has(k)))),
@@ -77,6 +83,7 @@ export function RoleMatrix({ catalog, canManage, superAdmin }: { catalog: Permis
       const row = res.data;
       setGroups((gs) => (editing.key ? gs.map((g) => (g.key === row.key ? row : g)) : [...gs, row]));
       if (!editing.key) {
+        setEditable((e) => new Set([...e, row.key]));
         setState((s) => ({ ...s, [row.key]: new Set() }));
         setSaved((s) => ({ ...s, [row.key]: new Set() }));
         setSelected(row.key);
@@ -118,7 +125,7 @@ export function RoleMatrix({ catalog, canManage, superAdmin }: { catalog: Permis
   return (
     <div className="space-y-5">
       <p className={`${alert.info} text-sm`}>{t("rolePermissions.adminNote")}</p>
-      {!canManage && <p className={`${alert.warning} text-sm`}>{t("rolePermissions.readOnly")}</p>}
+      {!canManage && <p className={`${alert.warning} text-sm`}>{t(editable.size > 0 ? "rolePermissions.lowerOnly" : "rolePermissions.readOnly")}</p>}
 
       {/* สวิตช์วันหมดอายุของสิทธิ์ */}
       <section className={`flex items-start justify-between gap-4 p-4 sm:p-5 ${card}`}>
@@ -143,7 +150,7 @@ export function RoleMatrix({ catalog, canManage, superAdmin }: { catalog: Permis
       <section className={`space-y-3 p-4 sm:p-5 ${card}`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">{t("rolePermissions.groupsTitle")}</h2>
-          {canManage && !editing && (
+          {catalog.can_create_group && !editing && (
             <button type="button" onClick={() => setEditing({ key: null, name_th: "", name_en: "", errors: {} })} className={`${btn.soft} ${btn.sm}`}>
               <PlusIcon width={13} height={13} />
               {t("rolePermissions.addGroup")}
@@ -165,6 +172,7 @@ export function RoleMatrix({ catalog, canManage, superAdmin }: { catalog: Permis
               <span className="font-medium">{name(g)}</span>
               <span className="rounded-full bg-subtle px-1.5 py-0.5 text-[11px] text-muted">{g.is_system ? t("rolePermissions.system") : t("rolePermissions.custom")}</span>
               <span className="text-xs text-faint">{t("rolePermissions.members", { count: g.members })}</span>
+              {!editable.has(g.key) && g.key !== SUPER && <LockIcon width={12} height={12} className="text-faint" aria-label={t("rolePermissions.notEditable")} />}
               {dirty.includes(g.key) && <span className="h-1.5 w-1.5 rounded-full bg-warning-500" aria-hidden="true" />}
             </button>
           ))}
@@ -187,7 +195,7 @@ export function RoleMatrix({ catalog, canManage, superAdmin }: { catalog: Permis
           </div>
         )}
 
-        {current && canManage && !editing && (
+        {current && canEditCurrent && !editing && (
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setEditing({ key: current.key, name_th: current.name_th, name_en: current.name_en, errors: {} })} className={`${btn.secondary} ${btn.sm}`}>
               <PencilIcon width={13} height={13} className="text-faint" />
@@ -218,7 +226,7 @@ export function RoleMatrix({ catalog, canManage, superAdmin }: { catalog: Permis
               <input
                 type="checkbox"
                 checked={set.has(p.key)}
-                disabled={!canManage || (p.locked && !superAdmin)}
+                disabled={!canEditCurrent || !canTick(p)}
                 onChange={() => toggle(p.key)}
                 aria-label={`${current ? name(current) : ""}: ${locale === "th" ? p.name_th : p.name_en}`}
                 className="h-4 w-4 cursor-pointer accent-[var(--accent-500)] disabled:cursor-not-allowed disabled:opacity-50"
@@ -234,7 +242,7 @@ export function RoleMatrix({ catalog, canManage, superAdmin }: { catalog: Permis
           {result.text}
         </p>
       )}
-      {canManage && (
+      {editable.size > 0 && (
         <div className="sticky bottom-4 flex items-center justify-end gap-3">
           {dirty.length > 0 && <span className="rounded-full bg-surface px-3 py-1 text-xs text-muted ring-1 ring-line">{t("rolePermissions.changed", { count: dirty.length })}</span>}
           <button type="button" onClick={save} disabled={pending || dirty.length === 0} aria-busy={pending} className={`${btn.primary} disabled:cursor-not-allowed disabled:opacity-60`}>

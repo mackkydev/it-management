@@ -30,6 +30,7 @@ const WEEK = [0, 1, 2, 3, 4, 5, 6];
 /**
  * ทุกคนดูรายการวันหยุดได้ — แยกแท็บตามปฏิทินวันหยุด (เช่น กรุงเทพ / สาขา) เปิดที่ชุดของสาขาผู้ใช้ก่อน
  * เพิ่ม/แก้/นำเข้า, ตั้งค่าชุด, ตั้งค่าการลา, โควตา เฉพาะผู้มีสิทธิ์ holidays.manage (เช่น กลุ่ม HR)
+ * ขอบเขตสาขาตัวเอง: แก้ได้เฉพาะชุดวันหยุดของสาขาตัวเอง (canEdit) + โควตาของคนในสาขา — ตั้งค่าการลา / ชุดวันหยุด = canManageAll
  */
 export function HolidaysManager({
   year,
@@ -39,12 +40,16 @@ export function HolidaysManager({
   settings,
   quotas,
   canManage,
+  canEdit,
+  canManageAll,
 }: {
   year: number;
   holidays: CompanyHoliday[];
   calendars: HolidayCalendar[];
   calendarId: number | null;
   settings: LeaveSettings | null;
+  canEdit: boolean;
+  canManageAll: boolean;
   quotas: {
     user: { id: number; name: string };
     leave_type: string;
@@ -60,7 +65,7 @@ export function HolidaysManager({
       <div className="flex flex-wrap items-center justify-between gap-3">
         {canManage ? (
           <div role="tablist" className="inline-flex gap-1 rounded-xl bg-subtle p-1">
-            {(["list", "settings", "quotas"] as const).map((k) => (
+            {(canManageAll ? (["list", "settings", "quotas"] as const) : (["list", "quotas"] as const)).map((k) => (
               <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={TAB_CLS(tab === k)}>
                 {t(`holidays.tabs.${k}`)}
               </button>
@@ -79,8 +84,8 @@ export function HolidaysManager({
           </div>
         )}
       </div>
-      {tab === "list" && <HolidayList year={year} holidays={holidays} calendars={calendars} calendarId={calendarId} yearText={yearText} canManage={canManage} />}
-      {tab === "settings" && settings && (
+      {tab === "list" && <HolidayList year={year} holidays={holidays} calendars={calendars} calendarId={calendarId} yearText={yearText} canManage={canEdit} canManageAll={canManageAll} />}
+      {tab === "settings" && settings && canManageAll && (
         <LeaveSettingsForm
           initial={settings}
           weekday={(d) =>
@@ -105,13 +110,17 @@ function HolidayList({
   calendarId,
   yearText,
   canManage,
+  canManageAll,
 }: {
   year: number;
   holidays: CompanyHoliday[];
   calendars: HolidayCalendar[];
   calendarId: number | null;
   yearText: (y: number) => string;
+  /** แก้วันหยุดของชุดที่เปิดอยู่ได้ */
   canManage: boolean;
+  /** จัดการชุดวันหยุด (ขอบเขตทุกสาขา) */
+  canManageAll: boolean;
 }) {
   const { t, fmt } = useI18n();
   const confirm = useConfirm();
@@ -183,10 +192,12 @@ function HolidayList({
             <CopyIcon />
             {t("holidays.copyFrom", { year: yearText(year - 1) })}
           </button>
-          <button type="button" onClick={() => setCalendarsOpen(true)} className={`${btn.secondary} ml-auto`}>
-            <SettingsIcon />
-            {t("holidays.manageCalendars")}
-          </button>
+          {canManageAll && (
+            <button type="button" onClick={() => setCalendarsOpen(true)} className={`${btn.secondary} ml-auto`}>
+              <SettingsIcon />
+              {t("holidays.manageCalendars")}
+            </button>
+          )}
         </div>
       )}
       {feedback && (

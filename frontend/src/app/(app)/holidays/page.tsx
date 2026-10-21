@@ -21,7 +21,8 @@ export default async function HolidaysPage({ searchParams }: PageProps<"/holiday
   const [{ t }, holidays, settings, quotas] = await Promise.all([
     getI18n(),
     // แท็บปฏิทินวันหยุด: ?calendar= ที่เลือก — ไม่ระบุ = ชุดของสาขาผู้ใช้ (API เลือกให้)
-    apiFetch<{ data: CompanyHoliday[]; meta: { calendar_id: number | null; calendars: HolidayCalendar[] } }>(
+    // can_manage = แก้วันหยุดของชุดนี้ได้ / can_manage_all = ตั้งค่าการลา + ชุดวันหยุด (ขอบเขตการจัดการทุกสาขา)
+    apiFetch<{ data: CompanyHoliday[]; meta: { calendar_id: number | null; calendars: HolidayCalendar[]; can_manage: boolean; can_manage_all: boolean } }>(
       `/holidays?year=${year}${typeof params.calendar === "string" && /^\d+$/.test(params.calendar) ? `&calendar_id=${params.calendar}` : ""}`,
     ),
     canManage ? apiFetch<{ data: LeaveSettings }>("/leave/settings").then((r) => r.data) : null,
@@ -30,7 +31,7 @@ export default async function HolidaysPage({ searchParams }: PageProps<"/holiday
   return (
     <div className="space-y-5">
       <PageHeader icon={SunIcon} title={t("holidays.title")} subtitle={canManage ? t("holidays.subtitle") : t("holidays.subtitleView")} />
-      <HolidaysManager year={year} holidays={holidays.data} calendars={holidays.meta.calendars} calendarId={holidays.meta.calendar_id} settings={settings} quotas={quotas} canManage={canManage} />
+      <HolidaysManager year={year} holidays={holidays.data} calendars={holidays.meta.calendars} calendarId={holidays.meta.calendar_id} settings={settings} quotas={quotas} canManage={canManage} canEdit={holidays.meta.can_manage} canManageAll={holidays.meta.can_manage_all} />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { Router, type Request } from "express";
 import { config } from "../config.js";
 import { exec, first, insert, isUuid, likeEscape, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
-import { trans } from "../lib/i18n.js";
+import { trans, type Locale } from "../lib/i18n.js";
 import { decryptVaultNullable, encryptVaultNullable } from "../services/vault-crypto.js";
 import { limits } from "../lib/rate-limit.js";
 import { dateOnly, diffInDays, fromDbDate, iso, nowDb } from "../lib/time.js";
@@ -10,7 +10,7 @@ import { bool, custom, exists, int, makeHash, regex, unique, validate } from "..
 import { audit } from "../services/audit.js";
 import { passwordPolicy } from "../services/password-policy.js";
 import { BUILTIN_CATEGORIES } from "../services/categories.js";
-import { notifyAccessChange } from "../services/access-control.js";
+import { editableGroupKeys, keepLockedHidden, notifyAccessChange } from "../services/access-control.js";
 import { me, shortMeta, pageParam } from "../http.js";
 import { can, type UserRow } from "../models/user.js";
 import { audiencePermissions, groupsOf, usersWithPermissions } from "../services/permissions.js";
@@ -209,6 +209,49 @@ itDataRoutes.get("/settings", async (req, res) => {
   res.json({ data: await settingsJson() });
 });
 
+/** กติกาตรวจค่าการมองเห็นเมนู/ปุ่ม + ลำดับเมนู + ชื่อเมนู (PUT /settings และ PUT /ui-config) */
+const uiRules = (groupKeys: Set<string>, locale: Locale) => ({
+  // สิทธิ์การมองเห็นเมนู/ปุ่ม: { "<key>": ["viewer", ...] } (กลุ่มที่ซ่อน)
+  ui_permissions: ["sometimes", "array", "max:200"],
+  "ui_permissions.*": ["array"],
+  "ui_permissions.*.*": [custom((v) => typeof v === "string" && groupKeys.has(v), trans(locale, "eam.access.invalid_group"))],
+  // ลำดับเมนู: { groups: [...], items: { "<groupId>": ["/href", ...] } }
+  menu_order: ["sometimes", "array"],
+  "menu_order.groups": ["sometimes", "array", "max:50"],
+  "menu_order.groups.*": ["string", "max:50"],
+  "menu_order.items": ["sometimes", "array", "max:50"],
+  "menu_order.items.*": ["array", "max:100"],
+  "menu_order.items.*.*": ["string", "max:100"],
+  // ชื่อเมนูที่แก้เอง: { "<group id | /href>": { th, en } } — ต้องกรอกทั้งสองภาษา (กันชื่อสองภาษาไม่ตรงกัน)
+  menu_labels: ["sometimes", "array", "max:100"],
+  "menu_labels.*": ["array"],
+  "menu_labels.*.th": ["required", "string", "max:60"],
+  "menu_labels.*.en": ["required", "string", "max:60"],
+});
+
+// object ว่างเก็บเป็น [] เหมือน PHP (json_encode ของ array ว่าง)
+const emptyToList = (v: unknown) => (v && typeof v === "object" && Object.keys(v).length === 0 ? [] : v);
+
+/** ค่าที่ผ่าน uiRules → ค่าที่เก็บใน app_settings (เฉพาะคีย์ที่ส่งมา) */
+function uiValues(data: Record<string, unknown>): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  if ("ui_permissions" in data) values.ui_permissions = emptyToList(data.ui_permissions);
+  if ("menu_order" in data) values.menu_order = emptyToList(data.menu_order);
+  if ("menu_labels" in data) {
+    const raw = (data.menu_labels ?? {}) as Record<string, { th: string; en: string }>;
+    const clean: Record<string, { th: string; en: string }> = {};
+    for (const [key, v] of Object.entries(raw)) {
+      // key = id กลุ่มเมนู (a-z, -) หรือ path ของเมนู (/...)
+      if (!/^(\/[a-z0-9\-/]{1,99}|[a-z][a-z0-9-]{0,49})$/.test(key)) continue;
+      const th = String(v.th).trim();
+      const en = String(v.en).trim();
+      if (th && en) clean[key] = { th, en };
+    }
+    values.menu_labels = emptyToList(clean);
+  }
+  return values;
+}
+
 itDataRoutes.put("/settings", async (req, res) => {
   settings(req);
   // การมองเห็นเมนู/ปุ่ม และชื่อเมนู = ส่วนหนึ่งของหน้าสิทธิ์การใช้งาน (สงวนไว้ให้ผู้ดูแลระบบ)
@@ -228,22 +271,7 @@ itDataRoutes.put("/settings", async (req, res) => {
       "notify_emails.*": ["required", "email", "max:255", "distinct:ignore_case"],
       ticket_other_types: ["sometimes", "array", "max:30"],
       "ticket_other_types.*": ["required", "string", "max:100", "distinct"],
-      // สิทธิ์การมองเห็นเมนู/ปุ่ม: { "<key>": ["viewer", ...] }
-      ui_permissions: ["sometimes", "array", "max:200"],
-      "ui_permissions.*": ["array"],
-      "ui_permissions.*.*": [custom((v) => typeof v === "string" && groupKeys.has(v), trans(req.locale, "eam.access.invalid_group"))],
-      // ลำดับเมนู: { groups: [...], items: { "<groupId>": ["/href", ...] } }
-      menu_order: ["sometimes", "array"],
-      "menu_order.groups": ["sometimes", "array", "max:50"],
-      "menu_order.groups.*": ["string", "max:50"],
-      "menu_order.items": ["sometimes", "array", "max:50"],
-      "menu_order.items.*": ["array", "max:100"],
-      "menu_order.items.*.*": ["string", "max:100"],
-      // ชื่อเมนูที่แก้เอง: { "<group id | /href>": { th, en } } — ต้องกรอกทั้งสองภาษา (กันชื่อสองภาษาไม่ตรงกัน)
-      menu_labels: ["sometimes", "array", "max:100"],
-      "menu_labels.*": ["array"],
-      "menu_labels.*.th": ["required", "string", "max:60"],
-      "menu_labels.*.en": ["required", "string", "max:60"],
+      ...uiRules(groupKeys, req.locale),
       // การป้องกันตอนเปิดดูรหัสผ่าน / License key (services/secret-guard.ts) — เปิด-ปิดแยกกัน
       secret_guard: ["sometimes", "array"],
       "secret_guard.reauth": ["sometimes", "boolean"],
@@ -299,22 +327,7 @@ itDataRoutes.put("/settings", async (req, res) => {
   if ("notify_emails" in data) {
     values.notify_emails = [...new Set(Object.values(data.notify_emails as Record<string, string>).map((s) => s.toLowerCase()))];
   }
-  // object ว่างเก็บเป็น [] เหมือน PHP (json_encode ของ array ว่าง)
-  const emptyToList = (v: unknown) => (v && typeof v === "object" && Object.keys(v).length === 0 ? [] : v);
-  if ("ui_permissions" in data) values.ui_permissions = emptyToList(data.ui_permissions);
-  if ("menu_order" in data) values.menu_order = emptyToList(data.menu_order);
-  if ("menu_labels" in data) {
-    const raw = (data.menu_labels ?? {}) as Record<string, { th: string; en: string }>;
-    const clean: Record<string, { th: string; en: string }> = {};
-    for (const [key, v] of Object.entries(raw)) {
-      // key = id กลุ่มเมนู (a-z, -) หรือ path ของเมนู (/...)
-      if (!/^(\/[a-z0-9\-/]{1,99}|[a-z][a-z0-9-]{0,49})$/.test(key)) continue;
-      const th = String(v.th).trim();
-      const en = String(v.en).trim();
-      if (th && en) clean[key] = { th, en };
-    }
-    values.menu_labels = emptyToList(clean);
-  }
+  Object.assign(values, uiValues(data));
   if ("secret_guard" in data && data.secret_guard && typeof data.secret_guard === "object") {
     const g = data.secret_guard as Record<string, unknown>;
     const current = await secretGuard();
@@ -361,6 +374,37 @@ itDataRoutes.get("/ui-config", async (_req, res) => {
   res.json({
     data: { ui_permissions: s.ui_permissions, menu_order: s.menu_order, menu_labels: s.menu_labels, role_permissions: await audiencePermissions(), logo_version: s.logo_version ?? null },
   });
+});
+
+/**
+ * PUT /ui-config { ui_permissions?, menu_order?, menu_labels? } — หน้า สิทธิ์การใช้งาน (/permissions)
+ * access.manage = ทุกกลุ่ม · access.groups (admin) = ซ่อน/แสดงได้เฉพาะกลุ่มที่ต่ำกว่า (กลุ่มอื่นคงตามเดิม) + ลำดับ/ชื่อเมนู
+ * เป็นการซ่อนเพิ่มจากสิทธิ์จริงเท่านั้น (สิทธิ์ตรวจที่ API เสมอ) — audit ทุกครั้ง
+ */
+itDataRoutes.put("/ui-config", async (req, res) => {
+  const u = me(req);
+  authorize(can(u, "access.manage") || can(u, "access.groups"));
+  const groupKeys = new Set((await select<{ key: string }>('SELECT "key" FROM permission_groups')).map((g) => g.key));
+  const data = await validate(req.input, uiRules(groupKeys, req.locale), { locale: req.locale });
+  const values = uiValues(data);
+  const s = await allSettings();
+  const asMap = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, string[]>) : {});
+  if ("ui_permissions" in values) {
+    values.ui_permissions = emptyToList(keepLockedHidden(await editableGroupKeys(u, req.locale), asMap(s.ui_permissions), asMap(values.ui_permissions)));
+  }
+  for (const [key, value] of Object.entries(values)) await putSetting(key, value, u.id);
+  const changed = Object.keys(values).filter((k) => JSON.stringify(s[k] ?? []) !== JSON.stringify(values[k]));
+  if (changed.length) {
+    await audit(req, {
+      action: "settings.ui_config_updated",
+      subjectType: "settings",
+      subjectId: "ui_config",
+      before: Object.fromEntries(changed.map((k) => [k, s[k] ?? null])),
+      after: Object.fromEntries(changed.map((k) => [k, values[k]])),
+    });
+  }
+  const fresh = await allSettings();
+  res.json({ data: { ui_permissions: fresh.ui_permissions, menu_order: fresh.menu_order, menu_labels: fresh.menu_labels } });
 });
 
 /* ================================================================ แจ้งเตือนในระบบ (กระดิ่ง) */

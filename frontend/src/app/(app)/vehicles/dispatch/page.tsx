@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CheckCircleIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
-import { card } from "@/components/ui";
+import { alert, card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser, has } from "@/lib/auth";
@@ -17,16 +17,16 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("vehicle.dispatch.title") };
 }
 
-const TABS = ["unassigned", "upcoming"] as const;
+const TABS = ["pending", "upcoming"] as const;
 const TAB_CLS = (active: boolean) =>
   `whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
 
-/** จัดคิวรถ (vehicle.dispatch) — เลือกรถให้การจองที่ยังไม่ระบุรถ / เปลี่ยนรถของการจองที่กำลังจะถึง */
+/** จัดคิวรถ (vehicle.dispatch) — รออนุมัติ (กดเข้าหน้าอนุมัติ: เห็นคิวรถทั้งวัน เปลี่ยนรถ อนุมัติ/ไม่อนุมัติ) / อนุมัติแล้วที่กำลังจะถึง (เปลี่ยนรถได้) */
 export default async function VehicleDispatchPage({ searchParams }: PageProps<"/vehicles/dispatch">) {
   const user = await getCurrentUser();
   if (!has(user, "vehicle.dispatch")) redirect("/vehicles");
   const sp = await searchParams;
-  const status = TABS.find((s) => s === sp.status) ?? "unassigned";
+  const status = TABS.find((s) => s === sp.status) ?? "pending";
   const today = localToday();
   const [{ t }, items, vehicles, busy] = await Promise.all([
     getI18n(),
@@ -39,6 +39,12 @@ export default async function VehicleDispatchPage({ searchParams }: PageProps<"/
   return (
     <div className="space-y-5">
       <PageHeader icon={CheckCircleIcon} title={t("vehicle.dispatch.title")} subtitle={t("vehicle.dispatch.subtitle")} />
+      {(sp.done === "approved" || sp.done === "rejected") && (
+        <p role="status" className={alert.success}>
+          <CheckCircleIcon className="shrink-0" />
+          {t(sp.done === "approved" ? "vehicle.approval.approvedDone" : "vehicle.approval.rejectedDone")}
+        </p>
+      )}
       <nav className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1">
         {TABS.map((s) => (
           <Link key={s} href={`/vehicles/dispatch?status=${s}`} aria-current={s === status ? "page" : undefined} className={`cursor-pointer ${TAB_CLS(s === status)}`}>

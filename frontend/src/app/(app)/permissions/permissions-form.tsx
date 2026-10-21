@@ -34,11 +34,14 @@ export function PermissionsForm({
   initial,
   groups,
   defaultNames,
+  editable,
 }: {
   initial: UiConfig;
   groups: PermissionGroupRow[];
   /** ชื่อตั้งต้นของเมนูทั้งสองภาษา { "<group id | /href>": { th, en } } */
   defaultNames: Record<string, { th: string; en: string }>;
+  /** กลุ่มที่ติ๊กได้ (null = ทุกกลุ่ม — ผู้ดูแลระบบสูงสุด) — กลุ่มอื่นอ่านอย่างเดียว */
+  editable: string[] | null;
 }) {
   const { t, locale } = useI18n();
   const AUDIENCES = useMemo(() => groups.map((g) => g.key), [groups]);
@@ -86,18 +89,19 @@ export function PermissionsForm({
   /** ช่องติ๊กของ 1 รายการ × 1 กลุ่ม */
   const cell = (key: string, a: Audience, systemAllows: boolean) => {
     const locked = a === "super_admin" && ALWAYS_FOR_ADMIN.has(key);
+    const higher = editable !== null && !editable.includes(a);
     const visible = locked || (systemAllows && !(deny[key] ?? []).includes(a));
     const box = (
       <input
         type="checkbox"
         checked={visible}
-        disabled={!systemAllows || locked}
+        disabled={!systemAllows || locked || higher}
         onChange={() => toggle(key, a)}
         aria-label={`${key} — ${audienceName(a)}`}
         className="h-4 w-4 cursor-pointer accent-[var(--accent-500)] disabled:cursor-not-allowed disabled:opacity-40"
       />
     );
-    const hint = locked ? t("permissions.adminLocked") : !systemAllows ? t("permissions.systemDenied") : null;
+    const hint = locked ? t("permissions.adminLocked") : !systemAllows ? t("permissions.systemDenied") : higher ? t("permissions.higherGroup") : null;
     return (
       <td key={a} className="px-3 py-2.5 text-center">
         {hint ? (

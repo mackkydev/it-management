@@ -35,6 +35,8 @@ export const DEFAULTS = {
   leave_settings: null as unknown,
   // ห้องประชุม/รถตามสาขา ต่อกลุ่ม { meeting: { group_key: "branch" | "all" }, vehicle: { … } } (services/booking-scope.ts)
   booking_scope: null as unknown,
+  // ขอบเขตการจัดการตามสาขา ต่อกลุ่ม { group_key: "all" | "branch" } (services/manage-scope.ts) — ไม่ตั้ง = ทุกสาขา
+  manage_scope: null as unknown,
 };
 
 export type Settings = typeof DEFAULTS & Record<string, unknown>;
