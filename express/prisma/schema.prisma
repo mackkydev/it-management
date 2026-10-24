@@ -749,6 +749,8 @@ model users {
   login_locked_until                                       DateTime?                  @db.DateTime(0)
   /// เปลี่ยนรหัสผ่านล่าสุด (บังคับเปลี่ยนทุก password_policy.expiry_days วัน) — null = นับจากวันที่เปิดนโยบาย
   password_changed_at                                      DateTime?                  @db.DateTime(0)
+  /// ต้องเปลี่ยนรหัสผ่านก่อนใช้งาน (ผู้ดูแลสร้างผู้ใช้ / รีเซ็ตรหัสผ่านขณะเปิด password_policy.force_first_change)
+  must_change_password                                     Boolean                    @default(false)
   /// สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing (null = ยังไม่เคยซิงค์) — ซิงค์ปิดใช้งาน/เปิดคืนเฉพาะที่ซิงค์เป็นคนปิด
   external_status                                          String?                    @db.VarChar(20)
   remember_token                                           String?                    @db.VarChar(100)

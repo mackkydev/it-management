@@ -151,6 +151,47 @@ describe("signatures in IT tickets", () => {
     expect(file.headers["content-type"]).toBe("image/png");
   });
 
+  it("require_signature switch: no profile signature = cannot submit / approve tickets or submit / approve leave", async () => {
+    const root = await as(await makeUser({ role: "super_admin" }));
+    // ตั้งได้เฉพาะ settings.manage (super_admin) — admin ไม่ได้
+    expect((await (await as(await makeUser({ role: "admin" }))).put("/api/v1/settings").send({ require_signature: true })).status).toBe(403);
+    expect((await root.put("/api/v1/settings").send({ require_signature: true })).status).toBe(200);
+    expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'settings.require_signature'")).toBe(1);
+
+    const branch = await makeBranch();
+    const boss = await makeUser({ role: "manager", name: "หัวหน้า", branch_id: branch });
+    const staff = await makeUser({ name: "Staff", supervisor_id: boss.id, branch_id: branch });
+    const api = await as(staff, "th");
+    const bossApi = await as(boss, "th");
+    const it_ = await makeUser({ is_it_staff: true });
+    expect((await api.get("/api/v1/auth/me")).body.data).toMatchObject({ signature_required: true, has_signature: false });
+    const submit = () => api.post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "ติดตั้งโปรแกรม", assignee_id: it_.id, approver_id: boss.id });
+
+    const blocked = await submit();
+    expect(blocked.status).toBe(422);
+    expect(blocked.body.errors.signature[0]).toContain("ลายเซ็น");
+    const leave = { leave_type: "personal", unit: "full", start_on: "2099-03-02", end_on: "2099-03-02", reason: "ธุระ", approver_id: boss.id };
+    expect((await api.post("/api/v1/leave").send(leave)).status).toBe(422);
+
+    await api.post("/api/v1/auth/me/signature").attach("signature", await realImage(), "sig.png");
+    const ok = await submit();
+    expect(ok.status).toBe(201);
+    const leaveOk = await api.post("/api/v1/leave").send(leave);
+    expect(leaveOk.status).toBe(201);
+
+    // ผู้อนุมัติยังไม่มีลายเซ็น = อนุมัติไม่ได้ (ไม่อนุมัติ/ส่งกลับยังทำได้)
+    expect((await bossApi.post(`/api/v1/tickets/${ok.body.data.id}/approve`).send({})).status).toBe(422);
+    expect((await bossApi.post(`/api/v1/leave/${leaveOk.body.data.id}/approve`).send({})).status).toBe(422);
+    await bossApi.post("/api/v1/auth/me/signature").attach("signature", await realImage(), "sig.png");
+    expect((await bossApi.post(`/api/v1/tickets/${ok.body.data.id}/approve`).send({})).status).toBe(200);
+    expect((await bossApi.post(`/api/v1/leave/${leaveOk.body.data.id}/approve`).send({})).status).toBe(200);
+
+    // ปิดสวิตช์ = ใช้ได้ตามเดิม
+    await root.put("/api/v1/settings").send({ require_signature: false });
+    const other = await as(await makeUser());
+    expect((await other.post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x", assignee_id: it_.id })).status).toBe(201);
+  });
+
   it("old tickets without a copy show the requester's current signature only to the requester or holders of signature.use", async () => {
     const branch = await makeBranch();
     const staff = await makeUser({ name: "Staff" });

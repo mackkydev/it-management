@@ -24,6 +24,8 @@ export interface UserRow {
   login_failures?: number;
   login_locked_until?: string | null;
   password_changed_at?: string | null;
+  /** ต้องเปลี่ยนรหัสผ่านก่อนใช้งาน (มีผลเมื่อเปิด password_policy.force_first_change) */
+  must_change_password?: boolean | number;
   /** สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing */
   external_status: "active" | "disabled" | "missing" | null;
   is_active: boolean;

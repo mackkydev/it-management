@@ -37,6 +37,8 @@ export const DEFAULTS = {
   booking_scope: null as unknown,
   // ขอบเขตการจัดการตามสาขา ต่อกลุ่ม { group_key: "all" | "branch" } (services/manage-scope.ts) — ไม่ตั้ง = ทุกสาขา
   manage_scope: null as unknown,
+  // บังคับให้มีลายเซ็นในโปรไฟล์ก่อนบันทึก/อนุมัติเอกสาร (ใบแจ้งงาน / ใบลา) — services/signatures.ts requireSignature
+  require_signature: false as unknown,
 };
 
 export type Settings = typeof DEFAULTS & Record<string, unknown>;

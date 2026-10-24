@@ -28,11 +28,12 @@ export default async function PasswordExpiredPage() {
           <LockIcon />
         </span>
         <div>
-          <h1 className="text-xl font-semibold">{t("passwordExpired.title")}</h1>
-          <p className="mt-1 text-sm text-muted">{t("passwordExpired.hint", { name: user.name })}</p>
+          {/* เข้าสู่ระบบครั้งแรก / ผู้ดูแลรีเซ็ตรหัสผ่าน (นโยบายบังคับเปลี่ยนครั้งแรก) หรือรหัสผ่านหมดอายุตามรอบ */}
+          <h1 className="text-xl font-semibold">{t(user.password_change_required ? "passwordExpired.firstTitle" : "passwordExpired.title")}</h1>
+          <p className="mt-1 text-sm text-muted">{t(user.password_change_required ? "passwordExpired.firstHint" : "passwordExpired.hint", { name: user.name })}</p>
         </div>
       </div>
-      {user.password_expires_at && (
+      {!user.password_change_required && user.password_expires_at && (
         <p role="status" className={alert.warning}>
           {t("passwordExpired.expiredOn", { date: fmt.dateTime(user.password_expires_at) })}
         </p>

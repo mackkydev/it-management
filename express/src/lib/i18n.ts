@@ -57,6 +57,7 @@ const eamTh = {
     health_unreachable: "เชื่อมต่อต้นทางไม่ได้ (ตรวจ URL / เครือข่าย / firewall)",
   },
   signature: {
+    required: "ต้องมีลายเซ็นก่อนบันทึกหรืออนุมัติเอกสาร — อัปโหลดหรือวาดลายเซ็นที่หน้าโปรไฟล์ของฉัน",
     type: "ลายเซ็นต้องเป็นไฟล์ PNG หรือ JPG",
     size: "ลายเซ็นต้องมีขนาดไม่เกิน 1MB",
     empty: "ไม่พบลายเส้นในรูป กรุณาเซ็นใหม่",
@@ -401,6 +402,7 @@ const eamEn: Eam = {
     health_unreachable: "Cannot reach the source (check the URL / network / firewall).",
   },
   signature: {
+    required: "A signature is required before saving or approving documents — upload or draw one on your profile page.",
     type: "The signature must be a PNG or JPG file.",
     size: "The signature must be 1MB or smaller.",
     empty: "No signature strokes found. Please sign again.",

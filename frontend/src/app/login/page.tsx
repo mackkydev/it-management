@@ -58,7 +58,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       <span className="login-orb login-orb-2" aria-hidden="true" />
       <span className="login-orb login-orb-3" aria-hidden="true" />
 
-      <div className="mx-auto grid w-full max-w-6xl items-center gap-12 lg:grid-cols-[1fr_26rem]">
+      <div className="mx-auto grid w-full max-w-6xl grid-cols-1 items-center gap-6 lg:grid-cols-[minmax(0,1fr)_26rem] lg:gap-12">
         {/* ฝั่งซ้าย: ชื่อระบบ + จุดเด่น (ซ่อนบนจอเล็ก) */}
         <section className="login-fade-up hidden lg:block">
           <span className="login-chip login-glow inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium tracking-wide">
@@ -100,10 +100,12 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           {/* <p className="login-muted mt-8 text-center text-xs">{t("auth.sessionNote")}</p> */}
         </section>
 
-        {/* จอเล็ก: ฝั่งซ้ายซ่อนอยู่ — แสดงประกาศใต้กล่อง login แทน */}
-        <section className="lg:hidden">
-          <Announcements items={announcements} title={t("auth.announcements")} />
-        </section>
+        {/* จอเล็ก: ฝั่งซ้ายซ่อนอยู่ — แสดงประกาศด้านบนเหนือกล่อง login (กดอ่านเต็มในป๊อปอัป) */}
+        {announcements.length > 0 && (
+          <section className="login-fade-up order-first lg:hidden">
+            <Announcements items={announcements} title={t("auth.announcements")} />
+          </section>
+        )}
       </div>
     </main>
   );

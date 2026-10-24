@@ -17,7 +17,7 @@ import { audit } from "../services/audit.js";
 import { groupsOf } from "../services/permissions.js";
 import { checkCentralPin, secretGuard, verifyLoginPassword } from "../services/secret-guard.js";
 import { assertNotLocked, clearLoginFailures, passwordChangedNow, passwordPolicy, passwordStatus, recordLoginFailure } from "../services/password-policy.js";
-import { activeSignature, deactivateSignature, mimeOf, readSignature, saveSignature, SignatureError } from "../services/signatures.js";
+import { activeSignature, deactivateSignature, mimeOf, readSignature, saveSignature, SignatureError, signatureRequired } from "../services/signatures.js";
 import type { Locale } from "../lib/i18n.js";
 import {
   challengeValid, confirmSetup, consumeRecoveryCode, disableTwoFactor, issueRecoveryCodes, readChallenge, recoveryCodesLeft, signChallenge, startSetup,
@@ -253,6 +253,8 @@ authRoutes.get("/auth/me", async (req, res) => {
       groups: await groupsOf(u),
       // เมนู "รอฉันอนุมัติ" — แสดงเฉพาะผู้ที่มีงานอนุมัติได้จริง
       can_approve: await canApprove(u),
+      // เปิดบังคับลายเซ็น — ไม่มีลายเซ็น (signature_id null) = หน้าเว็บเตือนและปิดปุ่มบันทึก/อนุมัติเอกสาร
+      signature_required: await signatureRequired(),
       // วันหมดอายุรหัสผ่าน (LOCAL + เปิดบังคับเปลี่ยน) — หมดอายุแล้วหน้าเว็บพาไปหน้าเปลี่ยนรหัสผ่าน
       ...passwordStatus(u, await passwordPolicy()),
       ...(external ? { external_connection: external } : {}),

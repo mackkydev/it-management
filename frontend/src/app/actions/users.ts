@@ -34,7 +34,7 @@ function toPayload(v: UserFormValues, isCreate: boolean) {
     is_it_head: v.is_it_head,
     approval_route_id: v.approval_route_id ? Number(v.approval_route_id) : null,
     // แก้ไข: ส่งรหัสผ่านเฉพาะเมื่อต้องการรีเซ็ต
-    ...(isCreate || v.password ? { password: v.password } : {}),
+    ...(isCreate || v.password ? { password: v.password, password_confirmation: v.password_confirmation } : {}),
   };
 }
 

@@ -548,6 +548,29 @@ body {
 .login-muted {
   color: var(--scene-muted);
 }
+/* ปุ่ม/แถวบนฉาก login: ชี้แล้วพื้นสว่างขึ้นเล็กน้อย */
+.login-hover:hover {
+  background: rgb(255 255 255 / 0.1);
+  color: var(--scene-ink);
+}
+.login-divider {
+  border-color: rgb(255 255 255 / 0.1);
+}
+/* ป๊อปอัปอ่านประกาศ (portal ไป body — นอก .login-scene จึงกำหนดสีชุดเดียวกันเอง) */
+.login-modal {
+  --scene-ink: #e6ecff;
+  --scene-muted: #9aa6c8;
+  --scene-cyan: #22d3ee;
+  color: var(--scene-ink);
+}
+.login-modal-panel {
+  background: linear-gradient(160deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.02)), #0b1124;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 1.25rem;
+  box-shadow:
+    0 30px 80px -20px rgb(2 6 23 / 0.85),
+    0 0 60px -10px rgb(34 211 238 / 0.18);
+}
 .login-glow {
   color: #a5f3fc;
 }

@@ -25,9 +25,11 @@ export interface PasswordPolicy {
   expiry_warn_days: number;
   /** เปิดบังคับเปลี่ยนรหัสผ่านเมื่อไร (UTC "YYYY-MM-DD HH:mm:ss") — จุดเริ่มนับของผู้ที่ยังไม่มี password_changed_at */
   since: string | null;
+  /** บังคับเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบครั้งแรก / หลังผู้ดูแลรีเซ็ตรหัสผ่าน (users.must_change_password) */
+  force_first_change: boolean;
 }
 
-export const PASSWORD_POLICY_DEFAULTS: PasswordPolicy = { lockout_attempts: 10, lockout_minutes: 15, expiry_days: 0, expiry_warn_days: 7, since: null };
+export const PASSWORD_POLICY_DEFAULTS: PasswordPolicy = { lockout_attempts: 10, lockout_minutes: 15, expiry_days: 0, expiry_warn_days: 7, since: null, force_first_change: false };
 
 /** endpoint ที่ใช้ได้ระหว่างรหัสผ่านหมดอายุ (path ใต้ /api/v1) */
 export const PASSWORD_EXPIRED_ALLOWED: { method: string; path: string }[] = [
@@ -48,6 +50,7 @@ export async function passwordPolicy(): Promise<PasswordPolicy> {
     expiry_days: num(raw.expiry_days, d.expiry_days),
     expiry_warn_days: num(raw.expiry_warn_days, d.expiry_warn_days),
     since: typeof raw.since === "string" ? raw.since : null,
+    force_first_change: raw.force_first_change === true,
   };
 }
 
@@ -105,16 +108,32 @@ export function passwordExpiresAt(u: UserRow, policy: PasswordPolicy): Date | nu
   return new Date(parseDb(base).getTime() + policy.expiry_days * 86_400_000);
 }
 
-/** password_warn = ใกล้หมดอายุ (ภายใน expiry_warn_days วัน) — หน้าเว็บแสดงแถบเตือนให้เปลี่ยนก่อน */
-export function passwordStatus(u: UserRow, policy: PasswordPolicy): { password_expires_at: string | null; password_expired: boolean; password_warn: boolean } {
+/** ต้องตั้งรหัสผ่านใหม่ก่อนใช้งาน (ผู้ใช้ใหม่ / ผู้ดูแลรีเซ็ตรหัสผ่าน) — มีผลเฉพาะเมื่อเปิด force_first_change */
+export const mustChangePassword = (u: UserRow, policy: PasswordPolicy) => isLocal(u) && policy.force_first_change && Boolean(u.must_change_password);
+
+/**
+ * password_warn = ใกล้หมดอายุ (ภายใน expiry_warn_days วัน) — หน้าเว็บแสดงแถบเตือนให้เปลี่ยนก่อน
+ * password_change_required = ต้องตั้งรหัสผ่านใหม่ (ครั้งแรก) — นับเป็น password_expired ด้วย (middleware ตอบ 403 เหมือนรหัสผ่านหมดอายุ)
+ */
+export function passwordStatus(
+  u: UserRow,
+  policy: PasswordPolicy,
+): { password_expires_at: string | null; password_expired: boolean; password_warn: boolean; password_change_required: boolean } {
   const at = passwordExpiresAt(u, policy);
   const left = at ? at.getTime() - Date.now() : null;
+  const first = mustChangePassword(u, policy);
   return {
+    password_change_required: first,
     password_expires_at: at ? iso(toDbDateTime(at)) : null,
-    password_expired: left !== null && left <= 0,
+    password_expired: first || (left !== null && left <= 0),
     password_warn: left !== null && left > 0 && left <= policy.expiry_warn_days * 86_400_000,
   };
 }
 
-/** ตั้งรหัสผ่านใหม่แล้ว — เริ่มนับวันหมดอายุใหม่ */
-export const passwordChangedNow = () => ({ password_changed_at: nowDb() });
+/** ตั้งรหัสผ่านใหม่แล้ว — เริ่มนับวันหมดอายุใหม่ (ผู้ใช้เปลี่ยนเอง = ไม่ต้องเปลี่ยนครั้งแรกแล้ว) */
+export const passwordChangedNow = () => ({ password_changed_at: nowDb(), must_change_password: false });
+
+/** ผู้ดูแลตั้งรหัสผ่านให้ผู้อื่น (สร้างผู้ใช้ / รีเซ็ต) — เปิด force_first_change = ผู้ใช้ต้องเปลี่ยนเองตอนเข้าสู่ระบบ */
+export async function passwordSetByAdmin(): Promise<{ password_changed_at: string; must_change_password: boolean }> {
+  return { password_changed_at: nowDb(), must_change_password: (await passwordPolicy()).force_first_change };
+}

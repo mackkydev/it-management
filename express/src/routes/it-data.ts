@@ -286,6 +286,8 @@ itDataRoutes.put("/settings", async (req, res) => {
       "secret_guard.notify_user_ids": ["sometimes", "array", "max:50"],
       "secret_guard.notify_user_ids.*": ["integer"],
       two_factor_required: ["sometimes", "boolean"],
+      // บังคับให้มีลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (settings.manage)
+      require_signature: ["sometimes", "boolean"],
       password_policy: ["sometimes", "array"],
       // 0 = ไม่ล็อกบัญชี
       "password_policy.lockout_attempts": ["sometimes", "integer", "min:0", "max:50"],
@@ -293,6 +295,8 @@ itDataRoutes.put("/settings", async (req, res) => {
       // 0 = ไม่บังคับเปลี่ยนรหัสผ่าน
       "password_policy.expiry_days": ["sometimes", "integer", "min:0", "max:730"],
       "password_policy.expiry_warn_days": ["sometimes", "integer", "min:0", "max:60"],
+      // บังคับเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบครั้งแรก / หลังผู้ดูแลรีเซ็ต
+      "password_policy.force_first_change": ["sometimes", "boolean"],
     },
     {
       locale: req.locale,
@@ -342,6 +346,7 @@ itDataRoutes.put("/settings", async (req, res) => {
     };
   }
   if ("two_factor_required" in data) values.two_factor_required = bool(data.two_factor_required);
+  if ("require_signature" in data) values.require_signature = bool(data.require_signature);
   if ("password_policy" in data && data.password_policy && typeof data.password_policy === "object") {
     const p = data.password_policy as Record<string, unknown>;
     const current = await passwordPolicy();
@@ -351,6 +356,7 @@ itDataRoutes.put("/settings", async (req, res) => {
       expiry_days: "expiry_days" in p ? int(p.expiry_days)! : current.expiry_days,
       expiry_warn_days: "expiry_warn_days" in p ? int(p.expiry_warn_days)! : current.expiry_warn_days,
       since: current.since,
+      force_first_change: "force_first_change" in p ? bool(p.force_first_change) : current.force_first_change,
     };
     // เพิ่งเปิดบังคับเปลี่ยน → ผู้ที่ยังไม่มีวันเปลี่ยนรหัสผ่านเริ่มนับจากวันนี้ (ไม่หมดอายุทันที) / ปิด = ล้างจุดเริ่มนับ
     if (next.expiry_days > 0 && (current.expiry_days <= 0 || !current.since)) next.since = nowDb();
@@ -358,6 +364,7 @@ itDataRoutes.put("/settings", async (req, res) => {
     values.password_policy = next;
   }
   for (const [key, value] of Object.entries(values)) await putSetting(key, value, u.id);
+  if ("require_signature" in values) await audit(req, { action: "settings.require_signature", subjectType: "settings", subjectId: "require_signature", after: { required: values.require_signature } });
   if ("two_factor_required" in values) await audit(req, { action: "settings.two_factor_required", subjectType: "settings", subjectId: "two_factor_required", after: { required: values.two_factor_required } });
   if ("menu_labels" in values) await audit(req, { action: "settings.menu_labels_updated", subjectType: "settings", subjectId: "menu_labels", after: { labels: values.menu_labels } });
   if ("password_policy" in values) await audit(req, { action: "settings.password_policy_updated", subjectType: "settings", subjectId: "password_policy", after: values.password_policy as Record<string, unknown> });

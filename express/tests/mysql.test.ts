@@ -11,7 +11,7 @@ describe("MySQL behaviour parity", () => {
     expect(dup.body.errors).toHaveProperty("code");
 
     await makeUser({ email: "taken@example.com" });
-    const email = await admin.post("/api/v1/users").send({ name: "x", email: "TAKEN@example.com", role: "viewer", password: "Secret123" });
+    const email = await admin.post("/api/v1/users").send({ name: "x", email: "TAKEN@example.com", role: "viewer", password: "Secret123", password_confirmation: "Secret123" });
     expect(email.body.errors).toHaveProperty("email");
   });
 

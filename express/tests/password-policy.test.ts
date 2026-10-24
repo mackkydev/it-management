@@ -16,7 +16,7 @@ describe("password policy", () => {
   it("defaults: lockout after 10 failures for 15 minutes, no password expiry", async () => {
     const api = await superAdmin();
     const s = (await api.get("/api/v1/settings")).body.data.password_policy;
-    expect(s).toEqual({ lockout_attempts: 10, lockout_minutes: 15, expiry_days: 0, expiry_warn_days: 7, since: null });
+    expect(s).toEqual({ lockout_attempts: 10, lockout_minutes: 15, expiry_days: 0, expiry_warn_days: 7, since: null, force_first_change: false });
   });
 
   it("locks the account after N failed sign-ins, even with the right password, and notifies admins", async () => {
@@ -109,12 +109,52 @@ describe("password policy", () => {
     expect((await fresh.get("/api/v1/notifications")).status).toBe(200);
   });
 
+  it("first sign-in password change: users created or reset by an admin must set their own password (switch on only)", async () => {
+    const root = await superAdmin();
+    const body = { name: "ใหม่", email: "first@example.com", role: "viewer", password: "Admin1234", password_confirmation: "Admin1234" };
+    // ปิดอยู่ (ค่าตั้งต้น) = ใช้งานได้ทันที
+    const off = await root.post("/api/v1/users").send(body);
+    expect(off.status).toBe(201);
+    const t0 = (await login("first@example.com", "Admin1234")).body.token;
+    expect((await guest().get("/api/v1/auth/me").set("Authorization", `Bearer ${t0}`)).body.data.password_change_required).toBe(false);
+
+    // เฉพาะผู้ดูแลระบบสูงสุด (access.manage) เปิดได้
+    expect((await (await as(await makeUser({ role: "manager" }))).put("/api/v1/settings").send({ password_policy: { force_first_change: true } })).status).toBe(403);
+    expect((await root.put("/api/v1/settings").send({ password_policy: { force_first_change: true } })).status).toBe(200);
+    expect((await root.get("/api/v1/settings")).body.data.password_policy.force_first_change).toBe(true);
+
+    // ยืนยันรหัสผ่านไม่ตรง = 422
+    expect((await root.put(`/api/v1/users/${off.body.data.id}`).send({ password: "Reset1234", password_confirmation: "Other1234" })).status).toBe(422);
+    // รีเซ็ตให้ผู้อื่น → ต้องเปลี่ยนเองก่อนใช้งาน (เหมือนรหัสผ่านหมดอายุ)
+    expect((await root.put(`/api/v1/users/${off.body.data.id}`).send({ password: "Reset1234", password_confirmation: "Reset1234" })).status).toBe(200);
+    const token = (await login("first@example.com", "Reset1234")).body.token;
+    const api = (path: string) => guest().get(path).set("Authorization", `Bearer ${token}`);
+    expect((await api("/api/v1/auth/me")).body.data).toMatchObject({ password_change_required: true, password_expired: true });
+    const blocked = await api("/api/v1/tickets");
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.code).toBe("password_expired");
+    const changed = await guest()
+      .put("/api/v1/auth/password")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ current_password: "Reset1234", password: "Mine12345", password_confirmation: "Mine12345" });
+    expect(changed.status).toBe(204);
+    expect(await scalar("SELECT must_change_password FROM users WHERE id = ?", [off.body.data.id])).toBe(false);
+    expect((await api("/api/v1/tickets")).status).toBe(200);
+
+    // ปิดสวิตช์ = ผู้ที่ค้างอยู่ใช้งานได้ทันที
+    const later = await root.post("/api/v1/users").send({ ...body, email: "later@example.com" });
+    expect(await scalar("SELECT must_change_password FROM users WHERE id = ?", [later.body.data.id])).toBe(true);
+    await root.put("/api/v1/settings").send({ password_policy: { force_first_change: false } });
+    const t2 = (await login("later@example.com", "Admin1234")).body.token;
+    expect((await guest().get("/api/v1/tickets").set("Authorization", `Bearer ${t2}`)).status).toBe(200);
+  });
+
   it("an admin password reset restarts the clock and clears the lock", async () => {
     const root = await superAdmin();
     await root.put("/api/v1/settings").send({ password_policy: { expiry_days: 30 } });
     const u = await makeUser({ email: "reset@test.local" });
     await exec("UPDATE users SET password_changed_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 40 DAY), login_failures = 4, login_locked_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 MINUTE) WHERE id = ?", [u.id]);
-    expect((await root.put(`/api/v1/users/${u.id}`).send({ password: "Reset1234" })).status).toBe(200);
+    expect((await root.put(`/api/v1/users/${u.id}`).send({ password: "Reset1234", password_confirmation: "Reset1234" })).status).toBe(200);
     const row = await first<{ login_failures: number; login_locked_until: string | null }>("SELECT login_failures, login_locked_until FROM users WHERE id = ?", [u.id]);
     expect(row).toMatchObject({ login_failures: 0, login_locked_until: null });
     const r = await login("reset@test.local", "Reset1234");

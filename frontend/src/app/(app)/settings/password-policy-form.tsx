@@ -12,12 +12,14 @@ const LIMITS: Record<Field, [number, number]> = { lockout_attempts: [1, 50], loc
 
 /**
  * นโยบายรหัสผ่าน (บัญชีในระบบ — ผู้ใช้จาก API เปลี่ยนรหัสที่ระบบต้นทาง) แก้ได้เฉพาะ access.manage:
- * ล็อกบัญชีเมื่อเข้าสู่ระบบผิดติดกัน (รหัสผ่าน / รหัส 2FA) และบังคับเปลี่ยนรหัสผ่านทุก N วัน — ปิด = ส่ง 0
+ * ล็อกบัญชีเมื่อเข้าสู่ระบบผิดติดกัน (รหัสผ่าน / รหัส 2FA), บังคับเปลี่ยนรหัสผ่านทุก N วัน — ปิด = ส่ง 0
+ * และบังคับเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบครั้งแรก (ผู้ดูแลสร้างผู้ใช้ / รีเซ็ตรหัสผ่าน)
  */
 export function PasswordPolicyForm({ initial }: { initial: PasswordPolicy }) {
   const { t, fmt } = useI18n();
   const [lockout, setLockout] = useState(initial.lockout_attempts > 0);
   const [expiry, setExpiry] = useState(initial.expiry_days > 0);
+  const [firstChange, setFirstChange] = useState(Boolean(initial.force_first_change));
   // ค่าในช่อง (ปิดอยู่ = ค่าแนะนำไว้ให้เมื่อเปิด)
   const [v, setV] = useState<Record<Field, string>>({
     lockout_attempts: String(initial.lockout_attempts || 10),
@@ -47,6 +49,7 @@ export function PasswordPolicyForm({ initial }: { initial: PasswordPolicy }) {
     const policy: Partial<PasswordPolicy> = {
       lockout_attempts: lockout ? Number(v.lockout_attempts) : 0,
       expiry_days: expiry ? Number(v.expiry_days) : 0,
+      force_first_change: firstChange,
       ...(lockout ? { lockout_minutes: Number(v.lockout_minutes) } : {}),
       ...(expiry ? { expiry_warn_days: Number(v.expiry_warn_days) } : {}),
     };
@@ -129,6 +132,10 @@ export function PasswordPolicyForm({ initial }: { initial: PasswordPolicy }) {
             </p>
           </div>
         )}
+      </div>
+
+      <div className="rounded-xl p-4 ring-1 ring-line">
+        {toggle("pp-first", firstChange, setFirstChange, t("settingsPage.passwordPolicy.firstChangeTitle"), t("settingsPage.passwordPolicy.firstChangeHint"))}
       </div>
 
       {result.message && (

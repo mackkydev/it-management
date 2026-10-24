@@ -119,8 +119,8 @@ describe("division ↔ departments + Excel import", () => {
 describe("new roles", () => {
   it("division manager role; the IT staff role is gone — IT permissions come from the role (admin) or a group", async () => {
     const admin = await as(await makeUser({ role: "super_admin" }));
-    expect((await admin.post("/api/v1/users").send({ name: "IT", email: "it.old@example.com", role: "it_staff", password: "Pass-1234" })).status).toBe(422);
-    const res = await admin.post("/api/v1/users").send({ name: "IT ใหม่", email: "it.new@example.com", role: "viewer", is_it_staff: true, password: "Pass-1234" });
+    expect((await admin.post("/api/v1/users").send({ name: "IT", email: "it.old@example.com", role: "it_staff", password: "Pass-1234", password_confirmation: "Pass-1234" })).status).toBe(422);
+    const res = await admin.post("/api/v1/users").send({ name: "IT ใหม่", email: "it.new@example.com", role: "viewer", is_it_staff: true, password: "Pass-1234", password_confirmation: "Pass-1234" });
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ role: "viewer", is_it_staff: true });
     const me = await as((await first<UserRow>("SELECT * FROM users WHERE id = ?", [res.body.data.id]))!);
@@ -129,7 +129,7 @@ describe("new roles", () => {
     await admin.put(`/api/v1/users/${res.body.data.id}/permissions`).send({ role: "admin" });
     expect((await me.get("/api/v1/tickets?scope=it")).status).toBe(200);
 
-    const dm = await admin.post("/api/v1/users").send({ name: "ผจก.ฝ่าย", email: "dm@example.com", role: "division_manager", password: "Pass-1234" });
+    const dm = await admin.post("/api/v1/users").send({ name: "ผจก.ฝ่าย", email: "dm@example.com", role: "division_manager", password: "Pass-1234", password_confirmation: "Pass-1234" });
     expect(dm.body.data.role).toBe("division_manager");
   });
 

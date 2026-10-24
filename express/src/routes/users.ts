@@ -13,7 +13,7 @@ import { disableTwoFactor } from "../services/two-factor.js";
 import { lastLocalSuperAdmin, notifyAccessChange, roleChangeError } from "../services/access-control.js";
 import { audit } from "../services/audit.js";
 import { canFor, scopeOf, scopeWhere } from "../services/manage-scope.js";
-import { loginLockedMinutes, passwordChangedNow } from "../services/password-policy.js";
+import { loginLockedMinutes, passwordChangedNow, passwordSetByAdmin } from "../services/password-policy.js";
 import { userResource } from "../resources.js";
 
 /** UserController — ตัวเลือกผู้ถือครอง (admin/manager) และจัดการผู้ใช้ (users.create / update / delete) */
@@ -172,7 +172,8 @@ async function validatedUser(req: Request, target: UserRow | null) {
       username: ["sometimes", "nullable", "string", "min:3", "max:50", regex(/^[A-Za-z0-9._-]+$/), unique("users", "username", target?.id)],
       role: [...s, "required", `in:${ROLES.join(",")}`],
       is_active: ["sometimes", "boolean"],
-      password: [target ? "nullable" : "required", "string", password(8, { letters: true, numbers: true })],
+      // ต้องกรอกยืนยันรหัสผ่าน (password_confirmation) ให้ตรงกัน
+      password: [target ? "nullable" : "required", "string", "confirmed", password(8, { letters: true, numbers: true })],
       branch_id: ["sometimes", "nullable", "integer", exists("branches", "id", "deleted_at IS NULL")],
       department: ["sometimes", "nullable", "string", "max:100"],
       division: ["sometimes", "nullable", "string", "max:100"],
@@ -224,7 +225,8 @@ userRoutes.post("/users", async (req, res) => {
     role: data.role,
     is_active: "is_active" in req.input ? bool(req.input.is_active) : true,
     password: makeHash(String(data.password), config.bcryptRounds),
-    ...passwordChangedNow(),
+    // เปิดบังคับเปลี่ยนรหัสผ่านครั้งแรก = ผู้ใช้ใหม่ต้องตั้งรหัสผ่านเองตอนเข้าสู่ระบบ
+    ...(await passwordSetByAdmin()),
     ...orgColumns(data),
     created_at: now,
     updated_at: now,
@@ -250,7 +252,9 @@ async function updateUser(req: Request, res: import("express").Response) {
     if ("is_active" in data) changes.is_active = bool(data.is_active);
     const newPassword = target.type === "LOCAL" && typeof req.input.password === "string" && req.input.password !== "";
     // รีเซ็ตรหัสผ่าน = เริ่มนับวันหมดอายุใหม่ + ปลดล็อกการ login
-    if (newPassword) Object.assign(changes, { password: makeHash(req.input.password, config.bcryptRounds), ...passwordChangedNow(), login_failures: 0, login_locked_until: null });
+    // รีเซ็ตให้ผู้อื่น = ต้องเปลี่ยนเองตอนเข้าสู่ระบบ (ถ้าเปิดนโยบาย) / แก้ของตัวเอง = ไม่ต้อง
+    const changed = target.id === me(req).id ? passwordChangedNow() : await passwordSetByAdmin();
+    if (newPassword) Object.assign(changes, { password: makeHash(req.input.password, config.bcryptRounds), ...changed, login_failures: 0, login_locked_until: null });
 
     if (Object.keys(changes).length) await update("users", { ...changes, updated_at: nowDb() }, "id = ?", [target.id]);
 

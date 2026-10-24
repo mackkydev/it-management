@@ -162,7 +162,7 @@ describe("access management (local admin)", () => {
   it("the user form: API users cannot get a password; role/status changes are audited", async () => {
     const admin = await as(await makeUser({ role: "super_admin" }), "th");
     const person = await apiUser(await connection(), { email: null });
-    const bad = await admin.patch(`/api/v1/users/${person.id}`).send({ password: "NewPass-123", role: "admin" });
+    const bad = await admin.patch(`/api/v1/users/${person.id}`).send({ password: "NewPass-123", password_confirmation: "NewPass-123", role: "admin" });
     expect(Object.keys(bad.body.errors).sort()).toEqual(["password"]);
     expect((await admin.patch(`/api/v1/users/${person.id}`).send({ email: null, role: "manager", department: "IT" })).status).toBe(200);
 

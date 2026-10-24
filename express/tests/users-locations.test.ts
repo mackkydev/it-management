@@ -7,13 +7,13 @@ import { as, guest, makeAsset, makeBranch, makeLocation, makeUser, tokenFor } fr
 describe("user management", () => {
   it("admin can create a user with role", async () => {
     const api = await as(await makeUser({ role: "admin" }));
-    const res = await api.post("/api/v1/users").send({ name: "New Manager", email: "MGR@example.com", role: "manager", password: "Secret123" });
+    const res = await api.post("/api/v1/users").send({ name: "New Manager", email: "MGR@example.com", role: "manager", password: "Secret123", password_confirmation: "Secret123" });
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ role: "manager", email: "mgr@example.com", is_active: true, custodian_assets_count: 0, branch: null });
     const row = await first<{ password: string }>("SELECT password FROM users WHERE id = ?", [res.body.data.id]);
     expect(verifyHash("Secret123", row!.password)).toBe(true);
 
-    const bad = await api.post("/api/v1/users").send({ name: "x", email: "mgr@example.com", role: "viewer", password: "short" });
+    const bad = await api.post("/api/v1/users").send({ name: "x", email: "mgr@example.com", role: "viewer", password: "short", password_confirmation: "short" });
     expect(bad.status).toBe(422);
     expect(Object.keys(bad.body.errors)).toEqual(expect.arrayContaining(["email", "password"]));
   });
@@ -24,7 +24,7 @@ describe("user management", () => {
     await tokenFor(user, "phone");
     const count = async () => Number(await scalar("SELECT COUNT(*) FROM personal_access_tokens WHERE tokenable_id = ?", [user.id]));
 
-    expect((await api.patch(`/api/v1/users/${user.id}`).send({ password: "NewPass123" })).status).toBe(200);
+    expect((await api.patch(`/api/v1/users/${user.id}`).send({ password: "NewPass123", password_confirmation: "NewPass123" })).status).toBe(200);
     expect(await count()).toBe(0);
 
     await tokenFor(user, "phone");

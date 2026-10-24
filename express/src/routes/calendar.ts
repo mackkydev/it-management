@@ -19,7 +19,7 @@ import {
   scopeSettings, SCOPES, toIcs, type LeaveSettings, type LeaveType, type LeaveUnit, type Scope,
 } from "../services/calendar.js";
 import { markNoticesRead, notifyUsers } from "../services/notifications.js";
-import { activeSignature, readSignature } from "../services/signatures.js";
+import { activeSignature, readSignature, requireSignature } from "../services/signatures.js";
 import { putSetting } from "../services/settings.js";
 import { readStored, storeUploadIn } from "../services/ticket-files.js";
 
@@ -386,6 +386,8 @@ calendarRoutes.get("/leave/preview", async (req, res) => {
 calendarRoutes.post("/leave", async (req, res) => {
   const u = me(req);
   const input = req.input;
+  // ใบลาพิมพ์พร้อมลายเซ็นผู้ลา — เปิดบังคับลายเซ็น = ต้องมีลายเซ็นในโปรไฟล์ก่อนยื่น
+  await requireSignature(u.id, req.locale);
   const settings = await leaveSettings();
   const data = await validate(
     input,
@@ -627,6 +629,7 @@ async function decide(req: Request, res: Response, approve: boolean) {
   const { l, u } = await findLeave(req);
   authorize((u.id === Number(l.approver_id) || (await canFor(u, "leave.approve_any", l.user_branch_id))) && u.id !== Number(l.user_id));
   const data = await validate(req.input, { note: [approve ? "nullable" : "required", "string", "max:2000"] }, { locale: req.locale });
+  if (approve) await requireSignature(u.id, req.locale);
   if (l.status !== "pending") throw ValidationError.withMessages({ status: t(req, "eam.leave.not_pending") });
   const status = approve ? "approved" : "rejected";
   const note = typeof data.note === "string" && data.note.trim() ? data.note.trim() : null;

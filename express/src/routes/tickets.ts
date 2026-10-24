@@ -13,7 +13,7 @@ import { readStored, storeSignature, storeUpload, deleteTicketFiles } from "../s
 import {
   acceptors, actionsFor, canAccept, canForward, isTakeOver, closers, closersAmong, isSelfClose, withCloseInfo, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel,
 } from "../services/ticket-workflow.js";
-import { activeSignature, copySignatureTo, mimeOf, readSignature } from "../services/signatures.js";
+import { activeSignature, copySignatureTo, mimeOf, readSignature, requireSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
 import { scopeWhere } from "../services/manage-scope.js";
 import { usersWithPermissions } from "../services/permissions.js";
@@ -644,6 +644,8 @@ ticketRoutes.post("/tickets", async (req, res) => {
     { locale: req.locale },
   );
 
+  // บังคับลายเซ็น (สวิตช์ตั้งค่าระบบ): เซ็นมาในคำขอ หรือมีลายเซ็นในโปรไฟล์ (คัดลอกเป็นลายเซ็นผู้แจ้ง)
+  if (!data.signature) await requireSignature(u.id, req.locale);
   const chosen = await chosenApprover(req, data);
   const vpnInput = vpnRequestInput(req, data);
   // ผู้มีสิทธิ์อนุมัติใบของตัวเอง (ผู้จัดการขึ้นไป) ไม่เลือกผู้อนุมัติ = อนุมัติเอง (ไม่ใช้สายอนุมัติ/หัวหน้า) — แจ้งเตือน + "รอฉันอนุมัติ" ของตัวเอง
@@ -762,6 +764,7 @@ ticketRoutes.post("/tickets/:uuid/approve", async (req, res) => {
   const u = me(req);
   authorize(canApprove(u, t));
   const data = await validate(req.input, { comment: ["nullable", "string", "max:2000"] }, { locale: req.locale });
+  await requireSignature(u.id, req.locale);
 
   // อนุมัติใบของตัวเอง (tickets.approve_own) — บันทึกในไทม์ไลน์ให้ตรวจย้อนหลังได้
   const own = u.id === t.requester_id ? trans(req.locale, "eam.ticket.self_approved") : null;

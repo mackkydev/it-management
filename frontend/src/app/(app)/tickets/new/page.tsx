@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
+import { SignatureNotice } from "@/components/signature-notice";
 import { getCurrentUser } from "@/lib/auth";
 import type { ApprovalPlan } from "@/lib/types";
 import { TicketForm, type TicketFormOptions } from "./ticket-form";
@@ -20,5 +21,12 @@ export default async function NewTicketPage({ searchParams }: PageProps<"/ticket
     apiFetch<{ data: ApprovalPlan }>("/approval-routes/resolve").then((r) => r.data, () => null),
   ]);
 
-  return <TicketForm user={user} options={options} plan={plan} vpn={vpn === "1"} />;
+  const { t } = await getI18n();
+  return (
+    <div className="space-y-4">
+      {/* เปิดบังคับลายเซ็นแต่ยังไม่มี = เตือนก่อนกรอก (API ไม่ให้บันทึก) */}
+      <SignatureNotice user={user} t={t} />
+      <TicketForm user={user} options={options} plan={plan} vpn={vpn === "1"} />
+    </div>
+  );
 }

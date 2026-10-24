@@ -11,6 +11,7 @@ import { SecurityForm } from "./security-form";
 import { SettingsForm } from "./settings-form";
 import { PasswordPolicyForm } from "./password-policy-form";
 import { TwoFactorPolicy } from "./two-factor-policy";
+import { SignaturePolicy } from "./signature-policy";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -35,6 +36,8 @@ export default async function SettingsPage() {
         userOptions={data.secret_notify_options}
         effectiveRecipients={data.secret_notify_effective}
       />
+      {/* บังคับลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (หน้านี้ = settings.manage) */}
+      <SignaturePolicy initial={Boolean(data.require_signature)} />
       {/* บังคับ 2FA ผู้ดูแลระบบ — นโยบายการเข้าสู่ระบบ (access.manage) */}
       {has(user, "access.manage") && <TwoFactorPolicy initial={Boolean(data.two_factor_required)} />}
       {/* นโยบายรหัสผ่าน: ล็อกบัญชีเมื่อ login ผิด + บังคับเปลี่ยนรหัสผ่านทุก N วัน (access.manage) */}

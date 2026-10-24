@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { exec, first, insert, transaction } from "../db.js";
+import { ValidationError } from "../lib/errors.js";
+import { trans, type Locale } from "../lib/i18n.js";
 import { decryptBuffer, encryptBuffer } from "../lib/file-crypt.js";
 import { nowDb } from "../lib/time.js";
 import { audit, type AuditActor } from "./audit.js";
+import { getSetting } from "./settings.js";
 import { randomString, readStoredBuffer, writeStored } from "./ticket-files.js";
 
 /**
@@ -74,6 +77,19 @@ export async function processSignature(input: Buffer): Promise<Buffer> {
 
 export const activeSignature = (userId: number) =>
   first<SignatureRow>("SELECT * FROM user_signatures WHERE user_id = ? AND is_active = true ORDER BY id DESC LIMIT 1", [userId]);
+
+/** สวิตช์ "บังคับให้มีลายเซ็นก่อนบันทึก/อนุมัติเอกสาร" (app_settings.require_signature — หน้าตั้งค่าระบบ, settings.manage) */
+export const signatureRequired = async () => (await getSetting("require_signature")) === true;
+
+/**
+ * เปิดสวิตช์แล้วผู้ใช้ยังไม่มีลายเซ็นในโปรไฟล์ → 422 (field = ช่องที่แสดงข้อความ) — ใช้ตอนแจ้งใบงาน / อนุมัติใบงาน / ยื่นใบลา / อนุมัติใบลา
+ * (บันทึกผล / ปิดงาน บังคับเซ็นในฟอร์มอยู่แล้ว; ใบงานที่ระบบสร้างเอง เช่น ต่ออายุ VPN ไม่ตรวจ)
+ */
+export async function requireSignature(userId: number, locale: Locale, field = "signature"): Promise<void> {
+  if (!(await signatureRequired())) return;
+  if (await activeSignature(userId)) return;
+  throw ValidationError.withMessages({ [field]: trans(locale, "eam.signature.required") });
+}
 
 /** อ่านไฟล์ลายเซ็น (ถอดรหัสให้) — ไม่พบไฟล์ = null */
 export async function readSignature(row: SignatureRow): Promise<Buffer | null> {

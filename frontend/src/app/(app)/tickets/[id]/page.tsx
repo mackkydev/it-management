@@ -15,6 +15,7 @@ import { DoneBanner } from "../ticket-list";
 import { headApprovedAt, TicketStatusBadge, ticketSubject } from "../ticket-ui";
 import { ProcessTimeline } from "./process-timeline";
 import { PrintModal } from "./print-modal";
+import { SignatureNotice } from "@/components/signature-notice";
 import { TicketActions } from "./ticket-actions";
 import { HelpersCard } from "./helpers-card";
 import { OnsiteCard } from "./onsite-card";
@@ -151,6 +152,7 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
         <TicketStatusBadge status={tk.status} t={t} />
       </div>
 
+      {tk.actions.includes("approve") && <SignatureNotice user={user} t={t} />}
       {tk.actions.length > 0 && <TicketActions ticket={tk} />}
       <OnsiteCard ticket={tk} />
       <HelpersCard ticket={tk} />

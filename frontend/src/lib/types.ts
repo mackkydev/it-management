@@ -125,6 +125,12 @@ export interface User {
   /** นโยบายรหัสผ่าน (GET /auth/me — LOCAL): วันหมดอายุ / หมดอายุแล้ว / ใกล้หมดอายุ */
   password_expires_at?: string | null;
   password_expired?: boolean;
+  /** ต้องตั้งรหัสผ่านใหม่ (เข้าสู่ระบบครั้งแรก / ผู้ดูแลรีเซ็ต) — นับเป็น password_expired ด้วย */
+  password_change_required?: boolean;
+  /** มีลายเซ็นในโปรไฟล์ (GET /auth/me) */
+  has_signature?: boolean;
+  /** เปิดบังคับลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (ตั้งค่าระบบ) */
+  signature_required?: boolean;
   password_warn?: boolean;
   is_active?: boolean;
   /** สายอนุมัติที่กำหนดรายบุคคล (null = จับคู่อัตโนมัติตามสาขา+แผนก) */
@@ -154,11 +160,15 @@ export interface PasswordPolicy {
   expiry_warn_days: number;
   /** เปิดบังคับเปลี่ยนรหัสผ่านเมื่อไร (API ตั้งให้) */
   since?: string | null;
+  /** บังคับเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบครั้งแรก / หลังผู้ดูแลรีเซ็ต */
+  force_first_change?: boolean;
 }
 
 export interface AppSettings {
   /** บังคับผู้ดูแลระบบใช้ 2FA (แก้ได้เฉพาะ access.manage) */
   two_factor_required?: boolean;
+  /** บังคับให้มีลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (ใบแจ้งงาน / ใบลา) */
+  require_signature?: boolean;
   password_policy: PasswordPolicy;
   contract_notify_days: number;
   credential_notify_days: number;

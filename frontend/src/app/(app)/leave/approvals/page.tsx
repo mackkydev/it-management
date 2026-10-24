@@ -4,7 +4,9 @@ import { CheckCircleIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
+import { SignatureNotice } from "@/components/signature-notice";
 import { apiFetch } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
 import type { LeaveRequest } from "@/lib/types";
 import { LeaveCard } from "../leave-card";
 
@@ -20,10 +22,11 @@ const TAB_CLS = (active: boolean) =>
 export default async function LeaveApprovalsPage({ searchParams }: PageProps<"/leave/approvals">) {
   const params = await searchParams;
   const tab = params.status === "decided" ? "decided" : "pending";
-  const [{ t }, { data }] = await Promise.all([getI18n(), apiFetch<{ data: LeaveRequest[] }>(`/leave/approvals?status=${tab}`)]);
+  const [{ t }, { data }, user] = await Promise.all([getI18n(), apiFetch<{ data: LeaveRequest[] }>(`/leave/approvals?status=${tab}`), getCurrentUser()]);
   return (
     <div className="space-y-5">
       <PageHeader icon={CheckCircleIcon} title={t("leave.approvalsTitle")} subtitle={t("leave.approvalsSubtitle")} />
+      {tab === "pending" && data.length > 0 && <SignatureNotice user={user} t={t} />}
       <div role="tablist" className="inline-flex gap-1 rounded-xl bg-subtle p-1">
         {(["pending", "decided"] as const).map((s) => (
           <Link key={s} href={`/leave/approvals?status=${s}`} role="tab" aria-selected={tab === s} className={TAB_CLS(tab === s)}>
