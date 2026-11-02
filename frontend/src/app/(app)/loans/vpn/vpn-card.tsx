@@ -23,7 +23,7 @@ function stateOf(l: VpnLoan): { key: string; tone: Tone } {
   if (l.is_expired) return { key: "expired", tone: "danger" };
   if (l.is_expiring) return { key: "expiring", tone: "warning" };
   // ขอผ่านใบแจ้งงานที่หัวหน้ายังไม่อนุมัติ
-  if (l.status === "requested" && l.ticket?.status === "pending_supervisor") return { key: "awaiting", tone: "idle" };
+  if (l.status === "requested" && (l.ticket?.status === "pending_supervisor" || l.ticket?.status === "approval_requested")) return { key: "awaiting", tone: "idle" };
   const map: Record<VpnLoan["status"], Tone> = {
     requested: "info",
     active: "success",

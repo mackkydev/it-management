@@ -8,6 +8,15 @@ export interface ActionResult<F extends string = string> {
   ok?: boolean;
   errors?: Partial<Record<F, string>>;
   message?: string;
+  /** ห้อง/รถที่เลือกติดการจองอื่นแต่สลับกันได้ (API 409 swap_available) — หน้าเว็บถามยืนยันแล้วส่งซ้ำพร้อม swap */
+  swap?: SwapOffer;
+}
+
+/** รายการที่จะถูกสลับห้อง/รถ (ข้อความอธิบายอยู่ใน message แล้ว) */
+export interface SwapOffer {
+  id: string;
+  owner: string;
+  period: string;
 }
 
 /**
@@ -24,6 +33,9 @@ export async function toActionResult<F extends string>(e: unknown, notFound: Mes
       errors[field as F] = messages[0];
     }
     return { errors, message: t("common.checkInput") };
+  }
+  if (e.status === 409 && (e.body as { code?: string }).code === "swap_available") {
+    return { swap: (e.body as { swap: SwapOffer }).swap, message: e.body.message };
   }
   if (e.status === 403) return { message: t("common.noPermission") };
   if (e.status === 404) return { message: t(notFound) };

@@ -21,6 +21,7 @@ const ORDER: StageKey[] = ["submitted", "approval", "accepted", "working", "revi
 /** สถานะ → ขั้นที่กำลังทำ (index ใน ORDER) */
 const CURRENT: Partial<Record<TicketStatus, number>> = {
   pending_supervisor: 1,
+  approval_requested: 1,
   approved: 2,
   in_progress: 3,
   pending_it_head: 4,
@@ -38,6 +39,12 @@ export function ProcessTimeline({ tk, t, fmt }: { tk: TicketDetail; t: TFunction
   const current = tk.status === "rejected" ? 1 : (CURRENT[base] ?? 1);
   const progressCount = tk.events.filter((e) => e.action === "progress").length;
   const confirmed = tk.events.find((e) => e.action === "confirmed");
+  const autoClosed = tk.events.some((e) => e.action === "auto_closed");
+  // ยังไม่ปิด + เปิดปิดงานอัตโนมัติ = เตือนสีแดงใต้ขั้น "ปิดงาน"
+  const open = !["completed", "cancelled", "rejected"].includes(tk.status);
+  const autoCloseNote = open && tk.auto_close?.days
+    ? t("tickets.timeline.autoClose", { days: tk.auto_close.days }) + (tk.auto_close.at ? ` (${t("tickets.timeline.autoCloseOn", { date: fmt.dateTime(tk.auto_close.at) })})` : "")
+    : null;
   const waitingApprovers = tk.approval_steps.find((s) => s.step_no === tk.current_step)?.approvers.map((a) => a.name).join(", ");
 
   const info: Record<StageKey, Pick<Stage, "who" | "at" | "note">> = {
@@ -45,14 +52,21 @@ export function ProcessTimeline({ tk, t, fmt }: { tk: TicketDetail; t: TFunction
     approval: {
       who: tk.approver?.name ?? null,
       at: tk.approved_at,
-      note: tk.status === "pending_supervisor" && waitingApprovers ? t("tickets.timeline.waitingFor", { name: waitingApprovers }) : null,
+      note:
+        tk.status === "pending_supervisor" && waitingApprovers
+          ? t("tickets.timeline.waitingFor", { name: waitingApprovers })
+          : tk.status === "approval_requested"
+            ? t("tickets.timeline.choosingApprover")
+            : !tk.approved_at && !tk.approver && tk.status !== "pending_supervisor" && tk.status !== "rejected"
+              ? t("tickets.timeline.noApproval")
+              : null,
     },
     accepted: { who: tk.assignee?.name ?? null, at: tk.accepted_at },
     working: { who: tk.assignee?.name ?? null, at: tk.resulted_at, note: progressCount ? t("tickets.timeline.updates", { count: progressCount }) : null },
     review: { who: tk.it_head?.name ?? null, at: headApprovedAt(tk) },
     // ใบเดิมที่หัวหน้า IT ปิดงานเอง (ไม่มีเหตุการณ์ confirmed) ไม่มีผู้รับงาน
     confirm: { who: confirmed ? tk.requester?.name : null, at: confirmed?.created_at ?? null },
-    completed: { at: tk.status === "completed" ? tk.closed_at : null },
+    completed: { at: tk.status === "completed" ? tk.closed_at : null, note: autoClosed ? t("tickets.timeline.autoClosed") : null },
   };
 
   const stages: Stage[] = ORDER.map((key, i) => {
@@ -92,6 +106,7 @@ export function ProcessTimeline({ tk, t, fmt }: { tk: TicketDetail; t: TFunction
               {s.who && <p className="truncate text-xs text-muted">{s.who}</p>}
               {s.at && <p className="text-xs text-faint">{fmt.dateTime(s.at)}</p>}
               {s.note && <p className="text-xs text-muted">{s.note}</p>}
+              {s.key === "completed" && autoCloseNote && <p className="mt-0.5 text-xs font-medium text-danger-600 dark:text-danger-300">{autoCloseNote}</p>}
             </div>
           </li>
         ))}

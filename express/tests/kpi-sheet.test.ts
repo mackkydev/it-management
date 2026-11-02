@@ -4,7 +4,7 @@ import { exec, insert } from "../src/db.js";
 import { localToday, nowDb } from "../src/lib/time.js";
 import { markOf } from "../src/services/kpi.js";
 import { sheetName } from "../src/services/kpi-export.js";
-import { as, makeBranch, makeUser } from "./helpers.js";
+import { as, day, makeBranch, makeUser, SIG } from "./helpers.js";
 
 /** KPI ฝ่าย IT ตามไฟล์ Template-KPI-IT-2569-Part2-Details-Rev00.xlsx */
 
@@ -48,7 +48,7 @@ describe("KPI monthly sheet", () => {
     const api = await as(staff);
     expect((await api.put(`/api/v1/kpi/tickets/${working.uuid}`).send({ complexity: 2 })).status).toBe(422);
     expect((await api.put(`/api/v1/kpi/tickets/${done.uuid}`).send({ service_type: "Network Service", complexity: 3 })).body.data).toEqual({
-      service_type: "Network Service", complexity: 3, mark: 4.5,
+      service_type: "Network Service", complexity: 3, mark: 4.5, work_date: "2025-10-06",
     });
     expect((await api.post("/api/v1/kpi").send({
       work_date: "2025-10-06", requester_name: "คุณเอ", branch_name: "สำนักงานใหญ่", service_type: "ETC.", details: "ประชุม",
@@ -97,6 +97,72 @@ describe("KPI monthly sheet", () => {
     expect(await errs({ work_date: "2025-10-10", details: "x", completed_date: "2025-10-09" })).toEqual(["completed_date"]);
     // วันหยุดลงล่วงหน้าได้
     expect((await api.post("/api/v1/kpi").send({ entry_type: "holiday", work_date: localToday(undefined, new Date(Date.now() + 30 * 86_400_000)), details: "วันหยุดยาว" })).status).toBe(201);
+  });
+});
+
+describe("KPI multi-day tickets", () => {
+  it("splits a multi-day ticket into one KPI row per working day (each in its own month) after the result is approved", async () => {
+    const staff = await makeUser({ is_it_staff: true, name: "ช่างออกแบบ" });
+    const helper = await makeUser({ is_it_staff: true });
+    const requester_id = (await makeUser()).id;
+    // งานออกแบบ 30 ต.ค. (พฤ.) – 3 พ.ย. (จ.) ไม่นับเสาร์-อาทิตย์ = 3 วัน (ต.ค. 2 แถว / พ.ย. 1 แถว)
+    const design = await ticket({
+      type: "other", requester_id, assignee_id: staff.id, requested_at: "2025-10-29 03:00:00", work_start_on: "2025-10-30", completed_on: "2025-11-03",
+    });
+    await insert("it_ticket_helpers", { it_ticket_id: design.id, user_id: helper.id, created_at: nowDb() });
+    // ออกหน้างานต่างจังหวัด 24–27 ต.ค. นับทุกวัน (รวมเสาร์-อาทิตย์) = 4 แถว
+    const trip = await ticket({ type: "install", requester_id, assignee_id: staff.id, work_start_on: "2025-10-24", completed_on: "2025-10-27", work_skip_off_days: false });
+    // ยังไม่อนุมัติผล = ยังไม่ขึ้นแม้ระบุช่วงวันแล้ว
+    await ticket({ requester_id, assignee_id: staff.id, status: "pending_it_head", work_start_on: "2025-10-20", completed_on: "2025-10-22" });
+
+    const api = await as(staff);
+    const oct = (await api.get("/api/v1/kpi/month?month=2025-10")).body.data as { key: string; work_date: string; day: unknown; ticket: { id: string } }[];
+    expect(oct.map((r) => [r.ticket.id === trip.uuid ? "trip" : "design", r.work_date, r.day])).toEqual([
+      ["trip", "2025-10-24", { index: 1, count: 4 }],
+      ["trip", "2025-10-25", { index: 2, count: 4 }],
+      ["trip", "2025-10-26", { index: 3, count: 4 }],
+      ["trip", "2025-10-27", { index: 4, count: 4 }],
+      ["design", "2025-10-30", { index: 1, count: 3 }],
+      ["design", "2025-10-31", { index: 2, count: 3 }],
+    ]);
+    expect(new Set(oct.map((r) => r.key)).size).toBe(6);
+    expect((await api.get("/api/v1/kpi/month?month=2025-11")).body.data).toMatchObject([{ work_date: "2025-11-03", day: { index: 3, count: 3 } }]);
+    const badge = async (u: typeof staff) => (await (await as(u)).get("/api/v1/menu-badges")).body.data["/kpi"];
+    expect(await badge(staff)).toBe(7);
+    expect(await badge(helper)).toBe(3);
+
+    // บันทึกรายวัน: ต้องระบุวันของแถว และต้องเป็นวันปฏิบัติงาน (เสาร์ที่ไม่นับ = ไม่ได้)
+    expect((await api.put(`/api/v1/kpi/tickets/${design.uuid}`).send({ complexity: 2 })).status).toBe(422);
+    expect((await api.put(`/api/v1/kpi/tickets/${design.uuid}`).send({ complexity: 2, work_date: "2025-11-01" })).status).toBe(422);
+    const saved = await api.put(`/api/v1/kpi/tickets/${design.uuid}`).send({ service_type: "Graphic & Design", complexity: 2, work_date: "2025-10-30" });
+    expect(saved.body.data).toEqual({ service_type: "Graphic & Design", complexity: 2, mark: 2.25, work_date: "2025-10-30" });
+    await api.put(`/api/v1/kpi/tickets/${design.uuid}`).send({ complexity: 1, work_date: "2025-10-31" });
+    await api.put(`/api/v1/kpi/tickets/${design.uuid}`).send({ complexity: 3, work_date: "2025-10-30" }); // แก้วันเดิม = แถวเดิม
+    const after = (await api.get("/api/v1/kpi/month?month=2025-10")).body;
+    expect(after.data.slice(4).map((r: { complexity: number; service_type: string }) => [r.complexity, r.service_type])).toEqual([
+      [3, "Graphic & Design"], [1, "ETC."],
+    ]);
+    expect(after.totals).toMatchObject({ complexity: 4, rows: 6 });
+    expect(await badge(staff)).toBe(5);
+    // ผู้ร่วมดำเนินการกรอกแยกของตัวเอง
+    expect(await badge(helper)).toBe(3);
+  });
+
+  it("records the working period with the result (start ≤ completion, ≤ 62 days, same day = single row)", async () => {
+    const staff = await makeUser({ is_it_staff: true });
+    const requester_id = (await makeUser()).id;
+    const t = await ticket({ type: "other", requester_id, status: "in_progress", assignee_id: staff.id, accepted_at: nowDb() });
+    const api = await as(staff);
+    const post = (body: Record<string, unknown>) => api.post(`/api/v1/tickets/${t.uuid}/result`).send({ result: "completed", completed_on: day(0), signature: SIG, ...body });
+    expect(Object.keys((await post({ work_start_on: day(1) })).body.errors ?? {})).toEqual(["work_start_on"]);
+    expect(Object.keys((await post({ work_start_on: day(-70) })).body.errors ?? {})).toEqual(["work_start_on"]);
+    const ok = await post({ work_start_on: day(-3), work_skip_off_days: false });
+    expect(ok.status).toBe(200);
+    expect(ok.body.data).toMatchObject({ work_start_on: day(-3), completed_on: day(0), work_skip_off_days: false });
+
+    const single = await ticket({ type: "other", requester_id, status: "in_progress", assignee_id: staff.id, accepted_at: nowDb() });
+    const res = await api.post(`/api/v1/tickets/${single.uuid}/result`).send({ result: "completed", completed_on: day(0), work_start_on: day(0), signature: SIG });
+    expect(res.body.data).toMatchObject({ work_start_on: null, work_skip_off_days: true });
   });
 });
 

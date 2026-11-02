@@ -9,7 +9,7 @@ import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { MeetingBooking, MeetingRoom } from "@/lib/types";
 import { BookingDialog } from "../../booking-dialog";
-import { fromMin, imageUrl, primaryImage, timelineHours, toMin, toneOf } from "../../meeting-utils";
+import { fromMin, imageUrl, primaryImage, slotOn, timelineHours, toMin, toneOf } from "../../meeting-utils";
 
 const noopSubscribe = () => () => {};
 const minutesNow = () => {
@@ -26,7 +26,9 @@ export function DayTimeline({ date, rooms, bookings, bookable = true }: { date: 
   const router = useRouter();
   const [selected, setSelected] = useState<MeetingBooking | null>(null);
   const [hover, setHover] = useState<{ room: number; min: number } | null>(null);
-  const [from, to] = timelineHours(bookings);
+  // จองต่อเนื่องหลายวัน: ใช้ช่วงเวลาของวันนี้ (วันแรก = ตั้งแต่เวลาเริ่ม, วันกลาง = ทั้งวัน, วันสุดท้าย = ถึงเวลาสิ้นสุด)
+  const slot = (b: MeetingBooking) => slotOn(b, date);
+  const [from, to] = timelineHours(bookings.map(slot));
   const span = (to - from) * 60;
   const hours = Array.from({ length: to - from + 1 }, (_, i) => from + i);
   const pct = (min: number) => ((min - from * 60) / span) * 100;
@@ -43,7 +45,7 @@ export function DayTimeline({ date, rooms, bookings, bookable = true }: { date: 
     const min = from * 60 + ((e.clientX - r.left) / r.width) * span;
     return Math.min(to * 60 - 30, Math.max(from * 60, Math.floor(min / 30) * 30));
   };
-  const busy = (roomId: number, min: number) => bookings.some((b) => b.room.id === roomId && toMin(b.start_time) < min + 30 && toMin(b.end_time) > min);
+  const busy = (roomId: number, min: number) => bookings.some((b) => b.room.id === roomId && toMin(slot(b).start_time) < min + 30 && toMin(slot(b).end_time) > min);
   const canBook = (min: number) => !past && !(date === today && min + 30 <= nowMin);
   const book = (roomId: number, min: number) =>
     router.push(`/meeting-rooms/book?${new URLSearchParams({ date, room: String(roomId), start: fromMin(min), end: fromMin(Math.min(min + 60, to * 60)) })}`);
@@ -123,11 +125,11 @@ export function DayTimeline({ date, rooms, bookings, bookable = true }: { date: 
                       onClick={(e) => (e.stopPropagation(), setSelected(b))}
                       onMouseMove={(e) => e.stopPropagation()}
                       className={`absolute inset-y-2 z-10 cursor-pointer overflow-hidden rounded-md px-2 text-left ring-1 ring-inset ${toneOf(rooms, r.id).bar}`}
-                      style={{ left: `${pct(toMin(b.start_time))}%`, width: `${((toMin(b.end_time) - toMin(b.start_time)) / span) * 100}%` }}
+                      style={{ left: `${pct(toMin(slot(b).start_time))}%`, width: `${((toMin(slot(b).end_time) - toMin(slot(b).start_time)) / span) * 100}%` }}
                     >
                       <span className="block truncate text-xs font-semibold leading-5">{b.title}</span>
                       <span className="block truncate text-[11px] leading-4 opacity-80">
-                        {b.start_time}–{b.end_time} · {b.user.name}
+                        {slot(b).start_time}–{slot(b).end_time} · {b.user.name}
                       </span>
                     </button>
                 ))}
@@ -150,7 +152,7 @@ export function DayTimeline({ date, rooms, bookings, bookable = true }: { date: 
               ) : (
                 list.map((b) => (
                   <button key={b.id} type="button" onClick={() => setSelected(b)} className={`block w-full cursor-pointer rounded-lg px-2.5 py-1.5 text-left ring-1 ring-inset ${toneOf(rooms, r.id).bar}`}>
-                    <span className="block text-xs font-semibold">{b.start_time}–{b.end_time} · {b.title}</span>
+                    <span className="block text-xs font-semibold">{slot(b).start_time}–{slot(b).end_time} · {b.title}</span>
                     <span className="block text-[11px] opacity-80">{b.user.name}</span>
                   </button>
                 ))

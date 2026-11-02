@@ -247,7 +247,7 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
   const onDelete = async () => {
     if (!assetId || !(await confirm(t("assets.form.confirmDelete", { tag: values.asset_tag })))) return;
     setPendingAction("delete");
-    startTransition(async () => handleResult(await deleteAsset(assetId)));
+    startTransition(async () => handleResult(await deleteAsset(assetId, values.category === "SOFTWARE")));
   };
 
   type Plain = Exclude<keyof AssetFormValues, "license" | "software" | "is_loanable">;
@@ -687,7 +687,7 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
           </button>
         )}
         <div className="flex gap-2 sm:ml-auto">
-          <Link href="/assets" className={`${btn.secondary} flex-1 sm:flex-none`}>
+          <Link href={values.category === "SOFTWARE" ? "/licenses" : "/assets"} className={`${btn.secondary} flex-1 sm:flex-none`}>
             <XIcon className="text-faint" />
             {t("common.cancel")}
           </Link>

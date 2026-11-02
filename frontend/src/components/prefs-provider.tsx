@@ -70,6 +70,8 @@ export function PrefsProvider({ initial, children }: { initial: Prefs; children:
       setPrefs(next);
       if (key === "mode") applyMode(value as Prefs["mode"]);
       if (key === "theme" || key === "accent") applyTheme(next.theme, next.accent);
+      // โทนพาสเทล / ปกติ: เปลี่ยนตัวแปรสีที่ <html> ทันที (globals.css [data-tone])
+      if (key === "tone") document.documentElement.dataset.tone = value as Prefs["tone"];
       if (key === "layout" || key === "locale") router.refresh();
     },
     [router],

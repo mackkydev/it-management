@@ -28,6 +28,7 @@ export async function getAccess(): Promise<(key: string) => boolean> {
  * has(user, key) = สิทธิ์จาก GET /auth/me (สิทธิ์ของกลุ่ม + เพิ่ม/ถอดรายคน)
  */
 export { has, isLocalSuperAdmin, isSuperAdmin };
+export { canViewAssets, canViewLicenses } from "@/lib/permissions";
 export const canCreateAssets = (user: User) => has(user, "assets.create");
 export const canEditAssets = (user: User) => has(user, "assets.update");
 /** เพิ่มหรือแก้ไขสินทรัพย์ได้ (ตัวเลือกในฟอร์ม / ปุ่มนำเข้า) */

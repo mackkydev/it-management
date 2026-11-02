@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { createTicket, updateTicket } from "@/app/actions/tickets";
 import { DateInput } from "@/components/date-input";
 import { DocumentPicker, PhotoPicker } from "@/components/file-pickers";
@@ -14,6 +14,7 @@ import { has } from "@/lib/permissions";
 import { TICKET_TYPES, type ApprovalPlan, type TicketDetail, type TicketType, type User } from "@/lib/types";
 import { PlanView } from "../../approval-routes/plan-view";
 import { AppSelect } from "@/components/app-select";
+import { SignaturePad } from "@/components/signature-pad";
 
 export interface TicketFormOptions {
   branches: { id: number; code: string; name: string }[];
@@ -28,12 +29,14 @@ export interface TicketFormOptions {
   vpn_type?: string;
   /** สินทรัพย์ของผู้แจ้ง (ผู้ถือครอง / ชื่อผู้ใช้งานในทะเบียนคอมพิวเตอร์) — เลือกเครื่องที่ส่งซ่อม / ติดตั้ง */
   my_assets: { id: string; asset_tag: string; name: string; brand: string | null; model: string | null; category: string }[];
+  /** ขั้นตอนใบแจ้งงาน — it_first = ไม่ต้องอนุมัติ (ช่องผู้อนุมัติปิด) จนกว่า IT จะขอให้หัวหน้าอนุมัติ */
+  approval_flow?: "approval_first" | "it_first";
 }
 
 type Field =
   | "type" | "type_other" | "branch_id" | "department" | "division" | "approver_id" | "details" | "due_date" | "assignee_id"
   | "person_name_th" | "person_name_en" | "device_name" | "asset_tag" | "symptom" | "photos" | "documents"
-  | "vpn_start_on" | "vpn_end_on";
+  | "vpn_start_on" | "vpn_end_on" | "signature";
 type Errors = Partial<Record<Field, string>>;
 
 type Person = { id: number; name: string };
@@ -67,12 +70,15 @@ export function TicketForm({
   plan,
   editing,
   vpn = false,
+  focusApprover = false,
 }: {
   user: User;
   options: TicketFormOptions;
   plan: ApprovalPlan | null;
   editing?: TicketDetail;
   vpn?: boolean;
+  /** กด "เพิ่มผู้อนุมัติ" จากหน้าใบงาน — เลื่อนไปที่ช่องผู้อนุมัติ */
+  focusApprover?: boolean;
 }) {
   const { t, fmt } = useI18n();
   const vpnType = options.vpn_type ?? "";
@@ -85,6 +91,16 @@ export function TicketForm({
 
   // ผู้มีสิทธิ์อนุมัติใบของตัวเอง (ผู้จัดการขึ้นไป): ไม่เลือกผู้อนุมัติ = ใบรอตัวเองอนุมัติ (API ตั้ง approver = ผู้แจ้ง)
   const selfApprove = has(user, "tickets.approve_own");
+  // ฝ่าย IT ขอให้หัวหน้าอนุมัติ → ต้องเลือกผู้อนุมัติ (ผู้อนุมัติใบตัวเองได้ = ว่างไว้ / อนุมัติเอง)
+  const choosingApprover = editing?.status === "approval_requested";
+  // ขั้นตอน it_first: ใบใหม่ / ใบที่ส่งถึง IT แล้ว = ไม่ต้องอนุมัติ (ช่องปิด) จนกว่า IT จะขอ
+  const noApproval = !choosingApprover && (editing ? editing.status === "approved" && !editing.approved_at : options.approval_flow === "it_first");
+  useEffect(() => {
+    if (!focusApprover || !choosingApprover) return;
+    const el = document.getElementById("approver_id");
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    el?.focus();
+  }, [focusApprover, choosingApprover]);
   // ผู้อนุมัติ: เลือกให้ตามสาย (ใบใหม่ — ผู้อนุมัติใบตัวเองได้ = ว่างไว้ / อนุมัติเอง) / ผู้อนุมัติเดิมของขั้นปัจจุบัน (แก้ไข) ถ้าอยู่ในรายชื่อของสาขาที่เลือก
   const preferredApprovers: Person[] = editing
     ? (editing.approval_steps.find((s) => s.step_no === editing.current_step)?.approvers ?? (editing.approver ? [editing.approver] : []))
@@ -139,6 +155,9 @@ export function TicketForm({
   const [photos, setPhotos] = useState<File[]>([]);
   const [docs, setDocs] = useState<File[]>([]);
   const [errors, setErrors] = useState<Errors>({});
+  // ยังไม่มีลายเซ็นในโปรไฟล์ — วาดในฟอร์ม (เปิดบังคับลายเซ็น = ต้องวาด และระบบเก็บไว้ในโปรไฟล์ใช้ครั้งต่อไป)
+  const [drawn, setDrawn] = useState<string | null>(null);
+  const needDrawn = !editing && !user.signature_url && Boolean(user.signature_required);
   const [message, setMessage] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -208,6 +227,8 @@ export function TicketForm({
     if (isRepair && !v.device_name.trim()) e.device_name = t("tickets.validate.device");
     if (isRepair && !v.symptom.trim()) e.symptom = t("tickets.validate.symptom");
     if (isVpn && !v.vpn_start_on) e.vpn_start_on = t("tickets.vpn.validate.dates");
+    if (needDrawn && !drawn) e.signature = t("signature.required");
+    if (choosingApprover && !selfApprove && !v.approver_id) e.approver_id = t("tickets.validate.approverRequired");
     if (isVpn && !v.vpn_end_on) e.vpn_end_on = t("tickets.vpn.validate.dates");
     else if (isVpn && v.vpn_start_on && v.vpn_end_on < v.vpn_start_on) e.vpn_end_on = t("tickets.vpn.validate.order");
     return e;
@@ -225,8 +246,11 @@ export function TicketForm({
 
     const fd = new FormData();
     fd.set("type", type);
+    if (!editing && !user.signature_url && drawn) fd.set("signature", drawn);
     if (type === "other") fd.set("type_other", v.type_other.trim());
     for (const key of ["branch_id", "department", "division", "approver_id", "details", "due_date", "assignee_id"] as const) {
+      // ไม่ต้องอนุมัติ (it_first) = ไม่ส่งผู้อนุมัติ
+      if (key === "approver_id" && noApproval) continue;
       if (v[key].trim()) fd.set(key, v[key].trim());
     }
     if (needsPerson) {
@@ -451,18 +475,24 @@ export function TicketForm({
                 id="approver_id"
                 value={v.approver_id}
                 onValueChange={(a) => set("approver_id", a)}
-                disabled={!v.branch_id || approverOptions.length === 0}
+                disabled={noApproval || !v.branch_id || approverOptions.length === 0}
                 className={cls("approver_id")}
               >
-                <option value="">{t(selfApprove ? "tickets.form.approverSelf" : "tickets.form.approverByRoute")}</option>
+                <option value="">
+                  {t(noApproval ? "tickets.form.approverNone" : selfApprove ? "tickets.form.approverSelf" : choosingApprover ? "tickets.form.approverChoose" : "tickets.form.approverByRoute")}
+                </option>
                 {approverOptions.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name} ({t(`roles.${a.role}` as MessageKey)})
                   </option>
                 ))}
               </AppSelect>,
-              false,
-              !v.branch_id
+              choosingApprover && !selfApprove,
+              noApproval
+                ? t("tickets.form.approverNoneHint")
+                : choosingApprover
+                  ? t("tickets.form.approverRequestedHint")
+                  : !v.branch_id
                 ? t("tickets.form.branchFirst")
                 : selfApprove
                   ? t("tickets.form.approverSelfHint")
@@ -609,10 +639,20 @@ export function TicketForm({
               </div>
             </div>
           ) : (
-            <div role="status" className={`${alert.warning} flex-wrap`}>
-              <AlertIcon className="shrink-0 text-warning-500" />
-              <span className="flex-1">{t("tickets.form.signatureMissing")}</span>
-              <Link href="/profile" className={`${btn.secondary} ${btn.sm}`}>
+            <div className="space-y-2">
+              <p className="text-sm text-muted">
+                {t(user.signature_required ? "tickets.form.signatureDrawRequired" : "tickets.form.signatureDraw")}
+                {user.signature_required && <span className="text-red-500"> *</span>}
+              </p>
+              <SignaturePad
+                invalid={Boolean(errors.signature)}
+                onChange={(s) => {
+                  setDrawn(s);
+                  if (s) setErrors((x) => ({ ...x, signature: undefined }));
+                }}
+              />
+              {errors.signature && <p className="text-xs font-medium text-red-500">{errors.signature}</p>}
+              <Link href="/profile" className="inline-flex cursor-pointer items-center gap-1 text-xs text-accent-700 hover:underline dark:text-accent-300">
                 <PenIcon width={14} height={14} />
                 {t("profile.signatureUpload")}
               </Link>

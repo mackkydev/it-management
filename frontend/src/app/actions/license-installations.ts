@@ -23,6 +23,7 @@ const validId = (id: unknown): id is number => Number.isInteger(id) && (id as nu
 
 function refresh(licenseId?: string) {
   revalidatePath("/license-installations");
+  revalidatePath("/licenses");
   if (licenseId && UUID_RE.test(licenseId)) revalidatePath(`/assets/${licenseId}`);
 }
 

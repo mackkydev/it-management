@@ -14,8 +14,10 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /** ผู้แจ้งแก้ไขใบแจ้งงาน — ได้เฉพาะก่อนหัวหน้าอนุมัติ (API ส่ง action "edit" มาเมื่อแก้ได้) */
-export default async function EditTicketPage({ params }: PageProps<"/tickets/[id]/edit">) {
+export default async function EditTicketPage({ params, searchParams }: PageProps<"/tickets/[id]/edit">) {
   const { id } = await params;
+  // ?approver=1 = มาจากปุ่ม "เพิ่มผู้อนุมัติ" (ฝ่าย IT ขอให้หัวหน้าอนุมัติ) — เลื่อนไปที่ช่องผู้อนุมัติ
+  const focusApprover = (await searchParams).approver === "1";
   if (!UUID_RE.test(id)) notFound();
   const [user, ticket, { data: options }] = await Promise.all([
     getCurrentUser(),
@@ -30,5 +32,5 @@ export default async function EditTicketPage({ params }: PageProps<"/tickets/[id
   ]);
   if (!ticket.actions.includes("edit")) redirect(`/tickets/${id}`);
 
-  return <TicketForm user={user} options={options} plan={null} editing={ticket} />;
+  return <TicketForm user={user} options={options} plan={null} editing={ticket} focusApprover={focusApprover} />;
 }

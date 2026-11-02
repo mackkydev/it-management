@@ -213,7 +213,13 @@ function TicketRow({ row, sheet, own }: { row: KpiSheetRow; sheet: KpiMonth; own
   const save = () =>
     start(async () => {
       // user_id = เจ้าของชีต (ผู้รับงาน หรือผู้ร่วมดำเนินการ — แยกแถว KPI ต่อคน)
-      const res = await saveKpiTicket(row.ticket!.id, { service_type: serviceType || undefined, complexity: Number(complexity), user_id: sheet.user.id });
+      // ใบงานหลายวัน: บันทึกแยกต่อวัน (work_date = วันของแถว)
+      const res = await saveKpiTicket(row.ticket!.id, {
+        service_type: serviceType || undefined,
+        complexity: Number(complexity),
+        user_id: sheet.user.id,
+        work_date: row.day ? row.work_date : undefined,
+      });
       if (res.ok) {
         setError("");
         setEditing(false);
@@ -254,6 +260,11 @@ function TicketRow({ row, sheet, own }: { row: KpiSheetRow; sheet: KpiMonth; own
             {row.ticket!.ticket_no}
           </Link>
         </Tooltip>
+        {row.day && (
+          <Tooltip label={t("kpi.dayHint")} side="top">
+            <span className={`mb-1 ml-1 inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${tone.warning.badge}`}>{t("kpi.dayOf", row.day)}</span>
+          </Tooltip>
+        )}
         <Clamped text={row.details} />
       </td>
       <td className={cell}>{row.assignee ?? "-"}</td>

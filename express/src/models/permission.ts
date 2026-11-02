@@ -39,6 +39,7 @@ export const MODULES = [
   { key: "leave", group: "users", name_th: "การลา", name_en: "Leave" },
   { key: "meeting", group: "users", name_th: "ห้องประชุม", name_en: "Meeting rooms" },
   { key: "vehicle", group: "users", name_th: "จองรถ", name_en: "Vehicle booking" },
+  { key: "zoom", group: "users", name_th: "จอง ZOOM", name_en: "ZOOM booking" },
   { key: "loans", group: "users", name_th: "ยืมอุปกรณ์ IT", name_en: "IT equipment loans" },
 ] as const;
 export type ModuleKey = (typeof MODULES)[number]["key"];
@@ -98,6 +99,8 @@ const DEFS: Def[] = [
   { key: "announcements.manage", module: "announcements", action: "manage", name_th: "จัดการประกาศหน้า login", name_en: "Manage login announcements", defaults: IT },
 
   // สินทรัพย์ — ไม่มี assets.view_all (และไม่มี assets.create/update) = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง
+  // เมนูสินทรัพย์ (ดูที่ตัวเองถือครอง) — ผู้ใช้ทั่วไป (viewer) ไม่ได้เป็นค่าตั้งต้น; การเลือกสินทรัพย์ตอนแจ้งซ่อม (form-options my_assets) ไม่ใช้สิทธิ์นี้
+  { key: "assets.view", module: "assets", action: "view", name_th: "เปิดเมนูสินทรัพย์ — ดูสินทรัพย์ที่ตัวเองถือครอง (เลือกสินทรัพย์ตอนแจ้งซ่อมได้ทุกคน)", name_en: "Open the assets menu — view assets the user holds (everyone can pick assets when reporting a repair)", defaults: ["admin", "division_manager", "manager"] },
   { key: "assets.view_all", module: "assets", action: "view", name_th: "ดูสินทรัพย์ทั้งหมด (ไม่มีสิทธิ์นี้ = เห็นเฉพาะที่ตัวเองถือครอง)", name_en: "View all assets (otherwise only the user's own)", defaults: MANAGERS_IT },
   { key: "assets.create", module: "assets", action: "create", name_th: "เพิ่มสินทรัพย์ / นำเข้า Excel", name_en: "Add assets / import Excel", defaults: MANAGERS, from: "assets.manage" },
   { key: "assets.update", module: "assets", action: "update", name_th: "แก้ไขสินทรัพย์ ไฟล์ และการโอนย้าย", name_en: "Edit assets, files and movements", defaults: MANAGERS, from: "assets.manage" },
@@ -144,6 +147,8 @@ const DEFS: Def[] = [
   { key: "vehicle.dispatch", module: "vehicle", action: "update", name_th: "จัดคิวรถ: เลือกรถให้การจอง และแก้ไข / ยกเลิก / ลบการจองของผู้อื่น", name_en: "Dispatch: assign vehicles and edit / cancel / delete other people's bookings", defaults: ["admin"] },
   // ยืมอุปกรณ์ IT — ทุกคนดูปฏิทิน / จอง / แก้-ยกเลิกการจองของตัวเอง (routes/loans.ts)
   { key: "loans.manage", module: "loans", action: "manage", name_th: "ส่งมอบ / รับคืนอุปกรณ์ IT, มอบ / จัดการ VPN และจัดการการยืมของผู้อื่น (ได้แจ้งเตือนรอส่งมอบ / เกินกำหนด / คำขอ VPN)", name_en: "Hand over / receive IT equipment, assign / manage VPN accounts and manage other people's loans (notified of hand-overs / overdue / VPN requests)", defaults: ["admin"] },
+  // จอง ZOOM — ทุกคนดูปฏิทิน / จอง / แก้ (ก่อนรับงาน) / ยกเลิกการจองของตัวเอง (routes/zoom.ts)
+  { key: "zoom.manage", module: "zoom", action: "manage", name_th: "รับงานจอง ZOOM: รับงาน / ส่งลิงก์ประชุม / แจ้งกลับว่ามีการใช้งานแล้ว (ได้แจ้งเตือนคำขอใหม่ — ส่งลิงก์แล้วขึ้น KPI ของผู้รับงาน)", name_en: "Handle ZOOM bookings: accept / send the meeting link / reply that the slot is taken (notified of new requests — sending the link adds a KPI row for the assignee)", defaults: ["admin"] },
   { key: "vehicle.manage", module: "vehicle", action: "manage", name_th: "จัดการรถ (รายละเอียด / ที่นั่ง / รูป / เลขไมล์) และตัวเลือกประเภทการใช้งาน / รายการเพิ่มเติม", name_en: "Manage vehicles (details / seats / photos / mileage) and the usage-type / extra options", defaults: ["admin"] },
 ];
 

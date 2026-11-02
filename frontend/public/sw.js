@@ -1,10 +1,12 @@
 /* Service worker ของ IT-SYSTEM (PWA)
  * - หน้าเว็บ: ดึงจาก server ทุกครั้ง (ข้อมูลต้องสดและผ่านการตรวจสิทธิ์) — ออฟไลน์ = แสดง /offline.html
  * - /_next/static/*: ไฟล์ build ที่ชื่อมี hash → cache-first (เฉพาะ production; dev ไม่ cache เพื่อไม่ให้ HMR ค้าง)
+ *   เก็บเฉพาะ response ที่ Cache-Control เป็น immutable — กันไฟล์ของ next dev (ชื่อไม่เปลี่ยนตามเนื้อหา) ค้างใน cache
+ *   เมื่อเครื่องเดียวกันเปิดทั้ง next dev และ container production ที่ localhost:3000
  * - ไม่ cache API / ไฟล์แนบ / server actions / หน้าที่ต้อง login เด็ดขาด
  * เปลี่ยน VERSION เมื่อแก้ไฟล์นี้หรือ offline.html เพื่อให้ cache เดิมถูกล้าง
  */
-const VERSION = "v2";
+const VERSION = "v3";
 const SHELL = `it-system-shell-${VERSION}`;
 const ASSETS = `it-system-assets-${VERSION}`;
 const OFFLINE_URL = "/offline.html";
@@ -41,7 +43,7 @@ self.addEventListener("fetch", (event) => {
         const hit = await cache.match(req);
         if (hit) return hit;
         const res = await fetch(req);
-        if (res.ok) cache.put(req, res.clone());
+        if (res.ok && /immutable/i.test(res.headers.get("Cache-Control") ?? "")) cache.put(req, res.clone());
         return res;
       }),
     );

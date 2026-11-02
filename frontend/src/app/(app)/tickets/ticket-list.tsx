@@ -10,19 +10,24 @@ import { alert, btn, card, input, table } from "@/components/ui";
 import { CheckCircleIcon } from "@/components/icons";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getAccess } from "@/lib/auth";
+import { getAccess, getCurrentUser, has } from "@/lib/auth";
+import { Tooltip } from "@/components/tooltip";
 import { TICKET_STATUSES, TICKET_TYPES, type Paginated, type TicketCounts, type TicketSummary } from "@/lib/types";
 import { TicketStatusBadge, ticketSubject } from "./ticket-ui";
 import { AppSelect } from "@/components/app-select";
+import { DateInput } from "@/components/date-input";
 
-/** it_mine = คิวงานของฉัน (เฉพาะใบของตัวเอง), it = คิวงาน IT (ทุกใบ — รับงานแทนได้) */
-export type TicketScope = "mine" | "approvals" | "it" | "it_mine";
+/** it_mine = คิวงานของฉัน (เฉพาะใบของตัวเอง), it = คิวงาน IT (ทุกใบ — รับงานแทนได้), all = ใบแจ้งงานทั้งหมด + ตัวกรอง (ผู้ดูแลระบบ / IT) */
+export type TicketScope = "mine" | "approvals" | "it" | "it_mine" | "all";
 
-const BASE: Record<TicketScope, string> = { mine: "/tickets", approvals: "/tickets/approvals", it: "/it/queue", it_mine: "/it/tickets" };
+/** แท็บ "ที่ฉันแจ้ง" (ผู้ดูแลระบบ / IT เปิด /tickets เฉยๆ จะไปที่ใบแจ้งงานทั้งหมด) */
+const MINE_HREF = "/tickets?mine=1";
+
+const BASE: Record<TicketScope, string> = { mine: "/tickets", approvals: "/tickets/approvals", it: "/it/queue", it_mine: "/it/tickets", all: "/tickets/all" };
 
 function buildQuery(scope: TicketScope, params: Record<string, string | string[] | undefined>) {
   const q = new URLSearchParams({ scope });
-  for (const key of ["search", "status", "type", "assigned", "page"]) {
+  for (const key of ["search", "status", "type", "assigned", "page", "from", "to", "staff_id"]) {
     const v = params[key];
     if (typeof v === "string" && v !== "") q.set(key, v.slice(0, 100));
   }
@@ -35,8 +40,11 @@ export async function TicketListPage({ scope, params }: { scope: TicketScope; pa
   const [{ t }, can] = await Promise.all([getI18n(), getAccess()]);
   const query = buildQuery(scope, params);
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string) : "");
-  const title = scope === "mine" ? t("tickets.mineTitle") : scope === "approvals" ? t("tickets.approvalsTitle") : scope === "it_mine" ? t("tickets.itMineTitle") : t("tickets.itTitle");
-  const subtitle = scope === "it" ? t("tickets.itSubtitle") : scope === "it_mine" ? t("tickets.itMineSubtitle") : undefined;
+  const title =
+    scope === "mine" ? t("tickets.mineTitle") : scope === "approvals" ? t("tickets.approvalsTitle") : scope === "it_mine" ? t("tickets.itMineTitle") : scope === "all" ? t("tickets.allTitle") : t("tickets.itTitle");
+  const subtitle = scope === "it" ? t("tickets.itSubtitle") : scope === "it_mine" ? t("tickets.itMineSubtitle") : scope === "all" ? t("tickets.allSubtitle") : undefined;
+  // ใบแจ้งงานทั้งหมด: กรองตามเจ้าหน้าที่ IT (ผู้รับงาน / ผู้ร่วมดำเนินการ)
+  const staff = scope === "all" ? (await apiFetch<{ data: { id: number; name: string }[] }>("/it-staff")).data : [];
 
   return (
     <div className="space-y-5">
@@ -58,32 +66,61 @@ export async function TicketListPage({ scope, params }: { scope: TicketScope; pa
         {scope === "it" ? <ItQueueTabs status={str("status")} /> : scope === "it_mine" ? <MyQueueTabs status={str("status")} /> : <ScopeTabs scope={scope} />}
       </Suspense>
 
-      <Form action={BASE[scope]} className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_12rem_12rem_auto] ${card}`}>
-        <div className="relative">
+      {/* ตัวกรองแถวเดียว (จอใหญ่) — ข้อความ / เรื่อง / สถานะ (+ ทั้งหมด: เจ้าหน้าที่ IT / ช่วงวันที่แจ้ง) / ล้าง / ค้นหา */}
+      <Form action={BASE[scope]} className={`grid grid-cols-1 gap-2 p-3 sm:grid-cols-2 lg:flex lg:items-center ${card}`}>
+        {/* ที่ฉันแจ้ง: คงไว้ที่แท็บนี้ (ผู้ดูแลระบบ / IT เปิด /tickets เฉยๆ = ใบแจ้งงานทั้งหมด) */}
+        {scope === "mine" && <input type="hidden" name="mine" value="1" />}
+        <div className="relative sm:col-span-2 lg:min-w-0 lg:flex-1">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
           <input name="search" defaultValue={str("search")} placeholder={t("tickets.searchPlaceholder")} maxLength={100} className={`${input} pl-9`} />
         </div>
-        <AppSelect name="type" defaultValue={str("type")} className={input} aria-label={t("tickets.col.subject")}>
-          <option value="">{t("tickets.allTypes")}</option>
-          {TICKET_TYPES.map((ty) => (
-            <option key={ty} value={ty}>
-              {t(`tickets.types.${ty}`)}
-            </option>
-          ))}
-        </AppSelect>
-        <AppSelect name="status" defaultValue={str("status")} className={input} aria-label={t("tickets.col.status")}>
-          <option value="">{t("tickets.allStatuses")}</option>
-          {TICKET_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {t(`tickets.statuses.${s}`)}
-            </option>
-          ))}
-        </AppSelect>
-        <div className="flex gap-2">
-          <Link href={BASE[scope]} className={`${btn.secondary} px-3`} aria-label={t("common.clearFilters")}>
-            <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
-          </Link>
-          <SubmitButton icon={<SearchIcon />} pendingText={t("common.searching")} className={`${btn.primary} flex-1`}>
+        <div className="lg:w-36 lg:shrink-0">
+          <AppSelect name="type" defaultValue={str("type")} className={input} aria-label={t("tickets.col.subject")}>
+            <option value="">{t("tickets.allTypes")}</option>
+            {TICKET_TYPES.map((ty) => (
+              <option key={ty} value={ty}>
+                {t(`tickets.types.${ty}`)}
+              </option>
+            ))}
+          </AppSelect>
+        </div>
+        <div className="lg:w-44 lg:shrink-0">
+          <AppSelect name="status" defaultValue={str("status")} className={input} aria-label={t("tickets.col.status")}>
+            <option value="">{t("tickets.allStatuses")}</option>
+            {TICKET_STATUSES.map((st) => (
+              <option key={st} value={st}>
+                {t(`tickets.statuses.${st}`)}
+              </option>
+            ))}
+          </AppSelect>
+        </div>
+        {scope === "all" && (
+          <>
+            <div className="lg:w-44 lg:shrink-0">
+              <AppSelect name="staff_id" defaultValue={str("staff_id")} className={input} aria-label={t("tickets.filterStaff")}>
+                <option value="">{t("tickets.allStaff")}</option>
+                {staff.map((p) => (
+                  <option key={p.id} value={String(p.id)}>
+                    {p.name}
+                  </option>
+                ))}
+              </AppSelect>
+            </div>
+            <div className="lg:w-40 lg:shrink-0">
+              <DateInput name="from" defaultValue={str("from")} className={input} placeholder={t("tickets.filterFromPh")} aria-label={t("tickets.filterFrom")} />
+            </div>
+            <div className="lg:w-40 lg:shrink-0">
+              <DateInput name="to" defaultValue={str("to")} className={input} placeholder={t("tickets.filterToPh")} aria-label={t("tickets.filterTo")} />
+            </div>
+          </>
+        )}
+        <div className="flex gap-2 sm:col-span-2 lg:shrink-0">
+          <Tooltip label={t("common.clearFilters")} side="top">
+            <Link href={scope === "mine" ? MINE_HREF : BASE[scope]} className={`${btn.secondary} px-3`} aria-label={t("common.clearFilters")}>
+              <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
+            </Link>
+          </Tooltip>
+          <SubmitButton icon={<SearchIcon />} pendingText={t("common.searching")} className={`${btn.primary} flex-1 lg:flex-none`}>
             {t("common.search")}
           </SubmitButton>
         </div>
@@ -107,14 +144,16 @@ const ticketCounts = () => apiFetch<{ counts: TicketCounts }>("/tickets?per_page
 
 /** แท็บฝั่งผู้แจ้ง: ของฉัน / รออนุมัติ — พร้อมตัวเลขค้าง (คิวงาน IT แยกไปเมนู "งานฝ่าย IT") */
 async function ScopeTabs({ scope }: { scope: TicketScope }) {
-  const [{ t }, c, can] = await Promise.all([getI18n(), ticketCounts(), getAccess()]);
+  const [{ t }, c, can, user] = await Promise.all([getI18n(), ticketCounts(), getAccess(), getCurrentUser()]);
   // แท็บรออนุมัติตามการมองเห็นเมนู /tickets/approvals (ตั้งค่าระบบ → สิทธิ์การใช้งาน) — แต่ถ้ามีใบรอตัวเองอนุมัติจริงยังแสดง
   const showApprovals = can(BASE.approvals) || Boolean(c.approvals) || scope === "approvals";
   return (
     <Tabs
       tabs={[
-        { href: BASE.mine, label: t("tickets.tabs.mine"), count: c.mine_open, active: scope === "mine" },
+        { href: MINE_HREF, label: t("tickets.tabs.mine"), count: c.mine_open, active: scope === "mine" },
         ...(showApprovals ? [{ href: BASE.approvals, label: t("tickets.tabs.approvals"), count: c.approvals, active: scope === "approvals" }] : []),
+        // ผู้ดูแลระบบ / เจ้าหน้าที่ IT: ใบแจ้งงานทั้งหมด (เมนูเดียวกับ "ใบแจ้งงาน")
+        ...(has(user, "it_tickets.queue") ? [{ href: BASE.all, label: t("tickets.tabs.all"), active: scope === "all" }] : []),
       ]}
     />
   );
@@ -183,6 +222,7 @@ async function TicketResults({ scope, query }: { scope: TicketScope; query: URLS
     n.delete("scope");
     n.delete("per_page");
     n.set("page", String(p));
+    if (scope === "mine") n.set("mine", "1");
     return `${BASE[scope]}?${n}`;
   };
 

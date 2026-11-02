@@ -43,8 +43,8 @@ export interface BookingValues {
   end_time: string;
 }
 
-/** จองใหม่ (id = null) / แก้ไขการจอง */
-export async function saveBooking(id: string | null, v: BookingValues): Promise<ActionResult<keyof BookingValues> & { id?: string }> {
+/** จองใหม่ (id = null) / แก้ไขการจอง — swap = ยืนยันสลับห้องกับการจองที่ใช้ห้องนั้นอยู่ (ผู้ดูแลห้อง) */
+export async function saveBooking(id: string | null, v: BookingValues, swap = false): Promise<ActionResult<keyof BookingValues> & { id?: string }> {
   const { t } = await getI18n();
   if (id !== null && !UUID_RE.test(id)) return { message: t("common.saveFailed") };
   try {
@@ -61,6 +61,7 @@ export async function saveBooking(id: string | null, v: BookingValues): Promise<
         end_date: v.end_date && v.end_date >= v.date ? v.end_date : v.date,
         start_time: v.start_time,
         end_time: v.end_time,
+        ...(swap ? { swap: true } : {}),
       }),
     });
     refresh();

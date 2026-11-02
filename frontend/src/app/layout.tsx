@@ -53,6 +53,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       lang={prefs.locale}
       data-mode={prefs.mode}
       data-theme={prefs.theme}
+      data-tone={prefs.tone}
       // ธีมกำหนดเอง: ชุดสีคำนวณจากสีที่เลือก (accent ผ่านการตรวจรูปแบบ #rrggbb แล้ว)
       style={prefs.theme === "custom" ? (customThemeVars(prefs.accent) as CSSProperties) : undefined}
       className={`${notoSansThai.variable} ${prefs.mode === "dark" ? "dark" : ""} h-full antialiased`}

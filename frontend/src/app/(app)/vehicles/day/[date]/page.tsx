@@ -47,14 +47,17 @@ export default async function VehicleDayPage({ params, searchParams }: PageProps
         title={t("vehicle.dayTitle", { date: fmt.date(date) })}
         subtitle={t("vehicle.daySubtitle")}
         actions={
-          !past &&
+          // สาขา (เลือกดูได้เมื่อขอบเขตทุกสาขา) อยู่แถวเดียวกับหัวข้อหน้า
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <BranchFilter kind="vehicle" meta={scope} value={branch} />
+            {!past &&
           canBook && (
             <Link href={`/vehicles/book?date=${date}`} className={btn.primary}>
               <PlusIcon />
-      <BranchFilter kind="vehicle" meta={scope} value={branch} />
               {t("vehicle.book")}
             </Link>
-          )
+          )}
+          </div>
         }
       />
       {done && (

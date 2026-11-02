@@ -17,7 +17,7 @@ import { Tooltip } from "@/components/tooltip";
 import { input as inputCls, inputError as inputErrorCls } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { HEX_RE } from "@/lib/color";
-import { CUSTOM_SUGGESTIONS, LAYOUTS, LOCALES, MODES, PRESET_THEMES, THEME_SWATCH, type Layout, type Mode } from "@/lib/prefs";
+import { CUSTOM_SUGGESTIONS, LAYOUTS, LOCALES, MODES, PRESET_THEMES, THEME_SWATCH, TONES, type Layout, type Mode } from "@/lib/prefs";
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -207,6 +207,27 @@ function CustomColor({ accent, onChange }: { accent: string; onChange: (hex: str
   );
 }
 
+/** โทนสีของธีม: ปกติ / พาสเทล (ใช้กับทุกธีม รวมสีกำหนดเอง) */
+export function ToneSwitch() {
+  const { t } = useI18n();
+  const { tone, set } = usePrefs();
+  return (
+    <Segmented
+      label={t("prefs.tone")}
+      icon={PaletteIcon}
+      options={TONES}
+      value={tone}
+      onChange={(v) => set("tone", v)}
+      render={(v) => (
+        <>
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${v === "pastel" ? "bg-accent-300" : "bg-accent-500"}`} aria-hidden="true" />
+          <span>{t(`prefs.tones.${v}`)}</span>
+        </>
+      )}
+    />
+  );
+}
+
 export function LanguageSwitch() {
   const { t } = useI18n();
   const { locale, set } = usePrefs();
@@ -252,6 +273,7 @@ export function PrefsControls() {
     <div className="space-y-3">
       <ModeSwitch />
       <ThemePicker />
+      <ToneSwitch />
       {/* รูปแบบเมนู + ภาษา อยู่บรรทัดเดียวกัน */}
       <div className="grid grid-cols-[1fr_auto] items-end gap-2">
         <LayoutSwitch />

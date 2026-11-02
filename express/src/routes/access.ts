@@ -755,8 +755,8 @@ interface AuditRow {
 }
 
 const AUDIT_SELECT = `SELECT a.*, u.name AS actor_name, b.name AS branch_name,
-       CASE a.subject_type WHEN 'user' THEN (SELECT s.name FROM users s WHERE CAST(s.id AS CHAR) = a.subject_id)
-                           WHEN 'api_connection' THEN (SELECT c.name FROM api_connections c WHERE CAST(c.id AS CHAR) = a.subject_id) END AS subject_name
+       CASE a.subject_type WHEN 'user' THEN (SELECT s.name FROM users s WHERE s.id = CAST(a.subject_id AS UNSIGNED))
+                           WHEN 'api_connection' THEN (SELECT c.name FROM api_connections c WHERE c.id = CAST(a.subject_id AS UNSIGNED)) END AS subject_name
      FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id LEFT JOIN branches b ON b.id = u.branch_id`;
 
 accessRoutes.get("/audit-logs", async (req, res) => {

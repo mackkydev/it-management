@@ -44,8 +44,7 @@ export default async function BookVehiclePage({ searchParams }: PageProps<"/vehi
 
   return (
     <div className="space-y-5">
-      <PageHeader icon={CarIcon} title={t("vehicle.form.newTitle")} subtitle={t("vehicle.form.subtitle")} />
-      <BranchFilter kind="vehicle" meta={scope} value={branch} />
+      <PageHeader icon={CarIcon} title={t("vehicle.form.newTitle")} subtitle={t("vehicle.form.subtitle")} actions={<BranchFilter kind="vehicle" meta={scope} value={branch} />} />
       {vehicles.length === 0 && has(user, "vehicle.manage") && (
         <div className={`flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-muted ${card}`}>
           {t("vehicle.noVehicles")}
@@ -64,6 +63,7 @@ export default async function BookVehiclePage({ searchParams }: PageProps<"/vehi
           purpose: purposes.length === 1 ? purposes[0] : "",
           extras: [],
           note: "",
+          needs_driver: false,
           start_on: date,
           start_time: start,
           end_on: date,

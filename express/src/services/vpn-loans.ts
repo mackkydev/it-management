@@ -23,7 +23,7 @@ export const VPN_REQUEST_TYPE = "ขอใช้งาน VPN";
 export const isVpnRequestType = (type: unknown, typeOther: unknown) =>
   type === "other" && typeof typeOther === "string" && typeOther.trim().toLowerCase() === VPN_REQUEST_TYPE.toLowerCase();
 /** คำขอที่ผู้ดูแลเห็น/มอบได้: ขอตรง (ไม่มีใบงาน) หรือใบงานผ่านหัวหน้าแล้ว — ใช้คู่กับ VPN_SELECT (alias t = it_tickets) */
-export const REQUEST_VISIBLE = "(v.ticket_id IS NULL OR t.status <> 'pending_supervisor')";
+export const REQUEST_VISIBLE = "(v.ticket_id IS NULL OR t.status NOT IN ('pending_supervisor', 'approval_requested'))";
 /** สถานะที่ถือบัญชีอยู่ (บัญชีนี้ให้คนอื่นไม่ได้) */
 export const HOLDING = ["active", "renewal_requested", "cancel_requested"] as const;
 

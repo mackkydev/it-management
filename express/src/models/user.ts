@@ -26,6 +26,8 @@ export interface UserRow {
   password_changed_at?: string | null;
   /** ต้องเปลี่ยนรหัสผ่านก่อนใช้งาน (มีผลเมื่อเปิด password_policy.force_first_change) */
   must_change_password?: boolean | number;
+  /** ผู้ใช้ตั้งรหัสผ่านเองล่าสุด (null = ยังไม่เคย — บังคับเปลี่ยนครั้งแรกเมื่อเปิดนโยบาย) */
+  password_self_changed_at?: string | null;
   /** สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing */
   external_status: "active" | "disabled" | "missing" | null;
   is_active: boolean;

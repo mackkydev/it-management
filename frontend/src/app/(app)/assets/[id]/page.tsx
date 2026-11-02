@@ -16,6 +16,7 @@ import { UsageBar } from "../../license-installations/usage-bar";
 import { MovementTimeline } from "../movement-timeline";
 import { RepairHistory, UserHistory } from "./history-sections";
 import { LicenseFiles, LicenseKey } from "./license-parts";
+import { LicenseIcon } from "../../licenses/license-icon";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -67,7 +68,7 @@ async function Movements({ id }: { id: string }) {
   return <MovementTimeline movements={res.data} total={res.meta.total} />;
 }
 
-/** หน้ารายละเอียดสินทรัพย์แบบดูอย่างเดียว — ทุกบทบาทเข้าได้ (viewer ก็ดูประวัติการโอนย้ายได้) */
+/** หน้ารายละเอียดสินทรัพย์แบบดูอย่างเดียว — ผู้มี assets.view ดูของที่ตัวเองถือครองได้ (ไม่มีสิทธิ์ = API ตอบ 404 → ไม่พบ) */
 export default async function AssetDetailPage({ params }: PageProps<"/assets/[id]">) {
   const { id } = await params;
   if (!UUID_RE.test(id)) notFound();
@@ -94,16 +95,22 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
 
   return (
     <div className="space-y-5">
-      <Link href="/assets" className="inline-flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink">
+      {/* License ซอฟต์แวร์ = กลับเมนู /licenses */}
+      <Link href={form?.license ? "/licenses" : "/assets"} className="inline-flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink">
         <LinkPendingIcon icon={<ChevronLeftIcon width={15} height={15} />} size={15} />
-        {t("assets.detail.back")}
+        {form?.license ? t("licenses.back") : t("assets.detail.back")}
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent-100 text-accent-600 dark:bg-accent-400/15 dark:text-accent-300">
-            <BoxIcon width={24} height={24} />
-          </span>
+          {/* License ซอฟต์แวร์ = ไอคอนที่อัปโหลด (ผู้แก้ไขคลิกเพื่อเปลี่ยน / × ลบ) */}
+          {form?.license ? (
+            <LicenseIcon assetId={asset.id} iconId={asset.icon_id} name={asset.name} canEdit={canEdit} removable size="lg" />
+          ) : (
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent-100 text-accent-600 dark:bg-accent-400/15 dark:text-accent-300">
+              <BoxIcon width={24} height={24} />
+            </span>
+          )}
           <div>
             <p className="font-mono text-xs text-muted">{asset.asset_tag}</p>
             <h1 className="text-2xl font-semibold">{asset.name}</h1>
@@ -210,7 +217,7 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
       )}
 
       {(form?.license || (asset.files?.length ?? 0) > 0) && (
-        <section className={`p-4 sm:p-6 ${card}`}>
+        <section id="files" className={`scroll-mt-20 p-4 sm:p-6 ${card}`}>
           <h2 className="mb-4 flex items-center gap-2 font-semibold">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-100 text-accent-600 dark:bg-accent-400/15 dark:text-accent-300">
               <PaperclipIcon width={15} height={15} />

@@ -154,6 +154,31 @@ export async function uploadAssetFiles(id: string, form: FormData): Promise<Save
   return { ok: true };
 }
 
+/** ไอคอน License ซอฟต์แวร์ (multipart icon — แทนอันเดิม) */
+export async function uploadAssetIcon(id: string, form: FormData): Promise<SaveResult & { ok?: boolean; errors?: Record<string, string> }> {
+  if (!UUID_RE.test(id)) return invalidId();
+  try {
+    await apiFetch(`/assets/${id}/icon`, { method: "PUT", body: form });
+  } catch (e) {
+    return toResult(e);
+  }
+  revalidatePath("/licenses");
+  revalidatePath(`/assets/${id}`);
+  return { ok: true };
+}
+
+export async function deleteAssetIcon(id: string): Promise<SaveResult & { ok?: boolean }> {
+  if (!UUID_RE.test(id)) return invalidId();
+  try {
+    await apiFetch(`/assets/${id}/icon`, { method: "DELETE" });
+  } catch (e) {
+    return toResult(e);
+  }
+  revalidatePath("/licenses");
+  revalidatePath(`/assets/${id}`);
+  return { ok: true };
+}
+
 export async function deleteAssetFile(id: string, fileId: number): Promise<SaveResult & { ok?: boolean }> {
   if (!UUID_RE.test(id) || !Number.isInteger(fileId) || fileId <= 0) return invalidId();
   try {
@@ -187,6 +212,11 @@ export async function createAsset(values: AssetFormValues): Promise<SaveResult> 
   } catch (e) {
     return toResult(e);
   }
+  // License ซอฟต์แวร์ (หมวด SOFTWARE) กลับไปเมนู /licenses
+  if (values.category === "SOFTWARE") {
+    revalidatePath("/licenses");
+    redirect("/licenses?saved=created");
+  }
   revalidatePath("/assets");
   redirect("/assets?saved=created");
 }
@@ -204,15 +234,23 @@ export async function updateAsset(id: string, values: AssetFormValues): Promise<
   }
   revalidatePath("/assets");
   revalidatePath(`/assets/${id}/edit`);
+  if (values.category === "SOFTWARE") {
+    revalidatePath("/licenses");
+    redirect("/licenses?saved=updated");
+  }
   redirect("/assets?saved=updated");
 }
 
-export async function deleteAsset(id: string): Promise<SaveResult> {
+export async function deleteAsset(id: string, software = false): Promise<SaveResult> {
   if (!UUID_RE.test(id)) return invalidId();
   try {
     await apiFetch(`/assets/${id}`, { method: "DELETE" });
   } catch (e) {
     return toResult(e);
+  }
+  if (software) {
+    revalidatePath("/licenses");
+    redirect("/licenses?saved=deleted");
   }
   revalidatePath("/assets");
   redirect("/assets?saved=deleted");

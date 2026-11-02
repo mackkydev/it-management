@@ -271,6 +271,14 @@ export const BellIcon = (p: P) => (
   </Icon>
 );
 
+/** กล้องวิดีโอ (ประชุมออนไลน์ / ZOOM) */
+export const VideoIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11" />
+    <rect x="2" y="6" width="14" height="12" rx="2" />
+  </Icon>
+);
+
 export const CameraIcon = (p: P) => (
   <Icon {...p}>
     <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" />

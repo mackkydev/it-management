@@ -51,6 +51,11 @@ export const EMPTY_UI_CONFIG: UiConfig = { ui_permissions: {}, menu_order: {}, m
  * ผู้ใช้มีสิทธิ์ (permission key) นี้ไหม — ค่าจาก GET /auth/me (permissions) ซึ่ง API คำนวณจาก
  * สิทธิ์ของทุกกลุ่ม + เพิ่ม/ถอดรายคน; ผู้ดูแลระบบ (super_admin) ผ่านทุกสิทธิ์ ใช้ซ่อน/แสดง UI เท่านั้น — สิทธิ์จริงตรวจที่ API
  */
+/** เปิดเมนู/หน้าสินทรัพย์ได้ — assets.view (ของที่ถือครอง, ผู้ใช้ทั่วไปไม่มีเป็นค่าตั้งต้น) / view_all / เพิ่ม-แก้ไข (ตรงกับ seesAssets ใน express routes/assets.ts) */
+export const canViewAssets = (user: User) => has(user, "assets.view") || has(user, "assets.view_all") || has(user, "assets.create") || has(user, "assets.update");
+/** เมนู License ซอฟต์แวร์ (/licenses) — ตรงกับ viewsLicenses ใน express routes/license-installations.ts */
+export const canViewLicenses = (user: User) => has(user, "licenses.install") || has(user, "assets.view_all") || has(user, "assets.create") || has(user, "assets.update");
+
 export function has(user: User, key: string): boolean {
   if (isSuperAdmin(user)) return true;
   return user.permissions?.includes(key) ?? false;

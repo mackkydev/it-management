@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { loadBookings } from "@/app/actions/meeting";
-import { ChevronLeftIcon, ChevronRightIcon, PlusIcon, SpinnerIcon } from "@/components/icons";
-import { Tooltip } from "@/components/tooltip";
+import { ChevronLeftIcon, ChevronRightIcon, MeetingRoomIcon, PlusIcon, SpinnerIcon } from "@/components/icons";
+import { MonthBarGrid } from "@/components/month-bars";
 import { btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
@@ -15,7 +15,7 @@ import { BookingDialog } from "./booking-dialog";
 import { toneOf } from "./meeting-utils";
 
 /**
- * ปฏิทินเดือนของห้องประชุม — ช่องวันแสดงการจอง (สีตามห้อง), ชี้ = รายการจองของวันนั้น,
+ * ปฏิทินเดือนของห้องประชุม — การจองเป็นแถบ (สีตามห้อง, จองหลายวัน = แถบลากยาว), ชี้แถบ = รายละเอียด,
  * คลิกวัน = ไทม์ไลน์รายห้องของวันนั้น, + / คลิกขวาที่วัน = จองวันนั้น (วันที่ผ่านไปแล้วจองไม่ได้)
  */
 const nextDay = (d: string) => {
@@ -59,12 +59,10 @@ export function MeetingCalendar({ month: initialMonth, initialBookings, rooms, c
   };
   const book = (d: string) => router.push(`/meeting-rooms/book?date=${d}`);
 
-  // ห้องที่ถูกจองในวันนั้น (ไม่ซ้ำ เรียงตามลำดับห้อง)
-  const roomDots = (list: MeetingBooking[]) =>
-    [...new Set(list.map((b) => b.room.id))]
-      .sort((a, b) => rooms.findIndex((r) => r.id === a) - rooms.findIndex((r) => r.id === b))
-      .map((id) => ({ key: id, dot: toneOf(rooms, id).dot }));
-  const line = (b: MeetingBooking) => `${t("meeting.timeRange", { start: b.start_time, end: b.end_time })} · ${b.room.name} · ${b.title} (${b.user.name})`;
+  // ช่วงเวลาของการจอง: หลายวัน = วันเวลาเริ่ม – วันเวลาสิ้นสุด, วันเดียว = วันที่ + เวลา
+  const period = (b: MeetingBooking) =>
+    b.end_date > b.date ? `${fmt.date(b.date)} ${b.start_time} – ${fmt.date(b.end_date)} ${b.end_time}` : `${fmt.date(b.date)} ${t("meeting.timeRange", { start: b.start_time, end: b.end_time })}`;
+  const line = (b: MeetingBooking) => `${period(b)} · ${b.room.name} · ${b.title} (${b.user.name})`;
 
   return (
     <div className="space-y-4">
@@ -89,7 +87,7 @@ export function MeetingCalendar({ month: initialMonth, initialBookings, rooms, c
         <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
           {rooms.map((r) => (
             <span key={r.id} className="flex items-center gap-1.5">
-              <span className={`h-2.5 w-2.5 rounded-full ${toneOf(rooms, r.id).dot}`} aria-hidden="true" />
+              <MeetingRoomIcon width={14} height={14} className={`shrink-0 ${toneOf(rooms, r.id).icon}`} aria-hidden="true" />
               {r.name}
             </span>
           ))}
@@ -100,77 +98,33 @@ export function MeetingCalendar({ month: initialMonth, initialBookings, rooms, c
         </span>
       </div>
 
-      {/* จอใหญ่: ตารางเดือน */}
-      <div className={`hidden overflow-hidden md:block ${card}`}>
-        <div className="grid grid-cols-7 border-b border-line bg-subtle text-center text-xs font-medium text-muted">
-          {grid.days.slice(0, 7).map((d) => (
-            <div key={d} className="py-2">
-              {weekday.format(new Date(`${d}T00:00:00Z`))}
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7">
-          {grid.days.map((d) => {
-            const list = byDay.get(d) ?? [];
-            const outside = d.slice(0, 7) !== month;
-            const past = d < today;
-            return (
-              <div
-                key={d}
-                role="button"
-                tabIndex={0}
-                onClick={() => router.push(`/meeting-rooms/day/${d}`)}
-                onKeyDown={(e) => e.key === "Enter" && router.push(`/meeting-rooms/day/${d}`)}
-                // คลิกขวา = จองวันนั้น (แทนเมนูของเบราว์เซอร์)
-                onContextMenu={(e) => {
-                  if (past || !canBook) return;
-                  e.preventDefault();
-                  book(d);
-                }}
-                className={`group flex min-h-24 cursor-pointer flex-col border-b border-r border-line p-1.5 transition-colors hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-300 dark:hover:bg-accent-400/5 [&:nth-child(7n)]:border-r-0 ${outside ? "bg-subtle/40 text-faint" : ""}`}
-              >
-                <Tooltip
-                  side="bottom"
-                  className="min-w-0 flex-1"
-                  label={
-                    <span className="block space-y-0.5 text-left">
-                      <span className="block font-semibold">{fmt.date(d)}</span>
-                      {list.length === 0 ? <span className="block opacity-80">{t("meeting.free")}</span> : list.map((b) => <span key={b.id} className="block">{line(b)}</span>)}
-                    </span>
-                  }
-                >
-                  <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="flex items-center justify-between gap-1">
-                      <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium ${d === today ? "bg-accent-500 text-white" : ""}`}>
-                        {Number(d.slice(8))}
-                      </span>
-                      {list.length > 0 && <span className="truncate whitespace-nowrap text-[10px] font-medium text-muted">{t("meeting.bookingsCount", { n: list.length })}</span>}
-                      {!past && canBook && (
-                        <button
-                          type="button"
-                          onClick={(e) => (e.stopPropagation(), book(d))}
-                          aria-label={t("meeting.book")}
-                          className="cursor-pointer rounded-md p-0.5 text-muted opacity-0 transition-opacity hover:bg-accent-100 hover:text-accent-700 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-accent-400/20 dark:hover:text-accent-200"
-                        >
-                          <PlusIcon width={14} height={14} />
-                        </button>
-                      )}
-                    </span>
-                    {/* จุดสี 1 จุดต่อห้องที่ถูกจองในวันนั้น (สีเดียวกับคำอธิบายด้านบน) — รายละเอียดดูจากทูลทิป / คลิกเข้าไทม์ไลน์ */}
-                    {list.length > 0 && (
-                      <span className="flex flex-wrap gap-1 px-1 pt-0.5" aria-hidden="true">
-                        {roomDots(list).map((x) => (
-                          <span key={x.key} className={`h-2.5 w-2.5 rounded-full ${x.dot}`} />
-                        ))}
-                      </span>
-                    )}
-                  </span>
-                </Tooltip>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* จอใหญ่: ตารางเดือนแบบแถบ — จองหลายวัน = แถบลากยาว, ชี้ = รายละเอียด, คลิกแถบ = กล่องรายละเอียด, คลิกวัน = ไทม์ไลน์รายห้อง */}
+      <MonthBarGrid
+        month={month}
+        days={grid.days}
+        today={today}
+        weekdayLabel={(d) => weekday.format(new Date(`${d}T00:00:00Z`))}
+        onDayClick={(d) => router.push(`/meeting-rooms/day/${d}`)}
+        onBook={canBook ? book : undefined}
+        bookLabel={t("meeting.book")}
+        moreLabel={(n) => t("meeting.more", { n })}
+        bars={bookings.map((b) => ({
+          id: b.id,
+          start: b.date,
+          end: b.end_date || b.date,
+          label: `${b.start_time} ${b.room.name} · ${b.title}`,
+          tone: toneOf(rooms, b.room.id).bar,
+          onClick: () => setSelected(b),
+          detail: (
+            <span className="block space-y-0.5 text-left">
+              <span className="block font-semibold">{b.title}</span>
+              <span className="block">{period(b)}</span>
+              <span className="block">{b.room.name}</span>
+              <span className="block opacity-80">{[b.user.name, b.department].filter(Boolean).join(" · ")}</span>
+            </span>
+          ),
+        }))}
+      />
 
       {/* จอเล็ก: รายการตามวัน */}
       <ul className="space-y-2 md:hidden">

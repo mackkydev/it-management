@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { ShieldIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
+import { PermissionRequestPrint } from "@/components/permission-request-print";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser, has, isSuperAdmin } from "@/lib/auth";
@@ -41,7 +42,7 @@ export default async function RolePermissionsPage() {
   ]);
   return (
     <div className="space-y-5">
-      <PageHeader icon={ShieldIcon} title={t("rolePermissions.title")} subtitle={t("rolePermissions.subtitle")} />
+      <PageHeader icon={ShieldIcon} title={t("rolePermissions.title")} subtitle={t("rolePermissions.subtitle")} actions={<PermissionRequestPrint catalog={catalog} />} />
       <RoleMatrix catalog={catalog} canManage={canManage} superAdmin={isSuperAdmin(user)} held={user.permissions ?? []} />
       {/* ขอบเขตปฏิทิน (กิจกรรม/หน้างาน) และขอบเขตการลา ตั้งแยกกัน */}
       {manageScopes && <ManageScopeForm groups={catalog.groups} initial={manageScopes} editable={catalog.editable_groups} />}

@@ -129,6 +129,22 @@ export async function saveSignature(userId: number, input: Buffer, source: Signa
   return (await first<SignatureRow>("SELECT * FROM user_signatures WHERE id = ?", [id]))!;
 }
 
+/**
+ * เปิดบังคับลายเซ็น + ผู้ใช้ยังไม่มีลายเซ็นในโปรไฟล์ แล้ววาดลายเซ็นในเอกสาร (data URL PNG) → บันทึกเป็นลายเซ็นในโปรไฟล์ไว้ใช้ครั้งต่อไป
+ * (source DRAW, audit signature.uploaded) — บันทึกไม่สำเร็จไม่ทำให้เอกสารล้มเหลว
+ */
+export async function rememberDrawnSignature(userId: number, dataUrl: unknown, actor: AuditActor): Promise<boolean> {
+  if (typeof dataUrl !== "string" || !(await signatureRequired()) || (await activeSignature(userId))) return false;
+  const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!m) return false;
+  try {
+    await saveSignature(userId, Buffer.from(m[1], "base64"), "DRAW", actor);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** ลบ (ปิดใช้งาน) ลายเซ็นปัจจุบัน — แถวและไฟล์ยังอยู่เป็นประวัติ; byAdmin = Local Admin ลบให้ผู้ใช้ */
 export async function deactivateSignature(userId: number, actor: AuditActor, byAdmin = false): Promise<boolean> {
   const current = await activeSignature(userId);

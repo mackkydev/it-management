@@ -8,6 +8,8 @@ import { nowDb, toDbDateTime } from "./time.js";
  * → token ที่ออกโดย Laravel ใช้กับ Express ได้ และกลับกัน
  */
 const USER_TYPE = "App\\Models\\User";
+/** ความละเอียดของ last_used_at (มิลลิวินาที) */
+const LAST_USED_RESOLUTION_MS = 60_000;
 const ALPHANUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 export interface AccessToken {
@@ -75,7 +77,11 @@ export async function findToken(bearer: string): Promise<AccessToken | null> {
   if (row.tokenable_type !== USER_TYPE) return null;
   if (row.expires_at && new Date(`${row.expires_at.replace(" ", "T")}Z`).getTime() <= Date.now()) return null;
 
-  await exec("UPDATE personal_access_tokens SET last_used_at = ?, updated_at = ? WHERE id = ?", [nowDb(), nowDb(), row.id]);
+  // บันทึกเวลาใช้งานล่าสุดไม่เกินนาทีละครั้ง (เดิมเขียนทุก request) — การตรวจ idle ของ API User (30 นาที) คลาดได้ไม่เกิน 1 นาที
+  const lastUsed = row.last_used_at ? new Date(`${row.last_used_at.replace(" ", "T")}Z`).getTime() : 0;
+  if (Date.now() - lastUsed >= LAST_USED_RESOLUTION_MS) {
+    await exec("UPDATE personal_access_tokens SET last_used_at = ?, updated_at = ? WHERE id = ?", [nowDb(), nowDb(), row.id]);
+  }
   return { id: row.id, userId: row.tokenable_id, lastUsedAt: row.last_used_at };
 }
 

@@ -5,6 +5,7 @@ import type { TFunction } from "@/i18n/types";
 /** สีสถานะใบแจ้งงาน — ใช้ token สีสถานะของระบบ (ไม่ชนกับสีธีม) */
 const STATUS_STYLE: Record<TicketStatus, { badge: string; dot: string }> = {
   pending_supervisor: tone.warning,
+  approval_requested: tone.warning,
   approved: tone.idle,
   in_progress: tone.info,
   pending_it_head: {

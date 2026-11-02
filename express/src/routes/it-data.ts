@@ -267,6 +267,8 @@ itDataRoutes.put("/settings", async (req, res) => {
       contract_notify_days: ["sometimes", "integer", "min:1", "max:365"],
       credential_notify_days: ["sometimes", "integer", "min:1", "max:365"],
       license_notify_days: ["sometimes", "integer", "min:1", "max:365"],
+      ticket_auto_close_days: ["sometimes", "integer", "min:0", "max:90"],
+      ticket_flow: ["sometimes", "in:approval_first,it_first"],
       notify_emails: ["sometimes", "array", "max:20"],
       "notify_emails.*": ["required", "email", "max:255", "distinct:ignore_case"],
       ticket_other_types: ["sometimes", "array", "max:30"],
@@ -325,6 +327,8 @@ itDataRoutes.put("/settings", async (req, res) => {
   if ("contract_notify_days" in data) values.contract_notify_days = int(data.contract_notify_days);
   if ("credential_notify_days" in data) values.credential_notify_days = int(data.credential_notify_days);
   if ("license_notify_days" in data) values.license_notify_days = int(data.license_notify_days);
+  if ("ticket_auto_close_days" in data) values.ticket_auto_close_days = int(data.ticket_auto_close_days);
+  if ("ticket_flow" in data) values.ticket_flow = String(data.ticket_flow);
   if ("ticket_other_types" in data) {
     values.ticket_other_types = [...new Set(Object.values(data.ticket_other_types as Record<string, string>).map((s) => s.trim()))];
   }

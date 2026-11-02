@@ -27,6 +27,33 @@ export function SidebarNav({ groups, onNavigate }: { groups: NavGroup[]; onNavig
         const isOpen = open === group.id;
         const hasActive = group.items.some((i) => i.href === active);
         const panelId = `nav-${group.id}`;
+        // เมนูเดี่ยว (เช่น ภาพรวม) = ลิงก์ตรง ไม่มี dropdown
+        const direct = group.direct ? group.items[0] : null;
+        if (direct) {
+          return (
+            <Link
+              key={group.id}
+              href={direct.href}
+              onClick={() => (setOpen(null), onNavigate?.())}
+              aria-current={hasActive ? "page" : undefined}
+              className={`flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                hasActive ? "bg-accent-100 text-accent-800 dark:bg-accent-400/15 dark:text-accent-200" : "text-ink hover:bg-subtle"
+              }`}
+            >
+              <span
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                  hasActive
+                    ? "bg-accent-200 text-accent-800 dark:bg-accent-400/25 dark:text-accent-200"
+                    : "bg-accent-100 text-accent-600 dark:bg-accent-400/10 dark:text-accent-300"
+                }`}
+              >
+                <LinkPendingIcon icon={<group.icon width={16} height={16} />} size={16} />
+              </span>
+              <span className="flex-1 text-left">{navLabel(group, t, locale)}</span>
+              <ItemBadge href={direct.href} />
+            </Link>
+          );
+        }
         return (
           <div key={group.id}>
             <button

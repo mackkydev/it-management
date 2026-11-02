@@ -179,9 +179,9 @@
 .requestFoot {
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
-  gap: 6mm;
-  padding-bottom: 1mm;
+  justify-content: flex-end;
+  gap: 10mm;
+  padding: 1mm 0 1mm;
 }
 .sign {
   width: 52mm;
@@ -199,10 +199,6 @@
   max-height: 13mm;
   max-width: 48mm;
   object-fit: contain;
-}
-.sigLine {
-  border-top: 0.25mm solid #000;
-  margin: 0 3mm;
 }
 .signName {
   display: flex;

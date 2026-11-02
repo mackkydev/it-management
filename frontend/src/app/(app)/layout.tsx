@@ -35,7 +35,9 @@ async function loginDigest() {
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const [user, prefs, uiConfig, digest, { t, fmt }] = await Promise.all([getCurrentUser(), getPrefs(), getUiConfig(), loginDigest(), getI18n()]);
   // รหัสผ่านหมดอายุ (นโยบายรหัสผ่าน) — API ตอบ 403 แทบทุก endpoint จนกว่าจะเปลี่ยน (apiFetch ก็พาไปหน้าเดียวกัน)
-  if (user.password_expired) redirect("/password-expired");
+  if (user.password_expired) redirect("/login?change=1");
+  // ยังไม่ยอมรับนโยบายการใช้งานระบบ (เวอร์ชันปัจจุบัน) — เข้าใช้งานไม่ได้จนกว่าจะยอมรับ
+  if (user.policy_required) redirect("/policy-accept");
 
   return (
     <AppShell layout={prefs.layout} user={user} uiConfig={uiConfig}>

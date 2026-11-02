@@ -23,6 +23,8 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
         contract_notify_days: v.contract_notify_days,
         credential_notify_days: v.credential_notify_days,
         license_notify_days: v.license_notify_days,
+        ticket_auto_close_days: v.ticket_auto_close_days ?? 7,
+        ticket_flow: v.ticket_flow ?? "approval_first",
         notify_emails: v.notify_emails,
       });
       const firstError = res.errors ? Object.values(res.errors)[0] : undefined;
@@ -64,6 +66,44 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
             {days("credential_notify_days", t("settingsPage.credentialDays"))}
             {days("license_notify_days", t("settingsPage.licenseDays"), t("settingsPage.licenseDaysHint"))}
           </div>
+        </section>
+
+        {/* ใบแจ้งงาน: ผู้แจ้งไม่กดรับงานเกิน N วัน → ระบบปิดงานอัตโนมัติ (0 = ไม่ปิดอัตโนมัติ) */}
+        <section className={`p-4 sm:p-6 ${card}`}>
+          <h2 className="mb-4 font-semibold">{t("settingsPage.ticketSection")}</h2>
+          {/* ขั้นตอนใบแจ้งงาน: หัวหน้าอนุมัติก่อน (แบบเดิม) / ส่งถึงฝ่าย IT ทันที (IT ขอให้หัวหน้าอนุมัติเมื่อจำเป็น) */}
+          <fieldset className="mb-5 space-y-2">
+            <legend className="mb-1 text-sm font-medium">{t("settingsPage.ticketFlow")}</legend>
+            {(["it_first", "approval_first"] as const).map((f) => (
+              <label key={f} className="flex cursor-pointer items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="ticket_flow"
+                  value={f}
+                  checked={(v.ticket_flow ?? "approval_first") === f}
+                  onChange={() => setV({ ...v, ticket_flow: f })}
+                  className="mt-0.5 cursor-pointer accent-[var(--accent-500)]"
+                />
+                <span>
+                  {t(`settingsPage.ticketFlows.${f}`)}
+                  <span className="block text-xs text-muted">{t(`settingsPage.ticketFlowHints.${f}`)}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+          <label htmlFor="ticket_auto_close_days" className="mb-1 block text-sm font-medium">
+            {t("settingsPage.autoCloseDays")}
+          </label>
+          <input
+            id="ticket_auto_close_days"
+            type="number"
+            min={0}
+            max={90}
+            value={v.ticket_auto_close_days ?? 7}
+            onChange={(e) => setV({ ...v, ticket_auto_close_days: Number(e.target.value) })}
+            className={`${input} max-w-40`}
+          />
+          <p className="mt-1 text-xs text-muted">{t("settingsPage.autoCloseDaysHint")}</p>
         </section>
 
         <section className={`p-4 sm:p-6 ${card}`}>

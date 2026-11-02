@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { assignVehicle } from "@/app/actions/vehicles";
 import { AppSelect } from "@/components/app-select";
-import { useAlert } from "@/components/dialog-provider";
+import { useAlert, useConfirm } from "@/components/dialog-provider";
 import { CheckCircleIcon, EyeIcon, GaugeIcon, PencilIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
 import { btn, card, input, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
@@ -22,6 +22,7 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
   const { t, fmt } = useI18n();
   const router = useRouter();
   const showAlert = useAlert();
+  const confirm = useConfirm();
   const [selected, setSelected] = useState<VehicleBooking | null>(null);
   const [choice, setChoice] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -64,8 +65,11 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
     const value = choice[b.id] ?? (b.vehicle ? String(b.vehicle.id) : "");
     setSaving(b.id);
     start(async () => {
-      const res = await assignVehicle(b.id, value ? Number(value) : null);
+      let res = await assignVehicle(b.id, value ? Number(value) : null);
+      // รถที่เลือกติดการจองอื่น → ถามแล้วสลับรถกับรายการนั้น
+      if (res.swap && (await confirm(`${res.message}\n\n${t("swap.confirm")}`, { danger: false }))) res = await assignVehicle(b.id, Number(value), true);
       setSaving(null);
+      if (res.swap) return;
       if (!res.ok) return void (await showAlert(res.errors?.vehicle_id ?? res.message ?? t("common.saveFailed")));
       router.refresh();
     });
@@ -95,6 +99,12 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
   const actions = (b: VehicleBooking) => (
     <div className="flex flex-wrap justify-end gap-1.5">
       {mode === "dispatch" && b.can_approve && review(b)}
+      {mode === "dispatch" && !b.can_approve && b.status === "confirmed" && b.can_cancel && (
+        <Link href={`/vehicles/dispatch/${b.id}`} className={`${btn.soft} ${btn.sm} whitespace-nowrap`}>
+          <PencilIcon width={14} height={14} />
+          {t("vehicle.approval.manage")}
+        </Link>
+      )}
       {mode === "mine" && b.can_edit && (
         <Link href={`/vehicles/bookings/${b.id}/edit`} className={`${btn.soft} ${btn.sm} whitespace-nowrap`}>
           <PencilIcon width={14} height={14} />

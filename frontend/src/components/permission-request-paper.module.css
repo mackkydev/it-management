@@ -1,0 +1,200 @@
+/*
+ * แบบฟอร์มขอสิทธิ์การใช้งานระบบ — กระดาษ A4 หน้าเดียว (ขาวดำเสมอ: ใช้สีดำ/ขาวตรงๆ ไม่ใช้ token ธีม)
+ * ฟอนต์เดียวกับใบแจ้งดำเนินงาน IT — ขนาดตัวอักษรของรายการสิทธิ์ย่ออัตโนมัติให้พอดี 1 หน้า (--list-size)
+ */
+.sheet {
+  width: 210mm;
+  height: 297mm;
+  padding: 8mm 9mm;
+  box-sizing: border-box;
+  background: #fff;
+  color: #000;
+  font-family: "Angsana New", "AngsanaUPC", "TH Sarabun New", serif;
+  font-size: 14pt;
+  line-height: 1.15;
+  overflow: hidden;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+.frame {
+  height: 100%;
+  border: 0.35mm solid #000;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 3mm;
+  padding: 2mm 4mm 1mm;
+  border-bottom: 0.3mm solid #000;
+}
+.logo {
+  height: 11mm;
+  width: auto;
+  max-width: 30mm;
+  object-fit: contain;
+}
+.headText {
+  flex: 1;
+  min-width: 0;
+}
+.nameTh {
+  font-weight: 700;
+  font-size: 13pt;
+}
+.nameEn {
+  font-size: 10pt;
+}
+.docNo {
+  font-size: 11pt;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.title {
+  text-align: center;
+  font-weight: 700;
+  font-size: 17pt;
+  padding: 1.5mm 4mm 0.5mm;
+}
+
+/* ช่องกรอกข้อมูลผู้ขอ: ป้าย + เส้นจุดให้เขียน */
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 6mm;
+  row-gap: 1.2mm;
+  padding: 1mm 4mm 1.5mm;
+}
+.field {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.5mm;
+  white-space: nowrap;
+}
+.wide {
+  grid-column: 1 / -1;
+}
+.line {
+  flex: 1;
+  border-bottom: 0.25mm dotted #000;
+  height: 5mm;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 5mm;
+  row-gap: 0.8mm;
+  padding: 0.6mm 4mm;
+}
+.rowLabel {
+  font-weight: 700;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.4mm;
+  white-space: nowrap;
+}
+.box {
+  flex: none;
+  width: 3.2mm;
+  height: 3.2mm;
+  border: 0.3mm solid #000;
+  box-sizing: border-box;
+}
+
+.sectionTitle {
+  font-weight: 700;
+  padding: 1mm 4mm 0.5mm;
+  border-top: 0.3mm solid #000;
+}
+.hint {
+  font-weight: 400;
+  font-size: 11pt;
+}
+
+/* รายการสิทธิ์ตามระบบงาน 2 คอลัมน์ — ขนาดตัวอักษรปรับลดอัตโนมัติจนพอดีพื้นที่ (ไม่ล้นเป็นหน้า 2) */
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 4mm 1mm;
+  font-size: var(--list-size, 13pt);
+  line-height: 1.12;
+  columns: 2;
+  column-gap: 6mm;
+  column-rule: 0.2mm solid #000;
+}
+/* ระบบงาน: ชื่อ (ตัวหนา) แล้วรายการสิทธิ์เรียงต่อกันในบรรทัด (ขึ้นบรรทัดใหม่เมื่อเต็ม) — ประหยัดที่ให้อยู่ใน 1 หน้า */
+.module {
+  break-inside: avoid;
+  margin-bottom: 0.7mm;
+}
+.moduleName {
+  font-weight: 700;
+  text-decoration: underline;
+}
+.items {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 2.5mm;
+}
+.item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25em;
+}
+/* ช่องติ๊กขนาดตามตัวอักษร (ไม่ทำให้บรรทัดสูงขึ้น) */
+.item .box {
+  width: 0.62em;
+  height: 0.62em;
+  border-width: 0.25mm;
+  align-self: center;
+}
+
+.reason {
+  padding: 0.5mm 4mm 1mm;
+}
+.reasonLines {
+  border-bottom: 0.25mm dotted #000;
+  height: 5.5mm;
+}
+
+/* ลายมือชื่อ 3 ช่อง */
+.signs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 0.3mm solid #000;
+}
+.sign {
+  text-align: center;
+  padding: 1mm 2mm 1.5mm;
+  font-size: 13pt;
+  line-height: 1.2;
+}
+.sign + .sign {
+  border-left: 0.3mm solid #000;
+}
+.signRole {
+  font-weight: 700;
+}
+.signLine {
+  /* พื้นที่เซ็นชื่อ (ไม่มีเส้นคั่นเหนือชื่อ) */
+  height: 11mm;
+  margin: 0 3mm 0.8mm;
+}
+
+/* กันปัดเศษความสูงจนล้นเป็นหน้า 2 ตอนพิมพ์ */
+@media print {
+  .sheet {
+    height: 296.5mm;
+  }
+}

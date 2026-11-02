@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useState, useTransition, type ReactNode } from "react";
-import { deleteTicket, recordResult, requestCancel, ticketAction, type TicketResult } from "@/app/actions/tickets";
+import { deleteTicket, recordProgress, recordResult, requestCancel, ticketAction, type TicketResult } from "@/app/actions/tickets";
 import { DateInput } from "@/components/date-input";
-import { PhotoPicker } from "@/components/file-pickers";
+import { DocumentPicker, EVENT_FILE_ACCEPT, EVENT_FILE_MAX_BYTES, EVENT_FILES_MAX, PhotoPicker } from "@/components/file-pickers";
 import { AppSelect } from "@/components/app-select";
 import {
   AlertIcon,
@@ -35,6 +35,7 @@ const ICONS: Record<TicketAction, ReactNode> = {
   approve: <CheckCircleIcon />,
   reject: <XIcon />,
   accept: <InboxIcon />,
+  request_approval: <CheckCircleIcon />,
   forward: <ArrowRightIcon />,
   progress: <HistoryIcon />,
   result: <WrenchIcon />,
@@ -51,7 +52,7 @@ const ICONS: Record<TicketAction, ReactNode> = {
 
 /** ปุ่มที่ทำทันที (ไม่ต้องเปิดฟอร์ม) */
 const INSTANT: TicketAction[] = ["edit", "delete", "cancel_withdraw"];
-const DANGER: TicketAction[] = ["reject", "return", "delete", "cancel_request", "cancel_confirm"];
+const DANGER: TicketAction[] = ["request_approval", "reject", "return", "delete", "cancel_request", "cancel_confirm"];
 
 /** ปุ่มการทำงานตามสิทธิ์และสถานะ (มาจาก API: ticket.actions) */
 export function TicketActions({ ticket }: { ticket: TicketDetail }) {
@@ -122,16 +123,29 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
   const [signature, setSignature] = useState<string | null>(null);
   // รับงาน: ติ๊กบันทึกลงปฏิทิน = ช่วงวันไปทำงานหน้างาน
   const [onsiteOn, setOnsiteOn] = useState(false);
-  const [onsite, setOnsite] = useState<OnsiteValue>({ start_on: localToday(), end_on: localToday(), note: "" });
+  const [onsite, setOnsite] = useState<OnsiteValue>({
+    start_on: localToday(),
+    end_on: localToday(),
+    note: "",
+  });
   // รับงาน: ผู้ร่วมดำเนินการ (ทำงานมากกว่า 1 คน)
   const [helpersOn, setHelpersOn] = useState(false);
   const [helperIds, setHelperIds] = useState<number[]>([]);
   // โอนงาน: เจ้าหน้าที่ IT ที่รับงานต่อ
   const [forwardTo, setForwardTo] = useState("");
+  // อัปเดตความคืบหน้า: ไฟล์/รูปประกอบ (เช่น ใบเสนอราคา ใบ PO)
+  const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
-  const commentRequired = action === "reject" || action === "return" || action === "progress" || action === "cancel_request" || action === "cancel_reject";
+  const commentRequired = action === "reject" || action === "request_approval" || action === "return" || action === "progress" || action === "cancel_request" || action === "cancel_reject";
   const needsSignature = action === "close";
+
+  const progressForm = () => {
+    const fd = new FormData();
+    fd.set("comment", comment.trim());
+    files.forEach((f) => fd.append("files[]", f));
+    return fd;
+  };
 
   const submit = () => {
     if (commentRequired && !comment.trim()) return setError(t("tickets.actions.commentRequired"));
@@ -143,8 +157,16 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
       const res: TicketResult | undefined =
         action === "cancel_request"
           ? await requestCancel(ticket.id, comment)
-          : await ticketAction(ticket.id, action, { comment, signature, calendar: action === "accept" && onsiteOn ? onsite : null, helper_ids: action === "accept" && helpersOn ? helperIds : [], assignee_id: action === "forward" ? Number(forwardTo) : null });
-      if (res) setError(res.errors ? Object.values(res.errors)[0] ?? res.message ?? "" : (res.message ?? ""));
+          : action === "progress"
+            ? await recordProgress(ticket.id, progressForm())
+            : await ticketAction(ticket.id, action, {
+                comment,
+                signature,
+                calendar: action === "accept" && onsiteOn ? onsite : null,
+                helper_ids: action === "accept" && helpersOn ? helperIds : [],
+                assignee_id: action === "forward" ? Number(forwardTo) : null,
+              });
+      if (res) setError(res.errors ? (Object.values(res.errors)[0] ?? res.message ?? "") : (res.message ?? ""));
     });
   };
 
@@ -203,6 +225,20 @@ function SimpleActionForm({ ticket, action, onCancel }: { ticket: TicketDetail; 
           />
         </div>
       )}
+      {action === "progress" && (
+        <div>
+          <p className="mb-1 text-sm font-medium">{t("tickets.actions.progressFiles")}</p>
+          <DocumentPicker
+            files={files}
+            onChange={(f) => (setFiles(f), setError(""))}
+            max={EVENT_FILES_MAX}
+            maxBytes={EVENT_FILE_MAX_BYTES}
+            accept={EVENT_FILE_ACCEPT}
+            hint={t("upload.eventFileHint", { max: EVENT_FILES_MAX })}
+            onError={setError}
+          />
+        </div>
+      )}
       {action === "accept" && (
         <div className="space-y-2 rounded-xl p-3 ring-1 ring-line">
           <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
@@ -251,12 +287,31 @@ function ResultForm({ ticket, onCancel }: { ticket: TicketDetail; onCancel: () =
   const isRepair = ticket.type === "repair";
   const [outcome, setOutcome] = useState<"completed" | "cannot_complete">(ticket.result ?? "completed");
   const [completedOn, setCompletedOn] = useState(ticket.completed_on ?? localToday());
+  // งานหลายวัน: ตั้งต้นตามที่บันทึกไว้ หรือช่วงออกหน้างานหลายวันในปฏิทิน (ออกต่างจังหวัด = นับทุกวัน)
+  const onsite = ticket.calendar_event ?? null;
+  const onsiteMulti = Boolean(onsite?.start_on && onsite.end_on && onsite.start_on < onsite.end_on);
+  const [multiDay, setMultiDay] = useState(Boolean(ticket.work_start_on) || onsiteMulti);
+  const [workStartOn, setWorkStartOn] = useState(ticket.work_start_on ?? (onsiteMulti ? onsite!.start_on! : ticket.accepted_at ? localToday(new Date(ticket.accepted_at)) : localToday()));
+  const [skipOffDays, setSkipOffDays] = useState(ticket.work_start_on ? ticket.work_skip_off_days : !onsiteMulti);
   const [cannotReason, setCannotReason] = useState(ticket.cannot_reason ?? "");
+  // ไม่สามารถดำเนินการได้เพราะผู้แจ้งยกเลิก = ไม่ต้องระบุสาเหตุ
+  const [requesterCancelled, setRequesterCancelled] = useState(false);
+  // เลือก "ไม่สามารถดำเนินการได้" / เอาติ๊กผู้แจ้งยกเลิกออก → โฟกัสช่องสาเหตุ (autoFocus ตอนช่องปรากฏ)
+  const [focusReason, setFocusReason] = useState(false);
+  const [documents, setDocuments] = useState<File[]>([]);
   const [method, setMethod] = useState<"in_house" | "external" | "">(ticket.repair_method ?? "");
   const [vendor, setVendor] = useState(ticket.external_vendor ?? "");
   const [warranty, setWarranty] = useState<"in_warranty" | "out_of_warranty" | "">(ticket.warranty ?? "");
   const [details, setDetails] = useState(ticket.repair_details ?? "");
-  const [parts, setParts] = useState<Part[]>(ticket.parts.length ? ticket.parts.map((p) => ({ name: p.name, quantity: String(p.quantity), photo: null })) : []);
+  const [parts, setParts] = useState<Part[]>(
+    ticket.parts.length
+      ? ticket.parts.map((p) => ({
+          name: p.name,
+          quantity: String(p.quantity),
+          photo: null,
+        }))
+      : [],
+  );
   const [photos, setPhotos] = useState<File[]>([]);
   const [signature, setSignature] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -264,17 +319,33 @@ function ResultForm({ ticket, onCancel }: { ticket: TicketDetail; onCancel: () =
   const [pending, start] = useTransition();
 
   const clearErr = (k: string) => setErrors((e) => ({ ...e, [k]: "" }));
+  const done = outcome === "completed";
+  // ผู้แจ้งงานยกเลิก = ไม่มีสาเหตุ/เอกสารประกอบให้กรอก
+  const cancelledByRequester = !done && requesterCancelled;
+
+  // เลือก "ไม่สามารถดำเนินการได้" → เลื่อนไปที่ช่องสาเหตุ
+  const pickCannot = () => {
+    setOutcome("cannot_complete");
+    setFocusReason(true);
+  };
 
   const submit = () => {
     const e: Record<string, string> = {};
     if (outcome === "completed" && !completedOn) e.completed_on = t("tickets.validate.completedOn");
-    if (outcome === "cannot_complete" && !cannotReason.trim()) e.cannot_reason = t("tickets.validate.cannotReason");
-    if (isRepair && !method) e.repair_method = t("tickets.validate.method");
-    if (isRepair && method === "external" && !vendor.trim()) e.external_vendor = t("tickets.validate.vendor");
-    if (isRepair && !warranty) e.warranty = t("tickets.validate.warranty");
-    parts.forEach((p, i) => {
-      if (!p.name.trim()) e[`parts.${i}.name`] = t("tickets.validate.partName");
-    });
+    if (outcome === "completed" && multiDay) {
+      if (!workStartOn) e.work_start_on = t("tickets.validate.workStartOn");
+      else if (completedOn && workStartOn >= completedOn) e.work_start_on = t("tickets.validate.workStartAfter");
+    }
+    if (!done && !requesterCancelled && !cannotReason.trim()) e.cannot_reason = t("tickets.validate.cannotReason");
+    // ข้อมูลการซ่อม/อะไหล่ ใช้เฉพาะเมื่อทำสำเร็จ
+    if (done && isRepair && !method) e.repair_method = t("tickets.validate.method");
+    if (done && isRepair && method === "external" && !vendor.trim()) e.external_vendor = t("tickets.validate.vendor");
+    if (done && isRepair && !warranty) e.warranty = t("tickets.validate.warranty");
+    if (done) {
+      parts.forEach((p, i) => {
+        if (!p.name.trim()) e[`parts.${i}.name`] = t("tickets.validate.partName");
+      });
+    }
     if (!signature) e.signature = t("signature.required");
     if (Object.keys(e).length) {
       setErrors(e);
@@ -284,27 +355,39 @@ function ResultForm({ ticket, onCancel }: { ticket: TicketDetail; onCancel: () =
 
     const fd = new FormData();
     fd.set("result", outcome);
-    if (outcome === "completed") fd.set("completed_on", completedOn);
+    if (outcome === "completed") {
+      fd.set("completed_on", completedOn);
+      if (multiDay) {
+        fd.set("work_start_on", workStartOn);
+        fd.set("work_skip_off_days", skipOffDays ? "1" : "0");
+      }
+    } else if (requesterCancelled) fd.set("requester_cancelled", "1");
     else fd.set("cannot_reason", cannotReason.trim());
-    if (isRepair) {
-      fd.set("repair_method", method);
-      if (method === "external") fd.set("external_vendor", vendor.trim());
-      fd.set("warranty", warranty);
+    if (done) {
+      if (isRepair) {
+        fd.set("repair_method", method);
+        if (method === "external") fd.set("external_vendor", vendor.trim());
+        fd.set("warranty", warranty);
+      }
+      if (details.trim()) fd.set("repair_details", details.trim());
+      parts.forEach((p, i) => {
+        fd.set(`parts[${i}][name]`, p.name.trim());
+        fd.set(`parts[${i}][quantity]`, p.quantity || "1");
+        if (p.photo) fd.set(`parts[${i}][photo]`, p.photo);
+      });
+      photos.forEach((f) => fd.append("photos[]", f));
     }
-    if (details.trim()) fd.set("repair_details", details.trim());
-    parts.forEach((p, i) => {
-      fd.set(`parts[${i}][name]`, p.name.trim());
-      fd.set(`parts[${i}][quantity]`, p.quantity || "1");
-      if (p.photo) fd.set(`parts[${i}][photo]`, p.photo);
-    });
-    photos.forEach((f) => fd.append("photos[]", f));
+    if (!cancelledByRequester) documents.forEach((f) => fd.append("documents[]", f));
     fd.set("signature", signature!);
 
     setMessage("");
     start(async () => {
       const res = await recordResult(ticket.id, fd);
       if (res) {
-        setErrors(Object.fromEntries(Object.entries(res.errors ?? {}).map(([k, v]) => [k, v ?? ""])));
+        const errs = Object.fromEntries(Object.entries(res.errors ?? {}).map(([k, v]) => [k, v ?? ""]));
+        const docErr = Object.entries(errs).find(([k]) => k.startsWith("documents."));
+        if (docErr) errs.documents = docErr[1];
+        setErrors(errs);
         setMessage(res.message ?? "");
       }
     });
@@ -312,7 +395,9 @@ function ResultForm({ ticket, onCancel }: { ticket: TicketDetail; onCancel: () =
 
   const err = (k: string) => (errors[k] ? <p className="mt-1 text-xs font-medium text-red-500">{errors[k]}</p> : null);
   const radio = (name: string, value: string, checked: boolean, onPick: () => void, label: string) => (
-    <label className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 transition-colors ${checked ? "bg-accent-50 ring-accent-300 dark:bg-accent-400/10" : "ring-line hover:bg-subtle"}`}>
+    <label
+      className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 transition-colors ${checked ? "bg-accent-50 ring-accent-300 dark:bg-accent-400/10" : "ring-line hover:bg-subtle"}`}
+    >
       <input type="radio" name={name} value={value} checked={checked} onChange={onPick} className="accent-[var(--accent-500)]" />
       {label}
     </label>
@@ -348,140 +433,226 @@ function ResultForm({ ticket, onCancel }: { ticket: TicketDetail; onCancel: () =
                 className={`${input} ${errors.completed_on ? inputError : ""}`}
               />
               {err("completed_on")}
-            </div>
-          )}
-        </div>
-        <div className="space-y-2">
-          {radio("outcome", "cannot_complete", outcome === "cannot_complete", () => setOutcome("cannot_complete"), t("tickets.result.cannot"))}
-          {outcome === "cannot_complete" && (
-            <div className="pl-1">
-              <label htmlFor="cannot_reason" className="mb-1 block text-xs text-muted">
-                {t("tickets.result.cannotReason")}
-              </label>
-              <input
-                id="cannot_reason"
-                value={cannotReason}
-                maxLength={2000}
-                onChange={(e) => {
-                  setCannotReason(e.target.value);
-                  clearErr("cannot_reason");
-                }}
-                className={`${input} ${errors.cannot_reason ? inputError : ""}`}
-              />
-              {err("cannot_reason")}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {isRepair && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <p className="mb-2 text-sm font-medium">
-              {t("tickets.result.method")} <span className="text-red-500">*</span>
-            </p>
-            <div className="space-y-2">
-              {radio("method", "in_house", method === "in_house", () => (setMethod("in_house"), clearErr("repair_method")), t("tickets.result.inHouse"))}
-              {radio("method", "external", method === "external", () => (setMethod("external"), clearErr("repair_method")), t("tickets.result.external"))}
-              {method === "external" && (
+              {/* งานหลายวัน → ชีต KPI แยกแถวรายวัน (หลังอนุมัติผล) */}
+              <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm">
                 <input
-                  aria-label={t("tickets.result.vendor")}
-                  placeholder={t("tickets.result.vendor")}
-                  value={vendor}
-                  maxLength={255}
+                  type="checkbox"
+                  checked={multiDay}
                   onChange={(e) => {
-                    setVendor(e.target.value);
-                    clearErr("external_vendor");
+                    setMultiDay(e.target.checked);
+                    clearErr("work_start_on");
                   }}
-                  className={`${input} ${errors.external_vendor ? inputError : ""}`}
+                  className="mt-0.5 h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
                 />
+                <span>
+                  {t("tickets.result.multiDay")}
+                  <span className="block text-xs text-muted">{t("tickets.result.multiDayHint")}</span>
+                </span>
+              </label>
+              {multiDay && (
+                <div className="mt-2 space-y-2 border-l-2 border-accent-200 pl-3 dark:border-accent-400/30">
+                  <div>
+                    <label htmlFor="work_start_on" className="mb-1 block text-xs text-muted">
+                      {t("tickets.result.workStartOn")}
+                    </label>
+                    <DateInput
+                      id="work_start_on"
+                      max={completedOn || localToday()}
+                      value={workStartOn}
+                      onChange={(d) => {
+                        setWorkStartOn(d);
+                        clearErr("work_start_on");
+                      }}
+                      className={`${input} ${errors.work_start_on ? inputError : ""}`}
+                    />
+                    {err("work_start_on")}
+                  </div>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input type="checkbox" checked={skipOffDays} onChange={(e) => setSkipOffDays(e.target.checked)} className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]" />
+                    {t("tickets.result.skipOffDays")}
+                  </label>
+                </div>
               )}
             </div>
-            {err("repair_method")}
-            {err("external_vendor")}
-          </div>
-          <div>
-            <p className="mb-2 text-sm font-medium">
-              {t("tickets.result.warranty")} <span className="text-red-500">*</span>
-            </p>
-            <div className="space-y-2">
-              {radio("warranty", "in_warranty", warranty === "in_warranty", () => (setWarranty("in_warranty"), clearErr("warranty")), t("tickets.result.inWarranty"))}
-              {radio("warranty", "out_of_warranty", warranty === "out_of_warranty", () => (setWarranty("out_of_warranty"), clearErr("warranty")), t("tickets.result.outOfWarranty"))}
-            </div>
-            {err("warranty")}
-          </div>
+          )}
         </div>
+        <div className="space-y-2">
+          {radio("outcome", "cannot_complete", outcome === "cannot_complete", pickCannot, t("tickets.result.cannot"))}
+          {!done && (
+            <div className="space-y-2 pl-1">
+              {!requesterCancelled && (
+                <div>
+                  <label htmlFor="cannot_reason" className="mb-1 block text-xs text-muted">
+                    {t("tickets.result.cannotReason")} <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    id="cannot_reason"
+                    autoFocus={focusReason}
+                    rows={3}
+                    required
+                    aria-invalid={Boolean(errors.cannot_reason)}
+                    value={cannotReason}
+                    maxLength={2000}
+                    onChange={(e) => {
+                      setCannotReason(e.target.value);
+                      clearErr("cannot_reason");
+                    }}
+                    className={`${input} ${errors.cannot_reason ? inputError : ""}`}
+                  />
+                  {err("cannot_reason")}
+                </div>
+              )}
+              <label className="flex cursor-pointer items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={requesterCancelled}
+                  onChange={(e) => {
+                    setRequesterCancelled(e.target.checked);
+                    clearErr("cannot_reason");
+                    setFocusReason(true);
+                  }}
+                  className="mt-0.5 h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+                />
+                <span>
+                  {t("tickets.result.requesterCancelled")}
+                  {requesterCancelled && <span className="block text-xs text-muted">{t("tickets.result.requesterCancelledHint")}</span>}
+                </span>
+              </label>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ส่วนการซ่อม / อะไหล่ / รูปหลังซ่อม — เฉพาะเมื่อดำเนินการสำเร็จ */}
+      {done && (
+        <>
+          {isRepair && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="mb-2 text-sm font-medium">
+                  {t("tickets.result.method")} <span className="text-red-500">*</span>
+                </p>
+                <div className="space-y-2">
+                  {radio("method", "in_house", method === "in_house", () => (setMethod("in_house"), clearErr("repair_method")), t("tickets.result.inHouse"))}
+                  {radio("method", "external", method === "external", () => (setMethod("external"), clearErr("repair_method")), t("tickets.result.external"))}
+                  {method === "external" && (
+                    <input
+                      aria-label={t("tickets.result.vendor")}
+                      placeholder={t("tickets.result.vendor")}
+                      value={vendor}
+                      maxLength={255}
+                      onChange={(e) => {
+                        setVendor(e.target.value);
+                        clearErr("external_vendor");
+                      }}
+                      className={`${input} ${errors.external_vendor ? inputError : ""}`}
+                    />
+                  )}
+                </div>
+                {err("repair_method")}
+                {err("external_vendor")}
+              </div>
+              <div>
+                <p className="mb-2 text-sm font-medium">
+                  {t("tickets.result.warranty")} <span className="text-red-500">*</span>
+                </p>
+                <div className="space-y-2">
+                  {radio("warranty", "in_warranty", warranty === "in_warranty", () => (setWarranty("in_warranty"), clearErr("warranty")), t("tickets.result.inWarranty"))}
+                  {radio("warranty", "out_of_warranty", warranty === "out_of_warranty", () => (setWarranty("out_of_warranty"), clearErr("warranty")), t("tickets.result.outOfWarranty"))}
+                </div>
+                {err("warranty")}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label htmlFor="repair_details" className="mb-1 block text-sm font-medium">
+              {t("tickets.result.details")}
+            </label>
+            <textarea id="repair_details" rows={4} maxLength={5000} value={details} onChange={(e) => setDetails(e.target.value)} className={input} />
+          </div>
+
+          {/* อะไหล่ / วัสดุที่เปลี่ยน (รูปละ 1) */}
+          <div>
+            <p className="mb-2 text-sm font-medium">{t("tickets.result.parts")}</p>
+            <div className="space-y-2">
+              {parts.map((p, i) => (
+                <div key={i} className="flex flex-wrap items-start gap-2 rounded-xl bg-subtle p-2">
+                  <span className="mt-2 w-5 text-center text-xs text-muted">{i + 1}.</span>
+                  <div className="min-w-40 flex-1">
+                    <input
+                      aria-label={t("tickets.result.partName")}
+                      placeholder={t("tickets.result.partName")}
+                      value={p.name}
+                      maxLength={255}
+                      onChange={(e) => {
+                        setParts((list) => list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)));
+                        clearErr(`parts.${i}.name`);
+                      }}
+                      className={`${input} ${errors[`parts.${i}.name`] ? inputError : ""}`}
+                    />
+                    {err(`parts.${i}.name`)}
+                  </div>
+                  <input
+                    aria-label={t("tickets.result.qty")}
+                    type="number"
+                    min={1}
+                    max={999}
+                    value={p.quantity}
+                    onChange={(e) => setParts((list) => list.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))}
+                    className={`${input} w-20`}
+                  />
+                  <div className="w-28">
+                    <PhotoPicker
+                      files={p.photo ? [p.photo] : []}
+                      max={1}
+                      onChange={(files) => setParts((list) => list.map((x, j) => (j === i ? { ...x, photo: files[0] ?? null } : x)))}
+                      onError={setMessage}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setParts((list) => list.filter((_, j) => j !== i))}
+                    aria-label={t("upload.remove")}
+                    className="mt-1 cursor-pointer rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-danger-500"
+                  >
+                    <TrashIcon width={15} height={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {parts.length < 10 && (
+              <button type="button" onClick={() => setParts((list) => [...list, { name: "", quantity: "1", photo: null }])} className={`${btn.secondary} ${btn.sm} mt-2`}>
+                <PlusIcon width={13} height={13} className="text-accent-500" />
+                {t("tickets.result.addPart")}
+              </button>
+            )}
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-medium">{t("tickets.result.photos")}</p>
+            <PhotoPicker files={photos} onChange={setPhotos} max={4} onError={setMessage} />
+            {err("photos")}
+          </div>
+        </>
       )}
 
-      <div>
-        <label htmlFor="repair_details" className="mb-1 block text-sm font-medium">
-          {t("tickets.result.details")}
-        </label>
-        <textarea id="repair_details" rows={4} maxLength={5000} value={details} onChange={(e) => setDetails(e.target.value)} className={input} />
-      </div>
-
-      {/* อะไหล่ / วัสดุที่เปลี่ยน (รูปละ 1) */}
-      <div>
-        <p className="mb-2 text-sm font-medium">{t("tickets.result.parts")}</p>
-        <div className="space-y-2">
-          {parts.map((p, i) => (
-            <div key={i} className="flex flex-wrap items-start gap-2 rounded-xl bg-subtle p-2">
-              <span className="mt-2 w-5 text-center text-xs text-muted">{i + 1}.</span>
-              <div className="min-w-40 flex-1">
-                <input
-                  aria-label={t("tickets.result.partName")}
-                  placeholder={t("tickets.result.partName")}
-                  value={p.name}
-                  maxLength={255}
-                  onChange={(e) => {
-                    setParts((list) => list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)));
-                    clearErr(`parts.${i}.name`);
-                  }}
-                  className={`${input} ${errors[`parts.${i}.name`] ? inputError : ""}`}
-                />
-                {err(`parts.${i}.name`)}
-              </div>
-              <input
-                aria-label={t("tickets.result.qty")}
-                type="number"
-                min={1}
-                max={999}
-                value={p.quantity}
-                onChange={(e) => setParts((list) => list.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))}
-                className={`${input} w-20`}
-              />
-              <div className="w-28">
-                <PhotoPicker
-                  files={p.photo ? [p.photo] : []}
-                  max={1}
-                  onChange={(files) => setParts((list) => list.map((x, j) => (j === i ? { ...x, photo: files[0] ?? null } : x)))}
-                  onError={setMessage}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => setParts((list) => list.filter((_, j) => j !== i))}
-                aria-label={t("upload.remove")}
-                className="mt-1 cursor-pointer rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-danger-500"
-              >
-                <TrashIcon width={15} height={15} />
-              </button>
-            </div>
-          ))}
+      {/* เอกสารประกอบ (หลายไฟล์ ไฟล์ละ ≤ 1MB) — กดดูย้อนหลังได้ที่รายการ "บันทึกผล" ในประวัติ; ผู้แจ้งงานยกเลิก = ไม่แสดง */}
+      {!cancelledByRequester && (
+        <div>
+          <p className="mb-2 text-sm font-medium">{t("tickets.result.documents")}</p>
+          <DocumentPicker
+            files={documents}
+            onChange={(f) => (setDocuments(f), clearErr("documents"))}
+            max={EVENT_FILES_MAX}
+            maxBytes={EVENT_FILE_MAX_BYTES}
+            accept={EVENT_FILE_ACCEPT}
+            hint={t("upload.eventFileHint", { max: EVENT_FILES_MAX })}
+            onError={setMessage}
+          />
+          {err("documents")}
         </div>
-        {parts.length < 10 && (
-          <button type="button" onClick={() => setParts((list) => [...list, { name: "", quantity: "1", photo: null }])} className={`${btn.secondary} ${btn.sm} mt-2`}>
-            <PlusIcon width={13} height={13} className="text-accent-500" />
-            {t("tickets.result.addPart")}
-          </button>
-        )}
-      </div>
-
-      <div>
-        <p className="mb-2 text-sm font-medium">{t("tickets.result.photos")}</p>
-        <PhotoPicker files={photos} onChange={setPhotos} max={4} onError={setMessage} />
-        {err("photos")}
-      </div>
+      )}
 
       <div className="max-w-xl">
         <p className="mb-1 text-sm font-medium">

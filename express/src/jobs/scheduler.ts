@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { syncDueConnections } from "../services/directory-sync.js";
 import { notifyExpiring } from "./notify-expiring.js";
 import { notifyOverdueLoans } from "../routes/loans.js";
+import { autoCloseTickets } from "../routes/tickets.js";
 import { notifyVpnExpiry } from "../services/vpn-loans.js";
 
 /**
@@ -62,6 +63,9 @@ export function startScheduler(): void {
       // VPN ใกล้หมดอายุ / หมดอายุ — แจ้งครั้งเดียวต่อวันหมดอายุ
       const v = await notifyVpnExpiry();
       if (v) console.info(`[scheduler] VPN expiry: notified ${v}`);
+      // ใบแจ้งงานที่ผู้แจ้งไม่กดรับงานเกินจำนวนวันที่ตั้งไว้ → ปิดงานอัตโนมัติ
+      const c = await autoCloseTickets();
+      if (c) console.info(`[scheduler] tickets auto-closed: ${c}`);
     } catch (e) {
       console.error("[scheduler] overdue equipment loans failed", e);
     } finally {

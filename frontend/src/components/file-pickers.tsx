@@ -8,6 +8,10 @@ import { useI18n } from "@/i18n/client";
 export const PHOTO_MAX_BYTES = 1024 * 1024; // 1MB ต่อรูป (ตรงกับ Laravel max:1024)
 export const DOC_MAX_BYTES = 5 * 1024 * 1024; // 5MB ต่อไฟล์
 export const DOC_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.jpg,.jpeg,.png";
+/** เอกสาร/รูปที่แนบกับประวัติใบงาน (บันทึกผล / อัปเดตความคืบหน้า) — ไฟล์ละ ≤ 1MB (ตรงกับ EVENT_FILE_RULE ของ API) */
+export const EVENT_FILE_MAX_BYTES = 1024 * 1024;
+export const EVENT_FILES_MAX = 10;
+export const EVENT_FILE_ACCEPT = `${DOC_ACCEPT},.webp`;
 
 /**
  * ย่อรูปให้ไม่เกิน 1MB (รูปจากกล้องมือถือมักใหญ่ 3–8MB)
@@ -135,17 +139,24 @@ export function PhotoPicker({
   );
 }
 
-/** แนบเอกสาร (PDF/Office/ZIP) ไม่เกินจำนวนและขนาดที่กำหนด */
+/** แนบเอกสาร (PDF/Office/ZIP) ไม่เกินจำนวนและขนาดที่กำหนด (ตั้งต้น 5MB ต่อไฟล์) */
 export function DocumentPicker({
   files,
   onChange,
   max,
   onError,
+  maxBytes = DOC_MAX_BYTES,
+  accept = DOC_ACCEPT,
+  hint,
 }: {
   files: File[];
   onChange: (files: File[]) => void;
   max: number;
   onError?: (message: string) => void;
+  maxBytes?: number;
+  accept?: string;
+  /** ข้อความใต้ปุ่ม (ไม่ส่ง = ชนิดไฟล์ + จำนวน + 5MB) */
+  hint?: string;
 }) {
   const { t } = useI18n();
   const id = useId();
@@ -158,7 +169,7 @@ export function DocumentPicker({
         onError?.(t("upload.tooMany", { max }));
         break;
       }
-      if (f.size > DOC_MAX_BYTES) {
+      if (f.size > maxBytes) {
         onError?.(t("upload.tooBig", { name: f.name }));
         continue;
       }
@@ -197,7 +208,7 @@ export function DocumentPicker({
       <input
         id={id}
         type="file"
-        accept={DOC_ACCEPT}
+        accept={accept}
         multiple
         className="sr-only"
         onChange={(e) => {
@@ -205,7 +216,7 @@ export function DocumentPicker({
           e.target.value = "";
         }}
       />
-      <p className="mt-1.5 text-xs text-muted">{t("upload.documentHint", { max })}</p>
+      <p className="mt-1.5 text-xs text-muted">{hint ?? t("upload.documentHint", { max })}</p>
     </div>
   );
 }

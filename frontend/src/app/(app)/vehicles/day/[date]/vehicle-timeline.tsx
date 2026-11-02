@@ -26,6 +26,25 @@ const hm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${Stri
  * ไทม์ไลน์การจองรถของวัน (00:00–24:00) — แถวละ 1 คัน + แถว "รอจัดรถ" (การจองที่ยังไม่ระบุรถ)
  * การจองหลายวันแสดงเฉพาะส่วนของวันนั้น, คลิกช่องว่าง = จองคันนั้นตั้งแต่เวลานั้น (ปัดลงชั่วโมง), คลิกแถบ = รายละเอียด
  */
+/** ความสูงแถวขั้นต่ำ / ต่อช่อง / ขอบบน-ล่าง (px) */
+const ROW_MIN = 64;
+const LANE = 48;
+const LANE_PAD = 8;
+
+/** แบ่งการจองที่ช่วงเวลาซ้อนกันเป็นช่องแนวตั้ง (เรียงตามเวลาเริ่ม — ใส่ช่องแรกที่ว่าง) */
+function lanesOf(list: VehicleBooking[], date: string): { lane: Map<string, number>; count: number } {
+  const ends: number[] = [];
+  const lane = new Map<string, number>();
+  const sorted = [...list].map((b) => ({ b, seg: segmentOf(b, date) })).sort((x, y) => x.seg[0] - y.seg[0]);
+  for (const { b, seg } of sorted) {
+    let i = ends.findIndex((end) => end <= seg[0]);
+    if (i < 0) i = ends.push(0) - 1;
+    ends[i] = seg[1];
+    lane.set(b.id, i);
+  }
+  return { lane, count: Math.max(1, ends.length) };
+}
+
 export function VehicleTimeline({
   date,
   vehicles,
@@ -127,11 +146,15 @@ export function VehicleTimeline({
             ))}
           </div>
         </div>
-        {rows.map((r) => (
+        {rows.map((r) => {
+          const { lane, count } = lanesOf(r.list, date);
+          return (
           <div key={r.id} className="grid grid-cols-[14rem_1fr] border-b border-line last:border-b-0">
             <div className="border-r border-line px-3 py-2.5">{head(r.vehicle)}</div>
             <div
-              className={`relative mr-3 h-16 ${past || !r.vehicle ? "" : "cursor-pointer"}`}
+              className={`relative mr-3 ${past || !r.vehicle ? "" : "cursor-pointer"}`}
+              // การจองที่ช่วงเวลาซ้อนกัน (แถวรอจัดรถ) = แยกคนละช่องแนวตั้ง แถวสูงขึ้นตามจำนวนช่อง
+              style={{ height: Math.max(ROW_MIN, count * LANE + 2 * LANE_PAD) }}
               onMouseMove={(e) => r.vehicle && setHover({ row: r.id, min: slotAt(e) })}
               onMouseLeave={() => setHover(null)}
               onClick={(e) => {
@@ -150,18 +173,18 @@ export function VehicleTimeline({
                   +
                 </span>
               )}
-              {r.list.map((b, i) => {
+              {r.list.map((b) => {
                 const [s, e] = segmentOf(b, date);
-                // แถวรอจัดรถอาจซ้อนกัน — แบ่งครึ่งความสูงสลับกัน
-                const stack = !r.vehicle && r.list.length > 1 ? (i % 2 === 0 ? "top-1 h-[calc(50%-4px)]" : "bottom-1 h-[calc(50%-4px)]") : "inset-y-2";
+                // ช่องเดียว = เต็มความสูงแถว / หลายช่อง = ช่องละ LANE px
+                const box = count === 1 ? { top: LANE_PAD, bottom: LANE_PAD } : { top: LANE_PAD + lane.get(b.id)! * LANE, height: LANE - 4 };
                 return (
                   <button
                     key={b.id}
                     type="button"
                     onClick={(ev) => (ev.stopPropagation(), setSelected(b))}
                     onMouseMove={(ev) => ev.stopPropagation()}
-                    className={`absolute z-10 cursor-pointer overflow-hidden rounded-md px-2 text-left ring-1 ring-inset ${stack} ${tone(b).bar} ${extra(b)}`}
-                    style={{ left: `${pct(s)}%`, width: `${pct(e - s)}%` }}
+                    className={`absolute z-10 cursor-pointer overflow-hidden rounded-md px-2 text-left ring-1 ring-inset ${tone(b).bar} ${extra(b)}`}
+                    style={{ left: `${pct(s)}%`, width: `${pct(e - s)}%`, ...box }}
                   >
                     <span className="block truncate text-xs font-semibold leading-5">{b.details}</span>
                     <span className="block truncate text-[11px] leading-4 opacity-80">
@@ -173,7 +196,8 @@ export function VehicleTimeline({
               {date === today && nowMin >= 0 && <span className="pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-danger-400" style={{ left: `${pct(nowMin)}%` }} aria-hidden="true" />}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* จอเล็ก: การ์ดต่อคัน */}

@@ -5,7 +5,7 @@ import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
 import { branchQuery, selectedBranch } from "@/lib/booking-scope";
-import type { Vehicle, VehicleBooking } from "@/lib/types";
+import type { Vehicle, VehicleBooking, VehicleDriver } from "@/lib/types";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -37,6 +37,8 @@ export interface VehicleBookingValues {
   purpose: string;
   extras: string[];
   note: string;
+  /** ขอคนขับรถ (เลือกเพิ่มเติม — แสดงเป็นตัวแรก) */
+  needs_driver: boolean;
   start_on: string;
   start_time: string;
   end_on: string;
@@ -62,6 +64,7 @@ export async function saveVehicleBooking(id: string | null, v: VehicleBookingVal
         purpose: v.purpose,
         extras: v.extras,
         note: v.note.trim() || null,
+        needs_driver: v.needs_driver,
         start_on: v.start_on,
         start_time: v.start_time,
         end_on: v.end_on,
@@ -77,14 +80,14 @@ export async function saveVehicleBooking(id: string | null, v: VehicleBookingVal
   }
 }
 
-type BookingResult = ActionResult<"vehicle_id" | "start_mileage" | "end_mileage" | "status"> & { booking?: VehicleBooking };
+type BookingResult = ActionResult<"vehicle_id" | "driver_id" | "start_mileage" | "end_mileage" | "status" | "reason"> & { booking?: VehicleBooking };
 
-/** ผู้จัดคิวรถเลือก / เปลี่ยน / เอารถออก (vehicleId = null) */
-export async function assignVehicle(id: string, vehicleId: number | null): Promise<BookingResult> {
+/** ผู้จัดคิวรถเลือก / เปลี่ยน / เอารถออก (vehicleId = null) — swap = ยืนยันสลับรถกับการจองที่ใช้รถคันนั้นอยู่ */
+export async function assignVehicle(id: string, vehicleId: number | null, swap = false): Promise<BookingResult> {
   const { t } = await getI18n();
   if (!UUID_RE.test(id) || (vehicleId !== null && !validId(vehicleId))) return { message: t("common.saveFailed") };
   try {
-    const res = await apiFetch<{ data: VehicleBooking }>(`/vehicle-bookings/${id}/vehicle`, { method: "PUT", body: JSON.stringify({ vehicle_id: vehicleId }) });
+    const res = await apiFetch<{ data: VehicleBooking }>(`/vehicle-bookings/${id}/vehicle`, { method: "PUT", body: JSON.stringify({ vehicle_id: vehicleId, ...(swap ? { swap: true } : {}) }) });
     refresh();
     return { ok: true, booking: res.data, message: t("vehicle.dispatch.assigned") };
   } catch (e) {
@@ -92,12 +95,15 @@ export async function assignVehicle(id: string, vehicleId: number | null): Promi
   }
 }
 
-/** ผู้จัดคิวรถอนุมัติ (เลือก/เปลี่ยนรถพร้อมกันได้ — vehicleId = null = ใช้รถเดิม) */
-export async function approveVehicleBooking(id: string, vehicleId: number | null): Promise<BookingResult> {
+/** ผู้จัดคิวรถอนุมัติ (เลือก/เปลี่ยนรถพร้อมกันได้ — vehicleId = null = ใช้รถเดิม; swap = ยืนยันสลับรถ; driverId = คนขับ เมื่อผู้จองขอคนขับ) */
+export async function approveVehicleBooking(id: string, vehicleId: number | null, swap = false, driverId: number | null = null): Promise<BookingResult> {
   const { t } = await getI18n();
-  if (!UUID_RE.test(id) || (vehicleId !== null && !validId(vehicleId))) return { message: t("common.saveFailed") };
+  if (!UUID_RE.test(id) || (vehicleId !== null && !validId(vehicleId)) || (driverId !== null && !validId(driverId))) return { message: t("common.saveFailed") };
   try {
-    const res = await apiFetch<{ data: VehicleBooking }>(`/vehicle-bookings/${id}/approve`, { method: "POST", body: JSON.stringify(vehicleId ? { vehicle_id: vehicleId } : {}) });
+    const res = await apiFetch<{ data: VehicleBooking }>(`/vehicle-bookings/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ ...(vehicleId ? { vehicle_id: vehicleId } : {}), ...(driverId ? { driver_id: driverId } : {}), ...(swap ? { swap: true } : {}) }),
+    });
     refresh();
     return { ok: true, booking: res.data, message: t("vehicle.approval.approvedDone") };
   } catch (e) {
@@ -132,11 +138,12 @@ export async function saveMileage(id: string, start: string, end: string): Promi
   }
 }
 
-export async function cancelVehicleBooking(id: string): Promise<ActionResult> {
+/** ยกเลิกการจอง — ผู้จัดคิวยกเลิกการจองของคนอื่นต้องมีเหตุผล (แจ้งผู้จองพร้อมเหตุผล) */
+export async function cancelVehicleBooking(id: string, reason = ""): Promise<ActionResult<"reason" | "status">> {
   const { t } = await getI18n();
   if (!UUID_RE.test(id)) return { message: t("common.saveFailed") };
   try {
-    await apiFetch(`/vehicle-bookings/${id}/cancel`, { method: "POST" });
+    await apiFetch(`/vehicle-bookings/${id}/cancel`, { method: "POST", body: JSON.stringify(reason.trim() ? { reason: reason.trim() } : {}) });
   } catch (e) {
     return toActionResult(e);
   }
@@ -249,6 +256,43 @@ export async function transferVehicle(id: number, branchId: number | null, note:
     refresh();
     revalidatePath(`/vehicles/manage/${id}/edit`);
     return { ok: true, vehicle: res.data, message: t("vehicle.transfer.done") };
+  } catch (e) {
+    return toActionResult(e);
+  }
+}
+
+/* ---------------------------------------------------------------- คนขับรถ */
+
+export interface DriverValues {
+  name: string;
+  nickname: string;
+  branch_id: string;
+  is_active: boolean;
+}
+
+/** เพิ่ม (id = null) / แก้ไขคนขับรถ */
+export async function saveDriver(id: number | null, v: DriverValues): Promise<ActionResult<keyof DriverValues> & { driver?: VehicleDriver }> {
+  const { t } = await getI18n();
+  if (id !== null && !validId(id)) return { message: t("common.saveFailed") };
+  try {
+    const res = await apiFetch<{ data: VehicleDriver }>(id ? `/vehicle-drivers/${id}` : "/vehicle-drivers", {
+      method: id ? "PUT" : "POST",
+      body: JSON.stringify({ name: v.name.trim(), nickname: v.nickname.trim() || null, branch_id: v.branch_id ? Number(v.branch_id) : null, is_active: v.is_active }),
+    });
+    revalidatePath("/vehicles/drivers");
+    return { ok: true, driver: res.data };
+  } catch (e) {
+    return toActionResult(e);
+  }
+}
+
+export async function deleteDriver(id: number): Promise<ActionResult<"name">> {
+  const { t } = await getI18n();
+  if (!validId(id)) return { message: t("common.saveFailed") };
+  try {
+    await apiFetch(`/vehicle-drivers/${id}`, { method: "DELETE" });
+    revalidatePath("/vehicles/drivers");
+    return { ok: true };
   } catch (e) {
     return toActionResult(e);
   }

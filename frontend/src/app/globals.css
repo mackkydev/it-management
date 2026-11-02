@@ -12,16 +12,16 @@
 @theme inline {
   --font-sans: var(--font-noto-thai), ui-sans-serif, system-ui, sans-serif;
 
-  --color-accent-50: var(--accent-50);
-  --color-accent-100: var(--accent-100);
-  --color-accent-200: var(--accent-200);
-  --color-accent-300: var(--accent-300);
-  --color-accent-400: var(--accent-400);
-  --color-accent-500: var(--accent-500);
-  --color-accent-600: var(--accent-600);
-  --color-accent-700: var(--accent-700);
-  --color-accent-800: var(--accent-800);
-  --color-accent-900: var(--accent-900);
+  --color-accent-50: var(--ui-accent-50);
+  --color-accent-100: var(--ui-accent-100);
+  --color-accent-200: var(--ui-accent-200);
+  --color-accent-300: var(--ui-accent-300);
+  --color-accent-400: var(--ui-accent-400);
+  --color-accent-500: var(--ui-accent-500);
+  --color-accent-600: var(--ui-accent-600);
+  --color-accent-700: var(--ui-accent-700);
+  --color-accent-800: var(--ui-accent-800);
+  --color-accent-900: var(--ui-accent-900);
 
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
@@ -33,6 +33,36 @@
   --color-faint: var(--faint);
   /* พื้นหลังมืดโปร่งหลังหน้าต่าง popup / เมนูมือถือ — ใช้ bg-overlay */
   --color-overlay: var(--overlay);
+}
+
+/*
+ * ---------- โทนสี: ปกติ / พาสเทล (data-tone ที่ <html> — ตั้งจากหน้าตั้งค่าการแสดงผล) ----------
+ * Tailwind ใช้ --ui-accent-* ซึ่งอ้าง --accent-* ของธีม (สำเร็จรูป หรือสีกำหนดเองที่ตั้งใน style ของ <html>)
+ * พาสเทล = ผสมขาวลงในสีธีม: เฉดอ่อน (พื้น) จางมาก, เฉดเข้ม (ตัวอักษร) จางน้อย ให้อ่านง่ายเหมือนเดิม
+ */
+:root {
+  --ui-accent-50: var(--accent-50);
+  --ui-accent-100: var(--accent-100);
+  --ui-accent-200: var(--accent-200);
+  --ui-accent-300: var(--accent-300);
+  --ui-accent-400: var(--accent-400);
+  --ui-accent-500: var(--accent-500);
+  --ui-accent-600: var(--accent-600);
+  --ui-accent-700: var(--accent-700);
+  --ui-accent-800: var(--accent-800);
+  --ui-accent-900: var(--accent-900);
+}
+[data-tone="pastel"] {
+  --ui-accent-50: color-mix(in oklab, var(--accent-50) 55%, white);
+  --ui-accent-100: color-mix(in oklab, var(--accent-100) 60%, white);
+  --ui-accent-200: color-mix(in oklab, var(--accent-200) 65%, white);
+  --ui-accent-300: color-mix(in oklab, var(--accent-300) 70%, white);
+  --ui-accent-400: color-mix(in oklab, var(--accent-400) 75%, white);
+  --ui-accent-500: color-mix(in oklab, var(--accent-500) 85%, white);
+  --ui-accent-600: color-mix(in oklab, var(--accent-600) 88%, white);
+  --ui-accent-700: color-mix(in oklab, var(--accent-700) 88%, white);
+  --ui-accent-800: color-mix(in oklab, var(--accent-800) 92%, white);
+  --ui-accent-900: var(--accent-900);
 }
 
 /* ---------- ธีมสี pastel ---------- */
@@ -472,18 +502,6 @@ body {
   mask-image: radial-gradient(ellipse 75% 65% at 50% 45%, #000 40%, transparent 100%);
   animation: login-grid 24s linear infinite;
 }
-/* เส้นแสงสแกนแนวนอน */
-.login-scene::after {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  top: 0;
-  height: 2px;
-  z-index: -1;
-  background: linear-gradient(90deg, transparent, rgb(34 211 238 / 0.55), transparent);
-  box-shadow: 0 0 24px rgb(34 211 238 / 0.45);
-  animation: login-scan 9s ease-in-out infinite;
-}
 .login-orb {
   position: absolute;
   z-index: -1;
@@ -601,20 +619,6 @@ body {
     transform: translate3d(64px, 64px, 0);
   }
 }
-@keyframes login-scan {
-  0%,
-  100% {
-    transform: translateY(0);
-    opacity: 0;
-  }
-  10%,
-  90% {
-    opacity: 1;
-  }
-  50% {
-    transform: translateY(100vh);
-  }
-}
 @keyframes login-float-a {
   33% {
     translate: 6rem 3rem;
@@ -674,7 +678,6 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .login-scene::before,
-  .login-scene::after,
   .login-orb,
   .login-card,
   .login-fade-up {

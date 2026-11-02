@@ -1,0 +1,208 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState, useTransition, type ReactNode } from "react";
+import { acceptZoomBooking, cancelZoomBooking, sendZoomLink, zoomBusy } from "@/app/actions/zoom";
+import { useConfirm } from "@/components/dialog-provider";
+import { AlertIcon, CheckCircleIcon, PencilIcon, SendIcon, SpinnerIcon, XIcon } from "@/components/icons";
+import { alert, btn, card, input, inputError } from "@/components/ui";
+import { useI18n } from "@/i18n/client";
+import type { ZoomBooking } from "@/lib/types";
+import { parseZoomInvitation, type ZoomMeetingInfo } from "../../zoom-utils";
+
+type Busy = "accept" | "link" | "busy" | "cancel" | null;
+
+/**
+ * ปุ่มของหน้าการจอง ZOOM — ผู้จอง: แก้ไข (ก่อนรับงาน) / ยกเลิก
+ * ฝ่าย IT (zoom.manage): รับงาน → วางลิงก์ประชุม + หมายเหตุ แล้วบันทึก (แจ้งผู้จอง + ขึ้น KPI ของผู้รับงาน) / แจ้งกลับว่ามีการใช้งานแล้ว
+ */
+export function ZoomActions({ booking: z }: { booking: ZoomBooking }) {
+  const { t } = useI18n();
+  const router = useRouter();
+  const confirm = useConfirm();
+  // ข้อความเชิญจาก ZOOM ที่วาง → ดึง ลิงก์ (Join Zoom Meeting) / Topic / Meeting ID / Passcode มาใส่ช่อง (แก้เองได้)
+  const [invitation, setInvitation] = useState(z.link_note ?? "");
+  const [info, setInfo] = useState<ZoomMeetingInfo>({ link: z.meeting_link ?? "", topic: z.meeting_topic ?? "", meeting_id: z.meeting_id ?? "", passcode: z.passcode ?? "" });
+  const setField = (k: keyof ZoomMeetingInfo, v: string) => {
+    setInfo((x) => ({ ...x, [k]: v }));
+    if (k === "link") setErrors((x) => ({ ...x, meeting_link: "" }));
+  };
+  const paste = (text: string) => {
+    setInvitation(text);
+    const p = parseZoomInvitation(text);
+    // ดึงได้เฉพาะหัวข้อที่พบ — ช่องที่ไม่พบคงค่าเดิม
+    setInfo((x) => ({ link: p.link || x.link, topic: p.topic || x.topic, meeting_id: p.meeting_id || x.meeting_id, passcode: p.passcode || x.passcode }));
+    if (p.link) setErrors((x) => ({ ...x, meeting_link: "" }));
+  };
+  const [reason, setReason] = useState("");
+  const [showBusy, setShowBusy] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState<Busy>(null);
+  const [, start] = useTransition();
+
+  const run = (kind: Exclude<Busy, null>, fn: () => Promise<{ ok?: boolean; message?: string; errors?: Partial<Record<string, string>> }>, done: string) => {
+    setBusy(kind);
+    setMessage("");
+    start(async () => {
+      const res = await fn();
+      setBusy(null);
+      if (res.ok) return router.push(`/zoom/bookings/${z.id}?done=${done}`);
+      setErrors(Object.fromEntries(Object.entries(res.errors ?? {}).map(([k, v]) => [k, v ?? ""])));
+      setMessage(res.message ?? t("common.saveFailed"));
+    });
+  };
+
+  const accept = () => run("accept", () => acceptZoomBooking(z.id), "accepted");
+  const saveLink = () => {
+    if (!/^https?:\/\/\S+$/i.test(info.link.trim())) return setErrors({ meeting_link: t("zoom.validate.link") });
+    run("link", () => sendZoomLink(z.id, { ...info, invitation }), z.status === "confirmed" ? "link_updated" : "linked");
+  };
+  const reply = async () => {
+    if (!(await confirm(t("zoom.actions.busyConfirm")))) return;
+    run("busy", () => zoomBusy(z.id, reason), "busy");
+  };
+  const cancel = async () => {
+    if (!(await confirm(t("zoom.actions.cancelConfirm")))) return;
+    run("cancel", () => cancelZoomBooking(z.id), "cancelled");
+  };
+
+  const owner = z.can_edit || z.can_cancel;
+  const it = z.can_accept || z.can_link || z.can_busy;
+  if (!owner && !it) return null;
+  const spin = (k: Busy, icon: ReactNode) => (busy === k ? <SpinnerIcon width={14} height={14} /> : icon);
+
+  return (
+    <section className={`space-y-4 p-4 sm:p-5 ${card}`}>
+      {message && (
+        <p role="alert" className={alert.error}>
+          <AlertIcon className="shrink-0 text-danger-400" />
+          {message}
+        </p>
+      )}
+
+      {/* ฝ่าย IT */}
+      {it && (
+        <div className="space-y-4">
+          <h2 className="font-semibold">{t("zoom.actions.itTitle")}</h2>
+          {z.can_accept && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={accept} disabled={busy !== null} className={btn.primary}>
+                {spin("accept", <CheckCircleIcon width={16} height={16} />)}
+                {t("zoom.actions.accept")}
+              </button>
+              <p className="text-xs text-muted">{t("zoom.actions.acceptHint")}</p>
+            </div>
+          )}
+          {z.can_link && (
+            <div className="space-y-3 rounded-xl p-3 ring-1 ring-line">
+              <div>
+                <label htmlFor="invitation" className="mb-1 block text-sm font-medium">
+                  {t("zoom.actions.invitation")}
+                </label>
+                <textarea
+                  id="invitation"
+                  rows={5}
+                  maxLength={5000}
+                  value={invitation}
+                  onChange={(e) => paste(e.target.value)}
+                  placeholder={t("zoom.actions.invitationPlaceholder")}
+                  className={`${input} font-mono text-xs`}
+                />
+                <p className="mt-1 text-xs text-muted">{t("zoom.actions.invitationHint")}</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label htmlFor="meeting_link" className="mb-1 block text-sm font-medium">
+                    {t("zoom.actions.link")} <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="meeting_link"
+                    type="url"
+                    inputMode="url"
+                    maxLength={1000}
+                    value={info.link}
+                    onChange={(e) => setField("link", e.target.value)}
+                    placeholder="https://zoom.us/j/…"
+                    className={`${input} ${errors.meeting_link ? inputError : ""}`}
+                  />
+                  {errors.meeting_link && <p className="mt-1 text-xs font-medium text-red-500">{errors.meeting_link}</p>}
+                </div>
+                <div className="sm:col-span-2">
+                  <label htmlFor="meeting_topic" className="mb-1 block text-sm font-medium">
+                    {t("zoom.actions.topic")}
+                  </label>
+                  <input id="meeting_topic" maxLength={255} value={info.topic} onChange={(e) => setField("topic", e.target.value)} placeholder={z.title} className={input} />
+                </div>
+                <div>
+                  <label htmlFor="meeting_id" className="mb-1 block text-sm font-medium">
+                    {t("zoom.actions.meetingId")}
+                  </label>
+                  <input id="meeting_id" maxLength={50} value={info.meeting_id} onChange={(e) => setField("meeting_id", e.target.value)} className={input} />
+                </div>
+                <div>
+                  <label htmlFor="passcode" className="mb-1 block text-sm font-medium">
+                    {t("zoom.actions.passcode")}
+                  </label>
+                  <input id="passcode" maxLength={50} value={info.passcode} onChange={(e) => setField("passcode", e.target.value)} className={input} />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={saveLink} disabled={busy !== null} className={btn.primary}>
+                  {spin("link", <SendIcon width={16} height={16} />)}
+                  {z.status === "confirmed" ? t("zoom.actions.updateLink") : t("zoom.actions.sendLink")}
+                </button>
+                {z.status !== "confirmed" && <p className="text-xs text-muted">{t("zoom.actions.sendLinkHint")}</p>}
+              </div>
+            </div>
+          )}
+          {z.can_busy && (
+            <div className="space-y-2">
+              {!showBusy ? (
+                <button type="button" onClick={() => setShowBusy(true)} disabled={busy !== null} className={btn.danger}>
+                  <AlertIcon width={16} height={16} />
+                  {t("zoom.actions.busy")}
+                </button>
+              ) : (
+                <div className="space-y-2 rounded-xl p-3 ring-1 ring-danger-200 dark:ring-danger-400/30">
+                  <label htmlFor="busy_reason" className="block text-sm font-medium">
+                    {t("zoom.actions.busyReason")}
+                  </label>
+                  <textarea id="busy_reason" rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("zoom.actions.busyPlaceholder")} className={input} />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={reply} disabled={busy !== null} className={btn.danger}>
+                      {spin("busy", <SendIcon width={16} height={16} />)}
+                      {t("zoom.actions.busySend")}
+                    </button>
+                    <button type="button" onClick={() => setShowBusy(false)} disabled={busy !== null} className={btn.secondary}>
+                      {t("common.cancel")}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ผู้จอง */}
+      {owner && (
+        <div className={`flex flex-wrap gap-2 ${it ? "border-t border-line pt-4" : ""}`}>
+          {z.can_edit && (
+            <Link href={`/zoom/bookings/${z.id}/edit`} className={btn.soft}>
+              <PencilIcon width={16} height={16} />
+              {t("zoom.actions.edit")}
+            </Link>
+          )}
+          {z.can_cancel && (
+            <button type="button" onClick={cancel} disabled={busy !== null} className={btn.secondary}>
+              {spin("cancel", <XIcon width={16} height={16} />)}
+              {t("zoom.actions.cancel")}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}

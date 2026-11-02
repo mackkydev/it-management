@@ -1,7 +1,7 @@
 import { trans, type Locale } from "./lib/i18n.js";
 import { dateOnly, iso } from "./lib/time.js";
 import type { UserRow } from "./models/user.js";
-import { fileJson, licenseJson, type AssetFileRow, type LicenseRow } from "./services/asset-licenses.js";
+import { fileJson, ICON_KIND, licenseJson, type AssetFileRow, type LicenseRow } from "./services/asset-licenses.js";
 import type { SoftwareSet } from "./services/asset-software.js";
 import { loginLockedMinutes } from "./services/password-policy.js";
 
@@ -179,7 +179,13 @@ export function assetResource(
     other_software: a.other_software,
     ...("license" in rel ? { license: rel.license ? licenseJson(rel.license) : null } : {}),
     ...(rel.software ? { software: rel.software } : {}),
-    ...("files" in rel ? { files: (rel.files ?? []).map((f) => fileJson(a.uuid, f)) } : {}),
+    // ไอคอน (asset_files kind icon — License ซอฟต์แวร์) แยกจากเอกสารแนบ: icon_id ใช้ทำ URL /assets/{uuid}/icon?v=
+    ...("files" in rel
+      ? {
+          files: (rel.files ?? []).filter((f) => f.kind !== ICON_KIND).map((f) => fileJson(a.uuid, f)),
+          icon_id: (rel.files ?? []).find((f) => f.kind === ICON_KIND)?.id ?? null,
+        }
+      : {}),
     created_at: iso(a.created_at),
     updated_at: iso(a.updated_at),
   };

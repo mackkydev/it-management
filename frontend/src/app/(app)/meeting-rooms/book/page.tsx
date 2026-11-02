@@ -44,8 +44,7 @@ export default async function BookMeetingRoomPage({ searchParams }: PageProps<"/
 
   return (
     <div className="space-y-5">
-      <PageHeader icon={MeetingRoomIcon} title={t("meeting.form.newTitle")} subtitle={t("meeting.form.subtitle")} />
-      <BranchFilter kind="meeting" meta={scope} value={branch} />
+      <PageHeader icon={MeetingRoomIcon} title={t("meeting.form.newTitle")} subtitle={t("meeting.form.subtitle")} actions={<BranchFilter kind="meeting" meta={scope} value={branch} />} />
       {rooms.length === 0 ? (
         <div className={`space-y-3 p-10 text-center text-muted ${card}`}>
           <p>{t("meeting.noRooms")}</p>

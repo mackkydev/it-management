@@ -13,20 +13,21 @@ import {
   KeyIcon,
   ListIcon,
   MapPinIcon,
-  MonitorIcon,
   PlusIcon,
   SettingsIcon,
   BellIcon,
   ChartIcon,
+  GaugeIcon,
   CheckCircleIcon,
   MeetingRoomIcon,
   CarIcon,
   ShieldIcon,
   UsersIcon,
   WrenchIcon,
+  VideoIcon,
 } from "@/components/icons";
 import type { MessageKey } from "@/i18n/types";
-import { EMPTY_UI_CONFIG, has, isAllowed, isLocalSuperAdmin, sortByOrder, type UiConfig } from "@/lib/permissions";
+import { EMPTY_UI_CONFIG, canViewAssets, canViewLicenses, has, isAllowed, isLocalSuperAdmin, sortByOrder, type UiConfig } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
@@ -48,6 +49,8 @@ export interface NavGroup {
   text?: { th: string; en: string };
   icon: IconType;
   items: NavItem[];
+  /** เมนูเดี่ยว: คลิกชื่อกลุ่มแล้วเข้าหน้า items[0] เลย (ไม่มี dropdown) */
+  direct?: boolean;
 }
 
 /** เมนูตามสิทธิ์ (permission key จาก /auth/me) */
@@ -56,12 +59,21 @@ const perm = (key: string): Visible => (u) => has(u, key);
 /** โครงสร้างเมนูหลัก — ใช้ร่วมกันทั้ง Sidebar และ Topbar */
 export const NAV: NavGroup[] = [
   {
+    // ภาพรวมของผู้ใช้ — ทุกคน (ข้อมูลของตัวเอง)
+    id: "home",
+    label: "nav.homeGroup",
+    icon: GaugeIcon,
+    direct: true,
+    items: [{ label: "nav.dashboard", href: "/dashboard", icon: GaugeIcon }],
+  },
+  {
     // มุมผู้แจ้ง — ทุกคนรวมฝ่าย IT (ฝ่าย IT แจ้งงานเองได้): แจ้งใหม่ / ใบที่ฉันแจ้ง / รอฉันอนุมัติ
     id: "requests",
     label: "nav.requests",
     icon: ClipboardIcon,
     items: [
       { label: "nav.ticketNew", href: "/tickets/new", icon: PlusIcon },
+      // ใบแจ้งงาน: ใบที่ฉันแจ้ง (ทุกคน) + แท็บ "ทั้งหมด" สำหรับผู้ดูแลระบบ / เจ้าหน้าที่ IT (/tickets/all — ตัวกรองครบ)
       { label: "nav.ticketMine", href: "/tickets", icon: InboxIcon },
       { label: "nav.ticketApprovals", href: "/tickets/approvals", icon: CheckCircleIcon, visible: (u) => Boolean(u.can_approve) || has(u, "tickets.approve_any") },
     ],
@@ -81,28 +93,38 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
-    // ห้องประชุม — ทุกคน: ปฏิทินห้อง / จองห้อง / การจองของฉัน; จัดการห้อง = meeting.rooms
+    // ห้องประชุม — ทุกคน: ปฏิทินห้อง / รายการจอง (การจองของฉัน + ปุ่มจอง); จัดการห้อง = meeting.rooms
     id: "meeting",
     label: "nav.meetingGroup",
     icon: MeetingRoomIcon,
     items: [
       { label: "nav.meetingCalendar", href: "/meeting-rooms", icon: CalendarIcon },
-      { label: "nav.meetingBook", href: "/meeting-rooms/book", icon: PlusIcon },
       { label: "nav.meetingMine", href: "/meeting-rooms/mine", icon: InboxIcon },
       { label: "nav.meetingRooms", href: "/meeting-rooms/rooms", icon: MeetingRoomIcon, visible: perm("meeting.rooms") },
     ],
   },
   {
-    // จองรถ — ทุกคน: ปฏิทินรถ / จองรถ / การจองของฉัน; จัดคิวรถ = vehicle.dispatch (ตัวเลข = รอจัดรถ), จัดการรถ = vehicle.manage
+    // จองรถ — ทุกคน: ปฏิทินรถ / รายการจอง (การจองของฉัน + ปุ่มจอง); จัดคิวรถ = vehicle.dispatch (ตัวเลข = รอจัดรถ), คนขับรถ = vehicle.manage หรือ vehicle.dispatch, จัดการรถ = vehicle.manage
     id: "vehicle",
     label: "nav.vehicleGroup",
     icon: CarIcon,
     items: [
       { label: "nav.vehicleCalendar", href: "/vehicles", icon: CalendarIcon },
-      { label: "nav.vehicleBook", href: "/vehicles/book", icon: PlusIcon },
       { label: "nav.vehicleMine", href: "/vehicles/mine", icon: InboxIcon },
       { label: "nav.vehicleDispatch", href: "/vehicles/dispatch", icon: CheckCircleIcon, visible: perm("vehicle.dispatch") },
+      { label: "nav.vehicleDrivers", href: "/vehicles/drivers", icon: UsersIcon, visible: (u) => has(u, "vehicle.manage") || has(u, "vehicle.dispatch") },
       { label: "nav.vehicleManage", href: "/vehicles/manage", icon: CarIcon, visible: perm("vehicle.manage") },
+    ],
+  },
+  {
+    // จอง ZOOM — ทุกคน: ปฏิทินการใช้ ZOOM / รายการจอง ZOOM (การจองของฉัน + ปุ่มจองใน modal); จัดการคำขอ = zoom.manage (ตัวเลข = รอรับงาน + ที่ฉันรับแล้วยังไม่ส่งลิงก์)
+    id: "zoom",
+    label: "nav.zoomGroup",
+    icon: VideoIcon,
+    items: [
+      { label: "nav.zoomCalendar", href: "/zoom", icon: CalendarIcon },
+      { label: "nav.zoomMine", href: "/zoom/mine", icon: InboxIcon },
+      { label: "nav.zoomManage", href: "/zoom/manage", icon: CheckCircleIcon, visible: perm("zoom.manage") },
     ],
   },
   {
@@ -144,11 +166,12 @@ export const NAV: NavGroup[] = [
     label: "nav.assets",
     icon: BoxIcon,
     items: [
-      // ทุกคนเห็น — ไม่มีสิทธิ์ assets.view_all = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง
-      { label: "nav.assetList", href: "/assets", icon: ListIcon },
+      // assets.view (ผู้ใช้ทั่วไปไม่มีเป็นค่าตั้งต้น) = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง, assets.view_all = ทั้งหมด
+      { label: "nav.assetList", href: "/assets", icon: ListIcon, visible: (u) => canViewAssets(u) },
+      // License ซอฟต์แวร์ (หมวด SOFTWARE แยกจากรายการสินทรัพย์) — การติดตั้งเปิดจากการ์ดในหน้านี้ (ไม่มีเมนูแยก)
+      { label: "nav.licenses", href: "/licenses", icon: KeyIcon, visible: (u) => canViewLicenses(u) },
       { label: "nav.movements", href: "/movements", icon: HistoryIcon, visible: perm("movements.view") },
       { label: "nav.repairs", href: "/repairs", icon: WrenchIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.update") },
-      { label: "nav.licenseInstallations", href: "/license-installations", icon: MonitorIcon, visible: perm("licenses.install") },
     ],
   },
   {

@@ -35,6 +35,9 @@ export interface AssetFileRow {
 
 export const loadLicense = (assetId: number) => first<LicenseRow>("SELECT * FROM asset_licenses WHERE asset_id = ?", [assetId]);
 
+/** ไอคอนของ License ซอฟต์แวร์ เก็บใน asset_files kind นี้ (1 ไฟล์ต่อสินทรัพย์ — ไม่นับเป็นเอกสารแนบ) */
+export const ICON_KIND = "icon";
+
 export const loadFiles = (assetId: number) =>
   select<AssetFileRow>("SELECT * FROM asset_files WHERE asset_id = ? ORDER BY id", [assetId]);
 

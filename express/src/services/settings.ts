@@ -1,10 +1,11 @@
 import { config } from "../config.js";
 import { exec, select } from "../db.js";
+import { cached, forgetCached } from "../lib/request-cache.js";
 import { nowDb } from "../lib/time.js";
 
 /**
  * ตั้งค่าระบบ key-value (ตาราง app_settings, value เป็น JSONB) — เหมือน App\Models\AppSetting
- * ไม่ cache ใน Express (อ่านตรงจาก DB) และล้าง cache ของ Laravel เมื่อแก้ไข เพื่อให้สลับ backend ได้ทันที
+ * อ่านจาก DB ครั้งเดียวต่อ request (lib/request-cache.ts — ไม่มีค่าค้างข้าม request) และล้าง cache ของ Laravel เมื่อแก้ไข
  */
 export const DEFAULTS = {
   contract_notify_days: 30,
@@ -39,15 +40,23 @@ export const DEFAULTS = {
   manage_scope: null as unknown,
   // บังคับให้มีลายเซ็นในโปรไฟล์ก่อนบันทึก/อนุมัติเอกสาร (ใบแจ้งงาน / ใบลา) — services/signatures.ts requireSignature
   require_signature: false as unknown,
+  // นโยบายของระบบที่ผู้ใช้ต้องยอมรับก่อนใช้งาน { enabled, version, sections: [{ title, body }], updated_at } (services/system-policy.ts)
+  system_policy: null as unknown,
+  // ใบแจ้งงาน: ผู้แจ้งไม่กดรับงาน (รอผู้แจ้งรับงาน) เกินกี่วัน ระบบปิดงานให้อัตโนมัติ — 0 = ปิดความสามารถนี้ (routes/tickets.ts autoCloseTickets)
+  ticket_auto_close_days: 7 as unknown,
+  // ขั้นตอนใบแจ้งงาน: approval_first = หัวหน้าอนุมัติก่อนถึงฝ่าย IT (แบบเดิม) / it_first = ส่งถึงฝ่าย IT ทันที แล้ว IT ขอให้หัวหน้าอนุมัติเมื่อจำเป็น
+  ticket_flow: "approval_first" as unknown,
 };
 
 export type Settings = typeof DEFAULTS & Record<string, unknown>;
 
 export async function allSettings(): Promise<Settings> {
-  // mysql2 แปลง JSON เป็น object ให้แล้ว
-  const rows = await select<{ key: string; value: unknown }>('SELECT "key", "value" FROM app_settings');
-  const stored = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  return { ...DEFAULTS, ...stored } as Settings;
+  return cached("settings:all", async () => {
+    // mysql2 แปลง JSON เป็น object ให้แล้ว
+    const rows = await select<{ key: string; value: unknown }>('SELECT "key", "value" FROM app_settings');
+    const stored = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    return { ...DEFAULTS, ...stored } as Settings;
+  });
 }
 
 export async function getSetting<K extends keyof typeof DEFAULTS>(key: K): Promise<(typeof DEFAULTS)[K]> {
@@ -61,6 +70,7 @@ export async function putSetting(key: string, value: unknown, userId: number | n
       'ON DUPLICATE KEY UPDATE "value" = new."value", updated_by = new.updated_by, updated_at = new.updated_at',
     [key, JSON.stringify(value), userId, now, now],
   );
+  forgetCached("settings:");
   await forgetLaravelCache("app_settings:all");
 }
 

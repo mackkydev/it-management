@@ -45,14 +45,14 @@ function Lines({ label, text, lines }: { label: string; text: string | null; lin
 }
 
 /** ลายเซ็น: รูป → (ชื่อ บนเส้นประ) → ตำแหน่ง → วันที่ — line = เส้นทึบเหนือชื่อ (ช่องท้ายเอกสาร) */
-function Sign({ url, name, role, date, alt, line = true }: { url: string | null; name: string | null | undefined; role: string; date: string; alt: string; line?: boolean }) {
+/** ลายเซ็น + (ชื่อ) + ตำแหน่ง + วันที่ — ไม่มีเส้นคั่นระหว่างลายเซ็นกับชื่อ */
+function Sign({ url, name, role, date, alt }: { url: string | null; name: string | null | undefined; role: string; date: string; alt: string }) {
   return (
     <div className={s.sign}>
       <div className={s.sigArea}>
         {/* eslint-disable-next-line @next/next/no-img-element -- ลายเซ็นจาก private storage ผ่าน /files */}
         {url && <img src={fileUrl(url)} alt={alt} className={s.sigImg} />}
       </div>
-      {line && <div className={s.sigLine} />}
       <div className={s.signName}>
         (<span className={s.signNameText}>{name || " "}</span>)
       </div>
@@ -151,18 +151,25 @@ export function TicketPaper({
 
           <Lines label={t("ticketPaper.purpose")} text={tk.details} lines={2} />
 
+          {/* วันที่ต้องการให้แล้วเสร็จ (บน) · ผู้แจ้งดำเนินงาน + ผู้อนุมัติ ชิดขวาคู่กัน (ไม่ต้องอนุมัติ = ช่องผู้อนุมัติว่าง) */}
+          <div className={s.row}>
+            <span className={s.label}>{t("ticketPaper.dueDate")}</span>
+            <Fill width="40mm">{paperDate(fmt, tk.due_date)}</Fill>
+          </div>
           <div className={s.requestFoot}>
-            <div className={s.row} style={{ flex: 1 }}>
-              <span className={s.label}>{t("ticketPaper.dueDate")}</span>
-              <Fill width="40mm">{paperDate(fmt, tk.due_date)}</Fill>
-            </div>
             <Sign
               url={tk.signatures.requester}
               name={tk.requester?.name}
               role={t("ticketPaper.requester")}
               date={paperDate(fmt, tk.requested_at)}
               alt={t("ticketPaper.requester")}
-              line={false}
+            />
+            <Sign
+              url={tk.signatures.approver ?? null}
+              name={tk.approved_at ? tk.approver?.name : null}
+              role={t("ticketPaper.approver")}
+              date={tk.approved_at ? paperDate(fmt, tk.approved_at) : ""}
+              alt={t("ticketPaper.approver")}
             />
           </div>
         </div>

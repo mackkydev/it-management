@@ -32,6 +32,8 @@ export interface TicketRow {
   accepted_at: string | null;
   result: string | null;
   completed_on: string | null;
+  work_start_on: string | null;
+  work_skip_off_days: boolean | number;
   cannot_reason: string | null;
   repair_method: string | null;
   external_vendor: string | null;
@@ -41,6 +43,7 @@ export interface TicketRow {
   resulted_at: string | null;
   it_head_id: number | null;
   it_head_signature: string | null;
+  approver_signature?: string | null;
   closed_at: string | null;
   /** ขั้นอนุมัติปัจจุบันของสายอนุมัติ (null = ระบบเดิม หรืออนุมัติครบแล้ว) */
   current_step: number | null;
@@ -139,8 +142,26 @@ export const isSelfClose = (u: UserRow, t: TicketRow) => worksOn(u.id, t);
 /** หัวหน้า IT อนุมัติผลแล้ว (รอปิดงาน) → ผู้แจ้งกดรับงานเพื่อปิดงาน */
 export const canConfirmClose = (u: UserRow, t: TicketRow) => t.status === "pending_requester" && u.id === t.requester_id;
 
-/** ผู้แจ้งแก้ไขได้ก่อนมีผู้อนุมัติ (ยังไม่มีขั้นใดอนุมัติ) */
-export const canEdit = (u: UserRow, t: TicketRow) => u.id === t.requester_id && t.status === "pending_supervisor" && Number(t.approved_steps ?? 0) === 0;
+/**
+ * ส่งถึงฝ่าย IT ทันทีโดยไม่ผ่านการอนุมัติ (ขั้นตอน it_first — ตั้งค่าระบบ ticket_flow) และยังไม่มีใครรับงาน
+ * (ใบที่หัวหน้าอนุมัติแล้ว / ใบที่ระบบสร้าง มี approved_at เสมอ)
+ */
+export const isDirectToIt = (t: TicketRow) => t.status === "approved" && !t.approved_at && !t.accepted_at;
+
+/**
+ * ผู้แจ้งแก้ไขได้: ก่อนมีผู้อนุมัติ (ยังไม่มีขั้นใดอนุมัติ) / ส่งถึง IT แล้วแต่ยังไม่มีคนรับ (it_first)
+ * / IT ขอให้หัวหน้าอนุมัติ (approval_requested — เลือกผู้อนุมัติแล้วบันทึก = ส่งให้หัวหน้าอนุมัติ)
+ */
+export const canEdit = (u: UserRow, t: TicketRow) =>
+  u.id === t.requester_id &&
+  ((t.status === "pending_supervisor" && Number(t.approved_steps ?? 0) === 0) || t.status === "approval_requested" || isDirectToIt(t));
+
+/**
+ * ฝ่าย IT ขอให้หัวหน้าอนุมัติ (ใบที่ส่งถึง IT ทันทีโดยยังไม่ผ่านการอนุมัติ) → ส่งกลับผู้แจ้งเลือกผู้อนุมัติ
+ * ก่อนรับงาน = ผู้ที่รับงานใบนี้ได้, ระหว่างทำ = ผู้รับงาน (หรือ it_tickets.manage_all)
+ */
+export const canRequestApproval = (u: UserRow, t: TicketRow) =>
+  !t.approved_at && (isDirectToIt(t) ? canAccept(u, t) : t.status === "in_progress" && (u.id === t.assignee_id || can(u, "it_tickets.manage_all")));
 
 /** ผู้แจ้งลบได้ก่อนมีผู้อนุมัติ หรือเมื่อถูกไม่อนุมัติ */
 export const canDelete = (u: UserRow, t: TicketRow) => canEdit(u, t) || (u.id === t.requester_id && t.status === "rejected");
@@ -161,6 +182,7 @@ export function actionsFor(u: UserRow, t: TicketRow): string[] {
     ["approve", canApprove(u, t)],
     ["reject", canApprove(u, t)],
     ["accept", canAccept(u, t)],
+    ["request_approval", canRequestApproval(u, t)],
     ["forward", canForward(u, t)],
     ["progress", canProgress(u, t)],
     ["result", canRecordResult(u, t)],
@@ -254,9 +276,11 @@ const RESOLVES: Record<string, string[]> = {
   step_approved: APPROVAL,
   approved: APPROVAL,
   rejected: APPROVAL,
-  accepted: ["approved", "forwarded"],
+  accepted: ["approved", "forwarded", "submitted_it"],
   // โอนงาน → "รอรับงาน" ของผู้รับเดิมจบ (ผู้รับคนใหม่ได้ "forwarded" แทน)
-  forwarded: ["approved", "forwarded"],
+  forwarded: ["approved", "forwarded", "submitted_it"],
+  // IT ขอให้หัวหน้าอนุมัติ → งานรอรับของ IT จบ (กลับมาอีกครั้งเมื่อหัวหน้าอนุมัติ — "approved")
+  approval_requested: ["approved", "forwarded", "submitted_it"],
   resulted: ["returned"],
   returned: ["resulted"],
   head_approved: ["resulted"],
@@ -264,7 +288,7 @@ const RESOLVES: Record<string, string[]> = {
   closed: ["resulted"],
   cancel_rejected: ["cancel_requested"],
   cancel_withdrawn: ["cancel_requested"],
-  cancelled: [...APPROVAL, "approved", "forwarded", "returned", "resulted", "cancel_requested"],
+  cancelled: [...APPROVAL, "approved", "forwarded", "submitted_it", "approval_requested", "returned", "resulted", "cancel_requested"],
 };
 
 async function stepApprovers(t: TicketRow): Promise<Person[]> {
@@ -285,6 +309,8 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
 
   const requester = await byId(t.requester_id);
   const assignee = await byId(t.assignee_id);
+  // ผู้ร่วมดำเนินการ — ได้แจ้งเตือนเหตุการณ์เดียวกับผู้รับงานหลังรับงานแล้ว (ส่งกลับแก้ไข / อนุมัติผล / ปิดงาน / ขอยกเลิก / ยกเลิก)
+  const helpers = t.assignee_id ? await select<Person>("SELECT u.id, u.name FROM it_ticket_helpers h JOIN users u ON u.id = h.user_id WHERE h.it_ticket_id = ? AND u.is_active = true", [t.id]) : [];
 
   let recipients: Array<Person | null> = [];
   switch (event) {
@@ -294,6 +320,14 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
       break;
     case "approved":
       recipients = [requester, ...(assignee ? [assignee] : await acceptors())];
+      break;
+    // it_first: แจ้งงานแล้วส่งถึงฝ่าย IT ทันที → ผู้ที่ผู้แจ้งเลือก (หรือผู้รับงานได้ทั้งหมด)
+    case "submitted_it":
+      recipients = assignee ? [assignee] : await acceptors();
+      break;
+    // IT ขอให้หัวหน้าอนุมัติ → ผู้แจ้งต้องเลือกผู้อนุมัติ
+    case "approval_requested":
+      recipients = [requester];
       break;
     // โอนงาน → ผู้รับคนใหม่ (รอรับงาน) + ผู้แจ้ง (ทราบว่าใครดูแล)
     case "forwarded":
@@ -308,27 +342,29 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
       recipients = await closersFor(t);
       break;
     case "returned":
-      recipients = [assignee];
+      recipients = [assignee, ...helpers];
       break;
     // ขอยกเลิก / ถอนคำขอ → เจ้าหน้าที่ผู้รับงาน (ยังไม่มีผู้รับ = ผู้ที่รับงานได้ทั้งหมด)
     case "cancel_requested":
     case "cancel_withdrawn":
-      recipients = assignee ? [assignee] : await acceptors();
+      recipients = assignee ? [assignee, ...helpers] : await acceptors();
       break;
     case "cancelled":
+      recipients = [requester, ...helpers];
+      break;
     case "cancel_rejected":
       recipients = [requester];
       break;
     // หัวหน้า IT อนุมัติผล → ผู้แจ้งต้องกดรับงานเพื่อปิดงาน
     case "head_approved":
-      recipients = [requester, assignee];
+      recipients = [requester, assignee, ...helpers];
       break;
     // ผู้แจ้งรับงาน → ปิดงาน (แจ้งเจ้าหน้าที่ผู้รับงาน — ผู้จัดการ IT ได้แจ้งเตือนเฉพาะตอนถึงลำดับอนุมัติผล "resulted")
     case "confirmed":
       recipients = [assignee];
       break;
     case "closed":
-      recipients = [requester, assignee];
+      recipients = [requester, assignee, ...helpers];
       break;
   }
 

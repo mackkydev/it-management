@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { exec, insert } from "../db.js";
+import { exec } from "../db.js";
 import { nowDb } from "../lib/time.js";
 
 /**
@@ -11,20 +11,16 @@ const USER_TYPE = "App\\Models\\User";
 export const EXPIRING_DIGEST = "App\\Notifications\\ExpiringItemsDigest";
 
 export async function notifyUsers(userIds: number[], type: string, data: Record<string, unknown>): Promise<void> {
+  const ids = [...new Set(userIds)];
+  if (!ids.length) return;
   const now = nowDb();
-  for (const id of new Set(userIds)) {
-    await insert("notifications", {
-      id: randomUUID(),
-      type,
-      notifiable_type: "App\\Models\\User",
-      notifiable_id: id,
-      // json_encode ของ PHP escape "/" และอักษร unicode — Laravel อ่าน JSON ปกติได้ทั้งสองแบบ
-      data: JSON.stringify(data),
-      read_at: null,
-      created_at: now,
-      updated_at: now,
-    });
-  }
+  // json_encode ของ PHP escape "/" และอักษร unicode — Laravel อ่าน JSON ปกติได้ทั้งสองแบบ
+  const json = JSON.stringify(data);
+  // ผู้รับหลายคน = INSERT ครั้งเดียว (subject_ref เป็นคอลัมน์ที่ฐานข้อมูลคำนวณจาก data — ห้ามใส่ค่าเอง)
+  await exec(
+    `INSERT INTO notifications (id, type, notifiable_type, notifiable_id, data, read_at, created_at, updated_at) VALUES ${ids.map(() => "(?, ?, ?, ?, ?, NULL, ?, ?)").join(", ")}`,
+    ids.flatMap((id) => [randomUUID(), type, USER_TYPE, id, json, now, now]),
+  );
 }
 
 /**
@@ -33,12 +29,13 @@ export async function notifyUsers(userIds: number[], type: string, data: Record<
  *   userId = เฉพาะคนนั้น, events = เฉพาะเหตุการณ์ที่ระบุ, exceptUserId = ยกเว้นคนนี้
  */
 export async function markNoticesRead(
-  field: "ticket_id" | "leave_id" | "vehicle_booking_id" | "loan_id" | "vpn_id",
+  field: "ticket_id" | "leave_id" | "vehicle_booking_id" | "loan_id" | "vpn_id" | "zoom_booking_id",
   value: string,
   opts: { userId?: number; events?: string[]; exceptUserId?: number | null } = {},
 ): Promise<void> {
-  const where = ["read_at IS NULL", "notifiable_type = ?", `JSON_UNQUOTE(JSON_EXTRACT(data, '$.${field}')) = ?`];
-  const params: unknown[] = [USER_TYPE, value];
+  // subject_ref (index subject_ref + read_at) หาแถวของเรื่องนั้นก่อน แล้วยืนยันชนิดรหัสด้วย JSON — ไม่ต้อง parse ทุกแถวที่ยังไม่อ่าน
+  const where = ["subject_ref = ?", "read_at IS NULL", "notifiable_type = ?", `JSON_UNQUOTE(JSON_EXTRACT(data, '$.${field}')) = ?`];
+  const params: unknown[] = [value, USER_TYPE, value];
   if (opts.userId !== undefined) {
     where.push("notifiable_id = ?");
     params.push(opts.userId);

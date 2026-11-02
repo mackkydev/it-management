@@ -5,12 +5,13 @@ import { useState, useTransition } from "react";
 import { loadBookings, saveBooking, type BookingValues } from "@/app/actions/meeting";
 import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
+import { useConfirm } from "@/components/dialog-provider";
 import { AlertIcon, CheckCircleIcon, MapPinIcon, MeetingRoomIcon, SaveIcon, SpinnerIcon, UsersIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { MeetingBooking, MeetingRoom } from "@/lib/types";
-import { imageUrl, primaryImage, TIME_OPTIONS, timelineHours, toMin, toneOf } from "./meeting-utils";
+import { endAt, imageUrl, overlaps, primaryImage, slotOn, startAt, TIME_OPTIONS, timelineHours, toMin, toneOf } from "./meeting-utils";
 
 type Field = keyof BookingValues;
 
@@ -39,6 +40,7 @@ export function BookingForm({
 }) {
   const { t, fmt } = useI18n();
   const router = useRouter();
+  const confirm = useConfirm();
   const [v, setV] = useState<BookingValues>(initial);
   const [day, setDay] = useState(initialDay);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
@@ -69,10 +71,13 @@ export function BookingForm({
   const room = rooms.find((r) => String(r.id) === v.room_id) ?? null;
   // การจองอื่นของวันนั้น (ไม่นับตัวเอง)
   const others = day.filter((b) => b.id !== id);
-  const timesOk = Boolean(v.start_time && v.end_time && v.end_time > v.start_time);
-  const clashOf = (roomId: number) => (timesOk ? others.find((b) => b.room.id === roomId && b.start_time < v.end_time && b.end_time > v.start_time) : undefined);
+  // จองต่อเนื่อง: เทียบวันเวลาเริ่ม → วันเวลาสิ้นสุด (หลายวัน = เวลาสิ้นสุดของวันสุดท้ายน้อยกว่าเวลาเริ่มได้)
+  const timesOk = Boolean(v.date && v.start_time && v.end_time && endAt(v) > startAt(v));
+  const clashOf = (roomId: number) => (timesOk ? others.find((b) => b.room.id === roomId && overlaps(b, v)) : undefined);
   const clash = room ? clashOf(room.id) : undefined;
-  const roomDay = room ? others.filter((b) => b.room.id === room.id) : [];
+  // แถบเวลาแสดงวันเริ่มจอง — การจองอื่นที่คาบเกี่ยววันนั้น (ช่วงเวลาของวันนั้น)
+  const roomDay = room ? others.filter((b) => b.room.id === room.id && b.date <= v.date && (b.end_date || b.date) >= v.date).map((b) => ({ ...b, ...slotOn(b, v.date) })) : [];
+  const mySlot = slotOn(v, v.date);
   const over = room && Number(v.attendees) > room.capacity;
 
   // เวลาที่มีอยู่แล้วแต่ไม่อยู่ในตัวเลือก (เช่น 09:15 จากข้อมูลเดิม) ยังเลือกค้างไว้ได้
@@ -86,14 +91,18 @@ export function BookingForm({
     if (!v.date) e.date = t("meeting.form.validate.date");
     if (v.end_date && v.end_date < v.date) e.end_date = t("meeting.form.validate.endDate");
     if (!v.start_time || !v.end_time) e.end_time = t("meeting.form.validate.time");
-    else if (v.end_time <= v.start_time) e.end_time = t("meeting.form.validate.timeOrder");
+    else if (endAt(v) <= startAt(v)) e.end_time = t("meeting.form.validate.timeOrder");
     if (!v.purpose) e.purpose = t("meeting.form.validate.purpose");
-    if (clash) e.start_time = t("meeting.form.validate.conflict");
+    // แก้การจองแล้วเปลี่ยนไปห้องที่ไม่ว่าง = ให้ API ตัดสิน (ผู้ดูแลห้องสลับห้องกับรายการนั้นได้ — ถามยืนยันก่อน)
+    if (clash && !(id && v.room_id !== initial.room_id)) e.start_time = t("meeting.form.validate.conflict");
     setErrors(e);
     setMessage("");
     if (Object.keys(e).length) return;
     start(async () => {
-      const res = await saveBooking(id, v);
+      let res = await saveBooking(id, v);
+      // ห้องที่เลือกติดการจองอื่น (ผู้ดูแลห้อง) → ถามแล้วสลับห้องกับรายการนั้น
+      if (res.swap && (await confirm(`${res.message}\n\n${t("swap.confirm")}`, { danger: false }))) res = await saveBooking(id, v, true);
+      if (res.swap) return;
       if (res.ok) return router.push(`/meeting-rooms/day/${v.date}?done=${id ? "updated" : "created"}`);
       setErrors(res.errors ?? {});
       setMessage(res.message ?? "");
@@ -111,7 +120,7 @@ export function BookingForm({
   const cls = (k: Field) => `${input} ${errors[k] ? inputError : ""}`;
 
   // แถบเวลาของห้องที่เลือกในวันนั้น + ช่วงที่กำลังจะจอง
-  const [hFrom, hTo] = timelineHours([...roomDay, ...(timesOk ? [{ start_time: v.start_time, end_time: v.end_time }] : [])]);
+  const [hFrom, hTo] = timelineHours([...roomDay, ...(timesOk ? [mySlot] : [])]);
   const span = (hTo - hFrom) * 60;
   const pct = (hm: string) => ((toMin(hm) - hFrom * 60) / span) * 100;
   const width = (s: string, e: string) => ((toMin(e) - toMin(s)) / span) * 100;
@@ -159,7 +168,8 @@ export function BookingForm({
                 onValueChange={(x) => {
                   set("start_time", x);
                   // เลื่อนเวลาเริ่ม → เวลาสิ้นสุดที่อยู่ก่อนเวลาเริ่มขยับตามเป็น +1 ชม.
-                  if (!v.end_time || v.end_time <= x) set("end_time", timeOptions.find((o) => toMin(o) >= toMin(x) + 60) ?? timeOptions[timeOptions.length - 1]);
+                  // วันเดียว: เวลาสิ้นสุดต้องหลังเวลาเริ่ม (หลายวัน = เลือกได้อิสระ — จองต่อเนื่องถึงวันสุดท้าย)
+                  if (!multiDay && (!v.end_time || v.end_time <= x)) set("end_time", timeOptions.find((o) => toMin(o) >= toMin(x) + 60) ?? timeOptions[timeOptions.length - 1]);
                 }}
                 className={cls("start_time")}
                 options={timeOptions.map((o) => ({ value: o, label: o }))}
@@ -168,7 +178,7 @@ export function BookingForm({
             </div>
             <div>
               {label("end_time", t("meeting.form.end"), true)}
-              <AppSelect id="end_time" value={v.end_time} onValueChange={(x) => set("end_time", x)} className={cls("end_time")} options={timeOptions.filter((o) => !v.start_time || o > v.start_time).map((o) => ({ value: o, label: o }))} />
+              <AppSelect id="end_time" value={v.end_time} onValueChange={(x) => set("end_time", x)} className={cls("end_time")} options={timeOptions.filter((o) => multiDay || !v.start_time || o > v.start_time).map((o) => ({ value: o, label: o }))} />
               {err("end_time")}
             </div>
           </div>
@@ -202,7 +212,7 @@ export function BookingForm({
                 {timesOk && (
                   <span
                     className={`absolute inset-y-0 rounded-lg border-2 border-dashed ${clash ? "border-danger-400 bg-danger-400/10" : "border-success-400 bg-success-400/10"}`}
-                    style={{ left: `${pct(v.start_time)}%`, width: `${width(v.start_time, v.end_time)}%` }}
+                    style={{ left: `${pct(mySlot.start_time)}%`, width: `${width(mySlot.start_time, mySlot.end_time)}%` }}
                     aria-hidden="true"
                   />
                 )}

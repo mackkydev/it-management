@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { exec, first, scalar } from "../src/db.js";
 import { resetRateLimits } from "../src/lib/rate-limit.js";
+import { nowDb } from "../src/lib/time.js";
 import { base32Decode, currentStep, totpAt } from "../src/services/two-factor.js";
 import { as, guest, makeUser } from "./helpers.js";
 
@@ -109,13 +110,16 @@ describe("password policy", () => {
     expect((await fresh.get("/api/v1/notifications")).status).toBe(200);
   });
 
-  it("first sign-in password change: users created or reset by an admin must set their own password (switch on only)", async () => {
-    const root = await superAdmin();
+  it("first sign-in password change: every user who never set their own password (or was reset by an admin) must set one (switch on only)", async () => {
+    // ผู้ดูแลระบบสูงสุดที่เปิดสวิตช์เคยตั้งรหัสผ่านเองแล้ว (ไม่ถูกบังคับ)
+    const root = await as(await makeUser({ role: "super_admin", password_self_changed_at: nowDb() }));
     const body = { name: "ใหม่", email: "first@example.com", role: "viewer", password: "Admin1234", password_confirmation: "Admin1234" };
     // ปิดอยู่ (ค่าตั้งต้น) = ใช้งานได้ทันที
     const off = await root.post("/api/v1/users").send(body);
     expect(off.status).toBe(201);
-    const t0 = (await login("first@example.com", "Admin1234")).body.token;
+    const first0 = (await login("first@example.com", "Admin1234")).body;
+    expect(first0).toMatchObject({ password_change_required: false, password_expired: false });
+    const t0 = first0.token;
     expect((await guest().get("/api/v1/auth/me").set("Authorization", `Bearer ${t0}`)).body.data.password_change_required).toBe(false);
 
     // เฉพาะผู้ดูแลระบบสูงสุด (access.manage) เปิดได้
@@ -123,11 +127,25 @@ describe("password policy", () => {
     expect((await root.put("/api/v1/settings").send({ password_policy: { force_first_change: true } })).status).toBe(200);
     expect((await root.get("/api/v1/settings")).body.data.password_policy.force_first_change).toBe(true);
 
+    // ผู้ใช้เดิมที่ยังไม่เคยตั้งรหัสผ่านเอง = ต้องเปลี่ยนด้วย / เคยเปลี่ยนเองแล้ว = ใช้งานได้ตามปกติ
+    const legacy = await makeUser({ email: "legacy@test.local", password: "Legacy123" });
+    const legacyToken = (await login("legacy@test.local", "Legacy123")).body.token;
+    const asLegacy = (path: string) => guest().get(path).set("Authorization", `Bearer ${legacyToken}`);
+    expect((await asLegacy("/api/v1/auth/me")).body.data.password_change_required).toBe(true);
+    expect((await asLegacy("/api/v1/tickets")).body.code).toBe("password_expired");
+    expect((await (await as(await makeUser({ password_self_changed_at: nowDb() }))).get("/api/v1/tickets")).status).toBe(200);
+    await guest().put("/api/v1/auth/password").set("Authorization", `Bearer ${legacyToken}`).send({ current_password: "Legacy123", password: "Legacy456", password_confirmation: "Legacy456" });
+    expect(await scalar("SELECT password_self_changed_at IS NOT NULL FROM users WHERE id = ?", [legacy.id])).toBe(1);
+    expect((await asLegacy("/api/v1/tickets")).status).toBe(200);
+
     // ยืนยันรหัสผ่านไม่ตรง = 422
     expect((await root.put(`/api/v1/users/${off.body.data.id}`).send({ password: "Reset1234", password_confirmation: "Other1234" })).status).toBe(422);
     // รีเซ็ตให้ผู้อื่น → ต้องเปลี่ยนเองก่อนใช้งาน (เหมือนรหัสผ่านหมดอายุ)
     expect((await root.put(`/api/v1/users/${off.body.data.id}`).send({ password: "Reset1234", password_confirmation: "Reset1234" })).status).toBe(200);
-    const token = (await login("first@example.com", "Reset1234")).body.token;
+    const signedIn = (await login("first@example.com", "Reset1234")).body;
+    // หน้า login รู้ทันทีว่าต้องตั้งรหัสผ่านใหม่ (แสดงช่องรหัสผ่านใหม่ต่อในหน้าเดียวกัน)
+    expect(signedIn).toMatchObject({ password_change_required: true, password_expired: true });
+    const token = signedIn.token;
     const api = (path: string) => guest().get(path).set("Authorization", `Bearer ${token}`);
     expect((await api("/api/v1/auth/me")).body.data).toMatchObject({ password_change_required: true, password_expired: true });
     const blocked = await api("/api/v1/tickets");

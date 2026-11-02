@@ -3,7 +3,11 @@ import { ClipboardIcon, HistoryIcon, MonitorIcon, PrinterIcon } from "@/componen
 import { alert } from "@/components/ui";
 import { LiveRefresh } from "@/components/live-refresh";
 import { getI18n } from "@/i18n/server";
-import { apiFetch } from "@/lib/api";
+import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import type { LoginState } from "@/app/actions/auth";
+import { apiFetch, TOKEN_COOKIE } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
 import type { LoginConnection, PublicAnnouncement } from "@/lib/types";
 import { AnnouncementTicker } from "./announcement-ticker";
 import { LoginForm } from "./login-form";
@@ -40,8 +44,20 @@ function Announcements({ items, title }: { items: PublicAnnouncement[]; title: s
   return <AnnouncementTicker key={items.map((a) => a.id).join(",")} items={items} title={title} />;
 }
 
+/**
+ * ?change=1 = มี session แต่ API ไม่ให้ใช้งานจนกว่าจะตั้งรหัสผ่านใหม่ (ครั้งแรก / หมดอายุ) — แสดงช่องรหัสผ่านใหม่ในกล่อง login
+ * (แทนหน้า /password-expired เดิม) ไม่ต้องเปลี่ยนแล้ว = เข้าใช้งานตามปกติ
+ */
+async function resumeChange(): Promise<LoginState | undefined> {
+  if (!(await cookies()).has(TOKEN_COOKIE)) return undefined;
+  const user = await getCurrentUser();
+  if (!user.password_expired) redirect("/");
+  return { changePassword: user.password_change_required ? "first" : "expired", email: user.email ?? user.username ?? "", resumed: true };
+}
+
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
-  const { expired } = await searchParams;
+  const { expired, change } = await searchParams;
+  const initial = change ? await resumeChange() : undefined;
   const [{ t }, announcements, connections] = await Promise.all([getI18n(), getAnnouncements(), getConnections()]);
   // ยังไม่รู้ว่าใครเข้าระบบ — แสดงเฉพาะความสามารถที่ผู้ใช้ทุกคน (รวมพนักงานนอกฝ่าย IT) ใช้ได้
   const features = [
@@ -96,7 +112,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           <h2 className="mt-6 text-2xl font-semibold">{t("auth.welcome")}</h2>
           <p className="login-muted mt-1 text-sm">{t("auth.welcomeText")}</p>
           {expired && <p className={`mt-5 ${alert.warning}`}>{t("auth.expired")}</p>}
-          <LoginForm connections={connections} />
+          <LoginForm connections={connections} initial={initial} />
           {/* <p className="login-muted mt-8 text-center text-xs">{t("auth.sessionNote")}</p> */}
         </section>
 

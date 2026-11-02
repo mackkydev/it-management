@@ -326,11 +326,14 @@ async function approverOptions(u: UserRow): Promise<{ source: "org" | "route"; l
 }
 
 /** โควตาและที่ใช้ไปของปี */
-async function balanceOf(userId: number, year: number, settings: LeaveSettings) {
+/** ช่วงวันของปี [1 ม.ค., 1 ม.ค. ปีถัดไป) — ใช้แทน YEAR(คอลัมน์) = ? เพื่อให้ index ของคอลัมน์วันที่ใช้ได้ */
+const yearRange = (year: number): [string, string] => [`${year}-01-01`, `${year + 1}-01-01`];
+
+export async function balanceOf(userId: number, year: number, settings: LeaveSettings) {
   const overrides = await select<{ leave_type: string; days: string }>("SELECT leave_type, days FROM leave_quota_overrides WHERE user_id = ? AND year = ?", [userId, year]);
   const used = await select<{ leave_type: string; status: string; total: string }>(
-    "SELECT leave_type, status, SUM(days) AS total FROM leave_requests WHERE user_id = ? AND YEAR(start_on) = ? AND status IN ('approved', 'pending') GROUP BY leave_type, status",
-    [userId, year],
+    "SELECT leave_type, status, SUM(days) AS total FROM leave_requests WHERE user_id = ? AND start_on >= ? AND start_on < ? AND status IN ('approved', 'pending') GROUP BY leave_type, status",
+    [userId, ...yearRange(year)],
   );
   return LEAVE_TYPES.map((type) => {
     const override = overrides.find((o) => o.leave_type === type);
@@ -485,7 +488,7 @@ async function leaveList(req: Request, u: UserRow) {
     if (int(f.user_id)) (where.push("l.user_id = ?"), params.push(int(f.user_id)));
   } else (where.push("l.user_id = ?"), params.push(u.id));
   if (f.status) (where.push("l.status = ?"), params.push(f.status));
-  if (int(f.year)) (where.push("YEAR(l.start_on) = ?"), params.push(int(f.year)));
+  if (int(f.year)) (where.push("l.start_on >= ? AND l.start_on < ?"), params.push(...yearRange(int(f.year)!)));
   return select<LeaveRow>(`${LEAVE_SELECT} WHERE ${where.join(" AND ") || "1 = 1"} ORDER BY l.start_on DESC, l.id DESC LIMIT 500`, params);
 }
 
@@ -790,7 +793,7 @@ calendarRoutes.get("/holidays", async (req, res) => {
   const calendars = await holidayCalendars();
   const calendarId = calendars.length ? await calendarParam(req, req.input.calendar_id) : null;
   const rows = calendarId
-    ? await select<{ id: number; date: string; name: string }>("SELECT id, date, name FROM company_holidays WHERE calendar_id = ? AND YEAR(date) = ? ORDER BY date", [calendarId, year])
+    ? await select<{ id: number; date: string; name: string }>("SELECT id, date, name FROM company_holidays WHERE calendar_id = ? AND date >= ? AND date < ? ORDER BY date", [calendarId, ...yearRange(year)])
     : [];
   res.json({
     data: rows.map((r) => ({ id: Number(r.id), date: dateOnly(r.date), name: r.name, calendar_id: calendarId })),
@@ -825,7 +828,7 @@ calendarRoutes.post("/holidays/copy-year", async (req, res) => {
   const data = await validate(req.input, { from: ["required", "integer", "min:2000", "max:2100"], to: ["required", "integer", "min:2000", "max:2100"] }, { locale: req.locale });
   const calendarId = await calendarParam(req, req.input.calendar_id);
   await assertCalendar(req, calendarId);
-  const rows = await select<{ date: string; name: string }>("SELECT date, name FROM company_holidays WHERE calendar_id = ? AND YEAR(date) = ?", [calendarId, int(data.from)]);
+  const rows = await select<{ date: string; name: string }>("SELECT date, name FROM company_holidays WHERE calendar_id = ? AND date >= ? AND date < ?", [calendarId, ...yearRange(int(data.from)!)]);
   let created = 0;
   const now = nowDb();
   for (const r of rows) {
@@ -860,8 +863,8 @@ calendarRoutes.get("/holidays/import-template", async (req, res) => {
   ws.getColumn("date").numFmt = "dd/mm/yyyy";
   const rows = await select<{ date: string; name: string; calendar: string }>(
     `SELECT h.date, h.name, c.name AS calendar FROM company_holidays h JOIN holiday_calendars c ON c.id = h.calendar_id
-      WHERE YEAR(h.date) = ? ORDER BY c.sort_order, c.name, h.date`,
-    [year],
+      WHERE h.date >= ? AND h.date < ? ORDER BY c.sort_order, c.name, h.date`,
+    yearRange(year),
   );
   for (const r of rows) ws.addRow({ date: new Date(`${dateOnly(r.date)}T00:00:00Z`), name: r.name, calendar: r.calendar });
 

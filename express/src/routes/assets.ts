@@ -10,9 +10,10 @@ import { UploadedFile } from "../lib/uploaded-file.js";
 import { me, pageParam, paginated } from "../http.js";
 import { can, type UserRow } from "../models/user.js";
 import {
-  activeCount, BILLINGS, deleteLicense, LICENSE_CATEGORY, loadFiles, loadLicense, revealKey, saveLicense, type AssetFileRow, type LicenseRow,
+  activeCount, BILLINGS, deleteLicense, ICON_KIND, LICENSE_CATEGORY, loadFiles, loadLicense, revealKey, saveLicense, type AssetFileRow, type LicenseRow,
 } from "../services/asset-licenses.js";
-import { deleteStored, readStored, storeUploadIn } from "../services/ticket-files.js";
+import { deleteStored, randomString, readStored, storeUploadIn, writeStored } from "../services/ticket-files.js";
+import { processIcon } from "../services/photos.js";
 import {
   assetResource, MOVEMENT_JOINS, MOVEMENT_SELECT, movementResource,
   type AssetRow, type LocationRow, type MovementJoinedRow,
@@ -48,6 +49,8 @@ async function findAsset(uuid: string): Promise<AssetRow> {
 /** เพิ่มหรือแก้ไขสินทรัพย์ได้ (ตัวเลือกในฟอร์ม เช่น ซอฟต์แวร์ / เลขครุภัณฑ์) */
 const editsAssets = (u: UserRow) => can(u, "assets.create") || can(u, "assets.update");
 const seesAllAssets = (u: UserRow) => can(u, "assets.view_all") || editsAssets(u);
+/** เปิดเมนูสินทรัพย์ได้ — assets.view = เฉพาะที่ตัวเองถือครอง (ผู้ใช้ทั่วไปไม่มีเป็นค่าตั้งต้น) */
+const seesAssets = (u: UserRow) => seesAllAssets(u) || can(u, "assets.view");
 
 /** สินทรัพย์ "ของฉัน": เป็นผู้ถือครอง หรือชื่อผู้ใช้งาน (ทะเบียนคอมพิวเตอร์ — ข้อความจาก Excel) ตรงกับชื่อตัวเอง */
 export const OWN_SQL = "(a.custodian_id = ? OR (a.user_name IS NOT NULL AND LOWER(TRIM(a.user_name)) = LOWER(TRIM(?))))";
@@ -58,7 +61,7 @@ const isOwn = (u: UserRow, a: AssetRow) =>
 async function findVisibleAsset(req: Request, uuid: string): Promise<AssetRow> {
   const asset = await findAsset(uuid);
   const u = me(req);
-  if (!seesAllAssets(u) && !isOwn(u, asset)) throw notFound();
+  if (!seesAllAssets(u) && (!seesAssets(u) || !isOwn(u, asset))) throw notFound();
   return asset;
 }
 
@@ -193,7 +196,9 @@ function filterWhere(req: Request, f: Record<string, unknown>): { whereSql: stri
     params.push(`${esc}%`, `${esc}%`, `%${esc}%`, `%${esc}%`, `%${esc}%`, `%${esc}%`, `${esc}%`);
   }
   if (f.status) (where.push("a.status = ?"), params.push(f.status));
+  // License ซอฟต์แวร์ (หมวด SOFTWARE) แยกไปเมนู /licenses — ไม่ขึ้นในรายการสินทรัพย์ เว้นแต่ขอหมวดนี้ตรงๆ
   if (f.category) (where.push("a.category = ?"), params.push(f.category));
+  else (where.push("a.category <> ?"), params.push(LICENSE_CATEGORY));
   if (f.location_id) (where.push("a.location_id = ?"), params.push(int(f.location_id)));
   if (f.branch_id) (where.push("a.branch_id = ?"), params.push(int(f.branch_id)));
   // ไม่มีสิทธิ์ดูทั้งหมด → เฉพาะที่ตัวเองถือครอง
@@ -204,6 +209,7 @@ function filterWhere(req: Request, f: Record<string, unknown>): { whereSql: stri
 
 /** GET /assets?search=&status=&category=&location_id=&branch_id=&sort=-created_at&per_page=25&page=1 */
 assetRoutes.get("/assets", async (req, res) => {
+  authorize(seesAssets(me(req)));
   const f = await validate(
     req.input,
     {
@@ -517,6 +523,64 @@ assetRoutes.get("/assets/:uuid/files/:id", async (req, res) => {
   res.send(stored.data);
 });
 
+/* ---------------------------------------------------------------- ไอคอน (License ซอฟต์แวร์) */
+
+const findIcon = (assetId: number) =>
+  first<AssetFileRow>("SELECT * FROM asset_files WHERE asset_id = ? AND kind = ? ORDER BY id DESC LIMIT 1", [assetId, ICON_KIND]);
+
+/** PUT /assets/{uuid}/icon — อัปโหลดไอคอน (multipart icon, รูป ≤ 1MB → WebP 256px ไม่มี metadata) แทนอันเดิม */
+assetRoutes.put("/assets/:uuid/icon", async (req, res) => {
+  const asset = await findAsset(req.params.uuid);
+  const u = me(req);
+  authorize(can(u, "assets.update"));
+  const data = await validate(req.input, { icon: ["required", "file", "image", "mimes:jpg,jpeg,png,webp,gif", "max:1024"] }, { locale: req.locale });
+  const file = data.icon as UploadedFile;
+  let buf: Buffer;
+  try {
+    buf = await processIcon(file);
+  } catch {
+    throw ValidationError.withMessages({ icon: trans(req.locale, "eam.meeting.image_invalid", { name: [...file.originalName].slice(0, 80).join("") }) });
+  }
+  const old = await findIcon(asset.id);
+  const path = `assets/${asset.uuid}/icon-${randomString(16)}.webp`;
+  await writeStored(path, buf);
+  const now = nowDb();
+  const id = await insert("asset_files", {
+    asset_id: asset.id, kind: ICON_KIND, original_name: "icon.webp", path, mime: "image/webp", size: buf.length, uploaded_by: u.id, created_at: now, updated_at: now,
+  });
+  if (old) {
+    await exec("DELETE FROM asset_files WHERE id = ?", [old.id]);
+    await deleteStored(old.path);
+  }
+  await audit(req, { action: "asset.icon_updated", subjectType: "asset", subjectId: asset.id, after: { file_id: id } });
+  res.json({ data: { icon_id: id } });
+});
+
+/** DELETE /assets/{uuid}/icon */
+assetRoutes.delete("/assets/:uuid/icon", async (req, res) => {
+  const asset = await findAsset(req.params.uuid);
+  authorize(can(me(req), "assets.update"));
+  const icon = await findIcon(asset.id);
+  if (icon) {
+    await exec("DELETE FROM asset_files WHERE id = ?", [icon.id]);
+    await deleteStored(icon.path);
+    await audit(req, { action: "asset.icon_deleted", subjectType: "asset", subjectId: asset.id, before: { file_id: icon.id } });
+  }
+  res.status(204).end();
+});
+
+/** GET /assets/{uuid}/icon — ผู้เห็นสินทรัพย์ หรือผู้บันทึกการติดตั้ง license (เมนู License ซอฟต์แวร์) */
+assetRoutes.get("/assets/:uuid/icon", async (req, res) => {
+  const asset = can(me(req), "licenses.install") ? await findAsset(req.params.uuid) : await findVisibleAsset(req, req.params.uuid);
+  const icon = await findIcon(asset.id);
+  if (!icon) throw notFound();
+  const stored = await readStored(icon.path);
+  res.setHeader("Content-Type", icon.mime);
+  res.setHeader("Cache-Control", "private, max-age=86400");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.send(stored.data);
+});
+
 /** ลบไฟล์ — ผู้จัดการสินทรัพย์ */
 assetRoutes.delete("/assets/:uuid/files/:id", async (req, res) => {
   const asset = await findAsset(req.params.uuid);
@@ -528,7 +592,7 @@ assetRoutes.delete("/assets/:uuid/files/:id", async (req, res) => {
 });
 
 async function findFile(assetId: number, id: string): Promise<AssetFileRow> {
-  const row = /^\d+$/.test(id) ? await first<AssetFileRow>("SELECT * FROM asset_files WHERE id = ? AND asset_id = ?", [Number(id), assetId]) : null;
+  const row = /^\d+$/.test(id) ? await first<AssetFileRow>("SELECT * FROM asset_files WHERE id = ? AND asset_id = ? AND kind <> ?", [Number(id), assetId, ICON_KIND]) : null;
   if (!row) throw notFound();
   return row;
 }

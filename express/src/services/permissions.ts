@@ -2,7 +2,7 @@ import { exec, first, insert, select } from "../db.js";
 import { localToday, nowDb } from "../lib/time.js";
 import { PERMISSION_KEYS, PERMISSIONS } from "../models/permission.js";
 import { isSuperAdmin, ROLES, type UserRow } from "../models/user.js";
-import { getSetting, putSetting } from "./settings.js";
+import { allSettings, getSetting, putSetting } from "./settings.js";
 
 /**
  * กลุ่มสิทธิ์ + สิทธิ์จริงของผู้ใช้
@@ -143,7 +143,8 @@ async function migrateUiAudiences(): Promise<void> {
 
 /** สวิตช์วันหมดอายุของสิทธิ์ (app_settings.permission_expiry) — ปิด = ไม่สนใจวันหมดอายุทั้งหมด */
 export async function expiryEnabled(): Promise<boolean> {
-  const v = (await first<{ value: unknown }>("SELECT \"value\" FROM app_settings WHERE \"key\" = 'permission_expiry'"))?.value;
+  // อ่านซ้ำหลายครั้งต่อ request (กลุ่ม + สิทธิ์ของผู้ใช้) — ใช้ค่าตั้งค่าที่อ่านครั้งเดียวต่อ request
+  const v = (await allSettings())["permission_expiry"];
   return Boolean(v && typeof v === "object" && (v as { enabled?: unknown }).enabled === true);
 }
 

@@ -13,9 +13,16 @@
 ## คิว
 
 <!-- เพิ่มงานใต้บรรทัดนี้ -->
+
+- [x] จอง ZOOM รอบ 3 + ปรับประสิทธิภาพ index/query — เสร็จ 2026-10-31: เทสต์ 309/309, deploy migration 20261113090000_zoom_meeting_details + 20261114090000_performance_indexes, rebuild แล้ว (ยังไม่ commit)
+
+- [x] ชุดงานผู้ใช้สั่ง 2026-10-28 — เสร็จ 2026-10-28: เส้นสแกน login, ผู้ร่วมดำเนินการ (คิว/แจ้งเตือน), เก็บลายเซ็นที่วาด, ปิดงานอัตโนมัติ, เมนูใบแจ้งงาน + ตัวกรอง, ขั้นตอน it_first (ตั้งในเครื่องจริงแล้ว), แบบฟอร์มผู้แจ้ง/ผู้อนุมัติ (migration 20261110090000), Dashboard — เทสต์ 304/304, rebuild แล้ว (ยังไม่ commit)
+
 - [!] รอผู้ใช้: login บัญชีจริง worakit.sync@gmail.com (รหัสชั่วคราวใน E:Claude_Jobsit-management-backupseal-admin-temp-password.txt) → เปลี่ยนรหัส + เปิด 2FA ที่หน้า ข้อมูลส่วนตัว → ลบไฟล์รหัสชั่วคราว → จากนั้นเปิดสวิตช์บังคับ 2FA ผู้ดูแลระบบ (หน้า ตั้งค่าระบบ) — บัญชี @example.com ทั้ง 43 บัญชี + ประวัติ ลบแล้ว 2026-10-14 ตามที่ผู้ใช้สั่ง (สำรองที่ it-management-backups/it_system-before-delete-example-users-20261014-1748.sql; audit_logs เก็บไว้ actor เป็น NULL) — ตอนนี้เหลือ super_admin คนเดียวคือ worakit — รหัสฐานข้อมูลเปลี่ยนตอนขึ้นเครื่องจริง (deploy/README.md)
 
 ## เสร็จแล้ว / ติดปัญหา
+
+- [x] สลับห้องประชุม / สลับรถ — เสร็จ 2026-10-26: เทสต์ 294/294, rebuild container แล้ว (ยังไม่ commit)
 
 - [x] ความปลอดภัยก่อน deploy ข้อ 6: 2FA (TOTP) — เสร็จ 2026-10-14: เทสต์ 238/238, deploy migration 20261027090000_two_factor, ตรวจ login 2 ขั้นในเบราว์เซอร์แล้ว
 - [x] ความปลอดภัยก่อน deploy ข้อ 5 + 7 — เสร็จ 2026-10-14: deploy/README.md, Caddyfile, backup.sh (ทดสอบเข้ารหัส/ถอด/checksum แล้ว), backup.env.example, CLAUDE.md

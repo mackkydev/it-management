@@ -50,6 +50,8 @@ export const config = {
   vaultKeySource: env("VAULT_KEY_FILE") ? "file" : env("VAULT_KEY") ? "env" : null,
   defaultLocale: env("APP_LOCALE", "th") as "th" | "en",
   db: dbConfig(),
+  /** จำนวน connection สูงสุดของ pool (DB_POOL_SIZE) — ตั้งต้น 10 */
+  dbPoolSize: Math.max(2, Number(env("DB_POOL_SIZE", "10")) || 10),
   /** อายุ token ที่ออกตอน login (นาที) — ค่าเริ่มต้น 12 ชั่วโมง */
   tokenTtlMinutes: Number(env("EAM_TOKEN_TTL_MINUTES", String(60 * 12))),
   /** API User: ไม่มีการใช้งานเกินกี่นาทีแล้วต้อง login ใหม่ (session ของ API User เท่านั้น — ผู้ใช้ LOCAL ทำงานเหมือนเดิม) */

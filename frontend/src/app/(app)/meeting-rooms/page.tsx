@@ -44,13 +44,16 @@ export default async function MeetingRoomsPage({ searchParams }: PageProps<"/mee
         title={t("meeting.title")}
         subtitle={t("meeting.subtitle")}
         actions={
-          canBook && (
+          // สาขา (เลือกดูได้เมื่อขอบเขตทุกสาขา) อยู่แถวเดียวกับหัวข้อหน้า
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <BranchFilter kind="meeting" meta={scope} value={branch} />
+            {canBook && (
             <Link href="/meeting-rooms/book" className={btn.primary}>
               <PlusIcon />
-      <BranchFilter kind="meeting" meta={scope} value={branch} />
               {t("meeting.book")}
             </Link>
-          )
+          )}
+          </div>
         }
       />
       {/* ยังไม่มีห้อง: แจ้งเป็นแถบด้านบน — ปฏิทินแสดงเสมอ */}

@@ -40,13 +40,23 @@ export function VehicleDialog({
   const [mileageError, setMileageError] = useState("");
   const [vehicleId, setVehicleId] = useState(b.vehicle ? String(b.vehicle.id) : "");
   const [assignError, setAssignError] = useState("");
+  // ผู้จัดคิวยกเลิกการจองของคนอื่น = ต้องมีเหตุผล (null = ยังไม่เปิดช่องเหตุผล)
+  const [cancelReason, setCancelReason] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState("");
   const period = periodText(b, fmt.date);
 
   const act = async (kind: "cancel" | "delete") => {
-    if (!(await confirm(t(kind === "cancel" ? "vehicle.booking.confirmCancel" : "vehicle.booking.confirmDelete", { period })))) return;
+    if (kind === "cancel" && b.cancel_needs_reason) {
+      if (cancelReason === null) return setCancelReason("");
+      if (!cancelReason.trim()) return setCancelError(t("vehicle.approval.cancelReasonRequired"));
+    }
+    if (!(await confirm(t(kind === "cancel" ? (b.cancel_needs_reason ? "vehicle.approval.confirmCancel" : "vehicle.booking.confirmCancel") : "vehicle.booking.confirmDelete", { period })))) return;
     start(async () => {
-      const res = kind === "cancel" ? await cancelVehicleBooking(b.id) : await deleteVehicleBooking(b.id);
-      if (!res.ok) return void (await showAlert(res.message ?? t("common.saveFailed")));
+      const res = kind === "cancel" ? await cancelVehicleBooking(b.id, cancelReason ?? "") : await deleteVehicleBooking(b.id);
+      if (!res.ok) {
+        if (kind === "cancel" && b.cancel_needs_reason && res.errors && "reason" in res.errors && res.errors.reason) return setCancelError(res.errors.reason);
+        return void (await showAlert(res.message ?? t("common.saveFailed")));
+      }
       onChanged();
       onClose();
     });
@@ -65,7 +75,10 @@ export function VehicleDialog({
   };
   const assign = () =>
     start(async () => {
-      const res = await assignVehicle(b.id, vehicleId ? Number(vehicleId) : null);
+      let res = await assignVehicle(b.id, vehicleId ? Number(vehicleId) : null);
+      // รถที่เลือกติดการจองอื่น → ถามแล้วสลับรถกับรายการนั้น
+      if (res.swap && (await confirm(`${res.message}\n\n${t("swap.confirm")}`, { danger: false }))) res = await assignVehicle(b.id, Number(vehicleId), true);
+      if (res.swap) return;
       if (res.booking) {
         setB(res.booking);
         setMileage({ start: startOf(res.booking)?.toString() ?? "", end: res.booking.end_mileage?.toString() ?? "" });
@@ -118,6 +131,10 @@ export function VehicleDialog({
           {row(t("vehicle.detail.passengers"), t("vehicle.detail.passengersValue", { n: fmt.number(b.passengers) }))}
           {row(t("vehicle.detail.purpose"), b.purpose || "-")}
           {row(t("vehicle.detail.extras"), b.extras.length ? b.extras.join(", ") : "-")}
+          {row(
+            t("vehicle.approval.driver"),
+            !b.needs_driver ? t("vehicle.approval.noDriver") : b.driver ? (b.driver.nickname ? `${b.driver.name} (${b.driver.nickname})` : b.driver.name) : t("vehicle.approval.driverPending"),
+          )}
           {b.note && row(t("vehicle.detail.note"), <span className="whitespace-pre-line">{b.note}</span>)}
           {b.vehicle &&
             row(
@@ -128,6 +145,7 @@ export function VehicleDialog({
             )}
           {b.assigned_by && row(t("vehicle.detail.assignedBy"), b.assigned_by)}
           {b.approved_by && row(t("vehicle.approval.approvedBy"), b.approved_by)}
+          {b.cancel_reason && row(t("vehicle.approval.cancelReason"), <span className="whitespace-pre-line">{b.cancel_reason}</span>)}
         </dl>
 
         {/* ผู้จัดคิวรถ: เลือก / เปลี่ยนรถ */}
@@ -191,6 +209,23 @@ export function VehicleDialog({
           </div>
         )}
 
+        {b.can_cancel && cancelReason !== null && (
+          <div className="space-y-1.5">
+            <label htmlFor="vehicle-cancel-reason" className="block text-sm font-medium">
+              {t("vehicle.approval.cancelReason")} <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              id="vehicle-cancel-reason"
+              rows={3}
+              maxLength={1000}
+              autoFocus
+              value={cancelReason}
+              onChange={(e) => (setCancelReason(e.target.value), setCancelError(""))}
+              className={`${input} ${cancelError ? inputError : ""}`}
+            />
+            {cancelError && <p className="text-xs text-red-500">{cancelError}</p>}
+          </div>
+        )}
         {(b.can_edit || b.can_cancel || b.can_delete) && (
           <div className="flex flex-wrap justify-end gap-2 pt-1">
             {b.can_edit && (
@@ -200,9 +235,9 @@ export function VehicleDialog({
               </Link>
             )}
             {b.can_cancel && (
-              <button type="button" disabled={pending} onClick={() => act("cancel")} className={`${btn.secondary} ${btn.sm}`}>
-                <XIcon width={14} height={14} />
-                {t("meeting.booking.cancel")}
+              <button type="button" disabled={pending} onClick={() => act("cancel")} className={`${cancelReason !== null ? btn.danger : btn.secondary} ${btn.sm}`}>
+                {pending && cancelReason !== null ? <SpinnerIcon width={14} height={14} /> : <XIcon width={14} height={14} />}
+                {t(cancelReason !== null ? "vehicle.approval.cancelBooking" : "meeting.booking.cancel")}
               </button>
             )}
             {b.can_delete && (

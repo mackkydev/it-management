@@ -1,8 +1,9 @@
+import { config } from "../config.js";
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { exec, first, insert, isUuid, likeEscape, lockNamed, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
-import { dateOnly, iso, localToday, nowDb } from "../lib/time.js";
+import { dateOnly, iso, localToday, nowDb, toDbDateTime } from "../lib/time.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
 import { exists, int, validate, type Rule } from "../lib/validator.js";
 import { me, pageParam, shortMeta } from "../http.js";
@@ -11,18 +12,18 @@ import { person } from "../resources.js";
 import { getSetting } from "../services/settings.js";
 import { readStored, storeSignature, storeUpload, deleteTicketFiles } from "../services/ticket-files.js";
 import {
-  acceptors, actionsFor, canAccept, canForward, isTakeOver, closers, closersAmong, isSelfClose, withCloseInfo, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel,
-} from "../services/ticket-workflow.js";
-import { activeSignature, copySignatureTo, mimeOf, readSignature, requireSignature } from "../services/signatures.js";
+  acceptors, actionsFor, canAccept, canForward, isTakeOver, closers, closersAmong, isSelfClose, withCloseInfo, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel, canRequestApproval, isDirectToIt } from "../services/ticket-workflow.js";
+import { activeSignature, copySignatureTo, mimeOf, readSignature, requireSignature, rememberDrawnSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
 import { scopeWhere } from "../services/manage-scope.js";
 import { usersWithPermissions } from "../services/permissions.js";
 import { markNoticesRead, notifyUsers, TICKET_ACTIVITY } from "../services/notifications.js";
-import { busyOf } from "../services/calendar.js";
-import { KPI_TICKET_STATUSES } from "../services/kpi.js";
+import { busyOf, datesBetween } from "../services/calendar.js";
+import { kpiPendingCount, MAX_WORK_SPAN_DAYS } from "../services/kpi.js";
 import { OWN_SQL } from "./assets.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
 import { pendingVehicleBookings } from "./vehicles.js";
+import { zoomBadges } from "./zoom.js";
 import { loanBadges } from "./loans.js";
 import {
   announceVpnRequest, applyVpnTicketOutcome, closeVpnRequest, isVpnRequestType, pendingVpnRequest, syncVpnRequest, vpnBadges, vpnOfTicket, VPN_REQUEST_TYPE,
@@ -37,9 +38,12 @@ import { trans } from "../lib/i18n.js";
 export const ticketRoutes = Router();
 
 const TYPES = ["repair", "install", "grant_access", "revoke_access", "other"];
-const STATUSES = ["pending_supervisor", "approved", "in_progress", "pending_it_head", "pending_requester", "completed", "rejected", "pending_cancel", "cancelled"];
+const STATUSES = ["pending_supervisor", "approval_requested", "approved", "in_progress", "pending_it_head", "pending_requester", "completed", "rejected", "pending_cancel", "cancelled"];
 const PHOTO_RULE: Rule[] = ["image", "mimes:jpg,jpeg,png,webp", "max:1024"]; // ≤ 1MB
 const DOC_RULE: Rule[] = ["file", "mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,zip,jpg,jpeg,png", "max:5120"]; // ≤ 5MB
+/** เอกสาร/รูปที่แนบกับรายการประวัติ (บันทึกผล / อัปเดตความคืบหน้า เช่น ใบเสนอราคา ใบ PO) — ไฟล์ละ ≤ 1MB สูงสุด 10 ไฟล์ */
+const EVENT_FILE_RULE: Rule[] = ["file", "mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,zip,jpg,jpeg,png,webp", "max:1024"];
+const EVENT_FILES_MAX = 10;
 const FILLABLE = [
   "type", "type_other", "branch_id", "department", "division", "details", "due_date",
   "person_name_th", "person_name_en", "device_name", "asset_tag", "symptom", "assignee_id",
@@ -77,6 +81,26 @@ const SUMMARY_SELECT = `t.*, r.name AS r_name, asg.name AS as_name, b.id AS b_id
   LEFT JOIN users asg ON asg.id = t.assignee_id
   LEFT JOIN branches b ON b.id = t.branch_id AND b.deleted_at IS NULL`;
 
+/** ช่องที่ค้นหาในรายการใบแจ้งงาน (ทุกข้อความในเอกสาร) */
+const SEARCH_COLUMNS = [
+  "t.ticket_no", "t.type_other", "t.details", "t.department", "t.division", "t.person_name_th", "t.person_name_en", "t.device_name", "t.asset_tag",
+  "t.symptom", "t.repair_details", "t.cannot_reason", "t.external_vendor", "t.cancel_reason",
+  "(SELECT u.name FROM users u WHERE u.id = t.requester_id)",
+  "(SELECT u.name FROM users u WHERE u.id = t.assignee_id)",
+  "(SELECT u.name FROM users u WHERE u.id = t.approver_id)",
+  "(SELECT b.name FROM branches b WHERE b.id = t.branch_id)",
+  "(SELECT GROUP_CONCAT(u.name) FROM it_ticket_helpers h JOIN users u ON u.id = h.user_id WHERE h.it_ticket_id = t.id)",
+  "(SELECT GROUP_CONCAT(p.name) FROM it_ticket_parts p WHERE p.it_ticket_id = t.id)",
+];
+/** ชื่อเรื่อง (ไทย/อังกฤษ) — พิมพ์ "ซ่อม" / "ติดตั้ง" ก็ค้นหาเจอตามเรื่อง */
+const TYPE_LABELS: Record<string, string[]> = {
+  repair: ["ซ่อม", "repair"],
+  install: ["ติดตั้ง", "install"],
+  grant_access: ["เพิ่มสิทธิ์", "grant access"],
+  revoke_access: ["ระงับสิทธิ์", "revoke access"],
+  other: ["อื่นๆ", "other"],
+};
+
 function summary(t: SummaryRow, viewer: UserRow) {
   return {
     id: t.uuid,
@@ -103,8 +127,8 @@ async function detail(t: TicketRow, viewer: UserRow) {
   );
   // relation asset ใช้ SoftDeletes scope → สินทรัพย์ที่ถูกลบไม่แสดง
   const asset = row.asset_id ? await first<{ uuid: string; asset_tag: string; name: string }>("SELECT uuid, asset_tag, name FROM assets WHERE id = ? AND deleted_at IS NULL", [row.asset_id]) : null;
-  const attachments = await select<{ id: number; kind: string; original_name: string | null; mime: string | null; size: number }>(
-    "SELECT id, kind, original_name, mime, size FROM it_ticket_attachments WHERE it_ticket_id = ? ORDER BY id",
+  const attachments = await select<{ id: number; kind: string; original_name: string | null; mime: string | null; size: number; event_id: number | null }>(
+    "SELECT id, kind, original_name, mime, size, event_id FROM it_ticket_attachments WHERE it_ticket_id = ? ORDER BY id",
     [row.id],
   );
   const parts = await select<{ id: number; name: string; quantity: number; photo_path: string | null }>(
@@ -143,6 +167,8 @@ async function detail(t: TicketRow, viewer: UserRow) {
     accepted_at: iso(row.accepted_at),
     result: row.result,
     completed_on: dateOnly(row.completed_on),
+    work_start_on: dateOnly(row.work_start_on),
+    work_skip_off_days: Boolean(row.work_skip_off_days),
     cannot_reason: row.cannot_reason,
     repair_method: row.repair_method,
     external_vendor: row.external_vendor,
@@ -154,6 +180,8 @@ async function detail(t: TicketRow, viewer: UserRow) {
     cancel_reason: row.cancel_reason,
     cancel_requested_at: iso(row.cancel_requested_at),
     cancel_requested_status: row.cancel_requested_status,
+    // ปิดงานอัตโนมัติเมื่อผู้แจ้งไม่กดรับงานเกิน days วัน (ตั้งค่าระบบ) — at = กำหนดปิดของใบที่รอผู้แจ้งรับงานอยู่
+    auto_close: await autoCloseInfo(row),
     cancelled_at: iso(row.cancelled_at),
     cancelled_by: await name(row.cancelled_by),
     current_step: row.current_step,
@@ -171,10 +199,19 @@ async function detail(t: TicketRow, viewer: UserRow) {
       requester: row.requester_signature || requester?.has_signature ? file("requester-signature") : null,
       staff: row.staff_signature ? file("staff-signature") : null,
       it_head: row.it_head_signature ? file("it-head-signature") : null,
+      approver: row.approver_signature ? file("approver-signature") : null,
     },
-    attachments: attachments.map((a) => ({ id: a.id, kind: a.kind, name: a.original_name, mime: a.mime, size: Number(a.size), url: file("attachment", a.id) })),
+    attachments: attachments.map((a) => ({
+      id: a.id, kind: a.kind, name: a.original_name, mime: a.mime, size: Number(a.size), event_id: a.event_id === null ? null : Number(a.event_id), url: file("attachment", a.id),
+    })),
     parts: parts.map((p) => ({ id: p.id, name: p.name, quantity: Number(p.quantity), photo_url: p.photo_path ? file("part", p.id) : null })),
-    events: events.map((e) => ({ id: e.id, action: e.action, comment: e.comment, user: person(e.u_id, e.u_name), created_at: iso(e.created_at) })),
+    // ไฟล์ที่แนบกับรายการนั้น (บันทึกผล / อัปเดตความคืบหน้า) — กดดูย้อนหลังได้จากประวัติ
+    events: events.map((e) => ({
+      id: e.id, action: e.action, comment: e.comment, user: person(e.u_id, e.u_name), created_at: iso(e.created_at),
+      attachments: attachments
+        .filter((a) => a.event_id !== null && Number(a.event_id) === Number(e.id))
+        .map((a) => ({ id: a.id, kind: a.kind, name: a.original_name, mime: a.mime, size: Number(a.size), url: file("attachment", a.id) })),
+    })),
     // ช่วงวันไปทำงานหน้างาน (ปฏิทิน) — ผู้รับงานเพิ่ม/แก้ได้
     calendar_event: await onsiteOf(t.id),
     // ขอใช้งาน VPN: ช่วงวันที่ที่ขอ + สถานะการมอบบัญชี (ผู้ดูแลมอบที่หน้า จัดการ VPN)
@@ -318,7 +355,7 @@ async function nextTicketNo(): Promise<string> {
  * - สายอนุมัติ: ผู้ใช้อยู่ในกลุ่มผู้อนุมัติของขั้นปัจจุบัน
  * - ระบบเดิม: approver_id = ผู้ใช้ (admin เห็นใบที่ไม่มีผู้อนุมัติด้วย)
  */
-const approvalsWhere = (u: UserRow) => {
+export const approvalsWhere = (u: UserRow) => {
   // อนุมัติแทน (approve_any): ใบที่ไม่มีหัวหน้า หรือหัวหน้าปิดใช้งาน — ตรงกับผู้รับแจ้งเตือนใน notify
   const legacy = can(u, "tickets.approve_any")
     ? "(t.approver_id = ? OR t.approver_id IS NULL OR NOT EXISTS (SELECT 1 FROM users a WHERE a.id = t.approver_id AND a.is_active = true))"
@@ -337,7 +374,11 @@ const approvalsWhere = (u: UserRow) => {
  * ใบที่คนอื่นรับแทนหรือโอนต่อแล้ว (assignee เปลี่ยน) หลุดจากคิวของคนเดิมทันที
  */
 async function itMineWhere(u: UserRow): Promise<{ sql: string; params: unknown[] }> {
-  return { sql: `t.status NOT IN (${PRE_APPROVAL.map((x) => `'${x}'`).join(", ")}) AND t.assignee_id = ?`, params: [u.id] };
+  // ผู้รับงาน + ผู้ร่วมดำเนินการ (it_ticket_helpers) — ผู้ร่วมเห็นใบงานในคิวงานของฉันด้วย
+  return {
+    sql: `t.status NOT IN (${PRE_APPROVAL.map((x) => `'${x}'`).join(", ")}) AND (t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?))`,
+    params: [u.id, u.id],
+  };
 }
 
 async function counts(u: UserRow) {
@@ -356,7 +397,7 @@ async function counts(u: UserRow) {
     out.my_cancel = await count(`t.status = 'pending_cancel' AND ${mine.sql}`, mine.params);
     out.it_new = await count("t.status = 'approved'");
     out.it_in_progress = await count("t.status = 'in_progress'");
-    out.it_mine = await count("t.status = 'in_progress' AND t.assignee_id = ?", [u.id]);
+    out.it_mine = await count("t.status = 'in_progress' AND (t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?))", [u.id, u.id]);
     out.it_review = await count("t.status = 'pending_it_head'");
     out.it_cancel = await count("t.status = 'pending_cancel'");
   }
@@ -370,8 +411,10 @@ async function counts(u: UserRow) {
  *   /it/tickets        คิวงานของฉัน: ใบที่ฉันเป็นผู้รับงาน — รอรับงาน + กำลังทำ + รอยืนยันยกเลิก (เงื่อนไขเดียวกับ itMineWhere)
  *   /it/queue          คิวงาน IT: ใบที่ยังไม่มีผู้รับ (ถ้าเป็นเจ้าหน้าที่ IT ที่รับงานได้) + รอหัวหน้า IT อนุมัติผล (ถ้าเป็นหัวหน้า IT)
  *   /kpi               ใบงานของฉันที่ผู้จัดการ IT อนุมัติผลแล้วแต่ยังไม่กรอก Complexity ใน KPI (KPI_TICKET_STATUSES)
+ *                      — ใบงานหลายวันนับตามวันที่ยังไม่กรอก (kpiPendingCount)
  *   /vehicles/dispatch การจองรถที่ยังไม่ระบุรถ (ผู้จัดคิวรถ)
  *   /loans/mine, /loans/manage  ยืมอุปกรณ์ IT (routes/loans.ts loanBadges)
+ *   /zoom/manage       คำขอจอง ZOOM รอรับงาน + งานที่ฉันรับแล้วยังไม่ส่งลิงก์ (zoom.manage — routes/zoom.ts zoomBadges)
  */
 ticketRoutes.get("/menu-badges", async (req, res) => {
   const u = me(req);
@@ -385,7 +428,18 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
     // เฉพาะผู้ที่เกี่ยวข้องโดยตรง = คนเดียวกับผู้รับแจ้งเตือนใน notify (ผู้รับงาน / acceptors / closers)
     //   คิวงานของฉัน = ใบที่ฉันเป็นผู้รับงาน, คิวงาน IT = ใบที่ยังไม่มีผู้รับ (เจ้าหน้าที่ IT ที่รับงานได้) + รออนุมัติผล (หัวหน้า IT)
     const [direct, heads, reviewers] = await Promise.all([acceptors(), closers(), usersWithPermissions(["it_tickets.queue", "it_tickets.close"])]);
-    data["/it/tickets"] = await count("t.status IN ('approved', 'in_progress', 'pending_cancel') AND t.assignee_id = ?", [u.id]);
+    // + ใบที่ฉันเป็นผู้ร่วมดำเนินการที่ยังทำอยู่
+    // UNION แทน OR + EXISTS — แต่ละส่วนใช้ index ของตัวเอง (assignee_id + status / it_ticket_helpers.user_id) ไม่ต้องสแกนใบที่กำลังทำทั้งหมด
+    data["/it/tickets"] = Number(
+      await scalar(
+        `SELECT COUNT(*) FROM (
+           SELECT t.id FROM it_tickets t WHERE t.assignee_id = ? AND t.status IN ('approved', 'in_progress', 'pending_cancel')
+           UNION
+           SELECT t.id FROM it_ticket_helpers h JOIN it_tickets t ON t.id = h.it_ticket_id WHERE h.user_id = ? AND t.status = 'in_progress'
+         ) x`,
+        [u.id, u.id],
+      ),
+    );
     // รออนุมัติผล: นับใบที่ฉันเป็นผู้อนุมัติผล (ไม่นับงานที่ตัวเองทำ ยกเว้นไม่มีคนอื่น) — เงื่อนไขเดียวกับแจ้งเตือน resulted (closersFor)
     let review = 0;
     if (reviewers.some((x) => x.id === u.id)) {
@@ -404,11 +458,8 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
     data["/it/queue"] = waiting + review;
   }
   if (can(u, "kpi.use")) {
-    data["/kpi"] = await count(
-      `(t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?)) AND t.status IN (?)
-        AND NOT EXISTS (SELECT 1 FROM kpi_entries k WHERE k.ticket_id = t.id AND k.user_id = ? AND k.complexity > 0)`,
-      [u.id, u.id, KPI_TICKET_STATUSES, u.id],
-    );
+    // แถวใบงานที่ยังไม่กรอก Complexity — ใบงานหลายวันนับตามวัน (เงื่อนไขเดียวกับชีต)
+    data["/kpi"] = await kpiPendingCount(u.id);
   }
   // ใบลาที่รอฉันอนุมัติ
   // ผู้อนุมัติที่ระบุ (= ผู้รับแจ้งเตือน) — approve_any นับเพิ่มเฉพาะใบที่ผู้อนุมัติไม่มี/ปิดใช้งาน ในขอบเขตสาขาของกลุ่ม (หน้ารออนุมัติยังแสดงทุกใบในขอบเขต)
@@ -425,6 +476,7 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
   if (can(u, "vehicle.dispatch")) data["/vehicles/dispatch"] = await pendingVehicleBookings(u);
   // ยืมอุปกรณ์ IT: ของฉันที่เกินกำหนดคืน / ผู้จัดการ: รอส่งมอบที่ถึงวันแล้ว + เกินกำหนดคืน
   Object.assign(data, await loanBadges(u));
+  Object.assign(data, await zoomBadges(u));
   // VPN รวมกับตัวเลขเดิมของ /loans/mine
   for (const [k, n] of Object.entries(await vpnBadges(u))) data[k] = Number(data[k] ?? 0) + n;
   res.json({ data });
@@ -467,13 +519,20 @@ ticketRoutes.delete("/tickets/:uuid/calendar", async (req, res) => {
   await respondDetail(req, res, t.id);
 });
 
-/** GET /tickets?scope=mine|approvals|it&status=&type=&assigned=me&search= */
+/**
+ * GET /tickets?scope=mine|approvals|it|it_mine|all&status=&type=&assigned=me&search=&from=&to=&staff_id=
+ *   all = เมนู "ใบแจ้งงานทั้งหมด" (it_tickets.queue — ผู้ดูแลระบบ / เจ้าหน้าที่ IT): ใบหลังอนุมัติ (it_tickets.manage_all = ทุกใบ)
+ *   from / to = ช่วงวันที่แจ้ง (เวลาไทย), staff_id = เจ้าหน้าที่ IT (ผู้รับงาน หรือผู้ร่วมดำเนินการ)
+ */
 ticketRoutes.get("/tickets", async (req, res) => {
   const u = me(req);
   const f = await validate(
     req.input,
     {
-      scope: ["nullable", "in:mine,approvals,it,it_mine"],
+      scope: ["nullable", "in:mine,approvals,it,it_mine,all"],
+      from: ["nullable", "date"],
+      to: ["nullable", "date"],
+      staff_id: ["nullable", "integer"],
       status: ["nullable", `in:${STATUSES.join(",")}`],
       type: ["nullable", `in:${TYPES.join(",")}`],
       assigned: ["nullable", "in:me"],
@@ -483,13 +542,21 @@ ticketRoutes.get("/tickets", async (req, res) => {
     { locale: req.locale },
   );
   const scope = (f.scope as string | null) ?? "mine";
-  authorize((scope !== "it" && scope !== "it_mine") || can(u, "it_tickets.queue"));
+  authorize((scope !== "it" && scope !== "it_mine" && scope !== "all") || can(u, "it_tickets.queue"));
 
   const where: string[] = ["1 = 1"];
   const params: unknown[] = [];
   if (scope === "mine") (where.push("t.requester_id = ?"), params.push(u.id));
   // คิวงาน IT: เฉพาะใบที่หัวหน้าอนุมัติแล้ว
-  if (scope === "it") where.push(`t.status NOT IN (${PRE_APPROVAL.map((s) => `'${s}'`).join(", ")})`);
+  if (scope === "it" || (scope === "all" && !can(u, "it_tickets.manage_all"))) where.push(`t.status NOT IN (${PRE_APPROVAL.map((s) => `'${s}'`).join(", ")})`);
+  // ช่วงวันที่แจ้ง (เวลาไทย — requested_at เก็บ UTC): แปลงขอบวันเป็น UTC แทนการแปลงคอลัมน์ → ใช้ index it_tickets_requested_at_index ได้
+  const tz = `'${localOffset()}'`;
+  if (f.from) (where.push(`t.requested_at >= CONVERT_TZ(CAST(? AS DATETIME), ${tz}, '+00:00')`), params.push(String(f.from).slice(0, 10)));
+  if (f.to) (where.push(`t.requested_at < CONVERT_TZ(CAST(? AS DATETIME) + INTERVAL 1 DAY, ${tz}, '+00:00')`), params.push(String(f.to).slice(0, 10)));
+  if (f.staff_id) {
+    where.push("(t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?))");
+    params.push(int(f.staff_id), int(f.staff_id));
+  }
   // คิวงานของฉัน: เฉพาะใบที่เป็นของฉัน (ผู้รับงาน / ผู้ร่วม / รอรับที่ยังไม่มีผู้รับ / รออนุมัติผลของหัวหน้า IT)
   if (scope === "it_mine") {
     const mine = await itMineWhere(u);
@@ -508,10 +575,13 @@ ticketRoutes.get("/tickets", async (req, res) => {
   }
   if (f.status) (where.push("t.status = ?"), params.push(f.status));
   if (f.type) (where.push("t.type = ?"), params.push(f.type));
-  const term = likeEscape(String(f.search ?? "").trim());
-  if (term) {
-    where.push("(t.ticket_no LIKE ? OR t.details LIKE ? OR t.asset_tag LIKE ? OR t.person_name_th LIKE ?)");
-    params.push(`%${term}%`, `%${term}%`, `${term}%`, `%${term}%`);
+  // ค้นหา: แยกคำด้วยช่องว่าง — ทุกคำต้องพบที่ใดที่หนึ่งในเอกสาร (ข้อความทุกช่องของใบงาน + ชื่อผู้แจ้ง/ผู้รับงาน/ผู้ร่วม/สาขา + ชื่อเรื่อง)
+  const terms = String(f.search ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 8);
+  for (const raw of terms) {
+    const like = `%${likeEscape(raw)}%`;
+    const types = TYPES.filter((ty) => TYPE_LABELS[ty].some((l) => l.toLowerCase().includes(raw.toLowerCase())));
+    where.push(`(${SEARCH_COLUMNS.map((c) => `${c} LIKE ?`).join(" OR ")}${types.length ? " OR t.type IN (?)" : ""})`);
+    params.push(...SEARCH_COLUMNS.map(() => like), ...(types.length ? [types] : []));
   }
   const whereSql = where.join(" AND ");
   const perPage = int(f.per_page) ?? 20;
@@ -548,6 +618,8 @@ ticketRoutes.get("/tickets/form-options", async (req, res) => {
       departments,
       divisions,
       approvers: approvers.map((a) => ({ id: a.id, name: a.name, branch_id: Number(a.branch_id), role: a.role })),
+      // ขั้นตอนใบแจ้งงาน — it_first = ช่องผู้อนุมัติปิดไว้ ("ไม่ต้องอนุมัติ") จนกว่า IT จะขอให้หัวหน้าอนุมัติ
+      approval_flow: await ticketFlow(),
       // วันนี้ลา / ออกหน้างาน — เตือนตอนผู้แจ้งเลือกเจ้าหน้าที่
       it_staff: staff.map((s) => ({ id: s.id, name: s.name, busy: busyToday.get(Number(s.id))?.[0]?.kind ?? null })),
       // "ขอใช้งาน VPN" อยู่ในรายการเสมอ (เลือกแล้วฟอร์มถามช่วงวันที่ใช้) — ผู้ดูแลไม่ต้องเพิ่มเอง
@@ -646,11 +718,16 @@ ticketRoutes.post("/tickets", async (req, res) => {
 
   // บังคับลายเซ็น (สวิตช์ตั้งค่าระบบ): เซ็นมาในคำขอ หรือมีลายเซ็นในโปรไฟล์ (คัดลอกเป็นลายเซ็นผู้แจ้ง)
   if (!data.signature) await requireSignature(u.id, req.locale);
+  // ขั้นตอน it_first: ส่งถึงฝ่าย IT ทันที (ไม่ผ่านการอนุมัติ — ผู้อนุมัติที่ส่งมาไม่นับ) แล้ว IT ขอให้หัวหน้าอนุมัติเมื่อจำเป็น
+  const itFirst = (await ticketFlow()) === "it_first";
+  if (itFirst) delete data.approver_id;
   const chosen = await chosenApprover(req, data);
   const vpnInput = vpnRequestInput(req, data);
   // ผู้มีสิทธิ์อนุมัติใบของตัวเอง (ผู้จัดการขึ้นไป) ไม่เลือกผู้อนุมัติ = อนุมัติเอง (ไม่ใช้สายอนุมัติ/หัวหน้า) — แจ้งเตือน + "รอฉันอนุมัติ" ของตัวเอง
-  const selfApprove = !chosen && can(u, "tickets.approve_own");
-  const routePlan = selfApprove ? { source: "legacy" as const, route: null, steps: [], legacy_approver: { id: u.id, name: u.name } } : await planFor(u);
+  const selfApprove = !itFirst && !chosen && can(u, "tickets.approve_own");
+  const routePlan = itFirst
+    ? { source: "legacy" as const, route: null, steps: [], legacy_approver: null }
+    : selfApprove ? { source: "legacy" as const, route: null, steps: [], legacy_approver: { id: u.id, name: u.name } } : await planFor(u);
   const plan = chosen ? withChosenApprover(routePlan, chosen) : routePlan;
   const ticketId = await transaction(async () => {
     const type = String(data.type);
@@ -674,15 +751,15 @@ ticketRoutes.post("/tickets", async (req, res) => {
       uuid,
       asset_id: assetId,
       ticket_no: await nextTicketNo(),
-      status: "pending_supervisor",
+      status: itFirst ? "approved" : "pending_supervisor",
       requester_id: u.id,
-      // ระบบเดิม: หัวหน้าตามสายบังคับบัญชา (null = admin อนุมัติ) — สายอนุมัติ: ใส่ผู้อนุมัติขั้นสุดท้ายตอนอนุมัติครบ
-      approver_id: plan.source === "legacy" ? (chosen?.id ?? (selfApprove ? u.id : u.supervisor_id)) : null,
+      // ระบบเดิม: หัวหน้าตามสายบังคับบัญชา (null = admin อนุมัติ) — สายอนุมัติ: ใส่ผู้อนุมัติขั้นสุดท้ายตอนอนุมัติครบ — it_first: ยังไม่มีผู้อนุมัติ
+      approver_id: itFirst ? null : plan.source === "legacy" ? (chosen?.id ?? (selfApprove ? u.id : u.supervisor_id)) : null,
       requested_at: now,
       created_at: now,
       updated_at: now,
     });
-    const firstStep = await snapshotPlan(id, plan);
+    const firstStep = itFirst ? null : await snapshotPlan(id, plan);
     if (firstStep !== null) await update("it_tickets", { current_step: firstStep }, "id = ?", [id]);
     if (vpnInput.vpn) await saveVpnRequest(req, id, u, vpnInput);
 
@@ -691,6 +768,8 @@ ticketRoutes.post("/tickets", async (req, res) => {
       ? await storeSignature(uuid, String(data.signature), "requester", req.locale)
       : await copySignatureTo(u.id, `tickets/${uuid}/signatures`, "requester", req, { ticket: uuid });
     if (signature) await update("it_tickets", { requester_signature: signature, updated_at: nowDb() }, "id = ?", [id]);
+    // วาดลายเซ็นในฟอร์มแจ้งงาน (ยังไม่มีในโปรไฟล์ + เปิดบังคับลายเซ็น) → เก็บเป็นลายเซ็นในโปรไฟล์ไว้ใช้ครั้งต่อไป
+    if (data.signature) await rememberDrawnSignature(u.id, data.signature, req);
     for (const photo of filesOf(data.photos)) {
       await insert("it_ticket_attachments", { it_ticket_id: id, kind: "request", uploaded_by: u.id, ...(await storeUpload(uuid, photo, "request")), created_at: now, updated_at: now });
     }
@@ -702,7 +781,11 @@ ticketRoutes.post("/tickets", async (req, res) => {
   });
 
   const ticket = (await loadTicket("t.id = ?", ticketId))!;
-  await notify(ticket, "submitted", u);
+  if (itFirst) {
+    // ถึงฝ่าย IT ทันที — แจ้งผู้รับงาน (หรือผู้รับงานได้ทั้งหมด) + ผู้ดูแล VPN (คำขอ VPN)
+    await notify(ticket, "submitted_it", u);
+    await announceVpnRequest(ticket.id, ticket.assignee_id);
+  } else await notify(ticket, "submitted", u);
   await respondDetail(req, res, ticketId, 201);
 });
 
@@ -749,6 +832,49 @@ export async function createSystemTicket(
   return created;
 }
 
+/**
+ * ใบแจ้งงานที่ระบบสร้างจากงานที่ฝ่าย IT ทำเสร็จแล้วในระบบอื่น (เช่น ส่งลิงก์ ZOOM) — เรื่องอื่นๆ สถานะเสร็จสิ้นทันที
+ * ไม่แจ้งเตือน / ไม่ผ่านขั้นอนุมัติผล → ขึ้นแถวใบงานในชีต KPI ของผู้รับงาน (เดือนตามวันที่แจ้ง = requestedAt) — เรียกภายใน transaction ได้
+ */
+export async function createCompletedTicket(
+  requesterId: number,
+  opts: { typeOther: string; details: string; assigneeId: number; requestedAt: string; acceptedAt: string; solution: string; comment: string },
+): Promise<{ id: number; uuid: string; ticket_no: string }> {
+  return transaction(async () => {
+    const requester = await first<{ branch_id: number | null; department: string | null; division: string | null }>("SELECT branch_id, department, division FROM users WHERE id = ?", [requesterId]);
+    const uuid = randomUUID();
+    const now = nowDb();
+    const ticketNo = await nextTicketNo();
+    const id = await insert("it_tickets", {
+      uuid,
+      ticket_no: ticketNo,
+      type: "other",
+      type_other: opts.typeOther.slice(0, 255),
+      status: "completed",
+      requester_id: requesterId,
+      branch_id: requester?.branch_id ?? null,
+      department: requester?.department ?? null,
+      division: requester?.division ?? null,
+      details: opts.details.slice(0, 5000),
+      assignee_id: opts.assigneeId,
+      requested_at: opts.requestedAt,
+      approved_at: opts.requestedAt,
+      accepted_at: opts.acceptedAt,
+      result: "completed",
+      completed_on: localToday(),
+      repair_details: opts.solution.slice(0, 5000),
+      resulted_at: now,
+      closed_at: now,
+      created_at: now,
+      updated_at: now,
+    });
+    await insert("it_ticket_events", { it_ticket_id: id, user_id: requesterId, action: "submitted", comment: null, created_at: opts.requestedAt });
+    await insert("it_ticket_events", { it_ticket_id: id, user_id: opts.assigneeId, action: "accepted", comment: null, created_at: opts.acceptedAt });
+    await log(id, opts.assigneeId, "resulted", opts.comment);
+    return { id, uuid, ticket_no: ticketNo };
+  });
+}
+
 ticketRoutes.get("/tickets/:uuid", async (req, res) => {
   const t = await findTicket(req.params.uuid);
   authorize(canView(me(req), t));
@@ -781,7 +907,9 @@ ticketRoutes.post("/tickets/:uuid/approve", async (req, res) => {
       await update("it_tickets", { current_step: next.step_no, updated_at: now }, "id = ?", [t.id]);
       await log(t.id, u.id, "step_approved", comment);
     } else {
-      await update("it_tickets", { status: "approved", approver_id: u.id, approved_at: now, current_step: null, updated_at: now }, "id = ?", [t.id]);
+      // ลายเซ็นผู้อนุมัติ = สำเนาลายเซ็นในโปรไฟล์ ณ ตอนอนุมัติ (แบบฟอร์มพิมพ์ ช่องผู้อนุมัติ)
+      const approverSignature = await copySignatureTo(u.id, `tickets/${t.uuid}/signatures`, "approver", req, { ticket: t.uuid });
+      await update("it_tickets", { status: "approved", approver_id: u.id, approved_at: now, current_step: null, approver_signature: approverSignature, updated_at: now }, "id = ?", [t.id]);
       await log(t.id, u.id, "approved", comment);
     }
   });
@@ -809,6 +937,26 @@ ticketRoutes.post("/tickets/:uuid/reject", async (req, res) => {
     await closeVpnRequest(t.id, "rejected", u, String(data.comment));
   });
   await notify({ ...t, status: "rejected", approver_id: u.id, current_step: null }, "rejected", u);
+  await respondDetail(req, res, t.id);
+});
+
+/** ขั้นตอนใบแจ้งงาน (ตั้งค่าระบบ ticket_flow) */
+const ticketFlow = async (): Promise<"approval_first" | "it_first"> => ((await getSetting("ticket_flow")) === "it_first" ? "it_first" : "approval_first");
+
+/**
+ * ฝ่าย IT ขอให้หัวหน้าอนุมัติ { comment } (ใบที่ส่งถึง IT ทันที — canRequestApproval) → approval_requested
+ * ผู้แจ้งกด "เพิ่มผู้อนุมัติ" (หน้าแก้ไข) เลือกผู้อนุมัติแล้วบันทึก → รอหัวหน้าอนุมัติ → อนุมัติแล้วกลับมาที่ฝ่าย IT (ผู้รับงานเดิม)
+ */
+ticketRoutes.post("/tickets/:uuid/request-approval", async (req, res) => {
+  const t = await findTicket(req.params.uuid);
+  const u = me(req);
+  authorize(canRequestApproval(u, t));
+  const data = await validate(req.input, { comment: ["required", "string", "max:2000"] }, { locale: req.locale });
+  await transaction(async () => {
+    await update("it_tickets", { status: "approval_requested", accepted_at: null, updated_at: nowDb() }, "id = ?", [t.id]);
+    await log(t.id, u.id, "approval_requested", String(data.comment));
+  });
+  await notify({ ...t, status: "approval_requested" }, "approval_requested", u);
   await respondDetail(req, res, t.id);
 });
 
@@ -874,10 +1022,15 @@ ticketRoutes.post("/tickets/:uuid/result", async (req, res) => {
     {
       result: ["required", "in:completed,cannot_complete"],
       completed_on: ["required_if:result,completed", "nullable", "date", `before_or_equal:${localToday()}`],
-      cannot_reason: ["required_if:result,cannot_complete", "nullable", "string", "max:2000"],
-      repair_method: [repair ? "required" : "nullable", "in:in_house,external"],
-      external_vendor: ["required_if:repair_method,external", "nullable", "string", "max:255"],
-      warranty: [repair ? "required" : "nullable", "in:in_warranty,out_of_warranty"],
+      // งานหลายวัน (เช่น ออกแบบ / ออกหน้างานต่างจังหวัด): วันเริ่มปฏิบัติงาน → KPI แยกแถวรายวันถึงวันที่แล้วเสร็จ
+      work_start_on: ["nullable", "date"],
+      work_skip_off_days: ["nullable", "boolean"],
+      // ทำไม่ได้: ระบุสาเหตุ หรือติ๊ก "ผู้แจ้งงานยกเลิก" (สาเหตุ = ข้อความนั้น) — ข้อมูลการซ่อม/อะไหล่/รูปหลังซ่อมไม่ใช้
+      requester_cancelled: ["nullable", "boolean"],
+      cannot_reason: ["nullable", "string", "max:2000"],
+      repair_method: [repair ? "required_if:result,completed" : "nullable", "nullable", "in:in_house,external"],
+      external_vendor: ["nullable", "string", "max:255"],
+      warranty: [repair ? "required_if:result,completed" : "nullable", "nullable", "in:in_warranty,out_of_warranty"],
       repair_details: ["nullable", "string", "max:5000"],
       photos: ["nullable", "array", "max:4"],
       "photos.*": PHOTO_RULE,
@@ -886,9 +1039,31 @@ ticketRoutes.post("/tickets/:uuid/result", async (req, res) => {
       "parts.*.quantity": ["nullable", "integer", "min:1", "max:999"],
       "parts.*.photo": ["nullable", ...PHOTO_RULE],
       signature: ["required", "string", "max:500000"],
+      documents: ["nullable", "array", `max:${EVENT_FILES_MAX}`],
+      "documents.*": EVENT_FILE_RULE,
     },
     { locale: req.locale },
   );
+
+  const done = data.result === "completed";
+  const truthy = (v: unknown) => ["1", "true", "on", 1, true].includes(v as string);
+  const requesterCancelled = !done && truthy(data.requester_cancelled);
+  const cannotReason = done ? null : requesterCancelled ? trans(req.locale, "eam.ticket.requester_cancelled") : String(data.cannot_reason ?? "").trim();
+  if (!done && !cannotReason) {
+    throw ValidationError.withMessages({ cannot_reason: trans(req.locale, "eam.ticket.cannot_reason_required") });
+  }
+  if (done && repair && data.repair_method === "external" && !String(data.external_vendor ?? "").trim()) {
+    throw ValidationError.withMessages({ external_vendor: trans(req.locale, "eam.ticket.vendor_required") });
+  }
+
+  const completedOn = data.result === "completed" && data.completed_on ? String(data.completed_on).slice(0, 10) : null;
+  const workStart = completedOn && data.work_start_on ? String(data.work_start_on).slice(0, 10) : null;
+  if (workStart && completedOn) {
+    if (workStart > completedOn) throw ValidationError.withMessages({ work_start_on: trans(req.locale, "eam.kpi.work_start_after") });
+    if (datesBetween(workStart, completedOn).length > MAX_WORK_SPAN_DAYS) {
+      throw ValidationError.withMessages({ work_start_on: trans(req.locale, "eam.kpi.work_span_too_long", { days: MAX_WORK_SPAN_DAYS }) });
+    }
+  }
 
   // ขอใช้งาน VPN: ต้องมอบบัญชีก่อนบันทึกผลสำเร็จ (หน้า จัดการ VPN)
   if (data.result === "completed" && (await pendingVpnRequest(t.id))) {
@@ -901,13 +1076,16 @@ ticketRoutes.post("/tickets/:uuid/result", async (req, res) => {
       "it_tickets",
       {
         result: data.result,
-        completed_on: completed ? String(data.completed_on).slice(0, 10) : null,
-        cannot_reason: completed ? null : data.cannot_reason,
-        repair_method: repair ? data.repair_method : null,
-        external_vendor: repair && data.repair_method === "external" ? data.external_vendor : null,
-        warranty: repair ? data.warranty : null,
-        repair_details: data.repair_details ?? null,
-        staff_signature: await storeSignature(t.uuid, String(data.signature), "staff", req.locale),
+        completed_on: completedOn,
+        // วันเดียวกับวันที่แล้วเสร็จ = ใบงานวันเดียว (ไม่เก็บ)
+        work_start_on: workStart && workStart < completedOn! ? workStart : null,
+        work_skip_off_days: data.work_skip_off_days === undefined || data.work_skip_off_days === null ? true : ["1", "true", "on", 1, true].includes(data.work_skip_off_days as string),
+        cannot_reason: cannotReason,
+        repair_method: repair && completed ? data.repair_method : null,
+        external_vendor: repair && completed && data.repair_method === "external" ? data.external_vendor : null,
+        warranty: repair && completed ? data.warranty : null,
+        repair_details: completed ? (data.repair_details ?? null) : null,
+        staff_signature: (await rememberDrawnSignature(u.id, data.signature, req), await storeSignature(t.uuid, String(data.signature), "staff", req.locale)),
         resulted_at: now,
         status: "pending_it_head",
         updated_at: now,
@@ -918,7 +1096,7 @@ ticketRoutes.post("/tickets/:uuid/result", async (req, res) => {
 
     // บันทึกใหม่ทับรายการอะไหล่เดิม (กรณีถูกส่งกลับแก้ไข)
     await exec("DELETE FROM it_ticket_parts WHERE it_ticket_id = ?", [t.id]);
-    for (const part of Object.values((data.parts ?? {}) as Record<string, Record<string, unknown>>)) {
+    for (const part of completed ? Object.values((data.parts ?? {}) as Record<string, Record<string, unknown>>) : []) {
       const photo = part.photo instanceof UploadedFile ? part.photo : null;
       await insert("it_ticket_parts", {
         it_ticket_id: t.id,
@@ -929,13 +1107,18 @@ ticketRoutes.post("/tickets/:uuid/result", async (req, res) => {
         updated_at: now,
       });
     }
-    for (const photo of filesOf(data.photos)) {
-      await insert("it_ticket_attachments", { it_ticket_id: t.id, kind: "result", uploaded_by: u.id, ...(await storeUpload(t.uuid, photo, "result")), created_at: now, updated_at: now });
+    const eventId = await log(t.id, u.id, "resulted", completed ? null : cannotReason);
+    // รูปหลังซ่อม (เฉพาะทำสำเร็จ) + เอกสารประกอบ — ผูกกับรายการ "บันทึกผล" ในประวัติ
+    for (const photo of completed ? filesOf(data.photos) : []) {
+      await insert("it_ticket_attachments", { it_ticket_id: t.id, kind: "result", event_id: eventId, uploaded_by: u.id, ...(await storeUpload(t.uuid, photo, "result")), created_at: now, updated_at: now });
     }
-    await log(t.id, u.id, "resulted");
+    // ผู้แจ้งงานยกเลิก = ไม่รับเอกสารประกอบ (ฟอร์มซ่อนช่องนี้)
+    for (const doc of requesterCancelled ? [] : filesOf(data.documents)) {
+      await insert("it_ticket_attachments", { it_ticket_id: t.id, kind: "result_document", event_id: eventId, uploaded_by: u.id, ...(await storeUpload(t.uuid, doc, "result")), created_at: now, updated_at: now });
+    }
     // ใบงานจากคำขอ VPN: ทำสำเร็จ = ต่ออายุ / เลิกใช้ตามที่ผู้ใช้เลือก, ทำไม่ได้ = กลับเป็นใช้งานอยู่
     await applyVpnTicketOutcome(t.id, completed ? "completed" : "not_done", u);
-    if (!completed) await closeVpnRequest(t.id, "rejected", u, String(data.cannot_reason ?? "") || null);
+    if (!completed) await closeVpnRequest(t.id, "rejected", u, cannotReason || null);
   });
   await notify({ ...t, status: "pending_it_head" }, "resulted", u);
   await respondDetail(req, res, t.id);
@@ -946,11 +1129,20 @@ ticketRoutes.post("/tickets/:uuid/progress", async (req, res) => {
   const t = await findTicket(req.params.uuid);
   const u = me(req);
   authorize(canProgress(u, t));
-  const data = await validate(req.input, { comment: ["required", "string", "max:2000"] }, { locale: req.locale });
+  const data = await validate(
+    req.input,
+    { comment: ["required", "string", "max:2000"], files: ["nullable", "array", `max:${EVENT_FILES_MAX}`], "files.*": EVENT_FILE_RULE },
+    { locale: req.locale },
+  );
 
   await transaction(async () => {
-    await update("it_tickets", { updated_at: nowDb() }, "id = ?", [t.id]);
-    await log(t.id, u.id, "progress", String(data.comment));
+    const now = nowDb();
+    await update("it_tickets", { updated_at: now }, "id = ?", [t.id]);
+    const eventId = await log(t.id, u.id, "progress", String(data.comment));
+    // ไฟล์/รูปประกอบ (เช่น ใบเสนอราคา ใบ PO ฉบับปรับปรุง) — ผูกกับรายการนี้ในประวัติ
+    for (const doc of filesOf(data.files)) {
+      await insert("it_ticket_attachments", { it_ticket_id: t.id, kind: "progress", event_id: eventId, uploaded_by: u.id, ...(await storeUpload(t.uuid, doc, "progress")), created_at: now, updated_at: now });
+    }
   });
   await notify(t, "progress", u);
   await respondDetail(req, res, t.id);
@@ -977,7 +1169,7 @@ ticketRoutes.post("/tickets/:uuid/close", async (req, res) => {
       {
         status: "pending_requester",
         it_head_id: u.id,
-        it_head_signature: await storeSignature(t.uuid, String(data.signature), "it-head", req.locale),
+        it_head_signature: (await rememberDrawnSignature(u.id, data.signature, req), await storeSignature(t.uuid, String(data.signature), "it-head", req.locale)),
         updated_at: now,
       },
       "id = ?",
@@ -989,6 +1181,57 @@ ticketRoutes.post("/tickets/:uuid/close", async (req, res) => {
   await notify({ ...t, status: "pending_requester", it_head_id: u.id }, "head_approved", u);
   await respondDetail(req, res, t.id);
 });
+
+/** offset ของเวลาท้องถิ่นแบบ "+07:00" (ใช้กับ CONVERT_TZ — ไม่ต้องมีตาราง time zone ใน MySQL) */
+function localOffset(): string {
+  const now = new Date();
+  const local = new Date(now.toLocaleString("en-US", { timeZone: config.localTimezone }));
+  const utc = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }));
+  const mins = Math.round((local.getTime() - utc.getTime()) / 60_000);
+  const sign = mins < 0 ? "-" : "+";
+  const abs = Math.abs(mins);
+  return `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+}
+
+/* ---------------------------------------------------------------- ปิดงานอัตโนมัติ */
+
+const autoCloseDays = async () => Math.max(0, Number(await getSetting("ticket_auto_close_days")) || 0);
+
+/** วันเวลาที่เข้าสถานะรอผู้แจ้งรับงาน (หัวหน้า IT อนุมัติผลครั้งล่าสุด) */
+const AWAITING_SINCE = "(SELECT MAX(e.created_at) FROM it_ticket_events e WHERE e.it_ticket_id = t.id AND e.action = 'head_approved')";
+
+async function autoCloseInfo(row: { id: number; status: string }): Promise<{ days: number; at: string | null }> {
+  const days = await autoCloseDays();
+  if (!days || row.status !== "pending_requester") return { days, at: null };
+  const since = await scalar<string | null>(`SELECT ${AWAITING_SINCE} FROM it_tickets t WHERE t.id = ?`, [row.id]);
+  return { days, at: since ? iso(toDbDateTime(new Date(new Date(`${String(since).replace(" ", "T")}Z`).getTime() + days * 86_400_000))) : null };
+}
+
+/**
+ * scheduler (ทุกชั่วโมง): ใบที่รอผู้แจ้งรับงานเกิน ticket_auto_close_days วัน → ปิดงาน (completed) แทนผู้แจ้ง
+ * ไทม์ไลน์ auto_closed + แจ้งเตือน closed ถึงผู้แจ้ง / ผู้รับงาน / ผู้ร่วมดำเนินการ — คืนจำนวนใบที่ปิด
+ */
+export async function autoCloseTickets(): Promise<number> {
+  const days = await autoCloseDays();
+  if (!days) return 0;
+  const due = await select<{ id: number }>(
+    `SELECT t.id FROM it_tickets t WHERE t.status = 'pending_requester' AND ${AWAITING_SINCE} <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
+    [days],
+  );
+  let closed = 0;
+  for (const { id } of due) {
+    const t = await loadTicket("t.id = ?", id);
+    if (!t || t.status !== "pending_requester") continue;
+    await transaction(async () => {
+      const now = nowDb();
+      await update("it_tickets", { status: "completed", closed_at: now, updated_at: now }, "id = ? AND status = 'pending_requester'", [t.id]);
+      await log(t.id, null, "auto_closed", trans("th", "eam.ticket.auto_closed", { days }));
+    });
+    await notify({ ...t, status: "completed" }, "closed", null);
+    closed++;
+  }
+  return closed;
+}
 
 /** ผู้แจ้งกดรับงาน → ปิดงาน */
 ticketRoutes.post("/tickets/:uuid/confirm-close", async (req, res) => {
@@ -1051,7 +1294,14 @@ async function updateTicket(req: Request, res: Response) {
     },
     { locale: req.locale },
   );
+  // ส่งถึง IT ทันที (ยังไม่มีคนรับ) = ไม่มีผู้อนุมัติให้เปลี่ยน
+  if (isDirectToIt(t)) delete data.approver_id;
   const chosen = await chosenApprover(req, data);
+  // IT ขอให้หัวหน้าอนุมัติ: ต้องเลือกผู้อนุมัติ (ผู้มีสิทธิ์อนุมัติใบตัวเอง ไม่เลือก = อนุมัติเอง)
+  const choosing = t.status === "approval_requested";
+  if (choosing && !chosen && !can(u, "tickets.approve_own")) {
+    throw ValidationError.withMessages({ approver_id: trans(req.locale, "eam.ticket.approver_required") });
+  }
   const vpnInput = vpnRequestInput(req, data);
   const type = String(data.type);
   const values: Record<string, unknown> = {};
@@ -1070,7 +1320,12 @@ async function updateTicket(req: Request, res: Response) {
     await update("it_tickets", { ...values, asset_id: assetId, updated_at: nowDb() }, "id = ?", [t.id]);
     // เปลี่ยนเป็น/ออกจากเรื่องขอใช้งาน VPN หรือแก้ช่วงวันที่ → ปรับคำขอ VPN ของใบนี้
     await saveVpnRequest(req, t.id, u, vpnInput);
-    if (chosen) {
+    if (choosing) {
+      // เลือกผู้อนุมัติตามที่ IT ขอ → รอหัวหน้าอนุมัติ (อนุมัติแล้วกลับไปที่ฝ่าย IT)
+      approverChanged = true;
+      await update("it_tickets", { status: "pending_supervisor", approver_id: chosen?.id ?? u.id, current_step: null, approved_at: null }, "id = ?", [t.id]);
+      await log(t.id, u.id, "approval_submitted");
+    } else if (chosen) {
       if (t.current_step !== null) {
         const step = await first<{ id: number; approver_ids: unknown }>(
           "SELECT id, approver_ids FROM it_ticket_approval_steps WHERE it_ticket_id = ? AND step_no = ?",
@@ -1083,7 +1338,7 @@ async function updateTicket(req: Request, res: Response) {
         approverChanged = true;
         await update("it_tickets", { approver_id: chosen.id }, "id = ?", [t.id]);
       }
-    } else if ("approver_id" in data && t.current_step === null && t.approver_id !== u.id && can(u, "tickets.approve_own")) {
+    } else if (t.status === "pending_supervisor" && "approver_id" in data && t.current_step === null && t.approver_id !== u.id && can(u, "tickets.approve_own")) {
       // ไม่เลือกผู้อนุมัติ (ผู้จัดการขึ้นไป) = อนุมัติเอง
       approverChanged = true;
       await update("it_tickets", { approver_id: u.id }, "id = ?", [t.id]);
@@ -1104,7 +1359,7 @@ ticketRoutes.delete("/tickets/:uuid", async (req, res) => {
   authorize(canDelete(u, t));
   await transaction(async () => {
     // แจ้งเตือนที่อ้างถึงใบนี้ (ลิงก์จะเสีย)
-    await exec("DELETE FROM notifications WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.ticket_id')) = ?", [t.uuid]);
+    await exec("DELETE FROM notifications WHERE subject_ref = ? AND JSON_UNQUOTE(JSON_EXTRACT(data, '$.ticket_id')) = ?", [t.uuid, t.uuid]);
     await closeVpnRequest(t.id, "cancelled", u, t.ticket_no);
     await exec("DELETE FROM it_tickets WHERE id = ?", [t.id]);
   });
@@ -1212,6 +1467,9 @@ async function sendFile(req: Request, res: Response) {
       break;
     case "it-head-signature":
       path = t.it_head_signature;
+      break;
+    case "approver-signature":
+      path = t.approver_signature ?? null;
       break;
   }
   if (!path) throw notFound();

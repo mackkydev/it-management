@@ -17,8 +17,8 @@ const PRINT_CSS = `
   body > *:not(.ticket-print-root) { display: none !important; }
 }`;
 
-/** ปุ่ม "พิมพ์" → modal แสดงเอกสาร A4 พร้อมปุ่มพิมพ์ / บันทึก PDF (ผ่านหน้าต่างพิมพ์ของเบราว์เซอร์) */
-export function PrintModal({ label, fileName, children }: { label: string; fileName: string; children: ReactNode }) {
+/** ปุ่ม "พิมพ์" → modal แสดงเอกสาร A4 พร้อมปุ่มพิมพ์ / บันทึก PDF (ผ่านหน้าต่างพิมพ์ของเบราว์เซอร์) — title = หัว modal (ตั้งต้น ใบแจ้งดำเนินงาน IT) */
+export function PrintModal({ label, fileName, title, children }: { label: string; fileName: string; title?: string; children: ReactNode }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
 
@@ -51,20 +51,20 @@ export function PrintModal({ label, fileName, children }: { label: string; fileN
       {open &&
         createPortal(
           <div
-            className="ticket-print-root fixed inset-0 z-[60] flex bg-black/50 p-2 backdrop-blur-sm sm:p-6 print:static print:block print:bg-transparent print:p-0 print:backdrop-blur-none"
+            className="ticket-print-root fixed inset-0 z-[60] flex bg-overlay p-2 backdrop-blur-sm sm:p-6 print:static print:block print:bg-transparent print:p-0 print:backdrop-blur-none"
             onClick={() => setOpen(false)}
           >
             <style>{PRINT_CSS}</style>
             <div
               role="dialog"
               aria-modal="true"
-              aria-label={t("ticketPaper.title")}
+              aria-label={title ?? t("ticketPaper.title")}
               onClick={(e) => e.stopPropagation()}
               className="m-auto flex max-h-full w-full max-w-[calc(210mm+2rem)] flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl ring-1 ring-line print:m-0 print:block print:max-h-none print:max-w-none print:overflow-visible print:rounded-none print:bg-transparent print:shadow-none print:ring-0"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3 print:hidden">
                 <h2 className="font-semibold">
-                  {t("ticketPaper.title")} <span className="font-mono text-sm text-muted">{fileName}</span>
+                  {title ?? t("ticketPaper.title")} <span className="font-mono text-sm text-muted">{fileName}</span>
                 </h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="hidden text-xs text-muted md:inline">{t("ticketPaper.toolbar.pdfHint")}</span>

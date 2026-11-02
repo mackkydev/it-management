@@ -2,12 +2,12 @@
 
 /** สีประจำห้อง/รถ (ตามลำดับ) — token สถานะ/ธีม เปลี่ยนตามธีมและโหมดมืดอัตโนมัติ */
 const TONES = [
-  { bar: "bg-info-100 text-info-800 ring-info-300 dark:bg-info-400/20 dark:text-info-200 dark:ring-info-400/40", dot: "bg-info-400" },
-  { bar: "bg-success-100 text-success-800 ring-success-300 dark:bg-success-400/20 dark:text-success-200 dark:ring-success-400/40", dot: "bg-success-400" },
-  { bar: "bg-warning-100 text-warning-800 ring-warning-300 dark:bg-warning-400/20 dark:text-warning-200 dark:ring-warning-400/40", dot: "bg-warning-400" },
-  { bar: "bg-accent-100 text-accent-800 ring-accent-300 dark:bg-accent-400/20 dark:text-accent-200 dark:ring-accent-400/40", dot: "bg-accent-400" },
-  { bar: "bg-danger-100 text-danger-800 ring-danger-300 dark:bg-danger-400/20 dark:text-danger-200 dark:ring-danger-400/40", dot: "bg-danger-400" },
-  { bar: "bg-idle-100 text-idle-700 ring-idle-300 dark:bg-idle-400/20 dark:text-idle-200 dark:ring-idle-400/40", dot: "bg-idle-400" },
+  { bar: "bg-info-100 text-info-800 ring-info-300 dark:bg-info-400/20 dark:text-info-200 dark:ring-info-400/40", dot: "bg-info-400", icon: "text-info-500 dark:text-info-400" },
+  { bar: "bg-success-100 text-success-800 ring-success-300 dark:bg-success-400/20 dark:text-success-200 dark:ring-success-400/40", dot: "bg-success-400", icon: "text-success-500 dark:text-success-400" },
+  { bar: "bg-warning-100 text-warning-800 ring-warning-300 dark:bg-warning-400/20 dark:text-warning-200 dark:ring-warning-400/40", dot: "bg-warning-400", icon: "text-warning-500 dark:text-warning-400" },
+  { bar: "bg-accent-100 text-accent-800 ring-accent-300 dark:bg-accent-400/20 dark:text-accent-200 dark:ring-accent-400/40", dot: "bg-accent-400", icon: "text-accent-500 dark:text-accent-400" },
+  { bar: "bg-danger-100 text-danger-800 ring-danger-300 dark:bg-danger-400/20 dark:text-danger-200 dark:ring-danger-400/40", dot: "bg-danger-400", icon: "text-danger-500 dark:text-danger-400" },
+  { bar: "bg-idle-100 text-idle-700 ring-idle-300 dark:bg-idle-400/20 dark:text-idle-200 dark:ring-idle-400/40", dot: "bg-idle-400", icon: "text-idle-500 dark:text-idle-400" },
 ] as const;
 export type Tone = (typeof TONES)[number];
 /** สีของรายการที่ไม่อยู่ในลิสต์ (เช่น ปิดใช้งานแล้ว / ยังไม่ระบุรถ) */

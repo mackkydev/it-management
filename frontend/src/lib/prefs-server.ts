@@ -11,6 +11,7 @@ export const getPrefs = cache(async (): Promise<Prefs> => {
     mode: parsePref("mode", jar.get(PREF_COOKIES.mode)?.value),
     theme: parsePref("theme", jar.get(PREF_COOKIES.theme)?.value),
     accent: parsePref("accent", jar.get(PREF_COOKIES.accent)?.value),
+    tone: parsePref("tone", jar.get(PREF_COOKIES.tone)?.value),
     layout: parsePref("layout", jar.get(PREF_COOKIES.layout)?.value),
     sidebar: parsePref("sidebar", jar.get(PREF_COOKIES.sidebar)?.value),
     locale: parsePref("locale", jar.get(PREF_COOKIES.locale)?.value),

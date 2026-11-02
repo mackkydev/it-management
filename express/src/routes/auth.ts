@@ -16,6 +16,7 @@ import { notifySuperAdminLogin, type LoginMethod } from "../services/access-cont
 import { audit } from "../services/audit.js";
 import { groupsOf } from "../services/permissions.js";
 import { checkCentralPin, secretGuard, verifyLoginPassword } from "../services/secret-guard.js";
+import { policyStatus } from "../services/system-policy.js";
 import { assertNotLocked, clearLoginFailures, passwordChangedNow, passwordPolicy, passwordStatus, recordLoginFailure } from "../services/password-policy.js";
 import { activeSignature, deactivateSignature, mimeOf, readSignature, saveSignature, SignatureError, signatureRequired } from "../services/signatures.js";
 import type { Locale } from "../lib/i18n.js";
@@ -47,7 +48,8 @@ loginRoutes.post("/auth/login", limits.login, async (req, res) => {
 
   const identifier = String(data.email).trim();
   const user = identifier.includes("@")
-    ? await first<UserRow>("SELECT * FROM users WHERE LOWER(email) = LOWER(?)", [identifier])
+    ? // collation ของ email ไม่สนตัวพิมพ์อยู่แล้ว — เทียบตรงเพื่อใช้ unique index (LOWER(email) ใช้ index ไม่ได้)
+      await first<UserRow>("SELECT * FROM users WHERE email = ?", [identifier])
     : await first<UserRow>("SELECT * FROM users WHERE LOWER(username) = LOWER(?)", [identifier]);
   // ข้อความเดียวกันทุกกรณี เพื่อไม่ให้เดาได้ว่ามีอีเมลนี้ในระบบหรือไม่
   // ช่องนี้ login ได้เฉพาะ LOCAL (API User ไม่มีรหัสผ่านในระบบเรา — login ผ่านต้นทางเท่านั้น)
@@ -72,7 +74,10 @@ async function issueLogin(req: import("express").Request, user: UserRow, deviceN
   await notifySuperAdminLogin(req, user, method);
   const expiresAt = addMinutes(new Date(), config.tokenTtlMinutes);
   const token = await createToken(user.id, deviceName, expiresAt);
-  return { token: token.plainText, token_type: "Bearer", expires_at: iso(toDbDateTime(expiresAt)), user: userResource((await findUser(user.id))!) };
+  const fresh = (await findUser(user.id))!;
+  // ต้องตั้งรหัสผ่านใหม่ก่อนใช้งาน (ครั้งแรก / หมดอายุ) — หน้า login แสดงช่องรหัสผ่านใหม่ต่อได้ทันที
+  const { password_expired, password_change_required } = passwordStatus(fresh, await passwordPolicy());
+  return { token: token.plainText, token_type: "Bearer", expires_at: iso(toDbDateTime(expiresAt)), user: userResource(fresh), password_expired, password_change_required };
 }
 
 /* ---------------------------------------------------------------- login ขั้นที่ 2 (2FA — services/two-factor.ts) */
@@ -257,6 +262,8 @@ authRoutes.get("/auth/me", async (req, res) => {
       signature_required: await signatureRequired(),
       // วันหมดอายุรหัสผ่าน (LOCAL + เปิดบังคับเปลี่ยน) — หมดอายุแล้วหน้าเว็บพาไปหน้าเปลี่ยนรหัสผ่าน
       ...passwordStatus(u, await passwordPolicy()),
+      // นโยบายของระบบ: ยังไม่ยอมรับเวอร์ชันปัจจุบัน = หน้าเว็บพาไปหน้ายอมรับนโยบาย
+      ...(await policyStatus(u)),
       ...(external ? { external_connection: external } : {}),
     },
   });

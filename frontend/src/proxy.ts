@@ -54,7 +54,8 @@ export function proxy(request: NextRequest) {
   if (!hasToken && !isLoginPage) {
     return withCsp(NextResponse.redirect(new URL("/login", request.url)));
   }
-  if (hasToken && isLoginPage && !request.nextUrl.searchParams.has("expired")) {
+  // ?change=1 = มี session แต่ต้องตั้งรหัสผ่านใหม่ก่อนใช้งาน (หน้า login แสดงช่องรหัสผ่านใหม่)
+  if (hasToken && isLoginPage && !request.nextUrl.searchParams.has("expired") && !request.nextUrl.searchParams.has("change")) {
     return withCsp(NextResponse.redirect(new URL("/", request.url)));
   }
   return next();

@@ -46,14 +46,17 @@ export default async function MeetingDayPage({ params, searchParams }: PageProps
         title={t("meeting.dayTitle", { date: fmt.date(date) })}
         subtitle={t("meeting.daySubtitle")}
         actions={
-          !past &&
+          // สาขา (เลือกดูได้เมื่อขอบเขตทุกสาขา) อยู่แถวเดียวกับหัวข้อหน้า
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <BranchFilter kind="meeting" meta={scope} value={branch} />
+            {!past &&
           canBook && (
             <Link href={`/meeting-rooms/book?date=${date}`} className={btn.primary}>
               <PlusIcon />
-      <BranchFilter kind="meeting" meta={scope} value={branch} />
               {t("meeting.book")}
             </Link>
-          )
+          )}
+          </div>
         }
       />
       {done && (

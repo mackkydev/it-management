@@ -44,13 +44,16 @@ export default async function VehiclesPage({ searchParams }: PageProps<"/vehicle
         title={t("vehicle.title")}
         subtitle={t("vehicle.subtitle")}
         actions={
-          canBook && (
+          // สาขา (เลือกดูได้เมื่อขอบเขตทุกสาขา) อยู่แถวเดียวกับหัวข้อหน้า
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <BranchFilter kind="vehicle" meta={scope} value={branch} />
+            {canBook && (
             <Link href="/vehicles/book" className={btn.primary}>
               <PlusIcon />
-      <BranchFilter kind="vehicle" meta={scope} value={branch} />
               {t("vehicle.book")}
             </Link>
-          )
+          )}
+          </div>
         }
       />
       {/* ยังไม่มีรถ: แจ้งเป็นแถบด้านบน — ปฏิทินแสดงเสมอ (จองแบบไม่ระบุรถได้) */}

@@ -14,15 +14,19 @@ import { assetRoutes } from "./routes/assets.js";
 import { authRoutes, loginRoutes } from "./routes/auth.js";
 import { itDataRoutes } from "./routes/it-data.js";
 import { kpiRoutes } from "./routes/kpi.js";
+import { policyRoutes } from "./routes/policy.js";
+import { dashboardRoutes } from "./routes/dashboard.js";
 import { licenseInstallationRoutes } from "./routes/license-installations.js";
 import { locationRoutes } from "./routes/locations.js";
 import { calendarRoutes, publicCalendarRoutes } from "./routes/calendar.js";
 import { meetingRoutes } from "./routes/meeting-rooms.js";
 import { vehicleRoutes } from "./routes/vehicles.js";
+import { zoomRoutes } from "./routes/zoom.js";
 import { bookingScopeRoutes } from "./routes/booking-scope.js";
 import { loanRoutes } from "./routes/loans.js";
 import { vpnLoanRoutes } from "./routes/vpn-loans.js";
 import { syncRoutes } from "./routes/sync.js";
+import { requestCache } from "./lib/request-cache.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
 
@@ -40,13 +44,13 @@ export function createApp() {
   app.get("/up", (_req, res) => res.json({ status: "ok" }));
 
   const v1 = Router();
-  v1.use(securityHeaders, locale);
+  v1.use(requestCache, securityHeaders, locale);
   v1.use(express.json({ limit: "1mb" }), express.urlencoded({ extended: false, limit: "1mb" }), parseInput);
 
   v1.use(loginRoutes, publicAnnouncementRoutes, publicBrandingRoutes, publicCalendarRoutes);
   // ทุก endpoint ต่อจากนี้ต้อง login (auth:sanctum) + จำกัด 120 ครั้ง/นาที
   v1.use(auth, limits.api);
-  v1.use(authRoutes, assetRoutes, locationRoutes, userRoutes, itDataRoutes, ticketRoutes, kpiRoutes, approvalRouteRoutes, licenseInstallationRoutes, announcementRoutes, syncRoutes, apiConnectionRoutes, accessRoutes, orgUnitRoutes, contractCategoryRoutes, dropdownOptionRoutes, brandingRoutes, calendarRoutes, meetingRoutes, vehicleRoutes, bookingScopeRoutes, loanRoutes, vpnLoanRoutes);
+  v1.use(authRoutes, assetRoutes, locationRoutes, userRoutes, itDataRoutes, ticketRoutes, kpiRoutes, approvalRouteRoutes, licenseInstallationRoutes, announcementRoutes, syncRoutes, apiConnectionRoutes, accessRoutes, orgUnitRoutes, contractCategoryRoutes, dropdownOptionRoutes, brandingRoutes, calendarRoutes, meetingRoutes, vehicleRoutes, zoomRoutes, bookingScopeRoutes, loanRoutes, vpnLoanRoutes, policyRoutes, dashboardRoutes);
 
   app.use("/api/v1", v1);
   app.use(notFoundHandler);

@@ -101,7 +101,6 @@ describe("booking scope by branch", () => {
 
     // ไม่ระบุรถ → สาขาของผู้จอง → ผู้จัดคิวสาขา B เท่านั้นได้แจ้งเตือน/ตัวเลขเมนู/รายการ
     expect((await viewerB.post("/api/v1/vehicle-bookings").send(trip({ branch_id: A }))).status).toBe(422);
-    expect((await viewerB.post("/api/v1/vehicle-bookings").send(trip({ vehicle_id: vanA.id }))).status).toBe(422);
     const req = await viewerB.post("/api/v1/vehicle-bookings").send(trip());
     expect(req.status).toBe(201);
     expect(req.body.data.branch).toMatchObject({ id: B });
@@ -120,7 +119,9 @@ describe("booking scope by branch", () => {
     const edit = { name: "รถตู้ A", seats: 10 };
     expect((await adminA.put(`/api/v1/vehicles/${vanA.id}`).send({ ...edit, branch_id: B })).status).toBe(422);
     expect((await adminA.put(`/api/v1/vehicles/${vanA.id}`).send(edit)).body.data.branch).toMatchObject({ id: A });
-    await viewerA.post("/api/v1/vehicle-bookings").send(trip({ vehicle_id: vanA.id }));
+    // การจองที่ยังไม่ถึงของรถคันนี้ (ผู้จัดคิวสาขา A เลือกรถให้)
+    const tripA = (await viewerA.post("/api/v1/vehicle-bookings").send(trip())).body.data.id;
+    expect((await adminA.put(`/api/v1/vehicle-bookings/${tripA}/vehicle`).send({ vehicle_id: vanA.id })).status).toBe(200);
     expect((await adminA.post(`/api/v1/vehicles/${vanA.id}/transfer`).send({ branch_id: A })).status).toBe(422);
     expect((await adminA.post(`/api/v1/vehicles/${vanA.id}/transfer`).send({ branch_id: null })).status).toBe(422);
     expect((await adminB.post(`/api/v1/vehicles/${vanA.id}/transfer`).send({ branch_id: B })).status).toBe(404);

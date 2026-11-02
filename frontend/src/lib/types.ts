@@ -71,6 +71,8 @@ export interface Asset {
   license_usage?: LicenseUsage;
   /** เฉพาะหน้ารายละเอียด */
   files?: AssetFile[];
+  /** เฉพาะหน้ารายละเอียด: ไอคอน License ซอฟต์แวร์ (/files/assets/{id}/icon?v=icon_id) */
+  icon_id?: number | null;
   /** เฉพาะหน้ารายละเอียด: ซอฟต์แวร์ (license) ที่ติดตั้งบนเครื่องนี้ */
   software?: SoftwareSet;
   created_at: string;
@@ -129,6 +131,10 @@ export interface User {
   password_change_required?: boolean;
   /** มีลายเซ็นในโปรไฟล์ (GET /auth/me) */
   has_signature?: boolean;
+  /** ยังไม่ยอมรับนโยบายการใช้งานระบบเวอร์ชันปัจจุบัน (GET /auth/me) — หน้าเว็บพาไป /policy-accept */
+  policy_required?: boolean;
+  /** วันเวลาที่ยอมรับนโยบายเวอร์ชันปัจจุบัน */
+  policy_accepted_at?: string | null;
   /** เปิดบังคับลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (ตั้งค่าระบบ) */
   signature_required?: boolean;
   password_warn?: boolean;
@@ -171,6 +177,10 @@ export interface AppSettings {
   require_signature?: boolean;
   password_policy: PasswordPolicy;
   contract_notify_days: number;
+  /** ผู้แจ้งไม่กดรับงานเกินกี่วัน ระบบปิดงานอัตโนมัติ (0 = ปิด) */
+  ticket_auto_close_days?: number;
+  /** ขั้นตอนใบแจ้งงาน: approval_first = หัวหน้าอนุมัติก่อน / it_first = ส่งถึงฝ่าย IT ทันที */
+  ticket_flow?: "approval_first" | "it_first";
   credential_notify_days: number;
   license_notify_days: number;
   notify_emails: string[];
@@ -280,10 +290,10 @@ export interface Contract {
 
 export const TICKET_TYPES = ["repair", "install", "grant_access", "revoke_access", "other"] as const;
 export type TicketType = (typeof TICKET_TYPES)[number];
-export const TICKET_STATUSES = ["pending_supervisor", "approved", "in_progress", "pending_it_head", "pending_requester", "completed", "rejected", "pending_cancel", "cancelled"] as const;
+export const TICKET_STATUSES = ["pending_supervisor", "approval_requested", "approved", "in_progress", "pending_it_head", "pending_requester", "completed", "rejected", "pending_cancel", "cancelled"] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 export type TicketAction =
-  | "approve" | "reject" | "accept" | "forward" | "progress" | "result" | "close" | "return" | "confirm_close"
+  | "approve" | "reject" | "accept" | "request_approval" | "forward" | "progress" | "result" | "close" | "return" | "confirm_close"
   | "edit" | "delete" | "cancel_request" | "cancel_confirm" | "cancel_reject" | "cancel_withdraw";
 
 type Person = { id: number; name: string } | null;
@@ -302,6 +312,10 @@ export interface TicketSummary {
   requested_at: string;
   actions: TicketAction[];
 }
+
+export type TicketFileKind = "request" | "result" | "document" | "result_document" | "progress";
+/** ไฟล์ที่แนบกับรายการในประวัติใบงาน (บันทึกผล / อัปเดตความคืบหน้า) */
+export type TicketFile = { id: number; kind: TicketFileKind; name: string | null; mime: string | null; size: number; url: string };
 
 export interface TicketDetail extends TicketSummary {
   /** ขอใช้งาน VPN (อื่นๆ): ช่วงวันที่ที่ขอ + สถานะการมอบบัญชี */
@@ -339,6 +353,9 @@ export interface TicketDetail extends TicketSummary {
   accepted_at: string | null;
   result: "completed" | "cannot_complete" | null;
   completed_on: string | null;
+  /** งานหลายวัน: วันเริ่มปฏิบัติงาน (ถึง completed_on) — KPI แยกแถวรายวัน */
+  work_start_on: string | null;
+  work_skip_off_days: boolean;
   cannot_reason: string | null;
   repair_method: "in_house" | "external" | null;
   external_vendor: string | null;
@@ -350,13 +367,16 @@ export interface TicketDetail extends TicketSummary {
   /** ขอยกเลิกหลังอนุมัติ (pending_cancel → cancelled) */
   cancel_reason: string | null;
   cancel_requested_at: string | null;
+  /** ปิดงานอัตโนมัติ: days = ตั้งค่าระบบ (0 = ปิด), at = กำหนดปิดของใบที่รอผู้แจ้งรับงาน */
+  auto_close?: { days: number; at: string | null };
   cancel_requested_status: TicketStatus | null;
   cancelled_at: string | null;
   cancelled_by: { id: number; name: string } | null;
-  signatures: { requester: string | null; staff: string | null; it_head: string | null };
-  attachments: { id: number; kind: "request" | "result" | "document"; name: string | null; mime: string | null; size: number; url: string }[];
+  signatures: { requester: string | null; staff: string | null; it_head: string | null; approver?: string | null };
+  /** result_document / progress = แนบกับรายการในประวัติ (event_id) */
+  attachments: { id: number; kind: TicketFileKind; name: string | null; mime: string | null; size: number; event_id: number | null; url: string }[];
   parts: { id: number; name: string; quantity: number; photo_url: string | null }[];
-  events: { id: number; action: string; comment: string | null; user: Person; created_at: string }[];
+  events: { id: number; action: string; comment: string | null; user: Person; created_at: string; attachments: TicketFile[] }[];
   /** ขั้นอนุมัติปัจจุบัน (null = ระบบเดิม หรืออนุมัติครบแล้ว) */
   current_step: number | null;
   /** ขั้นอนุมัติตามสายอนุมัติ — ว่าง = ใบที่ใช้ระบบเดิม (หัวหน้าคนเดียว) */
@@ -443,6 +463,20 @@ export interface AppNotification {
         vehicle_booking_id: string;
         actor: string;
         vehicle: string | null;
+        /** เหตุผล (ผู้จัดคิวยกเลิกแทนผู้จอง) */
+        reason?: string;
+        start_on: string;
+        start_time: string;
+        end_on: string;
+        end_time: string;
+      }
+    | {
+        // จอง ZOOM: requested = คำขอใหม่ (ถึงฝ่าย IT zoom.manage), accepted / confirmed / link_updated / rejected = ถึงผู้จอง, cancelled = ผู้จองยกเลิก (ถึงผู้รับงาน)
+        kind: "zoom";
+        event: "requested" | "accepted" | "confirmed" | "link_updated" | "rejected" | "cancelled";
+        zoom_booking_id: string;
+        actor: string;
+        title: string;
         start_on: string;
         start_time: string;
         end_on: string;
@@ -688,6 +722,11 @@ export interface LicenseSummary extends LicenseUsage {
   id: string;
   asset_tag: string;
   name: string;
+  billing: string;
+  vendor: string | null;
+  status: string;
+  files_count: number;
+  icon_id: number | null;
   expires_at: string | null;
   days_left: number | null;
 }
@@ -993,6 +1032,8 @@ export interface KpiSheetRow {
   kind: "ticket" | "work" | "holiday";
   entry_id: number | null;
   ticket: { id: string; ticket_no: string; status: TicketStatus } | null;
+  /** แถวของใบงานหลายวัน: วันที่เท่าไรจากทั้งหมด */
+  day: { index: number; count: number } | null;
   work_date: string;
   requester: string | null;
   branch: string | null;
@@ -1202,6 +1243,56 @@ export interface Vehicle {
 }
 
 /** GET /vehicle-bookings — หลายวันได้ (start_on + start_time ถึง end_on + end_time), vehicle = null คือรอผู้จัดคิวรถเลือกรถ */
+/** จอง ZOOM (routes/zoom.ts) — ลิงก์ประชุมเห็นเฉพาะผู้จอง + ฝ่าย IT (zoom.manage) */
+export interface ZoomBooking {
+  id: string;
+  title: string;
+  details: string | null;
+  user: { id: number; name: string };
+  department: string | null;
+  start_on: string;
+  start_time: string;
+  end_on: string;
+  end_time: string;
+  status: "pending" | "accepted" | "confirmed" | "rejected" | "cancelled";
+  is_over: boolean;
+  assignee: { id: number; name: string } | null;
+  accepted_at: string | null;
+  meeting_link: string | null;
+  /** ข้อความเชิญเต็มจาก ZOOM ที่ฝ่าย IT วาง */
+  link_note: string | null;
+  meeting_topic: string | null;
+  meeting_id: string | null;
+  passcode: string | null;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  reject_reason: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
+  cancelled_at: string | null;
+  ticket: { id: string; ticket_no: string } | null;
+  created_at: string | null;
+  updated_at: string | null;
+  can_edit: boolean;
+  can_cancel: boolean;
+  can_accept: boolean;
+  can_link: boolean;
+  can_busy: boolean;
+}
+
+/** คนขับรถ (routes/vehicles.ts) — busy = ติดงานช่วงเวลาของการจองที่ถาม (?booking=) */
+export interface VehicleDriver {
+  id: number;
+  name: string;
+  nickname: string | null;
+  branch: { id: number; name: string } | null;
+  is_active: boolean;
+  sort_order: number;
+  bookings_count?: number;
+  busy?: boolean;
+  can_manage?: boolean;
+}
+
 export interface VehicleBooking {
   id: string;
   /** mileage = เลขไมล์ล่าสุดของคัน (เลขไมล์เริ่มต้นตอนบันทึก) */
@@ -1231,6 +1322,14 @@ export interface VehicleBooking {
   rejected_by: string | null;
   rejected_at: string | null;
   reject_reason: string | null;
+  /** ผู้จองขอคนขับ (เลือกเพิ่มเติม "คนขับรถ") / คนขับที่ผู้จัดคิวเลือก */
+  needs_driver: boolean;
+  driver: { id: number; name: string; nickname: string | null } | null;
+  /** ผู้ยกเลิก + เหตุผล (ผู้จัดคิวยกเลิกแทนผู้จอง) */
+  cancelled_by: string | null;
+  cancel_reason: string | null;
+  /** ผู้จัดคิวยกเลิกการจองของคนอื่น = ต้องระบุเหตุผล */
+  cancel_needs_reason: boolean;
   cancelled_at: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -1418,4 +1517,21 @@ export interface AccessException extends AccessGrantMeta {
   name_en: string;
   user: { id: number; name: string; email: string | null; role: Role; department: string | null; is_active: boolean };
   can_revoke: boolean;
+}
+
+/** นโยบายการใช้งานระบบที่ผู้ใช้ต้องยอมรับ (GET /policy — app_settings.system_policy) */
+export interface PolicySection {
+  title: string;
+  body: string;
+}
+export interface SystemPolicy {
+  enabled: boolean;
+  version: number;
+  sections: PolicySection[];
+  updated_at: string | null;
+}
+export interface PolicyAcceptance {
+  user: { id: number; name: string; email: string | null; type: "LOCAL" | "API"; branch: string | null };
+  accepted_at: string | null;
+  ip: string | null;
 }

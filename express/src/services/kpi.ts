@@ -1,5 +1,5 @@
 import { config } from "../config.js";
-import { select } from "../db.js";
+import { first, scalar, select } from "../db.js";
 import { dateOnly, localToday } from "../lib/time.js";
 import { trans, type Locale } from "../lib/i18n.js";
 import { datesBetween, holidayCalendarFor, leaveSettings } from "./calendar.js";
@@ -7,6 +7,7 @@ import { datesBetween, holidayCalendarFor, leaveSettings } from "./calendar.js";
 /**
  * KPI ฝ่าย IT ตามไฟล์ Template-KPI-IT-2569-Part2-Details (ชีต ServiceType + ชีตรายเดือน)
  * แถวของเดือน = ใบแจ้งงานที่เจ้าหน้าที่รับงานแล้ว (ตามวันที่แจ้ง) + แถวที่กรอกเอง + แถววันหยุด
+ * ใบงานหลายวัน (ช่วงวันปฏิบัติงาน work_start_on ถึง completed_on) = 1 แถวต่อวันปฏิบัติงาน ลงเดือนของวันนั้น
  */
 
 /** ชีต ServiceType ของไฟล์ต้นฉบับ (ลำดับ/ข้อความตามไฟล์) */
@@ -42,12 +43,85 @@ export function defaultServiceType(ticketType: string, typeOther: string | null 
  */
 export const KPI_TICKET_STATUSES = ["pending_requester", "completed"];
 
+/** ช่วงวันปฏิบัติงานยาวสุดของใบงานหลายวัน (วัน) */
+export const MAX_WORK_SPAN_DAYS = 62;
+
+/** ใบงานหลายวัน = ระบุวันเริ่มปฏิบัติงานก่อนวันที่แล้วเสร็จ (SQL ของ alias t) */
+export const MULTI_DAY_SQL = "(t.work_start_on IS NOT NULL AND t.completed_on IS NOT NULL AND t.work_start_on < t.completed_on)";
+
+interface WorkSpan {
+  work_start_on: string | null;
+  completed_on: string | null;
+  work_skip_off_days: unknown;
+}
+const spanOf = (t: WorkSpan) => {
+  const from = dateOnly(t.work_start_on);
+  const to = dateOnly(t.completed_on);
+  return from && to && from < to ? { from, to } : null;
+};
+const spanRange = (spans: { from: string; to: string }[]) => ({
+  from: spans.reduce((a, s) => (s.from < a ? s.from : a), spans[0].from),
+  to: spans.reduce((a, s) => (s.to > a ? s.to : a), spans[0].to),
+});
+
+/** วันหยุดของเจ้าของชีตในช่วงนั้น: ไม่ใช่วันทำงาน (leave_settings.work_days) หรือวันหยุดบริษัทตามชุดของสาขา */
+async function offDayTest(userId: number, from: string, to: string): Promise<(d: string) => boolean> {
+  const owner = await first<{ branch_id: number | null }>("SELECT branch_id FROM users WHERE id = ?", [userId]);
+  const cal = await holidayCalendarFor(owner?.branch_id ? Number(owner.branch_id) : null);
+  const rows = await select<{ date: string }>("SELECT date FROM company_holidays WHERE calendar_id = ? AND date BETWEEN ? AND ?", [cal ?? 0, from, to]);
+  const holidays = new Set(rows.map((r) => dateOnly(r.date)!));
+  const { work_days } = await leaveSettings();
+  return (d) => !work_days.includes(new Date(`${d}T00:00:00Z`).getUTCDay()) || holidays.has(d);
+}
+
+/** วันในช่วง — ไม่นับวันหยุดเมื่อติ๊กไว้ (ทั้งช่วงเป็นวันหยุด = นับทุกวัน) */
+function daysOf(t: WorkSpan, span: { from: string; to: string }, off: (d: string) => boolean): string[] {
+  const all = datesBetween(span.from, span.to);
+  const days = t.work_skip_off_days ? all.filter((d) => !off(d)) : all;
+  return days.length ? days : all;
+}
+
+/** วันปฏิบัติงานของใบงานหลายวันสำหรับเจ้าของชีต — null = ใบงานวันเดียว (1 แถวตามวันที่แจ้ง) */
+export async function ticketWorkDays(t: WorkSpan, userId: number): Promise<string[] | null> {
+  const span = spanOf(t);
+  if (!span) return null;
+  return daysOf(t, span, t.work_skip_off_days ? await offDayTest(userId, span.from, span.to) : () => false);
+}
+
+/** ตัวเลขเมนู /kpi = แถวใบงานที่ยังไม่กรอก Complexity (เงื่อนไขเดียวกับชีต) — ใบงานวันเดียวนับ 1, ใบงานหลายวันนับตามวันที่ยังไม่กรอก */
+export async function kpiPendingCount(userId: number): Promise<number> {
+  const mine = "(t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?)) AND t.status IN (?)";
+  const single = Number(
+    await scalar(
+      `SELECT COUNT(*) FROM it_tickets t WHERE ${mine} AND NOT ${MULTI_DAY_SQL}
+          AND NOT EXISTS (SELECT 1 FROM kpi_entries k WHERE k.ticket_id = t.id AND k.user_id = ? AND k.complexity > 0)`,
+      [userId, userId, KPI_TICKET_STATUSES, userId],
+    ),
+  );
+  const multi = await select<WorkSpan & { id: number }>(
+    `SELECT t.id, t.work_start_on, t.completed_on, t.work_skip_off_days FROM it_tickets t WHERE ${mine} AND ${MULTI_DAY_SQL}`,
+    [userId, userId, KPI_TICKET_STATUSES],
+  );
+  if (!multi.length) return single;
+  const filled = await select<{ ticket_id: number; work_date: string }>(
+    "SELECT ticket_id, work_date FROM kpi_entries WHERE user_id = ? AND ticket_id IN (?) AND complexity > 0",
+    [userId, multi.map((t) => t.id)],
+  );
+  const done = new Set(filled.map((k) => `${k.ticket_id}:${dateOnly(k.work_date)}`));
+  const spans = multi.map((t) => spanOf(t)!);
+  const range = spanRange(spans);
+  const off = await offDayTest(userId, range.from, range.to);
+  return single + multi.reduce((n, t, i) => n + daysOf(t, spans[i], off).filter((d) => !done.has(`${t.id}:${d}`)).length, 0);
+}
+
 export type KpiRowKind = "ticket" | "work" | "holiday";
 export interface KpiRow {
   key: string;
   kind: KpiRowKind;
   entry_id: number | null;
   ticket: { id: string; ticket_no: string; status: string } | null;
+  /** แถวของใบงานหลายวัน: วันที่เท่าไรจากทั้งหมด */
+  day: { index: number; count: number } | null;
   work_date: string;
   requester: string | null;
   branch: string | null;
@@ -68,32 +142,44 @@ export function monthRange(month: string): { first: string; last: string } {
 }
 
 /** วันที่ตามเวลาท้องถิ่นของผู้ใช้ จาก DATETIME (UTC) ใน DB */
-const localDateOf = (dbDateTime: string) => localToday(config.localTimezone, new Date(`${String(dbDateTime).replace(" ", "T")}Z`));
+export const localDateOf = (dbDateTime: string) => localToday(config.localTimezone, new Date(`${String(dbDateTime).replace(" ", "T")}Z`));
 
 const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
 
-/** แถว KPI ของเจ้าหน้าที่ 1 คนในเดือนนั้น เรียงตามวันที่แจ้ง — ใบงานที่เป็นผู้รับงานหรือผู้ร่วมดำเนินการ (ประเภท/Complexity แยกต่อคน) */
+/**
+ * แถว KPI ของเจ้าหน้าที่ 1 คนในเดือนนั้น เรียงตามวันที่แจ้ง — ใบงานที่เป็นผู้รับงานหรือผู้ร่วมดำเนินการ (ประเภท/Complexity แยกต่อคน)
+ * ใบงานหลายวัน = แถวละวันปฏิบัติงานที่อยู่ในเดือนนี้ (ประเภท/Complexity แยกต่อวัน)
+ */
 export async function kpiMonthRows(userId: number, month: string, locale: Locale = "th"): Promise<KpiRow[]> {
   const { first, last } = monthRange(month);
   // ช่วง UTC กว้างกว่าเดือนเล็กน้อย แล้วกรองด้วยวันที่ท้องถิ่น (requested_at เก็บเป็น UTC)
   const tickets = await select<{
     id: number; uuid: string; ticket_no: string; type: string; type_other: string | null; status: string; requested_at: string; details: string; symptom: string | null;
     repair_details: string | null; cannot_reason: string | null; completed_on: string | null;
-    requester: string | null; branch: string | null; assignee: string | null;
-    k_id: number | null; k_service_type: string | null; k_complexity: string | null;
+    requester: string | null; branch: string | null; assignee: string | null; work_start_on: string | null; work_skip_off_days: unknown;
   }>(
     `SELECT t.id, t.uuid, t.ticket_no, t.type, t.type_other, t.status, t.requested_at, t.details, t.symptom, t.repair_details, t.cannot_reason, t.completed_on,
-            r.name AS requester, b.name AS branch, o.name AS assignee, k.id AS k_id, k.service_type AS k_service_type, k.complexity AS k_complexity
+            t.work_start_on, t.work_skip_off_days, r.name AS requester, b.name AS branch, o.name AS assignee
        FROM it_tickets t
        JOIN users o ON o.id = ?
        LEFT JOIN users r ON r.id = t.requester_id
        LEFT JOIN branches b ON b.id = t.branch_id
-       LEFT JOIN kpi_entries k ON k.ticket_id = t.id AND k.user_id = o.id
       WHERE (t.assignee_id = o.id OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = o.id))
         AND t.status IN (?)
-        AND t.requested_at >= DATE_SUB(?, INTERVAL 1 DAY) AND t.requested_at < DATE_ADD(?, INTERVAL 2 DAY)`,
-    [userId, KPI_TICKET_STATUSES, first, last],
+        AND ((NOT ${MULTI_DAY_SQL} AND t.requested_at >= DATE_SUB(?, INTERVAL 1 DAY) AND t.requested_at < DATE_ADD(?, INTERVAL 2 DAY))
+          OR (${MULTI_DAY_SQL} AND t.work_start_on <= ? AND t.completed_on >= ?))`,
+    [userId, KPI_TICKET_STATUSES, first, last, last, first],
   );
+  // ค่าที่กรอก (ประเภท/Complexity) ต่อคน — ใบงานหลายวันแยกต่อวัน (work_date), ใบงานวันเดียวใช้แถวล่าสุด
+  const ticketEntries = tickets.length
+    ? await select<{ id: number; ticket_id: number; work_date: string; service_type: string | null; complexity: string | null }>(
+        "SELECT id, ticket_id, work_date, service_type, complexity FROM kpi_entries WHERE user_id = ? AND ticket_id IN (?) ORDER BY updated_at DESC, id DESC",
+        [userId, tickets.map((t) => t.id)],
+      )
+    : [];
+  const spans = tickets.map((t) => spanOf(t)).filter((s): s is { from: string; to: string } => s !== null);
+  const range = spans.length ? spanRange(spans) : null;
+  const off = range ? await offDayTest(userId, range.from, range.to) : () => false;
   const entries = await select<{
     id: number; entry_type: string; work_date: string; details: string; requester_name: string | null; branch_name: string | null;
     service_type: string | null; solution: string | null; complexity: string | null; completed_date: string | null; assignee: string | null;
@@ -107,25 +193,38 @@ export async function kpiMonthRows(userId: number, month: string, locale: Locale
 
   const rows: KpiRow[] = [];
   for (const t of tickets) {
+    const mine = ticketEntries.filter((k) => Number(k.ticket_id) === Number(t.id));
+    const push = (key: string, workDate: string, entry: (typeof mine)[number] | undefined, day: KpiRow["day"]) => {
+      const complexity = num(entry?.complexity);
+      rows.push({
+        key,
+        kind: "ticket",
+        entry_id: entry?.id ?? null,
+        ticket: { id: t.uuid, ticket_no: t.ticket_no, status: t.status },
+        day,
+        work_date: workDate,
+        requester: t.requester,
+        branch: t.branch,
+        service_type: entry?.service_type ?? defaultServiceType(t.type, t.type_other),
+        details: t.type === "repair" && t.symptom ? t.symptom : t.details,
+        assignee: t.assignee,
+        solution: t.repair_details ?? t.cannot_reason,
+        complexity,
+        mark: markOf(complexity),
+        completed_date: dateOnly(t.completed_on),
+      });
+    };
+    const span = spanOf(t);
+    if (span) {
+      const days = daysOf(t, span, off);
+      days.forEach((d, i) => {
+        if (d >= first && d <= last) push(`t:${t.uuid}:${d}`, d, mine.find((k) => dateOnly(k.work_date) === d), { index: i + 1, count: days.length });
+      });
+      continue;
+    }
     const workDate = localDateOf(t.requested_at);
     if (workDate < first || workDate > last) continue;
-    const complexity = num(t.k_complexity);
-    rows.push({
-      key: `t:${t.uuid}`,
-      kind: "ticket",
-      entry_id: t.k_id,
-      ticket: { id: t.uuid, ticket_no: t.ticket_no, status: t.status },
-      work_date: workDate,
-      requester: t.requester,
-      branch: t.branch,
-      service_type: t.k_service_type ?? defaultServiceType(t.type, t.type_other),
-      details: t.type === "repair" && t.symptom ? t.symptom : t.details,
-      assignee: t.assignee,
-      solution: t.repair_details ?? t.cannot_reason,
-      complexity,
-      mark: markOf(complexity),
-      completed_date: dateOnly(t.completed_on),
-    });
+    push(`t:${t.uuid}`, workDate, mine[0], null);
   }
   for (const e of entries) {
     const holiday = e.entry_type === "holiday";
@@ -135,6 +234,7 @@ export async function kpiMonthRows(userId: number, month: string, locale: Locale
       kind: holiday ? "holiday" : "work",
       entry_id: e.id,
       ticket: null,
+      day: null,
       work_date: dateOnly(e.work_date)!,
       requester: e.requester_name,
       branch: e.branch_name,
@@ -183,7 +283,7 @@ async function calendarRows(userId: number, first: string, last: string, locale:
   );
   const { work_days } = await leaveSettings();
   const row = (key: string, date: string, details: string): KpiRow => ({
-    key, kind: "holiday", entry_id: null, ticket: null, work_date: date, requester: null, branch: null, service_type: null,
+    key, kind: "holiday", entry_id: null, ticket: null, day: null, work_date: date, requester: null, branch: null, service_type: null,
     details, assignee: null, solution: null, complexity: 0, mark: 0, completed_date: null,
   });
   const out = holidays.map((h) => row(`ch:${h.id}`, dateOnly(h.date)!, trans(locale, "eam.holiday.kpi_row", { name: h.name })));

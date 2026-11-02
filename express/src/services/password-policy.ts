@@ -108,8 +108,12 @@ export function passwordExpiresAt(u: UserRow, policy: PasswordPolicy): Date | nu
   return new Date(parseDb(base).getTime() + policy.expiry_days * 86_400_000);
 }
 
-/** ต้องตั้งรหัสผ่านใหม่ก่อนใช้งาน (ผู้ใช้ใหม่ / ผู้ดูแลรีเซ็ตรหัสผ่าน) — มีผลเฉพาะเมื่อเปิด force_first_change */
-export const mustChangePassword = (u: UserRow, policy: PasswordPolicy) => isLocal(u) && policy.force_first_change && Boolean(u.must_change_password);
+/**
+ * ต้องตั้งรหัสผ่านใหม่ก่อนใช้งาน — มีผลเฉพาะเมื่อเปิด force_first_change:
+ * ผู้ใช้ทุกคนที่ยังไม่เคยตั้งรหัสผ่านเอง (password_self_changed_at NULL — ผู้ใช้เดิม / ผู้ดูแลสร้างให้) หรือผู้ดูแลรีเซ็ตรหัสผ่านให้ (must_change_password)
+ */
+export const mustChangePassword = (u: UserRow, policy: PasswordPolicy) =>
+  isLocal(u) && policy.force_first_change && (Boolean(u.must_change_password) || !u.password_self_changed_at);
 
 /**
  * password_warn = ใกล้หมดอายุ (ภายใน expiry_warn_days วัน) — หน้าเว็บแสดงแถบเตือนให้เปลี่ยนก่อน
@@ -131,7 +135,10 @@ export function passwordStatus(
 }
 
 /** ตั้งรหัสผ่านใหม่แล้ว — เริ่มนับวันหมดอายุใหม่ (ผู้ใช้เปลี่ยนเอง = ไม่ต้องเปลี่ยนครั้งแรกแล้ว) */
-export const passwordChangedNow = () => ({ password_changed_at: nowDb(), must_change_password: false });
+export const passwordChangedNow = () => {
+  const now = nowDb();
+  return { password_changed_at: now, password_self_changed_at: now, must_change_password: false };
+};
 
 /** ผู้ดูแลตั้งรหัสผ่านให้ผู้อื่น (สร้างผู้ใช้ / รีเซ็ต) — เปิด force_first_change = ผู้ใช้ต้องเปลี่ยนเองตอนเข้าสู่ระบบ */
 export async function passwordSetByAdmin(): Promise<{ password_changed_at: string; must_change_password: boolean }> {

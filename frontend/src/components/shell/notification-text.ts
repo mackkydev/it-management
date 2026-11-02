@@ -25,7 +25,13 @@ export function notificationText(n: AppNotification, t: TFunction, date: (iso: s
   if (n.data.kind === "vehicle") {
     const d = n.data;
     const period = d.start_on === d.end_on ? `${d.start_on} ${d.start_time}–${d.end_time}` : `${d.start_on} ${d.start_time} – ${d.end_on} ${d.end_time}`;
-    return t(`notifications.vehicle.${d.event}` as MessageKey, { actor: d.actor, vehicle: d.vehicle ?? "", period });
+    const key = d.event === "cancelled" && d.reason ? "notifications.vehicle.cancelled_reason" : (`notifications.vehicle.${d.event}` as MessageKey);
+    return t(key, { actor: d.actor, vehicle: d.vehicle ?? "", period, reason: d.reason ?? "" });
+  }
+  if (n.data.kind === "zoom") {
+    const d = n.data;
+    const period = d.start_on === d.end_on ? `${d.start_on} ${d.start_time}–${d.end_time}` : `${d.start_on} ${d.start_time} – ${d.end_on} ${d.end_time}`;
+    return t(`notifications.zoom.${d.event}` as MessageKey, { actor: d.actor, title: d.title, period });
   }
   if (n.data.kind === "loan") {
     const d = n.data;
@@ -71,6 +77,8 @@ export function notificationHref(n: AppNotification): string {
     if (n.data.event === "requested") return `/vehicles/dispatch/${n.data.vehicle_booking_id}`;
     return n.data.event === "cancelled" || n.data.event === "rejected" ? "/vehicles/mine?status=cancelled" : "/vehicles/mine";
   }
+  // จอง ZOOM → หน้ารายละเอียดของการจองนั้น (ฝ่าย IT รับงาน / ส่งลิงก์, ผู้จองดูลิงก์ / เหตุผล)
+  if (n.data.kind === "zoom") return `/zoom/bookings/${n.data.zoom_booking_id}`;
   // ยืมอุปกรณ์: รอส่งมอบ → หน้าส่งมอบ/รับคืน, เกินกำหนด → ผู้จัดการไปแท็บเกินกำหนด (ผู้ยืมไปการยืมของฉัน — ลิงก์เดียวกัน redirect ตามสิทธิ์), อื่นๆ → การยืมของฉัน
   if (n.data.kind === "loan") {
     if (n.data.event === "requested") return "/loans/manage?status=pending";

@@ -305,6 +305,7 @@ model branches {
   meeting_rooms          meeting_rooms[]
   vehicles               vehicles[]
   vehicle_bookings       vehicle_bookings[]
+  vehicle_drivers        vehicle_drivers[]
   vehicle_transfers_from vehicle_transfers[]     @relation("vehicle_transfer_from")
   vehicle_transfers_to   vehicle_transfers[]     @relation("vehicle_transfer_to")
 
@@ -462,11 +463,15 @@ model it_ticket_attachments {
   uploaded_by   BigInt?
   created_at    DateTime?  @db.DateTime(0)
   updated_at    DateTime?  @db.DateTime(0)
+  /// เหตุการณ์ในประวัติที่แนบไฟล์นี้ (progress / resulted) — NULL = ไฟล์ตอนแจ้งงาน
+  event_id      BigInt?
   it_tickets    it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_attachments_it_ticket_id_foreign")
+  event         it_ticket_events? @relation(fields: [event_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "it_ticket_attachments_event_id_foreign")
   users         users?     @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "it_ticket_attachments_uploaded_by_foreign")
 
   @@index([it_ticket_id, kind], map: "it_ticket_attachments_it_ticket_id_kind_index")
   @@index([uploaded_by], map: "it_ticket_attachments_uploaded_by_index")
+  @@index([event_id], map: "it_ticket_attachments_event_id_index")
 }
 
 model it_ticket_events {
@@ -477,6 +482,7 @@ model it_ticket_events {
   comment      String?    @db.Text
   created_at   DateTime   @default(now()) @db.DateTime(0)
   it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_events_it_ticket_id_foreign")
+  attachments  it_ticket_attachments[]
   users        users?     @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "it_ticket_events_user_id_foreign")
 
   @@index([it_ticket_id, created_at], map: "it_ticket_events_it_ticket_id_created_at_index")
@@ -540,6 +546,9 @@ model it_tickets {
   accepted_at                          DateTime?                  @db.DateTime(0)
   result                               String?                    @db.VarChar(20)
   completed_on                         DateTime?                  @db.Date
+  /// ใบงานหลายวัน: ช่วงวันปฏิบัติงาน work_start_on ถึง completed_on → KPI 1 แถวต่อวัน
+  work_start_on                        DateTime?                  @db.Date
+  work_skip_off_days                   Boolean                    @default(true)
   cannot_reason                        String?                    @db.Text
   repair_method                        String?                    @db.VarChar(20)
   external_vendor                      String?                    @db.VarChar(255)
@@ -549,6 +558,8 @@ model it_tickets {
   resulted_at                          DateTime?                  @db.DateTime(0)
   it_head_id                           BigInt?
   it_head_signature                    String?                    @db.VarChar(255)
+  /// สำเนาลายเซ็นผู้อนุมัติ ณ ตอนอนุมัติขั้นสุดท้าย (แบบฟอร์มพิมพ์)
+  approver_signature                   String?                    @db.VarChar(255)
   closed_at                            DateTime?                  @db.DateTime(0)
   /// ขอยกเลิกหลังอนุมัติ: status = pending_cancel ระหว่างรอเจ้าหน้าที่ IT ยืนยัน → cancelled (ปฏิเสธ/ถอน = กลับสถานะเดิม)
   cancel_reason                        String?                    @db.Text
@@ -565,6 +576,7 @@ model it_tickets {
   it_ticket_events                     it_ticket_events[]
   it_ticket_parts                      it_ticket_parts[]
   it_ticket_helpers                    it_ticket_helpers[]
+  zoom_bookings                        zoom_bookings[]
   kpi_entries                          kpi_entries[]
   users_it_tickets_approver_idTousers  users?                     @relation("it_tickets_approver_idTousers", fields: [approver_id], references: [id], onUpdate: Restrict, map: "it_tickets_approver_id_foreign")
   assets                               assets?                    @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "it_tickets_asset_id_foreign")
@@ -582,6 +594,7 @@ model it_tickets {
   @@index([it_head_id], map: "it_tickets_it_head_id_index")
   @@index([requester_id, created_at], map: "it_tickets_requester_id_created_at_index")
   @@index([status, created_at], map: "it_tickets_status_created_at_index")
+  @@index([requested_at], map: "it_tickets_requested_at_index")
 }
 
 model job_batches {
@@ -629,7 +642,7 @@ model kpi_entries {
   users          users       @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "kpi_entries_user_id_foreign")
   it_tickets     it_tickets? @relation(fields: [ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "kpi_entries_ticket_id_foreign")
 
-  @@unique([ticket_id, user_id], map: "kpi_entries_ticket_user_unique")
+  @@unique([ticket_id, user_id, work_date], map: "kpi_entries_ticket_user_day_unique")
   @@index([user_id, work_date], map: "kpi_entries_user_id_work_date_index")
   @@index([work_date], map: "kpi_entries_work_date_index")
 }
@@ -674,8 +687,12 @@ model notifications {
   read_at         DateTime? @db.DateTime(0)
   created_at      DateTime? @db.DateTime(0)
   updated_at      DateTime? @db.DateTime(0)
+  /// รหัสเรื่องของแจ้งเตือน = คอลัมน์ที่ฐานข้อมูลคำนวณจาก data (GENERATED STORED — ticket_id / leave_id / vehicle_booking_id / loan_id / vpn_id / zoom_booking_id) ห้ามเขียนค่าเอง
+  subject_ref     String?   @db.VarChar(64)
 
-  @@index([notifiable_type, notifiable_id], map: "notifications_notifiable_type_notifiable_id_index")
+  @@index([subject_ref, read_at], map: "notifications_subject_ref_read_at_index")
+  @@index([notifiable_type, notifiable_id, created_at], map: "notifications_notifiable_created_at_index")
+  @@index([notifiable_type, notifiable_id, read_at], map: "notifications_notifiable_read_at_index")
 }
 
 model password_reset_tokens {
@@ -751,6 +768,8 @@ model users {
   password_changed_at                                      DateTime?                  @db.DateTime(0)
   /// ต้องเปลี่ยนรหัสผ่านก่อนใช้งาน (ผู้ดูแลสร้างผู้ใช้ / รีเซ็ตรหัสผ่านขณะเปิด password_policy.force_first_change)
   must_change_password                                     Boolean                    @default(false)
+  /// ผู้ใช้ตั้งรหัสผ่านเองล่าสุด — NULL = ยังไม่เคย (บังคับเปลี่ยนครั้งแรกเมื่อเปิด force_first_change)
+  password_self_changed_at                                 DateTime?                  @db.DateTime(0)
   /// สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing (null = ยังไม่เคยซิงค์) — ซิงค์ปิดใช้งาน/เปิดคืนเฉพาะที่ซิงค์เป็นคนปิด
   external_status                                          String?                    @db.VarChar(20)
   remember_token                                           String?                    @db.VarChar(100)
@@ -802,6 +821,7 @@ model users {
   user_groups_granted                                      user_groups[]              @relation("user_groups_created_by")
   audit_logs                                               audit_logs[]
   user_signatures                                          user_signatures[]          @relation("user_signatures_user")
+  policy_acceptances                                       policy_acceptances[]
   user_signatures_created                                  user_signatures[]          @relation("user_signatures_created_by")
 
   leave_requests_leave_requests_user_idTousers      leave_requests[]        @relation("leave_requests_user_idTousers")
@@ -810,6 +830,7 @@ model users {
   calendar_events_calendar_events_created_byTousers calendar_events[]       @relation("calendar_events_created_byTousers")
   meeting_bookings                                  meeting_bookings[]
   vehicle_bookings                                  vehicle_bookings[]
+  zoom_bookings                                     zoom_bookings[]
   vehicle_transfers                                 vehicle_transfers[]
   credential_access_users                           credential_access[]     @relation("credential_access_user")
   credential_access_created                         credential_access[]     @relation("credential_access_creator")
@@ -1018,6 +1039,7 @@ model audit_logs {
   @@index([subject_type, subject_id], map: "audit_logs_subject_index")
   @@index([actor_id], map: "audit_logs_actor_id_index")
   @@index([created_at], map: "audit_logs_created_at_index")
+  @@index([action], map: "audit_logs_action_index")
 }
 
 /// แผนก (ข้อมูลหลัก) — users.department / approval_routes.department เก็บเป็นชื่อ (ข้อความ) เหมือนเดิม; เปลี่ยนชื่อที่นี่ = อัปเดตชื่อในผู้ใช้/สายอนุมัติด้วย
@@ -1345,7 +1367,12 @@ model vehicle_bookings {
   deleted_at             DateTime?                @db.DateTime(0)
   /// สาขาที่ขอใช้รถ (ยังไม่ระบุรถ = ผู้จัดคิวของสาขานี้เลือกรถ) — ตั้งตอนจอง: รถที่เลือก → สาขาของรถ, ไม่เลือก → สาขาที่ผู้จองเลือก
   branch_id              BigInt?
+  /// ผู้จองขอคนขับ (เลือกเพิ่มเติม "คนขับรถ") / คนขับที่ผู้จัดคิวเลือก / เหตุผลที่ยกเลิก (ผู้จัดคิวยกเลิกแทนผู้จอง)
+  needs_driver           Boolean                  @default(false)
+  driver_id              BigInt?
+  cancel_reason          String?                  @db.VarChar(1000)
   branches               branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_branch_id_foreign")
+  vehicle_drivers        vehicle_drivers?         @relation(fields: [driver_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "vehicle_bookings_driver_id_foreign")
   vehicles               vehicles?                @relation(fields: [vehicle_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_vehicle_id_foreign")
   users                  users                    @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_user_id_foreign")
   vehicle_booking_extras vehicle_booking_extras[]
@@ -1354,6 +1381,7 @@ model vehicle_bookings {
   @@index([start_on, end_on], map: "vehicle_bookings_start_on_end_on_index")
   @@index([user_id], map: "vehicle_bookings_user_id_index")
   @@index([branch_id], map: "vehicle_bookings_branch_id_index")
+  @@index([driver_id, start_on, end_on], map: "vehicle_bookings_driver_id_start_on_end_on_index")
 }
 
 /// รายการเพิ่มเติมที่ขอ (ชื่อจาก dropdown_options list vehicle_extra เช่น น้ำมันเต็มถัง / Easy Pass)
@@ -1472,4 +1500,85 @@ model vpn_loans {
   @@index([ticket_id], map: "vpn_loans_ticket_id_index")
   @@index([assigned_by], map: "vpn_loans_assigned_by_index")
   @@index([ended_by], map: "vpn_loans_ended_by_index")
+}
+
+/// การยอมรับนโยบายของระบบ (app_settings.system_policy) — 1 แถวต่อผู้ใช้ต่อเวอร์ชัน
+model policy_acceptances {
+  id          BigInt   @id @default(autoincrement())
+  user_id     BigInt
+  version     Int
+  accepted_at DateTime @db.DateTime(0)
+  ip          String?  @db.VarChar(45)
+  user_agent  String?  @db.VarChar(255)
+  users       users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "policy_acceptances_user_id_foreign")
+
+  @@unique([user_id, version], map: "policy_acceptances_user_version_unique")
+  @@index([version], map: "policy_acceptances_version_index")
+}
+
+/// จอง ZOOM — ผู้ใช้จองช่วงวันเวลา → ฝ่าย IT (zoom.manage) รับงาน (accepted) → ส่งลิงก์ (confirmed + ใบแจ้งงานที่ปิดแล้ว ticket_id ลง KPI ของผู้รับงาน)
+/// หรือแจ้งกลับว่ามีการใช้งานแล้ว (rejected + reject_reason) / ผู้จองยกเลิก (cancelled) — routes/zoom.ts
+model zoom_bookings {
+  id            BigInt      @id @default(autoincrement())
+  uuid          String      @unique(map: "zoom_bookings_uuid_unique") @db.Char(36)
+  user_id       BigInt
+  department    String?     @db.VarChar(255)
+  branch_id     BigInt?
+  title         String      @db.VarChar(255)
+  details       String?     @db.Text
+  start_on      DateTime    @db.Date
+  start_time    String      @db.VarChar(5)
+  end_on        DateTime    @db.Date
+  end_time      String      @db.VarChar(5)
+  /// pending (รอ IT รับงาน) / accepted (รับงานแล้ว) / confirmed (ส่งลิงก์แล้ว) / rejected (มีการใช้งานแล้ว) / cancelled
+  status        String      @default("pending") @db.VarChar(20)
+  assignee_id   BigInt?
+  accepted_at   DateTime?   @db.DateTime(0)
+  meeting_link  String?     @db.VarChar(1000)
+  /// ข้อความเชิญเต็มจาก ZOOM ที่ฝ่าย IT วาง (ดึง Topic / ลิงก์ / Meeting ID / Passcode ออกมา)
+  link_note     String?     @db.Text
+  meeting_topic String?     @db.VarChar(255)
+  meeting_id    String?     @db.VarChar(50)
+  passcode      String?     @db.VarChar(50)
+  confirmed_by  BigInt?
+  confirmed_at  DateTime?   @db.DateTime(0)
+  reject_reason String?     @db.VarChar(1000)
+  rejected_by   BigInt?
+  rejected_at   DateTime?   @db.DateTime(0)
+  cancelled_by  BigInt?
+  cancelled_at  DateTime?   @db.DateTime(0)
+  /// ใบแจ้งงาน (เรื่องอื่นๆ ปิดแล้ว) ที่สร้างตอนส่งลิงก์ — แถวใบงานในชีต KPI ของผู้รับงาน
+  ticket_id     BigInt?
+  created_at    DateTime?   @db.DateTime(0)
+  updated_at    DateTime?   @db.DateTime(0)
+  users         users       @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "zoom_bookings_user_id_foreign")
+  it_tickets    it_tickets? @relation(fields: [ticket_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "zoom_bookings_ticket_id_foreign")
+
+  @@index([start_on, end_on], map: "zoom_bookings_start_on_end_on_index")
+  @@index([user_id], map: "zoom_bookings_user_id_index")
+  @@index([status], map: "zoom_bookings_status_index")
+  @@index([ticket_id], map: "zoom_bookings_ticket_id_index")
+}
+
+/// ตัวนับเวอร์ชันข้อมูล (แถว name = "data") — API เพิ่มค่าหลังบันทึกตารางที่หน้าจอแสดงผล (routes/sync.ts) แทนการนับแถวทุกตารางทุกครั้งที่ถาม /sync/version
+model sync_versions {
+  name       String    @id @db.VarChar(32)
+  version    BigInt    @default(0) @db.UnsignedBigInt
+  updated_at DateTime? @db.DateTime(0)
+}
+
+/// คนขับรถ (เมนู จองรถ → คนขับรถ) — ผู้จัดคิวเลือกให้การจองที่ขอคนขับ, คนขับคนเดียวกันช่วงเวลาซ้อนไม่ได้ (routes/vehicles.ts)
+model vehicle_drivers {
+  id               BigInt             @id @default(autoincrement())
+  name             String             @db.VarChar(150)
+  nickname         String?            @db.VarChar(50)
+  branch_id        BigInt?
+  is_active        Boolean            @default(true)
+  sort_order       Int                @default(0) @db.SmallInt
+  created_at       DateTime?          @db.DateTime(0)
+  updated_at       DateTime?          @db.DateTime(0)
+  branches         branches?          @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "vehicle_drivers_branch_id_foreign")
+  vehicle_bookings vehicle_bookings[]
+
+  @@index([branch_id], map: "vehicle_drivers_branch_id_index")
 }

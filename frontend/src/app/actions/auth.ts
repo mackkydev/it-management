@@ -15,12 +15,17 @@ export interface LoginState {
   connectionId?: string;
   /** รหัสผ่านถูกแล้ว — ต้องยืนยันขั้นที่ 2: verify = กรอกรหัสจากแอป, setup = ผู้ดูแลระบบที่ถูกบังคับต้องตั้ง 2FA ก่อน */
   twoFactor?: "verify" | "setup";
+  /** รหัสผ่านถูกแล้ว แต่ต้องตั้งรหัสผ่านใหม่ก่อนใช้งาน (first = เข้าครั้งแรก / ผู้ดูแลรีเซ็ต, expired = หมดอายุตามรอบ) — แสดงช่องรหัสผ่านใหม่ในหน้า login */
+  changePassword?: "first" | "expired";
+  fieldErrors?: { new_password?: string; password_confirmation?: string };
+  /** ตั้งรหัสผ่านใหม่จาก session เดิม (เปิดหน้า login ?change=1) — ต้องกรอกรหัสผ่านปัจจุบันเอง */
+  resumed?: boolean;
 }
 
 /** ใบผ่านชั่วคราวระหว่าง login ขั้นที่ 1 → 2 (5 นาที) — เก็บใน httpOnly cookie ไม่ส่งให้ JavaScript ฝั่งเบราว์เซอร์ */
 const CHALLENGE_COOKIE = "eam_2fa";
 
-type LoginResult = { token: string; expires_at: string; user: User; recovery_codes?: string[] };
+type LoginResult = { token: string; expires_at: string; user: User; recovery_codes?: string[]; password_expired?: boolean; password_change_required?: boolean };
 type LoginResponse = LoginResult | { two_factor: "verify" | "setup"; challenge: string };
 
 /** cookie ต้องเป็น Secure เสมอ ยกเว้นเปิดผ่าน localhost (เครื่องพัฒนา) */
@@ -47,6 +52,9 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   if (!email || !password) {
     return { error: t("auth.required"), email };
   }
+  // ขั้นที่ 2: ตั้งรหัสผ่านใหม่ (session จากขั้นแรกเริ่มแล้ว) → บันทึกแล้วเข้าใช้งาน
+  const stage = String(formData.get("change_password") ?? "");
+  if (stage === "first" || stage === "expired") return saveNewPassword(stage, email, password, formData);
 
   let result: LoginResponse;
   try {
@@ -68,7 +76,31 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     return { twoFactor: result.two_factor, email };
   }
   await startSession(result);
-  redirect("/"); // หน้าแรกเลือกปลายทางตามผู้ใช้ (IT → คิวงาน IT, คนอื่น → ใบแจ้งงานของฉัน)
+  // ต้องตั้งรหัสผ่านใหม่ก่อนใช้งาน — แสดงช่องรหัสผ่านใหม่ + ยืนยัน ในหน้า login เลย (API ยังไม่ให้ใช้งานอื่นจนกว่าจะเปลี่ยน)
+  if (result.password_expired) return { changePassword: result.password_change_required ? "first" : "expired", email };
+  redirect("/"); // หน้าแรก = ภาพรวม (Dashboard)
+}
+
+/** บันทึกรหัสผ่านใหม่จากหน้า login (รหัสผ่านปัจจุบัน = ที่เพิ่งใช้เข้าสู่ระบบ) แล้วเข้าใช้งาน */
+async function saveNewPassword(stage: "first" | "expired", email: string, current: string, formData: FormData): Promise<LoginState> {
+  const { t } = await getI18n();
+  const next = String(formData.get("new_password") ?? "");
+  const confirmation = String(formData.get("password_confirmation") ?? "");
+  const keep = { changePassword: stage, email, resumed: formData.get("resumed") === "1" } as const;
+  if (!next) return { ...keep, fieldErrors: { new_password: t("auth.newPasswordRequired") } };
+  if (next !== confirmation) return { ...keep, fieldErrors: { password_confirmation: t("auth.passwordMismatch") } };
+  try {
+    await apiFetch("/auth/password", { method: "PUT", body: JSON.stringify({ current_password: current, password: next, password_confirmation: confirmation }) });
+  } catch (e) {
+    if (e instanceof ApiError) {
+      if (e.status === 429) return { ...keep, error: t("auth.throttled") };
+      const errors = e.body.errors ?? {};
+      if (errors.password?.[0]) return { ...keep, fieldErrors: { new_password: errors.password[0] } };
+      return { ...keep, error: errors.current_password?.[0] ?? e.body.message ?? t("auth.failed") };
+    }
+    return { ...keep, error: t("auth.unreachable") };
+  }
+  redirect("/");
 }
 
 /** secret + QR ของแอปยืนยันตัวตน (ผู้ดูแลระบบที่ถูกบังคับ 2FA ตั้งระหว่าง login) */
@@ -116,7 +148,7 @@ export async function verifyLoginTwoFactor(_prev: TwoFactorState, formData: Form
   jar.delete({ name: CHALLENGE_COOKIE, path: "/login" });
   await startSession(result);
   if (result.recovery_codes?.length) return { recoveryCodes: result.recovery_codes };
-  redirect("/");
+  redirect(result.password_expired ? "/login?change=1" : "/");
 }
 
 export type ConnectionStatus = "online" | "offline" | "unknown";

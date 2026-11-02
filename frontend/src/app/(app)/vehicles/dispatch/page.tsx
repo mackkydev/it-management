@@ -39,10 +39,10 @@ export default async function VehicleDispatchPage({ searchParams }: PageProps<"/
   return (
     <div className="space-y-5">
       <PageHeader icon={CheckCircleIcon} title={t("vehicle.dispatch.title")} subtitle={t("vehicle.dispatch.subtitle")} />
-      {(sp.done === "approved" || sp.done === "rejected") && (
+      {(sp.done === "approved" || sp.done === "rejected" || sp.done === "cancelled") && (
         <p role="status" className={alert.success}>
           <CheckCircleIcon className="shrink-0" />
-          {t(sp.done === "approved" ? "vehicle.approval.approvedDone" : "vehicle.approval.rejectedDone")}
+          {t(sp.done === "approved" ? "vehicle.approval.approvedDone" : sp.done === "cancelled" ? "vehicle.approval.cancelledDone" : "vehicle.approval.rejectedDone")}
         </p>
       )}
       <nav className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1">

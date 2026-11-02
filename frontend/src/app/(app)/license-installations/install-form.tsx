@@ -124,6 +124,11 @@ export function InstallForm({ licenses, branches, defaultLicense }: { licenses: 
           <label htmlFor="license_id" className="mb-1 block text-sm font-medium">
             {t("installations.license")} <span className="text-red-500">*</span>
           </label>
+          {licenses.length === 1 ? (
+            <p id="license_id" className="font-medium">
+              {licenses[0].name} <span className="font-mono text-xs text-muted">({licenses[0].asset_tag})</span>
+            </p>
+          ) : (
           <AppSelect id="license_id" value={v.license_id} onChange={(e) => set("license_id", e.target.value)} className={cls("license_id")}>
             <option value="">{t("installations.chooseLicense")}</option>
             {licenses.map((l) => (
@@ -133,6 +138,7 @@ export function InstallForm({ licenses, branches, defaultLicense }: { licenses: 
               </option>
             ))}
           </AppSelect>
+          )}
           {errors.license_id ? err("license_id") : full && <p className="mt-1 text-xs font-medium text-red-500">{t("installations.validate.full")}</p>}
         </div>
 

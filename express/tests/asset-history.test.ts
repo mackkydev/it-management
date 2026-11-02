@@ -127,10 +127,17 @@ describe("asset list license usage", () => {
     await insert("asset_licenses", { asset_id: unlimited.id, billing: "perpetual", start_date: "2026-01-01", seats: null, created_at: now, updated_at: now });
     await makeAsset({ asset_tag: "PC-1", category: "COMPUTER" });
 
-    const list = (await api.get("/api/v1/assets?per_page=10")).body.data as { asset_tag: string; license_usage?: unknown }[];
+    // License ซอฟต์แวร์แยกไปเมนู /licenses — รายการสินทรัพย์ปกติไม่รวมหมวด SOFTWARE
+    const assets = (await api.get("/api/v1/assets?per_page=10")).body.data as { asset_tag: string }[];
+    expect(assets.map((a) => a.asset_tag)).toEqual(["PC-1"]);
+    const list = (await api.get("/api/v1/assets?per_page=10&category=SOFTWARE")).body.data as { asset_tag: string; license_usage?: unknown }[];
     const byTag = Object.fromEntries(list.map((a) => [a.asset_tag, a.license_usage]));
     expect(byTag["SW-1"]).toEqual({ seats: 5, used: 2, available: 3 });
     expect(byTag["SW-2"]).toEqual({ seats: null, used: 0, available: null });
-    expect(byTag["PC-1"]).toBeUndefined();
+
+    // เมนู License ซอฟต์แวร์: จำนวนที่ใช้ + ไฟล์แนบ — ผู้ใช้ทั่วไปเปิดไม่ได้
+    const licenses = (await api.get("/api/v1/license-installations/licenses")).body.data as { asset_tag: string; used: number; files_count: number; billing: string }[];
+    expect(licenses.find((l) => l.asset_tag === "SW-1")).toMatchObject({ used: 2, files_count: 0, billing: "yearly" });
+    expect((await (await as(await makeUser())).get("/api/v1/license-installations/licenses")).status).toBe(403);
   });
 });

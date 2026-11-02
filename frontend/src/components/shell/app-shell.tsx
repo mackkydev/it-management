@@ -500,6 +500,25 @@ function TopNav({ groups }: { groups: NavGroup[] }) {
       {groups.map((group) => {
         const isOpen = open === group.id;
         const hasActive = group.items.some((i) => i.href === active);
+        // เมนูเดี่ยว (เช่น ภาพรวม) = ลิงก์ตรง ไม่มี dropdown
+        const direct = group.direct ? group.items[0] : null;
+        if (direct) {
+          return (
+            <Link
+              key={group.id}
+              href={direct.href}
+              onClick={() => setOpen(null)}
+              aria-current={hasActive ? "page" : undefined}
+              className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                hasActive ? "bg-accent-100 text-accent-800 dark:bg-accent-400/15 dark:text-accent-200" : "text-ink hover:bg-subtle"
+              }`}
+            >
+              <group.icon width={16} height={16} className={hasActive ? "" : "text-accent-500 dark:text-accent-300"} />
+              {navLabel(group, t, locale)}
+              <ItemBadge href={direct.href} />
+            </Link>
+          );
+        }
         return (
           <div key={group.id} className="relative">
             <button

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request } from "express";
 import { config } from "../config.js";
 import { exec, first, insert, isUuid, lockNamed, scalar, select, transaction, update } from "../db.js";
-import { authorize, notFound, ValidationError } from "../lib/errors.js";
+import { authorize, HttpError, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
 import { dateOnly, iso, localToday, nowDb } from "../lib/time.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
@@ -22,7 +22,7 @@ import { deleteStored, randomString, readStored, writeStored } from "../services
  *     GET /meeting-rooms/:id/images/:imageId — ทุกคนที่ login
  *   การจอง: GET /meeting-bookings?from=&to=&room_id= (ที่ยืนยันแล้ว), GET /meeting-bookings/mine?status=upcoming|past|cancelled,
  *     GET|PUT|DELETE /meeting-bookings/:uuid, POST /meeting-bookings, POST /meeting-bookings/:uuid/cancel
- *     จองหลายวันได้: date ถึง end_date (ช่วงเวลาเดียวกันทุกวัน, ≤ MAX_DAYS วัน — end_date ไม่ส่ง = วันเดียว)
+ *     จองหลายวันได้แบบต่อเนื่อง: date + start_time ถึง end_date + end_time (วันแรกเริ่มตามเวลาเริ่ม, วันกลางเต็มวัน, วันสุดท้ายถึงเวลาสิ้นสุด; ≤ MAX_DAYS วัน — end_date ไม่ส่ง = วันเดียว)
  *     ห้อง + วันที่คาบเกี่ยว + ช่วงเวลาซ้อนกัน = 422 (ตรวจใน transaction + lock ต่อห้อง) — ชนกันพอดีขอบเวลา (09:00–10:00 กับ 10:00–11:00) ได้
  *     แก้/ยกเลิก/ลบของผู้อื่น = meeting.manage_any (แจ้งเตือนเจ้าของการจอง)
  *   ขอบเขตตามสาขาต่อกลุ่ม (services/booking-scope.ts): branch = เห็น/จองห้องสาขาตัวเอง + ห้องใช้ร่วมกัน, จัดการได้เฉพาะห้องสาขาตัวเอง
@@ -473,8 +473,9 @@ async function bookingInput(req: Request, current: BookingRow | null, currentEqu
   const days = (Date.parse(endDate) - Date.parse(date)) / 86_400_000 + 1;
   // แก้การจองหลายวันที่เริ่มไปแล้ว (วันแรกเดิม) = ตรวจเฉพาะวันสุดท้ายว่ายังไม่จบ
   const startedBefore = current !== null && dateOnly(current.booking_date) === date;
-  if (end <= start) errors.end_time = t(req, "eam.meeting.time_order");
-  else if (endDate < date) errors.end_date = t(req, "eam.meeting.end_date_order");
+  if (endDate < date) errors.end_date = t(req, "eam.meeting.end_date_order");
+  // จองต่อเนื่อง: เทียบวันเวลาเต็ม (หลายวัน = เวลาสิ้นสุดของวันสุดท้ายน้อยกว่าเวลาเริ่มได้)
+  else if (`${endDate} ${end}` <= `${date} ${start}`) errors.end_time = t(req, "eam.meeting.time_order");
   else if (days > MAX_DAYS) errors.end_date = t(req, "eam.meeting.too_long", { days: MAX_DAYS });
   else if (isOver(startedBefore ? endDate : date, end)) errors.date = t(req, "eam.meeting.past");
 
@@ -504,14 +505,22 @@ async function bookingInput(req: Request, current: BookingRow | null, currentEqu
  * ห้องเดียวกัน ช่วงวันคาบเกี่ยวกัน และช่วงเวลาซ้อนกัน (ทุกวันของการจองใช้ช่วงเวลาเดียวกัน) — ไม่นับที่ยกเลิก/ลบ และตัวเอง
  * เรียกใน transaction หลัง lock
  */
-async function assertFree(req: Request, v: { room_id: number; booking_date: string; end_date: string; start_time: string; end_time: string }, exceptId: number | null) {
-  const clash = await first<{ title: string; booking_date: string; start_time: string; end_time: string; user_name: string | null }>(
-    `SELECT m.title, m.booking_date, m.start_time, m.end_time, u.name AS user_name FROM meeting_bookings m LEFT JOIN users u ON u.id = m.user_id
-      WHERE m.room_id = ? AND m.booking_date <= ? AND ${LAST_DAY_SQL} >= ? AND m.status = 'confirmed' AND m.deleted_at IS NULL
-        AND m.start_time < ? AND m.end_time > ?${exceptId ? " AND m.id <> ?" : ""}
-      ORDER BY m.booking_date, m.start_time LIMIT 1`,
-    [v.room_id, v.end_date, v.booking_date, v.end_time, v.start_time, ...(exceptId ? [exceptId] : [])],
+type Slot = { room_id: number; booking_date: string; end_date: string; start_time: string; end_time: string };
+const slotOf = (b: BookingRow, roomId = Number(b.room_id)): Slot => ({ room_id: roomId, booking_date: dateOnly(b.booking_date)!, end_date: lastDay(b), start_time: b.start_time, end_time: b.end_time });
+
+/** การจองของห้องที่ช่วงเวลาต่อเนื่อง (วันเวลาเริ่ม → วันเวลาสิ้นสุด) ซ้อนกัน (ยืนยันแล้ว ไม่ลบ) ยกเว้น except — ต่อกันพอดีขอบเวลาได้ */
+async function clashesIn(v: Slot, except: number[]): Promise<BookingRow[]> {
+  const ids = except.filter(Boolean);
+  return select<BookingRow>(
+    `${BOOKING_SELECT} WHERE m.room_id = ? AND m.booking_date <= ? AND ${LAST_DAY_SQL} >= ? AND m.status = 'confirmed' AND m.deleted_at IS NULL
+        AND CONCAT(m.booking_date, ' ', m.start_time) < ? AND CONCAT(${LAST_DAY_SQL}, ' ', m.end_time) > ?${ids.length ? " AND m.id NOT IN (?)" : ""}
+      ORDER BY m.booking_date, m.start_time LIMIT 5`,
+    [v.room_id, v.end_date, v.booking_date, `${v.end_date} ${v.end_time}`, `${v.booking_date} ${v.start_time}`, ...(ids.length ? [ids] : [])],
   );
+}
+
+async function assertFree(req: Request, v: Slot, except: number | number[] | null) {
+  const clash = (await clashesIn(v, Array.isArray(except) ? except : except ? [except] : []))[0];
   if (clash) {
     throw ValidationError.withMessages({
       start_time: t(req, "eam.meeting.overlap", { start: clash.start_time, end: clash.end_time, title: clash.title, name: clash.user_name ?? "-" }),
@@ -521,6 +530,37 @@ async function assertFree(req: Request, v: { room_id: number; booking_date: stri
 
 /** lock ต่อห้อง (จองหลายวันคาบเกี่ยวกันได้หลายวัน) */
 const lockKey = (roomId: number) => `meeting_room:${roomId}`;
+/** lock หลายห้องเรียงตามเลข (กัน deadlock เมื่อสลับห้อง) */
+async function lockRooms(...ids: number[]) {
+  for (const id of [...new Set(ids)].sort((a, z) => a - z)) await lockNamed(lockKey(id));
+}
+
+const dateRange = (b: BookingRow) => (lastDay(b) === dateOnly(b.booking_date) ? dateOnly(b.booking_date)! : `${dateOnly(b.booking_date)} – ${lastDay(b)}`);
+
+/**
+ * สลับห้อง: ย้ายการจองนี้ไปห้องที่มีการจองอื่นชนอยู่ 1 รายการ → รายการนั้นย้ายมาห้องเดิมของการจองนี้
+ * ได้เมื่อ: เปลี่ยนห้องจริง, ชนรายการเดียว, ผู้ทำจัดการรายการนั้นได้ (meeting.manage_any + สาขา), รายการนั้นยังไม่เริ่ม,
+ * และห้องเดิมว่างตลอดช่วงของรายการนั้น — ไม่ได้ = 422 ห้องไม่ว่างเหมือนเดิม
+ * ยังไม่ยืนยัน (swap ไม่ส่ง) = 409 code swap_available + รายละเอียด (หน้าเว็บถามยืนยันแล้วส่งซ้ำพร้อม swap: true)
+ */
+async function swapCandidate(req: Request, u: UserRow, b: BookingRow, v: Slot, confirmed: boolean): Promise<BookingRow | null> {
+  const clashes = await clashesIn(v, [Number(b.id)]);
+  if (!clashes.length) return null;
+  const from = Number(b.room_id);
+  const other = clashes[0];
+  const swappable =
+    clashes.length === 1 &&
+    from !== v.room_id &&
+    managesBooking(u, await scope(u), other) &&
+    !isOver(dateOnly(other.booking_date)!, other.start_time) &&
+    (await clashesIn(slotOf(other, from), [Number(b.id), Number(other.id)])).length === 0;
+  if (!swappable) await assertFree(req, v, Number(b.id));
+  if (!confirmed) {
+    const swap = { id: other.uuid, title: other.title, owner: other.user_name ?? "-", period: `${dateRange(other)} ${other.start_time}–${other.end_time}`, room: other.room_name, to_room: b.room_name };
+    throw new HttpError(409, t(req, "eam.meeting.swap_available", swap), {}, { code: "swap_available", swap });
+  }
+  return other;
+}
 
 async function saveEquipment(bookingId: number, names: string[]) {
   await exec("DELETE FROM meeting_booking_equipment WHERE booking_id = ?", [bookingId]);
@@ -578,9 +618,16 @@ meetingRoutes.put("/meeting-bookings/:uuid", async (req, res) => {
   const currentEquipment = (await select<{ name: string }>("SELECT name FROM meeting_booking_equipment WHERE booking_id = ?", [b.id])).map((e) => e.name);
   const v = await bookingInput(req, b, currentEquipment);
   const { equipment, ...row } = v;
+  // ห้องปลายทางมีการจองชน → สลับห้องกับรายการนั้น (ต้องยืนยัน swap: true)
+  const other = await swapCandidate(req, u, b, v, bool(req.input.swap));
   await transaction(async () => {
-    await lockNamed(lockKey(v.room_id));
-    await assertFree(req, v, Number(b.id));
+    await lockRooms(v.room_id, Number(b.room_id));
+    if (other) {
+      // รายการที่ถูกสลับย้ายไปห้องเดิมของการจองนี้ — ตรวจว่างซ้ำหลัง lock
+      await assertFree(req, slotOf(other, Number(b.room_id)), [Number(b.id), Number(other.id)]);
+      await update("meeting_bookings", { room_id: Number(b.room_id), updated_at: nowDb() }, "id = ?", [other.id]);
+    }
+    await assertFree(req, v, [Number(b.id), Number(other?.id ?? 0)]);
     await update("meeting_bookings", { ...row, updated_at: nowDb() }, "id = ?", [b.id]);
     await saveEquipment(Number(b.id), equipment);
   });
@@ -592,6 +639,11 @@ meetingRoutes.put("/meeting-bookings/:uuid", async (req, res) => {
     after: auditView(v),
   });
   await notifyOwner(u, b, "updated");
+  if (other) {
+    await audit(req, { action: "meeting_booking.swapped", subjectType: "meeting_booking", subjectId: other.id, before: { room_id: Number(other.room_id) }, after: { room_id: Number(b.room_id), swapped_with: b.uuid } });
+    // แจ้งเจ้าของรายการที่ถูกย้ายห้อง (ชื่อห้องใหม่)
+    await notifyOwner(u, (await first<BookingRow>(`${BOOKING_SELECT} WHERE m.id = ?`, [other.id]))!, "updated");
+  }
   const [json] = await bookingsJson([(await first<BookingRow>(`${BOOKING_SELECT} WHERE m.id = ?`, [b.id]))!], u);
   res.json({ data: json });
 });

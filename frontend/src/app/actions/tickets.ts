@@ -10,9 +10,9 @@ import type { AppNotification, TicketDetail } from "@/lib/types";
 export type TicketResult = ActionResult<string>;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ACTIONS = ["approve", "reject", "accept", "forward", "progress", "close", "return", "confirm_close", "cancel_confirm", "cancel_reject", "cancel_withdraw"] as const;
+const ACTIONS = ["approve", "reject", "accept", "request_approval", "forward", "progress", "close", "return", "confirm_close", "cancel_confirm", "cancel_reject", "cancel_withdraw"] as const;
 /** action → path ของ API (ยกเลิกใช้ /cancel/...) */
-const ENDPOINT: Partial<Record<(typeof ACTIONS)[number], string>> = { confirm_close: "confirm-close", cancel_confirm: "cancel/confirm", cancel_reject: "cancel/reject", cancel_withdraw: "cancel/withdraw" };
+const ENDPOINT: Partial<Record<(typeof ACTIONS)[number], string>> = { request_approval: "request-approval", confirm_close: "confirm-close", cancel_confirm: "cancel/confirm", cancel_reject: "cancel/reject", cancel_withdraw: "cancel/withdraw" };
 type SimpleAction = (typeof ACTIONS)[number];
 
 async function invalid(): Promise<TicketResult> {
@@ -73,6 +73,18 @@ export async function recordResult(id: string, form: FormData): Promise<TicketRe
   }
   revalidatePath(`/tickets/${id}`);
   redirect(`/tickets/${id}?done=result`);
+}
+
+/** อัปเดตความคืบหน้า (multipart: comment + files[] — ไฟล์/รูปประกอบ ไฟล์ละ ≤ 1MB) */
+export async function recordProgress(id: string, form: FormData): Promise<TicketResult> {
+  if (!UUID_RE.test(id)) return invalid();
+  try {
+    await apiFetch(`/tickets/${id}/progress`, { method: "POST", body: form });
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath(`/tickets/${id}`);
+  redirect(`/tickets/${id}?done=progress`);
 }
 
 /* ---------------- แจ้งเตือน (กระดิ่ง) ---------------- */

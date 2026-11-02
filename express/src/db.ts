@@ -10,6 +10,7 @@ import { config } from "./config.js";
  * - วันที่/เวลาคืนเป็น string ตามที่เก็บ (DATETIME(0) แบบ UTC) แล้วแปลงเป็น ISO ใน resource
  * - BIGINT (id, COUNT) คืนเป็น number, DECIMAL คืนเป็น string ("1234.50"), BOOLEAN (TINYINT(1)) คืนเป็น true/false, JSON คืนเป็น object
  * - query ใน transaction() ใช้ connection เดียวกันอัตโนมัติ (AsyncLocalStorage)
+ * - INSERT / UPDATE / DELETE ที่สำเร็จแจ้ง onCommittedWrite() พร้อมชื่อตาราง (ใน transaction = หลัง commit) — routes/sync.ts ใช้นับเวอร์ชันข้อมูล
  */
 export type Row = Record<string, any>;
 
@@ -19,7 +20,8 @@ export function getPool(): Pool {
   if (pool) return pool;
   const base = mysql.createPool({
     ...config.db,
-    connectionLimit: 10,
+    // ขนาด pool ตั้งได้ด้วย DB_POOL_SIZE (ตั้งต้น 10) — เพิ่มเมื่อผู้ใช้พร้อมกันมากขึ้น (ไม่เกิน max_connections ของ MySQL)
+    connectionLimit: config.dbPoolSize,
     // handshake ส่ง collation id ได้ไม่เกิน 255 — ตั้ง utf8mb4_0900_as_ci (id 305) ด้วย SET NAMES ตอนเชื่อมต่อแทน
     charset: "utf8mb4",
     // เวลาในฐานข้อมูลเป็น UTC เสมอ (เหมือน Laravel app.timezone = UTC)
@@ -48,7 +50,30 @@ export async function closePool(): Promise<void> {
   pool = null;
 }
 
-const txStore = new AsyncLocalStorage<PoolConnection>();
+interface TxContext {
+  conn: PoolConnection;
+  /** ตารางที่ถูกเขียนใน transaction นี้ — แจ้ง listener หลัง commit เท่านั้น (rollback = ไม่แจ้ง) */
+  writes: Set<string>;
+}
+const txStore = new AsyncLocalStorage<TxContext>();
+
+type WriteListener = (tables: string[]) => void;
+const writeListeners = new Set<WriteListener>();
+/** ฟังการเขียนข้อมูลที่บันทึกแล้ว (ชื่อตาราง) — คืนฟังก์ชันเลิกฟัง */
+export function onCommittedWrite(fn: WriteListener): () => void {
+  writeListeners.add(fn);
+  return () => writeListeners.delete(fn);
+}
+function emitWrites(tables: string[]) {
+  for (const fn of writeListeners) {
+    try {
+      fn(tables);
+    } catch {
+      // listener ผิดพลาดต้องไม่ทำให้การบันทึกข้อมูลล้ม
+    }
+  }
+}
+const WRITE_RE = /^\s*(?:INSERT(?:\s+IGNORE)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+IGNORE)?|DELETE\s+FROM)\s+["`]?([A-Za-z_]\w*)/i;
 
 /** ค่าพารามิเตอร์ → SQL: object ธรรมดา = JSON (เหมือน pg), array = รายการสำหรับ IN (?) */
 function escapeValue(v: unknown): string {
@@ -79,8 +104,13 @@ export function formatSql(sql: string, params: unknown[]): string {
 }
 
 async function run(sql: string, params: unknown[]): Promise<Row[] | ResultSetHeader> {
-  const client = txStore.getStore() ?? getPool();
-  const [result] = await client.query(formatSql(sql, params));
+  const ctx = txStore.getStore();
+  const [result] = await (ctx?.conn ?? getPool()).query(formatSql(sql, params));
+  const table = WRITE_RE.exec(sql)?.[1];
+  if (table) {
+    if (ctx) ctx.writes.add(table);
+    else emitWrites([table]);
+  }
   return result as Row[] | ResultSetHeader;
 }
 
@@ -121,10 +151,12 @@ export async function update(table: string, data: Record<string, unknown>, where
 export async function transaction<T>(fn: () => Promise<T>): Promise<T> {
   if (txStore.getStore()) return fn(); // nested → ใช้ transaction เดิม
   const conn = await getPool().getConnection();
+  const ctx: TxContext = { conn, writes: new Set() };
   try {
     await conn.beginTransaction();
-    const result = await txStore.run(conn, fn);
+    const result = await txStore.run(ctx, fn);
     await conn.commit();
+    if (ctx.writes.size) emitWrites([...ctx.writes]);
     return result;
   } catch (e) {
     await conn.rollback().catch(() => undefined);

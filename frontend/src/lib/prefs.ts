@@ -9,6 +9,8 @@ export const MODES = ["light", "dark", "system"] as const;
 export const PRESET_THEMES = ["lavender", "sky", "mint", "rose", "peach"] as const;
 /** "custom" = ผู้ใช้เลือกสีเอง (ค่าสีเก็บใน accent) */
 export const THEMES = [...PRESET_THEMES, "custom"] as const;
+/** โทนสีของธีม: ปกติ / พาสเทล (จางลง — globals.css `[data-tone="pastel"]`) */
+export const TONES = ["normal", "pastel"] as const;
 export const LAYOUTS = ["sidebar", "topbar"] as const;
 /** sidebar ย่อเหลือแค่ icon หรือแสดงเต็ม */
 export const SIDEBAR_STATES = ["expanded", "collapsed"] as const;
@@ -17,6 +19,7 @@ export const LOCALES = ["th", "en"] as const;
 export type Mode = (typeof MODES)[number];
 export type PresetTheme = (typeof PRESET_THEMES)[number];
 export type Theme = (typeof THEMES)[number];
+export type Tone = (typeof TONES)[number];
 export type Layout = (typeof LAYOUTS)[number];
 export type SidebarState = (typeof SIDEBAR_STATES)[number];
 export type Locale = (typeof LOCALES)[number];
@@ -26,6 +29,7 @@ export interface Prefs {
   theme: Theme;
   /** สีหลักของธีมกำหนดเอง (#rrggbb) */
   accent: string;
+  tone: Tone;
   layout: Layout;
   sidebar: SidebarState;
   locale: Locale;
@@ -35,6 +39,7 @@ export const PREF_COOKIES = {
   mode: "eam_mode",
   theme: "eam_theme",
   accent: "eam_accent",
+  tone: "eam_tone",
   layout: "eam_layout",
   sidebar: "eam_sidebar",
   locale: "eam_locale",
@@ -44,6 +49,7 @@ export const DEFAULT_PREFS: Prefs = {
   mode: "system",
   theme: "lavender",
   accent: "#8b5cf6",
+  tone: "normal",
   layout: "sidebar",
   sidebar: "expanded",
   locale: "th",
@@ -52,6 +58,7 @@ export const DEFAULT_PREFS: Prefs = {
 const ALLOWED: { [K in Exclude<keyof Prefs, "accent">]: readonly Prefs[K][] } = {
   mode: MODES,
   theme: THEMES,
+  tone: TONES,
   layout: LAYOUTS,
   sidebar: SIDEBAR_STATES,
   locale: LOCALES,

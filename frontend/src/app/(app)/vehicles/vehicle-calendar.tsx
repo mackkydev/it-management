@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { loadVehicleBookings } from "@/app/actions/vehicles";
-import { ChevronLeftIcon, ChevronRightIcon, PlusIcon, SpinnerIcon } from "@/components/icons";
-import { Tooltip } from "@/components/tooltip";
+import { CarIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, SpinnerIcon } from "@/components/icons";
+import { MonthBarGrid } from "@/components/month-bars";
 import { btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { IDLE_TONE } from "@/lib/booking";
@@ -16,8 +16,8 @@ import { VehicleDialog } from "./vehicle-dialog";
 import { daysOf, periodText, toneOf } from "./vehicle-utils";
 
 /**
- * ปฏิทินเดือนของการจองรถ — การจองหลายวันขึ้นทุกวันในช่วง (สีตามรถ, ยังไม่ระบุรถ = สีเทา),
- * ชี้ = รายการจองของวันนั้น, คลิกวัน = ไทม์ไลน์รายคัน, + / คลิกขวา = จองวันนั้น
+ * ปฏิทินเดือนของการจองรถ — การจองเป็นแถบ (สีตามรถ, ยังไม่ระบุรถ = สีเทา, จองหลายวัน = แถบลากยาว),
+ * ชี้แถบ = รายละเอียด, คลิกวัน = ไทม์ไลน์รายคัน, + / คลิกขวา = จองวันนั้น
  */
 export function VehicleCalendar({ month: initialMonth, initialBookings, vehicles, canDispatch, canBook = true }: { month: string; initialBookings: VehicleBooking[]; vehicles: Vehicle[]; canDispatch: boolean; canBook?: boolean }) {
   const { t, fmt, locale } = useI18n();
@@ -51,12 +51,6 @@ export function VehicleCalendar({ month: initialMonth, initialBookings, vehicles
   const book = (d: string) => router.push(`/vehicles/book?date=${d}`);
   const vehicleName = (b: VehicleBooking) => b.vehicle?.name ?? t("vehicle.unassigned");
   const tone = (b: VehicleBooking) => (b.vehicle ? toneOf(vehicles, b.vehicle.id) : IDLE_TONE);
-  // รถที่ถูกจองในวันนั้น (ไม่ซ้ำ เรียงตามลำดับรถ — ยังไม่ระบุรถ = จุดสีเทาท้ายสุด)
-  const vehicleDots = (list: VehicleBooking[]) => {
-    const ids = [...new Set(list.map((b) => b.vehicle?.id ?? 0))];
-    const order = (id: number) => (id === 0 ? Number.MAX_SAFE_INTEGER : vehicles.findIndex((v) => v.id === id));
-    return ids.sort((a, b) => order(a) - order(b)).map((id) => ({ key: id, dot: id === 0 ? IDLE_TONE.dot : toneOf(vehicles, id).dot }));
-  };
   const line = (b: VehicleBooking) => `${periodText(b, fmt.date)} · ${vehicleName(b)} · ${b.details} (${b.user.name})`;
 
   return (
@@ -80,12 +74,12 @@ export function VehicleCalendar({ month: initialMonth, initialBookings, vehicles
         <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
           {vehicles.map((v) => (
             <span key={v.id} className="flex items-center gap-1.5">
-              <span className={`h-2.5 w-2.5 rounded-full ${toneOf(vehicles, v.id).dot}`} aria-hidden="true" />
+              <CarIcon width={14} height={14} className={`shrink-0 ${toneOf(vehicles, v.id).icon}`} aria-hidden="true" />
               {v.name}
             </span>
           ))}
           <span className="flex items-center gap-1.5">
-            <span className={`h-2.5 w-2.5 rounded-full ${IDLE_TONE.dot}`} aria-hidden="true" />
+            <CarIcon width={14} height={14} className={`shrink-0 ${IDLE_TONE.icon}`} aria-hidden="true" />
             {t("vehicle.unassigned")}
           </span>
         </div>
@@ -95,76 +89,35 @@ export function VehicleCalendar({ month: initialMonth, initialBookings, vehicles
         </span>
       </div>
 
-      {/* จอใหญ่: ตารางเดือน */}
-      <div className={`hidden overflow-hidden md:block ${card}`}>
-        <div className="grid grid-cols-7 border-b border-line bg-subtle text-center text-xs font-medium text-muted">
-          {grid.days.slice(0, 7).map((d) => (
-            <div key={d} className="py-2">
-              {weekday.format(new Date(`${d}T00:00:00Z`))}
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7">
-          {grid.days.map((d) => {
-            const list = byDay.get(d) ?? [];
-            const outside = d.slice(0, 7) !== month;
-            const past = d < today;
-            return (
-              <div
-                key={d}
-                role="button"
-                tabIndex={0}
-                onClick={() => router.push(`/vehicles/day/${d}`)}
-                onKeyDown={(e) => e.key === "Enter" && router.push(`/vehicles/day/${d}`)}
-                onContextMenu={(e) => {
-                  if (past || !canBook) return;
-                  e.preventDefault();
-                  book(d);
-                }}
-                className={`group flex min-h-24 cursor-pointer flex-col border-b border-r border-line p-1.5 transition-colors hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-300 dark:hover:bg-accent-400/5 [&:nth-child(7n)]:border-r-0 ${outside ? "bg-subtle/40 text-faint" : ""}`}
-              >
-                <Tooltip
-                  side="bottom"
-                  className="min-w-0 flex-1"
-                  label={
-                    <span className="block space-y-0.5 text-left">
-                      <span className="block font-semibold">{fmt.date(d)}</span>
-                      {list.length === 0 ? <span className="block opacity-80">{t("meeting.free")}</span> : list.map((b) => <span key={b.id} className="block">{line(b)}</span>)}
-                    </span>
-                  }
-                >
-                  <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="flex items-center justify-between gap-1">
-                      <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium ${d === today ? "bg-accent-500 text-white" : ""}`}>
-                        {Number(d.slice(8))}
-                      </span>
-                      {list.length > 0 && <span className="truncate whitespace-nowrap text-[10px] font-medium text-muted">{t("meeting.bookingsCount", { n: list.length })}</span>}
-                      {!past && canBook && (
-                        <button
-                          type="button"
-                          onClick={(e) => (e.stopPropagation(), book(d))}
-                          aria-label={t("vehicle.book")}
-                          className="cursor-pointer rounded-md p-0.5 text-muted opacity-0 transition-opacity hover:bg-accent-100 hover:text-accent-700 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-accent-400/20 dark:hover:text-accent-200"
-                        >
-                          <PlusIcon width={14} height={14} />
-                        </button>
-                      )}
-                    </span>
-                    {/* จุดสี 1 จุดต่อรถที่ถูกจองในวันนั้น (สีเดียวกับคำอธิบายด้านบน) — รายละเอียดดูจากทูลทิป / คลิกเข้าไทม์ไลน์ */}
-                    {list.length > 0 && (
-                      <span className="flex flex-wrap gap-1 px-1 pt-0.5" aria-hidden="true">
-                        {vehicleDots(list).map((x) => (
-                          <span key={x.key} className={`h-2.5 w-2.5 rounded-full ${x.dot}`} />
-                        ))}
-                      </span>
-                    )}
-                  </span>
-                </Tooltip>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* จอใหญ่: ตารางเดือนแบบแถบ — จองหลายวัน = แถบลากยาว (สีตามรถ, รออนุมัติ = จาง เส้นประ), ชี้ = รายละเอียด, คลิกแถบ = กล่องรายละเอียด, คลิกวัน = ไทม์ไลน์รายคัน */}
+      <MonthBarGrid
+        month={month}
+        days={grid.days}
+        today={today}
+        weekdayLabel={(d) => weekday.format(new Date(`${d}T00:00:00Z`))}
+        onDayClick={(d) => router.push(`/vehicles/day/${d}`)}
+        onBook={canBook ? book : undefined}
+        bookLabel={t("vehicle.book")}
+        moreLabel={(n) => t("meeting.more", { n })}
+        bars={bookings.map((b) => ({
+          id: b.id,
+          start: b.start_on,
+          end: b.end_on,
+          label: `${b.start_time} ${vehicleName(b)} · ${b.details}`,
+          tone: tone(b).bar,
+          dashed: b.status === "pending",
+          onClick: () => setSelected(b),
+          detail: (
+            <span className="block space-y-0.5 text-left">
+              <span className="block font-semibold">{b.details}</span>
+              <span className="block">{periodText(b, fmt.date)}</span>
+              <span className="block">{[vehicleName(b), b.vehicle?.plate_no].filter(Boolean).join(" · ")}</span>
+              <span className="block opacity-80">{[b.user.name, b.department].filter(Boolean).join(" · ")}</span>
+              {b.status === "pending" && <span className="block opacity-80">{t("vehicle.booking.statuses.pending")}</span>}
+            </span>
+          ),
+        }))}
+      />
 
       {/* จอเล็ก: รายการตามวัน */}
       <ul className="space-y-2 md:hidden">

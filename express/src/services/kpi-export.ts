@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { trans } from "../lib/i18n.js";
 import { kpiMonthRows, kpiTotals, MARKS, SERVICE_TYPES, SERVICE_TYPE_NOTE, type KpiRow } from "./kpi.js";
 
 /**
@@ -78,7 +79,8 @@ function monthSheet(wb: ExcelJS.Workbook, month: string, rows: KpiRow[]) {
       row.getCell(2).value = r.requester ?? null;
       row.getCell(3).value = r.branch ?? null;
       row.getCell(4).value = r.service_type ?? null;
-      row.getCell(5).value = r.ticket ? `${r.details} (${r.ticket.ticket_no})` : r.details;
+      // ใบงานหลายวัน: ต่อท้ายด้วย "วันที่ i/n"
+      row.getCell(5).value = r.ticket ? `${r.details} (${r.ticket.ticket_no}${r.day ? ` ${trans("th", "eam.kpi.day_of", r.day)}` : ""})` : r.details;
       row.getCell(6).value = r.assignee ?? null;
       row.getCell(7).value = r.solution ?? null;
     }

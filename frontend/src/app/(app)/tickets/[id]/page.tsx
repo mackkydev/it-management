@@ -8,13 +8,13 @@ import { card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
-import { getAccess, getCurrentUser, has } from "@/lib/auth";
-import type { TicketDetail } from "@/lib/types";
+import { canViewAssets, getAccess, getCurrentUser, has } from "@/lib/auth";
+import type { TicketDetail, TicketFile } from "@/lib/types";
 import type { TicketFormOptions } from "../new/ticket-form";
 import { DoneBanner } from "../ticket-list";
 import { headApprovedAt, TicketStatusBadge, ticketSubject } from "../ticket-ui";
 import { ProcessTimeline } from "./process-timeline";
-import { PrintModal } from "./print-modal";
+import { PrintModal } from "@/components/print-modal";
 import { SignatureNotice } from "@/components/signature-notice";
 import { TicketActions } from "./ticket-actions";
 import { HelpersCard } from "./helpers-card";
@@ -83,6 +83,46 @@ function Photos({ urls, label }: { urls: { url: string; name: string | null }[];
   );
 }
 
+/** เอกสาร/รูปที่แนบ (กดเปิดดูในแท็บใหม่) — รูป = ภาพย่อ, อื่นๆ = ชื่อไฟล์ + ขนาด */
+function FileList({ files, label }: { files: TicketFile[]; label?: string }) {
+  if (files.length === 0) return null;
+  const images = files.filter((f) => f.mime?.startsWith("image/"));
+  const docs = files.filter((f) => !f.mime?.startsWith("image/"));
+  return (
+    <div className="mt-2">
+      {label && <p className="mb-2 text-xs text-muted">{label}</p>}
+      {docs.length > 0 && (
+        <ul className="space-y-1.5">
+          {docs.map((d) => (
+            <li key={d.id}>
+              <a
+                href={fileUrl(d.url)}
+                target="_blank"
+                rel="noreferrer"
+                className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10"
+              >
+                <FileTextIcon width={16} height={16} className="shrink-0 text-accent-500" />
+                <span className="min-w-0 flex-1 truncate">{d.name}</span>
+                <span className="text-xs text-muted">{(d.size / 1024 / 1024).toFixed(2)} MB</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {images.length > 0 && (
+        <div className={`flex flex-wrap gap-2 ${docs.length > 0 ? "mt-2" : ""}`}>
+          {images.map((p) => (
+            <a key={p.id} href={fileUrl(p.url)} target="_blank" rel="noreferrer" className="block cursor-zoom-in overflow-hidden rounded-xl ring-1 ring-line transition hover:ring-accent-300">
+              {/* eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน route handler (ไม่ใช้ next/image optimizer) */}
+              <img src={fileUrl(p.url)} alt={p.name ?? ""} loading="lazy" className="h-20 w-20 object-cover" />
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Signature({ url, name, role, date, t }: { url: string | null; name?: string | null; role: string; date?: string | null; t: (k: MessageKey) => string }) {
   return (
     <div className="flex flex-col items-center text-center">
@@ -116,10 +156,15 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
   const requestPhotos = tk.attachments.filter((a) => a.kind === "request");
   const resultPhotos = tk.attachments.filter((a) => a.kind === "result");
   const documents = tk.attachments.filter((a) => a.kind === "document");
+  // เอกสารประกอบของการบันทึกผลครั้งล่าสุด (ครั้งก่อนหน้าดูได้ที่ประวัติ)
+  const lastResult = [...tk.events].reverse().find((e) => e.action === "resulted");
+  const resultDocuments = lastResult?.attachments.filter((a) => a.kind === "result_document") ?? [];
   const isRepair = tk.type === "repair";
   const needsPerson = tk.type === "grant_access" || tk.type === "revoke_access";
   const headAt = headApprovedAt(tk);
 
+  // เหตุผลที่ฝ่าย IT ขอให้หัวหน้าอนุมัติ (ครั้งล่าสุด)
+  const approvalReason = [...tk.events].reverse().find((e) => e.action === "approval_requested")?.comment ?? null;
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between print:hidden">
@@ -152,10 +197,28 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
         <TicketStatusBadge status={tk.status} t={t} />
       </div>
 
+      {/* ฝ่าย IT ขอให้หัวหน้าอนุมัติ — ผู้แจ้งกด "เพิ่มผู้อนุมัติ" (ไปที่ช่องผู้อนุมัติในหน้าแก้ไข) */}
+      {tk.status === "approval_requested" && (
+        <div role="status" className={`flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3 text-sm ${tone.warning.badge}`}>
+          <CheckCircleIcon className="shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">{t(user.id === tk.requester?.id ? "tickets.approvalRequested.requester" : "tickets.approvalRequested.others")}</p>
+            {approvalReason && <p className="mt-0.5">{t("tickets.approvalRequested.reason", { reason: approvalReason })}</p>}
+          </div>
+          {tk.actions.includes("edit") && (
+            <Link href={`/tickets/${tk.id}/edit?approver=1`} className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-surface px-3 py-1.5 font-medium text-ink ring-1 ring-line hover:bg-subtle">
+              {t("tickets.approvalRequested.addApprover")}
+            </Link>
+          )}
+        </div>
+      )}
       {tk.actions.includes("approve") && <SignatureNotice user={user} t={t} />}
       {tk.actions.length > 0 && <TicketActions ticket={tk} />}
-      <OnsiteCard ticket={tk} />
-      <HelpersCard ticket={tk} />
+      {/* ไปทำงานหน้างาน + ผู้ร่วมดำเนินการ — แถวเดียว 2 คอลัมน์บนจอใหญ่ (มีการ์ดเดียว = เต็มแถว) */}
+      <div className="grid gap-4 empty:hidden lg:grid-cols-2 lg:[&>*:only-child]:col-span-2">
+        <OnsiteCard ticket={tk} />
+        <HelpersCard ticket={tk} />
+      </div>
 
       {/* ขั้นตอนที่กำลังดำเนินการ */}
       <ProcessTimeline tk={tk} t={t} fmt={fmt} />
@@ -181,7 +244,7 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
                   </span>
                   <span className="rounded-full bg-subtle px-2 py-0.5 text-xs font-medium">{t(`vpn.states.${vpn.status}`)}</span>
                   {vpn.account && vpn.expires_on && <span className="text-muted">{t("tickets.vpn.account", { account: vpn.account, date: fmt.date(vpn.expires_on) })}</span>}
-                  {vpn.status === "requested" && tk.status !== "pending_supervisor" && has(user, "loans.manage") && (
+                  {vpn.status === "requested" && tk.status !== "pending_supervisor" && tk.status !== "approval_requested" && has(user, "loans.manage") && (
                     <Link href="/loans/vpn?status=requested" className="cursor-pointer text-sm font-medium text-accent-700 hover:underline dark:text-accent-300">
                       {t("tickets.vpn.manage")}
                     </Link>
@@ -243,12 +306,12 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Item label={t(isRepair ? "tickets.form.device" : "tickets.form.deviceInstall")}>{tk.device_name}</Item>
             <Item label={t("tickets.form.assetTag")}>
-              {tk.asset ? (
+              {tk.asset && canViewAssets(user) ? (
                 <Link href={`/assets/${tk.asset.id}`} className="cursor-pointer font-mono text-accent-700 hover:underline dark:text-accent-300">
                   {tk.asset.asset_tag} · {tk.asset.name}
                 </Link>
               ) : (
-                tk.asset_tag && <span className="font-mono">{tk.asset_tag}</span>
+                (tk.asset || tk.asset_tag) && <span className="font-mono">{tk.asset ? `${tk.asset.asset_tag} · ${tk.asset.name}` : tk.asset_tag}</span>
               )}
             </Item>
             {isRepair && (
@@ -296,7 +359,9 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
             <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Item label={t("tickets.result.outcome")}>
                 {tk.result === "completed"
-                  ? `${t("tickets.result.completed")}${tk.completed_on ? ` · ${fmt.date(tk.completed_on)}` : ""}`
+                  ? `${t("tickets.result.completed")}${tk.completed_on ? ` · ${fmt.date(tk.completed_on)}` : ""}${
+                      tk.work_start_on && tk.completed_on ? ` (${t("tickets.result.workPeriod", { from: fmt.date(tk.work_start_on), to: fmt.date(tk.completed_on) })})` : ""
+                    }`
                   : t("tickets.result.cannot")}
               </Item>
               {tk.result === "cannot_complete" && <Item label={t("tickets.result.cannotReason")}>{tk.cannot_reason}</Item>}
@@ -339,6 +404,7 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
               </div>
             )}
             <Photos urls={resultPhotos} label={t("tickets.detail.resultPhotos")} />
+            <FileList files={resultDocuments} label={t("tickets.detail.resultDocuments")} />
           </div>
         ) : (
           <p className="text-sm text-muted">{t("tickets.detail.noResult")}</p>
@@ -376,6 +442,7 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
               </p>
               <p className="text-xs text-faint">{fmt.dateTime(ev.created_at)}</p>
               {ev.comment && <p className="mt-1 rounded-lg bg-subtle px-3 py-1.5 text-sm">{ev.comment}</p>}
+              <FileList files={ev.attachments ?? []} />
             </li>
           ))}
         </ol>

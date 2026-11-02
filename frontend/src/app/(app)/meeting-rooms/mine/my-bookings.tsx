@@ -59,9 +59,10 @@ export function MyBookings({ items }: { items: MeetingBooking[] }) {
   const when = (b: MeetingBooking) => (
     <>
       <Link href={`/meeting-rooms/day/${b.date}`} className="cursor-pointer font-medium hover:text-accent-600 dark:hover:text-accent-300">
-        {b.end_date > b.date ? `${fmt.date(b.date)} – ${fmt.date(b.end_date)}` : fmt.date(b.date)}
+        {b.end_date > b.date ? `${fmt.date(b.date)} ${b.start_time} – ${fmt.date(b.end_date)} ${b.end_time}` : fmt.date(b.date)}
       </Link>
-      <span className="block text-xs text-muted">{t("meeting.timeRange", { start: b.start_time, end: b.end_time })}</span>
+      {/* จองต่อเนื่องหลายวัน: วันเวลาอยู่บรรทัดบนแล้ว */}
+      {b.end_date <= b.date && <span className="block text-xs text-muted">{t("meeting.timeRange", { start: b.start_time, end: b.end_time })}</span>}
     </>
   );
 

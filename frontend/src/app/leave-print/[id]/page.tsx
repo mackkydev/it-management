@@ -36,7 +36,7 @@ export default async function LeavePrintPage({ params }: PageProps<"/leave-print
         {/* eslint-disable-next-line @next/next/no-img-element -- ลายเซ็นส่วนตัวผ่าน /files */}
         {(who === "requester" || l.status === "approved") && <img src={`/files/leave/${l.id}/signature/${who}`} alt="" className="max-h-20 max-w-48 object-contain" />}
       </div>
-      <p className="border-t border-dotted border-gray-500 pt-1 text-sm">{t("leave.printSignHere")}</p>
+      <p className="pt-1 text-sm">{t("leave.printSignHere")}</p>
       <p className="text-sm font-medium">{name ?? "-"}</p>
       <p className="text-xs text-gray-600">{who === "requester" ? t("leave.printRequester") : t("leave.printApprover")}</p>
       {date && <p className="text-xs text-gray-600">{fmt.dateTime(date)}</p>}

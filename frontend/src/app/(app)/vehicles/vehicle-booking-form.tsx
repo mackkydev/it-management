@@ -5,10 +5,8 @@ import { useState, useTransition } from "react";
 import { loadVehicleBookings, saveVehicleBooking, type VehicleBookingValues } from "@/app/actions/vehicles";
 import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
-import { useAlert } from "@/components/dialog-provider";
-import { AlertIcon, CarIcon, CheckCircleIcon, CheckIcon, GaugeIcon, MapPinIcon, SaveIcon, SpinnerIcon, UsersIcon } from "@/components/icons";
+import { AlertIcon, CarIcon, CheckCircleIcon, GaugeIcon, MapPinIcon, SaveIcon, SpinnerIcon, UsersIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError, tone } from "@/components/ui";
-import { IDLE_TONE } from "@/lib/booking";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { Vehicle, VehicleBooking } from "@/lib/types";
@@ -31,7 +29,6 @@ export function VehicleBookingForm({
   purposes,
   extras,
   booker,
-  lockVehicle = false,
 }: {
   id: string | null;
   initial: VehicleBookingValues;
@@ -41,20 +38,15 @@ export function VehicleBookingForm({
   purposes: string[];
   extras: string[];
   booker: { name: string; department: string | null };
-  /** อนุมัติแล้ว — ผู้จองเปลี่ยนรถไม่ได้ (API ตรวจซ้ำ) */
-  lockVehicle?: boolean;
 }) {
   const { t, fmt } = useI18n();
   const router = useRouter();
-  const showAlert = useAlert();
   const [v, setV] = useState<VehicleBookingValues>(initial);
   const [range, setRange] = useState(initialRange);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [message, setMessage] = useState("");
   const [checking, startCheck] = useTransition();
   const [pending, start] = useTransition();
-  // เลขไมล์เริ่มต้นที่ระบบเติมให้ (ยังไม่ได้แก้เอง) — เปลี่ยนรถแล้วเติมใหม่ตามคันใหม่
-  const [autoMileage, setAutoMileage] = useState(id === null);
   const today = localToday();
 
   const set = <K extends Field>(k: K, value: VehicleBookingValues[K]) => {
@@ -82,33 +74,8 @@ export function VehicleBookingForm({
   const others = range.filter((b) => b.id !== id && b.vehicle);
   const clashOf = (vehicleId: number) => (timesOk ? others.find((b) => b.vehicle!.id === vehicleId && overlaps(b, v)) : undefined);
   const clash = vehicle ? clashOf(vehicle.id) : undefined;
-  const pickVehicle = (x: string) => {
-    const veh = vehicles.find((o) => String(o.id) === x);
-    // รถที่ถูกจองแล้วในช่วงนี้ — แจ้งเตือน และไม่เปลี่ยนรถที่เลือกไว้
-    const busy = veh ? clashOf(veh.id) : undefined;
-    if (veh && busy) {
-      void showAlert(
-        t("vehicle.form.alreadyBooked", {
-          vehicle: veh.name,
-          period: periodText(busy, fmt.date),
-          name: busy.user.name,
-        }),
-        { title: t("vehicle.form.alreadyBookedTitle"), danger: true },
-      );
-      return;
-    }
-    setV((p) => ({
-      ...p,
-      vehicle_id: x,
-      ...(autoMileage || !p.start_mileage ? { start_mileage: veh?.mileage != null ? String(veh.mileage) : "" } : {}),
-    }));
-    if (!v.start_mileage) setAutoMileage(true);
-    setErrors((e) => ({ ...e, vehicle_id: undefined }));
-  };
   const vehicleRange = vehicle ? others.filter((b) => b.vehicle!.id === vehicle.id) : [];
   const overSeats = vehicle && Number(v.passengers) > vehicle.seats;
-  // ยังไม่ได้เลือกวันเวลาเริ่มต้น-สิ้นสุด (หรือกำลังโหลดการจองของช่วงนั้น) = ยังเลือกรถไม่ได้ — ต้องรู้ช่วงเวลาก่อนจึงตรวจรถว่างได้
-  const vehicleLocked = !timesOk || checking || lockVehicle;
   const timeOptions = [...new Set([...TIME_OPTIONS, initial.start_time, initial.end_time].filter(Boolean))].sort();
 
   const submit = () => {
@@ -177,62 +144,33 @@ export function VehicleBookingForm({
             </div>
           </div>
 
-          {/* รถ */}
+          {/* รถ: ผู้จองเลือกไม่ได้ (ผู้จัดคิวรถเลือกให้ตอนอนุมัติ) — แสดงสถานะ ว่าง / ไม่ว่าง ของทุกคันในช่วงเวลาที่เลือก */}
           <div>
-            {label("vehicle_id", t("vehicle.form.vehicle"))}
-            {/* จอคอมพิวเตอร์: การ์ดรถ (สีตามรถ + สถานะในช่วงเวลาที่เลือก) — จอเล็กใช้ dropdown ด้านล่าง */}
-            <div role="radiogroup" aria-labelledby="vehicle_id" className="hidden grid-cols-6 gap-1.5 md:grid">
-              {[null, ...vehicles].map((o) => {
-                const value = o ? String(o.id) : "";
-                const on = v.vehicle_id === value;
-                const busy = o ? clashOf(o.id) : undefined;
+            <p className="mb-1 block text-sm font-medium">{t("vehicle.form.vehicle")}</p>
+            <p className={`mb-2 flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${vehicle ? tone.info.badge : "bg-subtle text-muted"}`}>
+              <CarIcon width={15} height={15} className="shrink-0" />
+              {vehicle ? t("vehicle.form.assignedVehicle", { vehicle: vehicle.name }) : t("vehicle.form.dispatcherPicks")}
+            </p>
+            <p className="mb-1.5 text-xs font-medium text-muted">{t("vehicle.form.statusTitle")}</p>
+            <ul aria-label={t("vehicle.form.statusTitle")} className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-6">
+              {vehicles.map((o) => {
+                const busy = clashOf(o.id);
                 return (
-                  <button
-                    key={value || "none"}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    disabled={vehicleLocked}
-                    onClick={() => pickVehicle(value)}
-                    className={`relative flex min-w-0 cursor-pointer flex-col items-start gap-0.5 rounded-lg px-2 py-1.5 text-left ring-1 ring-inset transition disabled:cursor-not-allowed disabled:opacity-50 ${o ? toneOf(vehicles, o.id).bar : IDLE_TONE.bar} ${
-                      on ? "outline-2 outline-offset-2 outline-accent-500" : "hover:brightness-95 dark:hover:brightness-110"
-                    }`}
-                  >
-                    {on && <CheckIcon width={12} height={12} className="absolute right-1.5 top-1.5" />}
+                  <li key={o.id} className={`flex min-w-0 flex-col items-start gap-0.5 rounded-lg px-2 py-1.5 ring-1 ring-inset ${toneOf(vehicles, o.id).bar}`}>
                     <CarIcon width={16} height={16} />
-                    <span className="line-clamp-2 w-full break-words pr-3 text-xs font-semibold leading-4">{o ? o.name : t("vehicle.form.noneShort")}</span>
-                    <span className="w-full truncate text-[11px] leading-4 opacity-80">{o ? [o.plate_no, o.vehicle_type].filter(Boolean).join(" · ") || "-" : t("vehicle.form.noneHint")}</span>
-                    {o && timesOk && (
+                    <span className="line-clamp-2 w-full break-words text-xs font-semibold leading-4">{o.name}</span>
+                    <span className="w-full truncate text-[11px] leading-4 opacity-80">{[o.plate_no, o.vehicle_type].filter(Boolean).join(" · ") || "-"}</span>
+                    {timesOk ? (
                       <span className={`inline-flex rounded-full px-1.5 text-[10px] font-medium leading-4 ${busy ? tone.danger.badge : tone.success.badge}`}>
                         {busy ? t("vehicle.form.statusBusy") : t("vehicle.form.statusReady")}
                       </span>
-                    )}
-                  </button>
+                    ) : null}
+                  </li>
                 );
               })}
-            </div>
-            <div className="md:hidden">
-              <AppSelect
-                id="vehicle_id"
-                value={v.vehicle_id}
-                onValueChange={pickVehicle}
-                disabled={vehicleLocked}
-                className={`${cls("vehicle_id")} disabled:cursor-not-allowed disabled:opacity-60`}
-              >
-                <option value="">{t("vehicle.form.vehicleNone")}</option>
-                {vehicles.map((o) => (
-                  <option key={o.id} value={String(o.id)}>
-                    {`${o.name}${o.plate_no ? ` · ${o.plate_no}` : ""} · ${t("vehicle.seats", { n: o.seats })}${clashOf(o.id) ? ` — ${t("vehicle.form.vehicleBusy")}` : ""}`}
-                  </option>
-                ))}
-              </AppSelect>
-            </div>
+            </ul>
             {err("vehicle_id")}
-            {lockVehicle ? (
-              <p className="mt-1 text-xs text-muted">{t("vehicle.form.vehicleLockedHint")}</p>
-            ) : (
-              !timesOk && <p className="mt-1 text-xs text-muted">{t("vehicle.form.vehicleNeedsTime")}</p>
-            )}
+            <p className="mt-1 text-xs text-muted">{timesOk ? t("vehicle.form.statusHint") : t("vehicle.form.vehicleNeedsTime")}</p>
           </div>
 
           {/* รถว่างไหมในช่วงที่เลือก */}
@@ -333,29 +271,27 @@ export function VehicleBookingForm({
             </div>
             <fieldset className="sm:col-span-2">
               <legend className="mb-1.5 block text-sm font-medium">{t("vehicle.form.extras")}</legend>
-              {extras.length === 0 && initial.extras.length === 0 ? (
-                <p className="text-xs text-muted">{t("vehicle.form.noExtras")}</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {[...new Set([...extras, ...initial.extras])].map((x) => {
-                    const on = v.extras.includes(x);
-                    return (
-                      <label
-                        key={x}
-                        className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-1.5 text-sm ring-1 transition-colors ${on ? "bg-accent-100 text-accent-800 ring-accent-300 dark:bg-accent-400/15 dark:text-accent-200 dark:ring-accent-400/40" : "ring-line hover:bg-subtle"}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          onChange={() => set("extras", on ? v.extras.filter((y) => y !== x) : [...v.extras, x])}
-                          className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
-                        />
-                        {x}
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
+              {/* "คนขับรถ" อยู่ตัวแรกเสมอ (ผู้จัดคิวเลือกคนขับให้ตอนอนุมัติ) ตามด้วยรายการเพิ่มเติมจากข้อมูล Drop Down */}
+              <div className="flex flex-wrap gap-2">
+                {(() => {
+                  const chip = (key: string, on: boolean, text: string, toggle: () => void) => (
+                    <label
+                      key={key}
+                      className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-1.5 text-sm ring-1 transition-colors ${on ? "bg-accent-100 text-accent-800 ring-accent-300 dark:bg-accent-400/15 dark:text-accent-200 dark:ring-accent-400/40" : "ring-line hover:bg-subtle"}`}
+                    >
+                      <input type="checkbox" checked={on} onChange={toggle} className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]" />
+                      {text}
+                    </label>
+                  );
+                  return [
+                    chip("__driver", v.needs_driver, t("vehicle.form.needsDriver"), () => set("needs_driver", !v.needs_driver)),
+                    ...[...new Set([...extras, ...initial.extras])].map((x) => {
+                      const on = v.extras.includes(x);
+                      return chip(x, on, x, () => set("extras", on ? v.extras.filter((y) => y !== x) : [...v.extras, x]));
+                    }),
+                  ];
+                })()}
+              </div>
               {err("extras")}
             </fieldset>
             <div className="sm:col-span-2">

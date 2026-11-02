@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { first, scalar } from "../src/db.js";
 import { notifyExpiring } from "../src/jobs/notify-expiring.js";
@@ -145,5 +146,38 @@ describe("software licenses", () => {
     expect(sentMail[0].text).toContain(`${d}/${m}/${Number(y) + 543}`);
     expect((await notifyExpiring()).items).toHaveLength(0);
     expect(await first("SELECT notified_for_expires_at FROM asset_licenses WHERE notified_for_expires_at IS NULL AND expires_at IS NOT NULL")).toBeTruthy(); // SW-FAR ยังไม่แจ้ง
+  });
+
+  it("license icon: upload replaces the old one, is not an attachment, delete", async () => {
+    const manager = await as(await makeUser({ role: "manager" }));
+    const viewer = await as(await makeUser()); // ผู้ใช้ทั่วไป — ไม่เห็นสินทรัพย์
+    const id = (await manager.post("/api/v1/assets").send(software(yearly))).body.data.id;
+    const png = await sharp({ create: { width: 600, height: 400, channels: 4, background: "#3366ff" } }).png().toBuffer();
+
+    expect((await viewer.put(`/api/v1/assets/${id}/icon`).attach("icon", png, "a.png")).status).toBe(403);
+    expect((await manager.put(`/api/v1/assets/${id}/icon`).attach("icon", fakePdf(5), "a.pdf")).status).toBe(422);
+    const first = await manager.put(`/api/v1/assets/${id}/icon`).attach("icon", png, "logo.png");
+    expect(first.status).toBe(200);
+    const second = await manager.put(`/api/v1/assets/${id}/icon`).attach("icon", png, "logo2.png");
+    expect(second.body.data.icon_id).not.toBe(first.body.data.icon_id);
+    expect(Number(await scalar("SELECT COUNT(*) FROM asset_files WHERE kind = 'icon'"))).toBe(1);
+
+    const detail = (await manager.get(`/api/v1/assets/${id}`)).body.data;
+    expect(detail.icon_id).toBe(second.body.data.icon_id);
+    expect(detail.files).toEqual([]);
+    const list = (await manager.get("/api/v1/license-installations/licenses")).body.data[0];
+    expect(list).toMatchObject({ icon_id: second.body.data.icon_id, files_count: 0 });
+
+    const img = await manager.get(`/api/v1/assets/${id}/icon`).buffer(true);
+    expect(img.status).toBe(200);
+    expect(img.headers["content-type"]).toBe("image/webp");
+    expect((await sharp(img.body as Buffer).metadata()).width).toBe(256);
+    expect((await viewer.get(`/api/v1/assets/${id}/icon`)).status).toBe(404);
+    // ไฟล์แนบลบไอคอนไม่ได้ (ต้องใช้ DELETE /icon)
+    expect((await manager.delete(`/api/v1/assets/${id}/files/${detail.icon_id}`)).status).toBe(404);
+
+    expect((await manager.delete(`/api/v1/assets/${id}/icon`)).status).toBe(204);
+    expect((await manager.get(`/api/v1/assets/${id}`)).body.data.icon_id).toBeNull();
+    expect((await manager.get(`/api/v1/assets/${id}/icon`)).status).toBe(404);
   });
 });

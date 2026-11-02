@@ -233,7 +233,8 @@ type Actor = { ip?: string; user?: { id: number } };
 
 async function emailOwner(email: string, exceptId: number | null): Promise<number | null> {
   const row = await first<{ id: number }>(
-    `SELECT id FROM users WHERE LOWER(email) = LOWER(?)${exceptId ? " AND id <> ?" : ""} LIMIT 1`,
+    // collation ไม่สนตัวพิมพ์ — เทียบตรงเพื่อใช้ unique index
+    `SELECT id FROM users WHERE email = ?${exceptId ? " AND id <> ?" : ""} LIMIT 1`,
     exceptId ? [email, exceptId] : [email],
   );
   return row?.id ?? null;

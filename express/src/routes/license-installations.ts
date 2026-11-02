@@ -6,12 +6,12 @@ import { dateOnly, iso, localToday, nowDb } from "../lib/time.js";
 import { exists, int, validate } from "../lib/validator.js";
 import { me, pageParam, shortMeta } from "../http.js";
 import { can, type UserRow } from "../models/user.js";
-import { activeCount, daysLeft, LICENSE_CATEGORY } from "../services/asset-licenses.js";
+import { activeCount, daysLeft, ICON_KIND, LICENSE_CATEGORY } from "../services/asset-licenses.js";
 
 /**
  * การติดตั้ง software license — เหมือน LicenseInstallationController ของ Laravel
  *   GET    /license-installations?license_id=&status=active|removed|all&branch_id=&search=&per_page=
- *   GET    /license-installations/licenses          license ทั้งหมด + จำนวนที่ใช้/คงเหลือ
+ *   GET    /license-installations/licenses          license ทั้งหมด + จำนวนที่ใช้/คงเหลือ + จำนวนไฟล์แนบ (เมนู License ซอฟต์แวร์)
  *   POST   /license-installations                   { license_id, device_asset_id | device_name, user_id, branch_id, installed_at, notes }
  *   POST   /license-installations/{id}/uninstall    { uninstalled_at } — คืน seat (เก็บเป็นประวัติ)
  *   DELETE /license-installations/{id}              ลบรายการที่บันทึกผิด
@@ -20,6 +20,8 @@ import { activeCount, daysLeft, LICENSE_CATEGORY } from "../services/asset-licen
 export const licenseInstallationRoutes = Router();
 
 const allowed = (u: UserRow) => can(u, "licenses.install");
+/** ดูรายการ License ซอฟต์แวร์ (เมนู /licenses) — ผู้บันทึกการติดตั้ง หรือผู้ดูสินทรัพย์ทั้งหมด / เพิ่ม-แก้สินทรัพย์ */
+const viewsLicenses = (u: UserRow) => allowed(u) || can(u, "assets.view_all") || can(u, "assets.create") || can(u, "assets.update");
 
 interface Row {
   id: number;
@@ -73,14 +75,19 @@ const findLicense = (uuid: unknown) =>
     : Promise.resolve(null);
 
 licenseInstallationRoutes.get("/license-installations/licenses", async (req, res) => {
-  authorize(allowed(me(req)));
-  const rows = await select<{ id: number; uuid: string; asset_tag: string; name: string; seats: number | null; expires_at: string | null; used: number }>(
-    `SELECT a.id, a.uuid, a.asset_tag, a.name, li.seats, li.expires_at,
-            (SELECT COUNT(*) FROM license_installations i WHERE i.license_asset_id = a.id AND i.uninstalled_at IS NULL) AS used
+  authorize(viewsLicenses(me(req)));
+  const rows = await select<{
+    id: number; uuid: string; asset_tag: string; name: string; seats: number | null; expires_at: string | null; used: number;
+    billing: string; vendor: string | null; status: string; files: number; icon_id: number | null;
+  }>(
+    `SELECT a.id, a.uuid, a.asset_tag, a.name, a.status, li.seats, li.expires_at, li.billing, li.vendor,
+            (SELECT COUNT(*) FROM license_installations i WHERE i.license_asset_id = a.id AND i.uninstalled_at IS NULL) AS used,
+            (SELECT COUNT(*) FROM asset_files f WHERE f.asset_id = a.id AND f.kind <> ?) AS files,
+            (SELECT MAX(f.id) FROM asset_files f WHERE f.asset_id = a.id AND f.kind = ?) AS icon_id
        FROM assets a JOIN asset_licenses li ON li.asset_id = a.id
       WHERE a.category = ? AND a.deleted_at IS NULL
       ORDER BY a.name, a.id`,
-    [LICENSE_CATEGORY],
+    [ICON_KIND, ICON_KIND, LICENSE_CATEGORY],
   );
   res.json({
     data: rows.map((r) => ({
@@ -88,6 +95,11 @@ licenseInstallationRoutes.get("/license-installations/licenses", async (req, res
       asset_tag: r.asset_tag,
       name: r.name,
       ...usage(r.seats, Number(r.used)),
+      billing: r.billing,
+      vendor: r.vendor,
+      status: r.status,
+      files_count: Number(r.files),
+      icon_id: r.icon_id === null ? null : Number(r.icon_id),
       expires_at: dateOnly(r.expires_at),
       days_left: daysLeft(dateOnly(r.expires_at)),
     })),

@@ -29,6 +29,14 @@ const booking = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+type Api = Awaited<ReturnType<typeof as>>;
+/** ฟอร์มจองไม่รับรถแล้ว — ผู้จองส่งคำขอ (ไม่ระบุรถ) แล้วผู้จัดคิวเลือกรถให้ (ยังรออนุมัติ) */
+async function bookOn(requester: Api, dispatcher: Api, vehicleId: number, extra: Record<string, unknown> = {}) {
+  const created = await requester.post("/api/v1/vehicle-bookings").send(booking(extra));
+  expect(created.status).toBe(201);
+  return dispatcher.put(`/api/v1/vehicle-bookings/${created.body.data.id}/vehicle`).send({ vehicle_id: vehicleId });
+}
+
 describe("vehicles", () => {
   it("vehicle managers add vehicles with photos; the plate number is unique", async () => {
     const admin = await as(await makeUser({ role: "admin" }), "th");
@@ -84,11 +92,13 @@ describe("vehicles", () => {
 
     // รถคันเดียวกัน ช่วงหลายวันที่ซ้อน = 422 บอกผู้จอง / ต่อกันพอดี และคันอื่น = ได้
     const multi = { start_on: day(0), start_time: "23:00", end_on: day(1), end_time: "09:00", purpose: "ออกต่างจังหวัดหลายวัน" };
-    const clash = await bob.post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: van, ...multi }));
+    const clash = await bookOn(bob, dispatcher, van, multi);
     expect(clash.status).toBe(422);
     expect(clash.body.errors.vehicle_id[0]).toContain("Alice");
-    expect((await bob.post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: van, start_on: day(1), start_time: "17:00", end_on: day(2), end_time: "12:00" }))).status).toBe(201);
-    expect((await bob.post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: pickup, ...multi }))).status).toBe(201);
+    expect((await bookOn(bob, dispatcher, van, { start_on: day(1), start_time: "17:00", end_on: day(2), end_time: "12:00" })).status).toBe(200);
+    expect((await bookOn(bob, dispatcher, pickup, multi)).status).toBe(200);
+    // ฟอร์มจองส่งรถมา = ไม่มีผล (ไม่ระบุรถเสมอ)
+    expect((await bob.post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: van, start_on: day(5), end_on: day(5) }))).body.data.vehicle).toBeNull();
     // ตรวจข้อมูล
     expect((await bob.post("/api/v1/vehicle-bookings").send(booking({ end_time: "08:00" }))).status).toBe(422);
     expect((await bob.post("/api/v1/vehicle-bookings").send(booking({ start_on: day(-2), end_on: day(-1) }))).status).toBe(422);
@@ -100,14 +110,15 @@ describe("vehicles", () => {
     expect((await alice.put(`/api/v1/vehicle-bookings/${uuid}/mileage`).send({ start_mileage: 10000, end_mileage: 9000 })).status).toBe(422);
     expect((await alice.put(`/api/v1/vehicle-bookings/${uuid}/mileage`).send({ start_mileage: 10000, end_mileage: 10250 })).body.data.end_mileage).toBe(10250);
     expect(await scalar("SELECT mileage FROM vehicles WHERE id = ?", [van])).toBe(10250);
-    const next = await bob.post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: van, start_on: day(3), end_on: day(3) }));
+    const next = await bookOn(bob, dispatcher, van, { start_on: day(3), end_on: day(3) });
     expect(next.body.data.start_mileage).toBe(10250);
     const history = (await dispatcher.get(`/api/v1/vehicles/${van}/mileage`)).body.data;
     expect(history.find((h: { booking_id: string }) => h.booking_id === uuid)).toMatchObject({ start_mileage: 10000, end_mileage: 10250, distance: 250, user_name: "Alice" });
 
     // ปฏิทิน: การจองหลายวันขึ้นทุกวันในช่วง
     const range = (await bob.get(`/api/v1/vehicle-bookings?from=${day(0)}&to=${day(0)}`)).body.data;
-    expect(range).toHaveLength(1);
+    // คำขอหลายวันของ Bob 2 รายการ (จัดรถตู้ไม่สำเร็จ = ยังรอจัดรถ / ได้กระบะ) — รออนุมัติ เจ้าของเห็นของตัวเอง
+    expect(range).toHaveLength(2);
     // ผู้จัดคิวแก้การจองของคนอื่นได้ → แจ้งเจ้าของ
     expect((await dispatcher.put(`/api/v1/vehicle-bookings/${uuid}`).send(booking({ vehicle_id: van, passengers: 5 }))).body.data.passengers).toBe(5);
     // ยกเลิก → ช่วงเวลาว่าง / ลบ → หายจากรายการ
@@ -180,14 +191,16 @@ describe("vehicle booking approval", () => {
     const dispatcher = await as(await makeUser({ role: "admin", name: "Dispatcher" }), "th");
     const calendar = (who: typeof alice, extra = "") => who.get(`/api/v1/vehicle-bookings?from=${day(1)}&to=${day(1)}${extra}`).then((r) => r.body.data.map((b: { id: string }) => b.id));
 
-    const created = (await alice.post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: van }))).body.data;
+    const created = (await bookOn(alice, dispatcher, van)).body.data;
     expect(created).toMatchObject({ status: "pending", vehicle: { id: van }, can_mileage: false });
     // ปฏิทิน: เจ้าของเห็น (รออนุมัติ), คนอื่นไม่เห็น, ผู้จัดคิวเห็นเมื่อขอ include_pending
     expect(await calendar(alice)).toEqual([created.id]);
     expect(await calendar(bob)).toEqual([]);
     expect(await calendar(dispatcher, "&include_pending=1")).toEqual([created.id]);
     // รออนุมัติจองช่วงเวลาของรถไว้แล้ว
-    expect((await bob.post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: van }))).status).toBe(422);
+    const waiting = await bob.post("/api/v1/vehicle-bookings").send(booking());
+    expect((await dispatcher.put(`/api/v1/vehicle-bookings/${waiting.body.data.id}/vehicle`).send({ vehicle_id: van })).status).toBe(422);
+    expect((await bob.delete(`/api/v1/vehicle-bookings/${waiting.body.data.id}`)).status).toBe(204);
 
     // เปลี่ยนรถพร้อมอนุมัติ
     const approved = (await dispatcher.post(`/api/v1/vehicle-bookings/${created.id}/approve`).send({ vehicle_id: pickup })).body.data;
@@ -206,20 +219,19 @@ describe("vehicle booking approval", () => {
     expect(rejected).toMatchObject({ status: "rejected", reject_reason: "รถเข้าศูนย์", rejected_by: "Dispatcher", can_edit: false });
     expect(await scalar("SELECT COUNT(*) FROM notifications WHERE notifiable_id = ? AND type = 'vehicle.rejected'", [aliceUser.id])).toBe(1);
     expect((await alice.get("/api/v1/vehicle-bookings/mine?status=cancelled")).body.data.map((b: { id: string }) => b.id)).toEqual([created.id]);
-    expect((await bob.post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: pickup }))).status).toBe(201);
+    expect((await bookOn(bob, dispatcher, pickup)).status).toBe(200);
 
     // ไม่มีรถ = อนุมัติไม่ได้
     const noCar = (await alice.post("/api/v1/vehicle-bookings").send(booking({ start_time: "18:00", end_time: "19:00" }))).body.data;
     expect((await dispatcher.post(`/api/v1/vehicle-bookings/${noCar.id}/approve`).send({})).status).toBe(422);
   });
 
-  it("a dispatcher booking a vehicle for their own branch is approved straight away", async () => {
+  it("the booking form never takes a vehicle — even a dispatcher's own booking is unassigned and waits for approval", async () => {
     await seedOptions();
     const van = await makeVehicle("รถตู้ 1", 10000);
     const dispatcherUser = await makeUser({ role: "admin" });
     const own = (await (await as(dispatcherUser)).post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: van }))).body.data;
-    expect(own).toMatchObject({ status: "confirmed", approved_by: dispatcherUser.name });
-    expect(await scalar("SELECT COUNT(*) FROM notifications WHERE type = 'vehicle.requested'")).toBe(0);
+    expect(own).toMatchObject({ status: "pending", vehicle: null, start_mileage: null });
   });
 });
 
@@ -232,16 +244,19 @@ describe("vehicle and mileage after approval", () => {
     const dispatcher = await as(await makeUser({ role: "admin", name: "Dispatcher" }), "th");
 
     // เลขไมล์จากฟอร์มจองไม่มีผล — เริ่มต้น = เลขไมล์ล่าสุดของคัน
-    const created = (await alice.post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: van, start_mileage: 1, end_mileage: 2 }))).body.data;
-    expect(created).toMatchObject({ start_mileage: 10000, end_mileage: null, can_change_vehicle: true, vehicle: { mileage: 10000 } });
+    const requested = (await alice.post("/api/v1/vehicle-bookings").send(booking({ vehicle_id: van, start_mileage: 1, end_mileage: 2 }))).body.data;
+    expect(requested).toMatchObject({ vehicle: null, start_mileage: null, end_mileage: null });
+    const created = (await dispatcher.put(`/api/v1/vehicle-bookings/${requested.id}/vehicle`).send({ vehicle_id: van })).body.data;
+    expect(created).toMatchObject({ start_mileage: 10000, end_mileage: null, vehicle: { mileage: 10000 } });
     await dispatcher.post(`/api/v1/vehicle-bookings/${created.id}/approve`).send({});
 
     // อนุมัติแล้ว: ผู้จองเปลี่ยนรถไม่ได้ / ผู้จัดคิวเปลี่ยนได้
     const mine = (await alice.get(`/api/v1/vehicle-bookings/${created.id}`)).body.data;
     expect(mine.can_change_vehicle).toBe(false);
+    // ฟอร์มแก้ไขส่งรถอื่นมา = ไม่มีผล (รถเดิมคงไว้)
     const swap = await alice.put(`/api/v1/vehicle-bookings/${created.id}`).send(booking({ vehicle_id: pickup }));
-    expect(swap.status).toBe(422);
-    expect(Object.keys(swap.body.errors)).toEqual(["vehicle_id"]);
+    expect(swap.status).toBe(200);
+    expect(swap.body.data.vehicle.id).toBe(van);
     expect((await dispatcher.get(`/api/v1/vehicle-bookings/${created.id}`)).body.data.can_change_vehicle).toBe(true);
 
     // เลขไมล์: ถึงเวลาใช้รถแล้ว → mileage_due; บันทึกเลขไมล์สิ้นสุด (เริ่มต้น = ล่าสุดของคัน ณ ตอนบันทึก) ได้ครั้งเดียว
@@ -256,5 +271,57 @@ describe("vehicle and mileage after approval", () => {
     expect((await alice.put(`/api/v1/vehicle-bookings/${created.id}/mileage`).send({ end_mileage: 10700 })).status).toBe(422);
     // ผู้จัดคิวแก้ได้
     expect((await dispatcher.put(`/api/v1/vehicle-bookings/${created.id}/mileage`).send({ start_mileage: 10500, end_mileage: 10650 })).body.data).toMatchObject({ end_mileage: 10650 });
+  });
+});
+
+describe("vehicle swap", () => {
+  it("a dispatcher gives vehicle A to booking 2 (vehicle B) and booking 1 on A switches to B — confirmed first, owner notified", async () => {
+    await seedOptions();
+    const a = await makeVehicle("รถ A", 10000);
+    const b = await makeVehicle("รถ B", 20000);
+    const aliceUser = await makeUser({ name: "Alice" });
+    const alice = await as(aliceUser, "th");
+    const bob = await as(await makeUser({ name: "Bob" }), "th");
+    const dispatcher = await as(await makeUser({ role: "admin", name: "Dispatcher" }), "th");
+    const when = { start_on: day(2), end_on: day(2) };
+    const one = (await bookOn(alice, dispatcher, a, when)).body.data.id;
+    const two = (await bookOn(bob, dispatcher, b, { ...when, start_time: "09:00", end_time: "12:00" })).body.data.id;
+    expect((await dispatcher.post(`/api/v1/vehicle-bookings/${one}/approve`).send({})).status).toBe(200);
+
+    // อนุมัติรายการ 2 พร้อมเลือกรถ A → ถามยืนยันการสลับก่อน
+    const ask = await dispatcher.post(`/api/v1/vehicle-bookings/${two}/approve`).send({ vehicle_id: a });
+    expect(ask.status).toBe(409);
+    expect(ask.body).toMatchObject({ code: "swap_available", swap: { id: one, owner: "Alice", vehicle: "รถ A", to_vehicle: "รถ B" } });
+    const done = await dispatcher.post(`/api/v1/vehicle-bookings/${two}/approve`).send({ vehicle_id: a, swap: true });
+    expect(done.status).toBe(200);
+    expect(done.body.data).toMatchObject({ status: "confirmed", vehicle: { id: a } });
+    const moved = (await alice.get(`/api/v1/vehicle-bookings/${one}`)).body.data;
+    expect(moved).toMatchObject({ status: "confirmed", vehicle: { id: b }, start_mileage: 20000 });
+    expect(Number(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'vehicle_booking.swapped'"))).toBe(1);
+    expect(Number(await scalar("SELECT COUNT(*) FROM notifications WHERE notifiable_id = ? AND data->>'$.event' = 'assigned'", [aliceUser.id]))).toBe(1);
+
+    // เปลี่ยนรถของรายการที่อนุมัติแล้วกลับ (PUT /vehicle) ก็สลับได้เช่นกัน
+    expect((await dispatcher.put(`/api/v1/vehicle-bookings/${one}/vehicle`).send({ vehicle_id: a })).status).toBe(409);
+    expect((await dispatcher.put(`/api/v1/vehicle-bookings/${one}/vehicle`).send({ vehicle_id: a, swap: true })).status).toBe(200);
+    expect((await bob.get(`/api/v1/vehicle-bookings/${two}`)).body.data.vehicle.id).toBe(b);
+  });
+
+  it("no swap when the booking has no vehicle yet or the other booking cannot use the freed vehicle", async () => {
+    await seedOptions();
+    const a = await makeVehicle("รถ A");
+    const b = await makeVehicle("รถ B");
+    const alice = await as(await makeUser({ name: "Alice" }), "th");
+    const bob = await as(await makeUser({ name: "Bob" }), "th");
+    const carol = await as(await makeUser({ name: "Carol" }), "th");
+    const dispatcher = await as(await makeUser({ role: "admin" }), "th");
+    const when = { start_on: day(2), end_on: day(2) };
+    await bookOn(alice, dispatcher, a, when);
+    const none = (await bob.post("/api/v1/vehicle-bookings").send(booking(when))).body.data.id;
+    // ยังไม่มีรถเดิมให้แลก = รถไม่ว่าง (422)
+    expect((await dispatcher.put(`/api/v1/vehicle-bookings/${none}/vehicle`).send({ vehicle_id: a })).status).toBe(422);
+    // รถ B ของ Carol ติด Bob อีกรายการช่วงเดียวกัน → Alice ใช้รถ B ไม่ได้ = ไม่สลับ
+    const carolB = (await bookOn(carol, dispatcher, b, { ...when, start_time: "08:00", end_time: "09:00" })).body.data.id;
+    await bob.post("/api/v1/vehicle-bookings").send(booking({ ...when, vehicle_id: null }));
+    expect((await dispatcher.put(`/api/v1/vehicle-bookings/${carolB}/vehicle`).send({ vehicle_id: a })).status).toBe(409);
   });
 });

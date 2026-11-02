@@ -47,6 +47,11 @@ const ALWAYS: Partial<Record<string, Partial<Record<Column, Always>>>> = {
     view: { label: "rolePermissions.always.vehicleView", short: "rolePermissions.short.everyone" },
     create: { label: "rolePermissions.always.vehicleCreate", short: "rolePermissions.short.everyone" },
   },
+  // จอง ZOOM: ทุกคนดูปฏิทิน / จอง / แก้ (ก่อนรับงาน) / ยกเลิกของตัวเอง (routes/zoom.ts)
+  zoom: {
+    view: { label: "rolePermissions.always.zoomView", short: "rolePermissions.short.everyone" },
+    create: { label: "rolePermissions.always.zoomCreate", short: "rolePermissions.short.everyone" },
+  },
   // ยืมอุปกรณ์ IT: ทุกคนดูปฏิทิน / จองยืม / แก้-ยกเลิกการจองของตัวเองก่อนส่งมอบ (routes/loans.ts)
   loans: {
     view: { label: "rolePermissions.always.loanView", short: "rolePermissions.short.everyone" },

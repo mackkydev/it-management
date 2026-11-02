@@ -7,12 +7,14 @@ import { custom, int, regex, validate } from "../lib/validator.js";
 import { me, pageParam, shortMeta } from "../http.js";
 import { can, findUser, type UserRow } from "../models/user.js";
 import { buildKpiWorkbook, fiscalYear, monthsBetween } from "../services/kpi-export.js";
-import { COMPLEXITY_VALUES, KPI_TICKET_STATUSES, kpiMonthRows, kpiTotals, markOf, SERVICE_TYPE_NAMES, SERVICE_TYPES, SERVICE_TYPE_NOTE } from "../services/kpi.js";
+import {
+  COMPLEXITY_VALUES, KPI_TICKET_STATUSES, kpiMonthRows, kpiTotals, localDateOf, markOf, SERVICE_TYPE_NAMES, SERVICE_TYPES, SERVICE_TYPE_NOTE, ticketWorkDays,
+} from "../services/kpi.js";
 
 /**
  * KPI ฝ่าย IT ตามไฟล์ Template-KPI-IT (Part2 Details) — เฉพาะฝ่าย IT (สิทธิ์ kpi.use)
  *   GET    /kpi/month?user_id=&month=YYYY-MM   ตารางรายเดือน = ใบงานที่รับแล้ว + แถวที่กรอกเอง + วันหยุด (+ Total)
- *   PUT    /kpi/tickets/{uuid}                  ประเภทการแจ้ง + Complexity ของแถวใบงาน (ผู้รับงานหรือ kpi.edit_all)
+ *   PUT    /kpi/tickets/{uuid}                  ประเภทการแจ้ง + Complexity ของแถวใบงาน (ผู้รับงานหรือ kpi.edit_all) — ใบงานหลายวันส่ง work_date = วันของแถว
  *   POST   /kpi                                 เพิ่มแถวกรอกเอง / วันหยุด
  *   PATCH  /kpi/{id}, DELETE /kpi/{id}          เจ้าของหรือ kpi.edit_all
  *   GET    /kpi/export?user_id=&from=&to=       .xlsx รูปแบบเดียวกับไฟล์ต้นฉบับ (ชีตละเดือน)
@@ -159,8 +161,10 @@ kpiRoutes.get("/kpi/month", async (req, res) => {
 kpiRoutes.put("/kpi/tickets/:uuid", async (req, res) => {
   const u = me(req);
   authorize(can(u, "kpi.use"));
-  const ticket = await first<{ id: number; assignee_id: number | null; requested_at: string; status: string }>(
-    "SELECT id, assignee_id, requested_at, status FROM it_tickets WHERE uuid = ?",
+  const ticket = await first<{
+    id: number; assignee_id: number | null; requested_at: string; status: string; work_start_on: string | null; completed_on: string | null; work_skip_off_days: unknown;
+  }>(
+    "SELECT id, assignee_id, requested_at, status, work_start_on, completed_on, work_skip_off_days FROM it_tickets WHERE uuid = ?",
     [String(req.params.uuid)],
   );
   if (!ticket || ticket.assignee_id === null) throw notFound();
@@ -173,28 +177,35 @@ kpiRoutes.put("/kpi/tickets/:uuid", async (req, res) => {
   authorize(canEditFor(u, ownerId));
   const data = await validate(
     req.input,
-    { service_type: ["sometimes", "nullable", "string", serviceTypeRule(req)], complexity: ["sometimes", "nullable", complexityRule(req)] },
+    {
+      service_type: ["sometimes", "nullable", "string", serviceTypeRule(req)],
+      complexity: ["sometimes", "nullable", complexityRule(req)],
+      work_date: ["sometimes", "nullable", "date"],
+    },
     { locale: req.locale },
   );
   const values: Record<string, unknown> = { user_id: ownerId, updated_at: nowDb() };
   if ("service_type" in data) values.service_type = data.service_type || null;
   if ("complexity" in data) values.complexity = data.complexity === null || data.complexity === "" ? null : Number(data.complexity);
 
-  const existing = await first<{ id: number }>("SELECT id FROM kpi_entries WHERE ticket_id = ? AND user_id = ?", [ticket.id, ownerId]);
-  if (existing) await update("kpi_entries", values, "id = ?", [existing.id]);
-  else {
-    await insert("kpi_entries", {
-      ...values,
-      ticket_id: ticket.id,
-      entry_type: "work",
-      work_date: String(ticket.requested_at).slice(0, 10),
-      details: "",
-      created_at: nowDb(),
-    });
+  // ใบงานหลายวัน: แถวละวันปฏิบัติงาน (ต้องระบุวันของแถว) / ใบงานวันเดียว: แถวเดียวตามวันที่แจ้ง
+  const days = await ticketWorkDays(ticket, ownerId);
+  let workDate: string;
+  let existing: { id: number } | null;
+  if (days) {
+    workDate = data.work_date ? String(data.work_date).slice(0, 10) : "";
+    if (!days.includes(workDate)) throw ValidationError.withMessages({ work_date: trans(req.locale, "eam.kpi.work_day_invalid") });
+    existing = await first<{ id: number }>("SELECT id FROM kpi_entries WHERE ticket_id = ? AND user_id = ? AND work_date = ?", [ticket.id, ownerId, workDate]);
+  } else {
+    workDate = localDateOf(ticket.requested_at);
+    existing = await first<{ id: number }>("SELECT id FROM kpi_entries WHERE ticket_id = ? AND user_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1", [ticket.id, ownerId]);
   }
-  const saved = (await first<{ service_type: string | null; complexity: string | null }>("SELECT service_type, complexity FROM kpi_entries WHERE ticket_id = ? AND user_id = ?", [ticket.id, ownerId]))!;
+  const id = existing
+    ? (await update("kpi_entries", values, "id = ?", [existing.id]), existing.id)
+    : await insert("kpi_entries", { ...values, ticket_id: ticket.id, entry_type: "work", work_date: workDate, details: "", created_at: nowDb() });
+  const saved = (await first<{ service_type: string | null; complexity: string | null }>("SELECT service_type, complexity FROM kpi_entries WHERE id = ?", [id]))!;
   const complexity = saved.complexity === null ? 0 : Number(saved.complexity);
-  res.json({ data: { service_type: saved.service_type, complexity, mark: markOf(complexity) } });
+  res.json({ data: { service_type: saved.service_type, complexity, mark: markOf(complexity), work_date: workDate } });
 });
 
 /**

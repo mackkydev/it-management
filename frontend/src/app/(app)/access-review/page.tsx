@@ -3,10 +3,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ShieldIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
+import { PermissionRequestPrint } from "@/components/permission-request-print";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser, has } from "@/lib/auth";
-import type { AccessException, GroupMembersView } from "@/lib/types";
+import type { AccessException, GroupMembersView, PermissionCatalog } from "@/lib/types";
 import { ExceptionsTable } from "./exceptions-table";
 import { GroupMembers } from "./group-members";
 
@@ -15,7 +16,6 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("accessReview.title") };
 }
 
-type Group = { key: string; name_th: string; name_en: string; is_system: boolean; members: number };
 
 const TAB_CLS = (active: boolean) =>
   `cursor-pointer whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
@@ -29,12 +29,12 @@ export default async function AccessReviewPage({ searchParams }: PageProps<"/acc
   if (!has(user, "access.assign")) redirect("/tickets");
   const sp = await searchParams;
   const tab = sp.tab === "exceptions" ? "exceptions" : "groups";
-  const { t } = await getI18n();
+  const [{ t }, catalog] = await Promise.all([getI18n(), apiFetch<PermissionCatalog>("/permissions")]);
 
   let body: React.ReactNode;
   if (tab === "groups") {
     // super_admin ผ่านทุกสิทธิ์ — ไม่มีสมาชิกให้จัดการ
-    const groups = (await apiFetch<{ groups: Group[] }>("/permissions")).groups.filter((g) => g.key !== "super_admin");
+    const groups = catalog.groups.filter((g) => g.key !== "super_admin");
     const wanted = typeof sp.group === "string" ? sp.group : "";
     const key = groups.find((g) => g.key === wanted)?.key ?? groups.find((g) => !g.is_system)?.key ?? groups[0]?.key;
     body = key ? (
@@ -49,7 +49,7 @@ export default async function AccessReviewPage({ searchParams }: PageProps<"/acc
 
   return (
     <div className="space-y-5">
-      <PageHeader icon={ShieldIcon} title={t("accessReview.title")} subtitle={t("accessReview.subtitle")} />
+      <PageHeader icon={ShieldIcon} title={t("accessReview.title")} subtitle={t("accessReview.subtitle")} actions={<PermissionRequestPrint catalog={catalog} />} />
       <div role="tablist" className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1 sm:inline-flex">
         {(["groups", "exceptions"] as const).map((x) => (
           <Link key={x} role="tab" aria-selected={tab === x} href={`/access-review?tab=${x}`} className={TAB_CLS(tab === x)}>

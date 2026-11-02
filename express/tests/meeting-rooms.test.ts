@@ -180,29 +180,62 @@ describe("meeting rooms", () => {
 });
 
 describe("multi-day meeting bookings", () => {
-  it("one booking can span several days at the same time each day; overlaps are checked on every day", async () => {
+  it("a multi-day booking is continuous: first day from the start time, middle days all day, last day until the end time", async () => {
     await seedOptions();
     const room = await makeRoom();
     const alice = await as(await makeUser({ name: "Alice" }), "th");
     const bob = await as(await makeUser({ name: "Bob" }), "th");
 
-    const created = await alice.post("/api/v1/meeting-bookings").send(booking(room, "09:00", "12:00", { date: day(1), end_date: day(3) }));
+    // วันที่ 1 10:00 → วันที่ 3 09:00 (เวลาสิ้นสุดของวันสุดท้ายน้อยกว่าเวลาเริ่มได้)
+    const created = await alice.post("/api/v1/meeting-bookings").send(booking(room, "10:00", "09:00", { date: day(1), end_date: day(3) }));
     expect(created.status).toBe(201);
-    expect(created.body.data).toMatchObject({ date: day(1), end_date: day(3), start_time: "09:00", end_time: "12:00" });
+    expect(created.body.data).toMatchObject({ date: day(1), end_date: day(3), start_time: "10:00", end_time: "09:00" });
+    // วันเดียว: เวลาสิ้นสุดต้องหลังเวลาเริ่ม
+    expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "14:00", "13:00", { date: day(5) }))).status).toBe(422);
     // ไม่ส่ง end_date = วันเดียว
-    const single = (await bob.post("/api/v1/meeting-bookings").send(booking(room, "13:00", "14:00", { date: day(2) }))).body.data;
-    expect(single).toMatchObject({ date: day(2), end_date: day(2) });
+    const single = (await bob.post("/api/v1/meeting-bookings").send(booking(room, "08:00", "10:00", { date: day(1) }))).body.data;
+    expect(single).toMatchObject({ date: day(1), end_date: day(1) });
 
-    // ชนกับวันกลางของการจองหลายวัน = 422 / ต่างเวลา = ได้
-    expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "10:00", "11:00", { date: day(2) }))).status).toBe(422);
-    expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "11:00", "13:00", { date: day(3), end_date: day(4) }))).status).toBe(422);
+    // วันกลาง = ทั้งวัน / ค่ำวันแรก / เช้าวันสุดท้ายก่อน 09:00 ชนทั้งหมด
+    expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "07:00", "08:00", { date: day(2) }))).status).toBe(422);
+    expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "20:00", "21:00", { date: day(1) }))).status).toBe(422);
+    expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "08:00", "09:30", { date: day(3) }))).status).toBe(422);
+    // หลังเวลาสิ้นสุดของวันสุดท้าย = ได้
+    expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "09:00", "10:00", { date: day(3) }))).status).toBe(201);
     // วันสิ้นสุดก่อนวันเริ่ม / ยาวเกิน
     expect(Object.keys((await bob.post("/api/v1/meeting-bookings").send(booking(room, "15:00", "16:00", { date: day(5), end_date: day(4) }))).body.errors)).toEqual(["end_date"]);
     expect((await bob.post("/api/v1/meeting-bookings").send(booking(room, "15:00", "16:00", { date: day(5), end_date: day(40) }))).status).toBe(422);
 
     // ปฏิทิน: เห็นการจองหลายวันในทุกวันที่คาบเกี่ยว
     const ofDay = async (d: string) => (await bob.get(`/api/v1/meeting-bookings?from=${d}&to=${d}`)).body.data.map((b: { id: string }) => b.id);
-    expect(await ofDay(day(3))).toEqual([created.body.data.id]);
+    expect(await ofDay(day(3))).toContain(created.body.data.id);
     expect(await ofDay(day(4))).toEqual([]);
+  });
+});
+
+describe("meeting room swap", () => {
+  it("a room manager moves a booking to a taken room and the two bookings swap rooms (asks first, owner notified)", async () => {
+    await seedOptions();
+    const r1 = await makeRoom("ห้อง 1");
+    const r2 = await makeRoom("ห้อง 2");
+    const alice = await as(await makeUser({ name: "Alice" }), "th");
+    const bobUser = await makeUser({ name: "Bob" });
+    const bob = await as(bobUser, "th");
+    const admin = await as(await makeUser({ role: "admin", name: "ผู้ดูแลห้อง" }), "th");
+    const mine = (await alice.post("/api/v1/meeting-bookings").send(booking(r1, "10:00", "11:00"))).body.data.id;
+    const his = (await bob.post("/api/v1/meeting-bookings").send(booking(r2, "10:30", "11:30", { title: "งานของ Bob" }))).body.data.id;
+
+    // เจ้าของย้ายไปห้องที่ไม่ว่างเอง = 422 (จัดการการจองของคนอื่นไม่ได้)
+    expect((await alice.put(`/api/v1/meeting-bookings/${mine}`).send(booking(r2, "10:00", "11:00"))).status).toBe(422);
+    // ผู้ดูแลห้อง: ถามยืนยัน → สลับ
+    const ask = await admin.put(`/api/v1/meeting-bookings/${mine}`).send(booking(r2, "10:00", "11:00"));
+    expect(ask.status).toBe(409);
+    expect(ask.body).toMatchObject({ code: "swap_available", swap: { id: his, owner: "Bob", room: "ห้อง 2", to_room: "ห้อง 1" } });
+    const done = await admin.put(`/api/v1/meeting-bookings/${mine}`).send({ ...booking(r2, "10:00", "11:00"), swap: true });
+    expect(done.status).toBe(200);
+    expect(done.body.data.room).toMatchObject({ id: r2 });
+    expect((await bob.get(`/api/v1/meeting-bookings/${his}`)).body.data.room).toMatchObject({ id: r1 });
+    expect(Number(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'meeting_booking.swapped'"))).toBe(1);
+    expect(Number(await scalar("SELECT COUNT(*) FROM notifications WHERE notifiable_id = ? AND data->>'$.kind' = 'meeting'", [bobUser.id]))).toBe(1);
   });
 });

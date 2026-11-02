@@ -13,7 +13,8 @@ import { alert, btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { Formatters, MessageKey, TFunction } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
-import { getAccess, canCreateAssets, canEditAssets, canViewAllAssets, getCurrentUser } from "@/lib/auth";
+import { getAccess, canCreateAssets, canEditAssets, canViewAllAssets, canViewAssets, getCurrentUser } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Branch, type LicenseUsage, type Location, type Paginated } from "@/lib/types";
 import { ImportAssets } from "./import-assets";
 import { ClickableRow } from "@/components/clickable-row";
@@ -81,6 +82,8 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
     getCurrentUser(),
     getAccess(),
   ]);
+  // ผู้ใช้ทั่วไป (ไม่มี assets.view) ไม่มีเมนูสินทรัพย์ — เลือกสินทรัพย์ตอนแจ้งซ่อมได้ตามเดิม
+  if (!canViewAssets(user)) redirect("/dashboard");
   // สิทธิ์เดิม (admin/manager) + การตั้งค่าหน้าสิทธิ์การใช้งาน
   const canCreate = canCreateAssets(user) && can("btn:assets:create");
   const canEdit = canEditAssets(user) && can("btn:assets:edit");
@@ -156,7 +159,8 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
         </AppSelect>
         <AppSelect name="category" defaultValue={params.category as string | undefined} className={input}>
           <option value="">{t("assets.allCategories")}</option>
-          {CATEGORIES.map((c) => (
+          {/* License ซอฟต์แวร์แยกไปเมนู /licenses */}
+          {CATEGORIES.filter((c) => c !== "SOFTWARE").map((c) => (
             <option key={c} value={c}>
               {t(`assets.categories.${c}` as MessageKey)}
             </option>

@@ -219,16 +219,26 @@ describe("asset movements", () => {
     expect(future.body.errors.moved_at[0]).toBe("วันที่โอนย้ายต้องไม่เกินเวลาปัจจุบัน");
   });
 
-  it("viewer can read history of their own asset but not transfer", async () => {
-    const user = await makeUser();
+  it("a holder with assets.view can read history of their own asset but not transfer", async () => {
+    const user = await makeUser({ role: "division_manager" });
     const api = await as(user);
     const asset = await makeAsset({ custodian_id: user.id });
     expect((await api.get(`/api/v1/assets/${asset.uuid}/movements`)).status).toBe(200);
     expect((await api.post(`/api/v1/assets/${asset.uuid}/movements`).send({ location_id: await makeLocation() })).status).toBe(403);
   });
 
+  it("viewers have no assets menu by default (repair form still lists their assets)", async () => {
+    const user = await makeUser();
+    const api = await as(user);
+    const mine = await makeAsset({ asset_tag: "VIEWER-1", custodian_id: user.id });
+    expect((await api.get("/api/v1/assets")).status).toBe(403);
+    expect((await api.get(`/api/v1/assets/${mine.uuid}`)).status).toBe(404);
+    const options = (await api.get("/api/v1/tickets/form-options")).body.data;
+    expect(options.my_assets.map((a: { asset_tag: string }) => a.asset_tag)).toContain("VIEWER-1");
+  });
+
   it("users without assets.view_all only see assets they hold (custodian or matching user name)", async () => {
-    const user = await makeUser({ name: "สมชาย ใจดี" });
+    const user = await makeUser({ name: "สมชาย ใจดี", role: "division_manager" });
     const api = await as(user);
     const mine = await makeAsset({ asset_tag: "MINE-1", custodian_id: user.id });
     const byName = await makeAsset({ asset_tag: "PC-001", category: "COMPUTER", user_name: " สมชาย ใจดี " });
