@@ -6,8 +6,8 @@ import { toActionResult } from "@/lib/action-result";
 import { apiFetch } from "@/lib/api";
 
 /** รายการข้อมูล Drop Down ที่แก้ได้ (ตาราง dropdown_options) */
-export type DropdownList = "computer_type" | "brand" | "vault_category";
-const LISTS: DropdownList[] = ["computer_type", "brand", "vault_category"];
+export type DropdownList = "computer_type" | "computer_spec" | "brand" | "vault_category";
+const LISTS: DropdownList[] = ["computer_type", "computer_spec", "brand", "vault_category"];
 
 type QuickAdd = { option?: { value: string; label: string }; message?: string };
 

@@ -20,7 +20,7 @@ function Expiry({ license: l, t, fmt }: { license: LicenseSummary; t: TFunction;
 }
 
 /**
- * การ์ด License ซอฟต์แวร์ (เมนู /licenses และหัวหน้าการติดตั้ง) — คลิกการ์ด = รายละเอียด (/assets/{id}),
+ * การ์ดซอฟต์แวร์ License (เมนู /licenses และหัวหน้าการติดตั้ง) — คลิกการ์ด = รายละเอียด (/assets/{id}),
  * จำนวนไฟล์แนบ → ส่วนเอกสารแนบในหน้ารายละเอียด, "เครื่องที่ติดตั้ง" → /license-installations?license=
  */
 export function LicenseCard({
@@ -48,6 +48,9 @@ export function LicenseCard({
             {l.name}
           </Link>
           <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted">
+            <span className="mr-0.5 rounded-full bg-accent-50 px-1.5 py-px font-medium text-accent-700 ring-1 ring-inset ring-accent-200 dark:bg-accent-400/10 dark:text-accent-300 dark:ring-accent-400/30">
+              {t(`licenses.types.${l.software_type}`)}
+            </span>
             <span className="font-mono">{l.asset_tag}</span>
             <span>·</span>
             <Expiry license={l} t={t} fmt={fmt} />

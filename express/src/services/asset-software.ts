@@ -51,8 +51,8 @@ export async function loadSoftware(assetId: number): Promise<SoftwareSet> {
 
 /** license ทั้งหมด (Software ที่มีข้อมูล license) + จำนวนที่ใช้/คงเหลือ — ตัวเลือกในฟอร์ม */
 export async function softwareOptions() {
-  const rows = await select<{ uuid: string; asset_tag: string; name: string; model: string | null; seats: number | null; used: number }>(
-    `SELECT a.uuid, a.asset_tag, a.name, a.model, li.seats,
+  const rows = await select<{ uuid: string; asset_tag: string; name: string; model: string | null; seats: number | null; used: number; software_type: string }>(
+    `SELECT a.uuid, a.asset_tag, a.name, a.model, li.seats, li.software_type,
             (SELECT COUNT(*) FROM license_installations i WHERE i.license_asset_id = a.id AND i.uninstalled_at IS NULL) AS used
        FROM assets a JOIN asset_licenses li ON li.asset_id = a.id
       WHERE a.category = ? AND a.deleted_at IS NULL
@@ -64,6 +64,7 @@ export async function softwareOptions() {
     asset_tag: r.asset_tag,
     name: r.name,
     model: r.model,
+    software_type: r.software_type,
     seats: r.seats,
     used: Number(r.used),
     available: r.seats === null ? null : Math.max(0, r.seats - Number(r.used)),

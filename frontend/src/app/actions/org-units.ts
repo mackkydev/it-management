@@ -6,16 +6,17 @@ import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
 
 /** แผนก / ฝ่าย (ข้อมูลหลัก) — สิทธิ์ org.manage (API ตรวจซ้ำ) */
-export type OrgTable = "departments" | "divisions" | "contract_categories" | "computer_type" | "brand" | "vault_category" | "meeting_purpose" | "meeting_equipment" | "vehicle_purpose" | "vehicle_extra" | "vehicle_type" | "vehicle_fuel";
+export type OrgTable = "departments" | "divisions" | "contract_categories" | "computer_type" | "computer_spec" | "brand" | "vault_category" | "meeting_purpose" | "meeting_equipment" | "vehicle_purpose" | "vehicle_extra" | "vehicle_type" | "vehicle_fuel";
 export type OrgResult = ActionResult<"name" | "sort_order">;
 
-const TABLES: OrgTable[] = ["departments", "divisions", "contract_categories", "computer_type", "brand", "vault_category", "meeting_purpose", "meeting_equipment", "vehicle_purpose", "vehicle_extra", "vehicle_type", "vehicle_fuel"];
+const TABLES: OrgTable[] = ["departments", "divisions", "contract_categories", "computer_type", "computer_spec", "brand", "vault_category", "meeting_purpose", "meeting_equipment", "vehicle_purpose", "vehicle_extra", "vehicle_type", "vehicle_fuel"];
 /** path ของ API และหน้าเว็บ (หมวดหมู่สัญญาใช้ขีดกลาง) */
 const PATH: Record<OrgTable, string> = {
   departments: "/departments",
   divisions: "/divisions",
   contract_categories: "/contract-categories",
   computer_type: "/dropdown-options/computer_type",
+  computer_spec: "/dropdown-options/computer_spec",
   brand: "/dropdown-options/brand",
   vault_category: "/dropdown-options/vault_category",
   meeting_purpose: "/dropdown-options/meeting_purpose",

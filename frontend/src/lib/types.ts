@@ -65,6 +65,8 @@ export interface Asset {
   monitor_tag: string | null;
   /** Software อื่นๆ ที่ยังไม่ผูก license (ข้อความจาก Excel — ขึ้นบรรทัดใหม่คั่น) */
   other_software: string | null;
+  /** สเปคคอมพิวเตอร์ (ข้อมูล Drop Down computer_spec) */
+  computer_spec: string | null;
   /** เฉพาะหมวด SOFTWARE (null = ไม่มี) */
   license?: AssetLicense | null;
   /** หน้ารายการ: จำนวนสิทธิ์ทั้งหมด / ติดตั้งแล้ว / คงเหลือ (เฉพาะ license) */
@@ -641,13 +643,17 @@ export const CATEGORY_FORM: Record<string, { license?: boolean; computer?: boole
 /** ช่องข้อมูลเครื่องคอมพิวเตอร์ตามลำดับทะเบียน Excel — ข้อความ / วันที่ */
 export const COMPUTER_TEXT_FIELDS = [
   "department", "user_name", "work_group", "mac_address", "computer_type", "ip_address", "os", "office", "email_365", "antivirus",
-  "notebook_tag", "cpu_tag", "monitor_tag", "other_software",
+  "notebook_tag", "cpu_tag", "monitor_tag", "other_software", "computer_spec",
 ] as const;
 export const COMPUTER_DATE_FIELDS = ["received_date", "start_use_date"] as const;
 /** ค่าที่เลือกได้ของ Computer Type (พิมพ์ค่าอื่นจาก Excel ได้ — แสดงตามที่บันทึก) */
 export const COMPUTER_TYPES = ["Desktop", "Laptop", "All-in-One", "Server", "Tablet"];
 
 export const LICENSE_BILLINGS = ["yearly", "custom", "perpetual"] as const;
+/** ประเภทของ License ซอฟต์แวร์ = ช่อง OS / Office / Anti Virus ในฟอร์มคอมพิวเตอร์ + อื่นๆ — ชื่อแสดง licenses.types.* */
+export const SOFTWARE_TYPES = ["office", "os", "antivirus", "other"] as const;
+export type SoftwareType = (typeof SOFTWARE_TYPES)[number];
+export const isSoftwareType = (v: unknown): v is SoftwareType => (SOFTWARE_TYPES as readonly unknown[]).includes(v);
 export type LicenseBilling = (typeof LICENSE_BILLINGS)[number];
 
 export interface AssetLicense {
@@ -659,6 +665,7 @@ export interface AssetLicense {
   seats: number | null;
   vendor: string | null;
   notify_days_before: number | null;
+  software_type: SoftwareType;
   has_key: boolean;
 }
 
@@ -717,6 +724,14 @@ export interface LicenseUsage {
   available: number | null;
 }
 
+/** GET /assets/missing — เลขทรัพย์สินในใบแจ้งซ่อมที่ไม่พบในระบบ (แท็บ "สินทรัพย์ที่ต้องเพิ่ม") */
+export interface MissingAsset {
+  asset_no: string;
+  tickets: number;
+  device_name: string | null;
+  last_ticket: { id: string; ticket_no: string; requested_at: string; symptom: string | null; requester: string | null; branch: string | null };
+}
+
 /** GET /license-installations/licenses */
 export interface LicenseSummary extends LicenseUsage {
   id: string;
@@ -727,6 +742,7 @@ export interface LicenseSummary extends LicenseUsage {
   status: string;
   files_count: number;
   icon_id: number | null;
+  software_type: SoftwareType;
   expires_at: string | null;
   days_left: number | null;
 }
@@ -767,6 +783,7 @@ export interface LicenseFormValues {
   notify_days_before: string;
   /** กำหนดระยะเวลาเอง: จำนวนปี → คำนวณวันหมดอายุ (ใช้ในฟอร์มเท่านั้น ไม่ส่งไป API) */
   duration_years: string;
+  software_type: SoftwareType;
 }
 
 /** ค่าจากฟอร์ม (string ทั้งหมด) — แปลงเป็น payload ของ API ใน server action */
@@ -803,6 +820,7 @@ export interface AssetFormValues {
   cpu_tag: string;
   monitor_tag: string;
   other_software: string;
+  computer_spec: string;
   /** เหตุผลการโอนย้าย — ส่งเฉพาะตอนแก้ไขและสถานที่/ผู้ถือครองเปลี่ยน */
   movement_reason: string;
   /** ใช้เมื่อหมวดมี license (CATEGORY_FORM) */
@@ -826,6 +844,7 @@ export interface SoftwareRef {
 export type SoftwareSet = Record<SoftwareSlot, SoftwareRef | null> & { others: SoftwareRef[] };
 export interface SoftwareOption extends SoftwareRef {
   model: string | null;
+  software_type: SoftwareType;
   seats: number | null;
   used: number;
   available: number | null;

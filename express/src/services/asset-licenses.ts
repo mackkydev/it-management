@@ -21,7 +21,11 @@ export interface LicenseRow {
   license_key: string | null;
   notify_days_before: number | null;
   notified_for_expires_at: string | null;
+  software_type?: string;
 }
+
+/** ประเภทของ License ซอฟต์แวร์ = ช่องในฟอร์มคอมพิวเตอร์ (os / office / antivirus) + อื่นๆ */
+export const SOFTWARE_TYPES = ["office", "os", "antivirus", "other"] as const;
 
 export interface AssetFileRow {
   id: number;
@@ -56,6 +60,7 @@ export function licenseJson(l: LicenseRow) {
     seats: l.seats,
     vendor: l.vendor,
     notify_days_before: l.notify_days_before,
+    software_type: l.software_type ?? "other",
     has_key: l.license_key !== null,
   };
 }
@@ -80,6 +85,7 @@ export async function saveLicense(assetId: number, input: Record<string, unknown
     seats: has("seats") ? int(input.seats) : (existing?.seats ?? null),
     vendor: has("vendor") ? (typeof input.vendor === "string" && input.vendor.trim() !== "" ? input.vendor.trim() : null) : (existing?.vendor ?? null),
     notify_days_before: has("notify_days_before") ? int(input.notify_days_before) : (existing?.notify_days_before ?? null),
+    software_type: has("software_type") && input.software_type ? String(input.software_type) : (existing?.software_type ?? "other"),
     license_key: key ? encryptString(key) : bool(input.clear_license_key) ? null : (existing?.license_key ?? null),
     updated_at: nowDb(),
   };

@@ -39,6 +39,8 @@ export const COMPUTER_TEXT_FIELDS = {
   monitor_tag: 255,
   /** Software อื่นๆ ที่ยังไม่ผูก license (ขึ้นบรรทัดใหม่คั่น) */
   other_software: 1000,
+  /** สเปคคอมพิวเตอร์ (ข้อมูล Drop Down computer_spec) — ไม่อยู่ในไฟล์นำเข้า */
+  computer_spec: 255,
 } as const;
 export const COMPUTER_DATE_FIELDS = ["received_date", "start_use_date"] as const;
 

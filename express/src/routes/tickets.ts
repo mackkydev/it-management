@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { exec, first, insert, isUuid, likeEscape, lockNamed, scalar, select, transaction, update } from "../db.js";
+import { assetIdByNumber } from "../services/asset-repairs.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { dateOnly, iso, localToday, nowDb, toDbDateTime } from "../lib/time.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
@@ -740,9 +741,8 @@ ticketRoutes.post("/tickets", async (req, res) => {
     if (type !== "other") values.type_other = null;
     if (values.due_date) values.due_date = String(values.due_date).slice(0, 10);
     for (const key of ["branch_id", "assignee_id"]) if (key in values) values[key] = int(values[key]);
-    const assetId = values.asset_tag
-      ? await scalar<number>("SELECT id FROM assets WHERE asset_tag = ? AND deleted_at IS NULL", [values.asset_tag])
-      : null;
+    // ผูกสินทรัพย์: ตรงรหัสสินทรัพย์ / เลขที่ทรัพย์สิน / เลขที่ทรัพย์สิน (เดิม)
+    const assetId = await assetIdByNumber(values.asset_tag);
 
     const uuid = randomUUID();
     const now = nowDb();
@@ -1312,7 +1312,7 @@ async function updateTicket(req: Request, res: Response) {
   if (type !== "other") values.type_other = null;
   if (values.due_date) values.due_date = String(values.due_date).slice(0, 10);
   for (const key of ["branch_id", "assignee_id"]) values[key] = int(values[key]);
-  const assetId = values.asset_tag ? await scalar<number>("SELECT id FROM assets WHERE asset_tag = ? AND deleted_at IS NULL", [values.asset_tag]) : null;
+  const assetId = await assetIdByNumber(values.asset_tag);
 
   // เปลี่ยนผู้อนุมัติ (ยังไม่มีใครอนุมัติ — canEdit): แทนผู้อนุมัติของขั้นปัจจุบัน / ระบบเดิมแทน approver_id
   let approverChanged = false;

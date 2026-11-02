@@ -124,6 +124,7 @@ export interface AssetRow {
   antivirus: string | null;
   notebook_tag: string | null;
   cpu_tag: string | null;
+  computer_spec?: string | null;
   monitor_tag: string | null;
   other_software: string | null;
   created_at: string | null;
@@ -175,6 +176,7 @@ export function assetResource(
     antivirus: a.antivirus,
     notebook_tag: a.notebook_tag,
     cpu_tag: a.cpu_tag,
+    computer_spec: a.computer_spec ?? null,
     monitor_tag: a.monitor_tag,
     other_software: a.other_software,
     ...("license" in rel ? { license: rel.license ? licenseJson(rel.license) : null } : {}),

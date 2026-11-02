@@ -15,8 +15,9 @@ import type { Formatters, MessageKey, TFunction } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
 import { getAccess, canCreateAssets, canEditAssets, canViewAllAssets, canViewAssets, getCurrentUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Branch, type LicenseUsage, type Location, type Paginated } from "@/lib/types";
+import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Branch, type LicenseUsage, type Location, type MissingAsset, type Paginated } from "@/lib/types";
 import { ImportAssets } from "./import-assets";
+import { MissingAssets } from "./missing-assets";
 import { ClickableRow } from "@/components/clickable-row";
 import { AppSelect } from "@/components/app-select";
 import { ConfirmDownload } from "@/components/confirm-download";
@@ -73,7 +74,7 @@ function buildQuery(params: Record<string, string | string[] | undefined>) {
 export default async function AssetsPage({ searchParams }: PageProps<"/assets">) {
   const params = await searchParams;
   const query = buildQuery(params);
-  const { t } = await getI18n();
+  const { t, fmt } = await getI18n();
 
   // ข้อมูลส่วนหัว/ตัวกรอง (เร็ว: locations ถูก cache, user ถูก dedupe กับ layout)
   const [locations, branches, user, can] = await Promise.all([
@@ -93,6 +94,12 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
   exportQuery.delete("page");
   exportQuery.delete("per_page");
   const saved = SAVED.find((s) => s === params.saved);
+  // แท็บ "สินทรัพย์ที่ต้องเพิ่ม" (ผู้เพิ่มสินทรัพย์ได้): เลขทรัพย์สินจากใบแจ้งซ่อมที่ยังไม่มีในระบบ
+  const canSeeMissing = canCreateAssets(user);
+  const missing = canSeeMissing ? (await apiFetch<{ data: MissingAsset[] }>("/assets/missing")).data : [];
+  const tab = canSeeMissing && params.tab === "missing" ? "missing" : "system";
+  const TAB_CLS = (active: boolean) =>
+    `flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
   // ไม่มีสิทธิ์ดูทั้งหมด → API ส่งเฉพาะสินทรัพย์ที่ผู้ใช้ถือครอง
   const mineOnly = !canViewAllAssets(user);
 
@@ -135,6 +142,25 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
           {t(`assets.saved.${saved}`)}
         </div>
       )}
+
+      {canSeeMissing && (
+        <div role="tablist" className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1 sm:inline-flex">
+          <Link role="tab" aria-selected={tab === "system"} href="/assets" className={TAB_CLS(tab === "system")}>
+            {t("assets.tabs.system")}
+          </Link>
+          <Link role="tab" aria-selected={tab === "missing"} href="/assets?tab=missing" className={TAB_CLS(tab === "missing")}>
+            {t("assets.tabs.missing")}
+            {missing.length > 0 && (
+              <span className="rounded-full bg-danger-500 px-1.5 text-xs font-semibold tabular-nums text-white">{fmt.number(missing.length)}</span>
+            )}
+          </Link>
+        </div>
+      )}
+
+      {tab === "missing" ? (
+        <MissingAssets items={missing} />
+      ) : (
+        <>
 
       {/* ตัวกรอง: next/form = GET form ที่เปลี่ยนหน้าแบบ client-side (ยังทำงานได้แม้ปิด JavaScript) */}
       {/* จอใหญ่: ตัวกรองทั้งหมด + ปุ่มอยู่บรรทัดเดียวกัน */}
@@ -198,6 +224,8 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
       <Suspense key={query.toString()} fallback={<TableSkeleton />}>
         <AssetResults query={query} canEdit={canEdit} mineOnly={mineOnly} />
       </Suspense>
+        </>
+      )}
     </div>
   );
 }

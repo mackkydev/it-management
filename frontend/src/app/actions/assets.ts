@@ -31,6 +31,7 @@ function toPayload(v: AssetFormValues) {
             license_key: text(l.license_key), // ว่าง = คงค่าเดิม
             clear_license_key: l.clear_license_key,
             notify_days_before: l.notify_days_before ? Number(l.notify_days_before) : null,
+            software_type: l.software_type,
           },
         }
       : {}),

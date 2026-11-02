@@ -10,7 +10,7 @@ import { UploadedFile } from "../lib/uploaded-file.js";
 import { me, pageParam, paginated } from "../http.js";
 import { can, type UserRow } from "../models/user.js";
 import {
-  activeCount, BILLINGS, deleteLicense, ICON_KIND, LICENSE_CATEGORY, loadFiles, loadLicense, revealKey, saveLicense, type AssetFileRow, type LicenseRow,
+  activeCount, BILLINGS, deleteLicense, ICON_KIND, SOFTWARE_TYPES, LICENSE_CATEGORY, loadFiles, loadLicense, revealKey, saveLicense, type AssetFileRow, type LicenseRow,
 } from "../services/asset-licenses.js";
 import { deleteStored, randomString, readStored, storeUploadIn, writeStored } from "../services/ticket-files.js";
 import { processIcon } from "../services/photos.js";
@@ -94,6 +94,7 @@ function licenseRules(input: Record<string, unknown>, current?: AssetRow): Rules
     "license.license_key": ["nullable", "string", "max:5000"],
     "license.clear_license_key": ["sometimes", "boolean"],
     "license.notify_days_before": ["nullable", "integer", "min:1", "max:365"],
+    "license.software_type": ["nullable", `in:${SOFTWARE_TYPES.join(",")}`],
   };
 }
 
@@ -267,6 +268,41 @@ assetRoutes.get("/assets", async (req, res) => {
     ...(r.li_id ? { license_usage: { seats: r.li_seats, used: Number(r.li_used ?? 0), available: r.li_seats === null ? null : Math.max(0, r.li_seats - Number(r.li_used ?? 0)) } } : {}),
   }));
   res.json(paginated(req, data, total, page, perPage));
+});
+
+/**
+ * GET /assets/missing — "สินทรัพย์ที่ต้องเพิ่ม": เลขทรัพย์สินที่ผู้แจ้งพิมพ์ในใบแจ้งซ่อม แต่ไม่พบในระบบ
+ * (ไม่ตรง asset_tag / เลขที่ทรัพย์สิน cpu_tag / เลขที่ทรัพย์สิน (เดิม) monitor_tag ของสินทรัพย์ใด) — 1 แถวต่อเลข + ใบล่าสุด
+ * เพิ่มสินทรัพย์ที่มีเลขนั้นแล้ว = หายจากรายการเอง; ผู้เพิ่มสินทรัพย์ได้ (assets.create) — ต้องประกาศก่อน /assets/:uuid
+ */
+assetRoutes.get("/assets/missing", async (req, res) => {
+  authorize(can(me(req), "assets.create"));
+  const rows = await select<{
+    tag: string; tickets: number; uuid: string; ticket_no: string; requested_at: string; device_name: string | null; symptom: string | null;
+    r_name: string | null; b_name: string | null;
+  }>(
+    `SELECT x.tag, x.tickets, x.uuid, x.ticket_no, x.requested_at, x.device_name, x.symptom, x.r_name, x.b_name
+       FROM (SELECT TRIM(t.asset_tag) AS tag, t.uuid, t.ticket_no, t.requested_at, t.device_name, t.symptom, u.name AS r_name, b.name AS b_name,
+                    COUNT(*) OVER (PARTITION BY TRIM(t.asset_tag)) AS tickets,
+                    ROW_NUMBER() OVER (PARTITION BY TRIM(t.asset_tag) ORDER BY t.requested_at DESC, t.id DESC) AS rn
+               FROM it_tickets t
+               LEFT JOIN users u ON u.id = t.requester_id
+               LEFT JOIN branches b ON b.id = t.branch_id
+              WHERE ${REPAIR_BASE_WHERE} AND t.asset_id IS NULL AND t.asset_tag IS NOT NULL AND TRIM(t.asset_tag) <> ''
+                AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.deleted_at IS NULL
+                                  AND (a.asset_tag = TRIM(t.asset_tag) OR a.cpu_tag = TRIM(t.asset_tag) OR a.monitor_tag = TRIM(t.asset_tag)))) x
+      WHERE x.rn = 1
+      ORDER BY x.requested_at DESC
+      LIMIT 500`,
+  );
+  res.json({
+    data: rows.map((r) => ({
+      asset_no: r.tag,
+      tickets: Number(r.tickets),
+      device_name: r.device_name,
+      last_ticket: { id: r.uuid, ticket_no: r.ticket_no, requested_at: iso(r.requested_at), symptom: r.symptom, requester: r.r_name, branch: r.b_name },
+    })),
+  });
 });
 
 /**
@@ -628,7 +664,9 @@ assetRoutes.get("/assets/:uuid/user-logs", async (req, res) => {
 /** GET /assets/{uuid}/repairs — ประวัติการซ่อมของสินทรัพย์นี้ ล่าสุดก่อน (สูงสุด 100) — ดู services/asset-repairs.ts */
 assetRoutes.get("/assets/:uuid/repairs", async (req, res) => {
   const asset = await findVisibleAsset(req, req.params.uuid);
-  res.json({ data: await repairList("(t.asset_id = ? OR (t.asset_id IS NULL AND t.asset_tag = ?))", [asset.id, asset.asset_tag], 100) });
+  // ใบที่ยังไม่ผูก asset_id: เลขที่พิมพ์ตรงรหัสสินทรัพย์ / เลขที่ทรัพย์สิน / เลขที่ทรัพย์สิน (เดิม) และเลือกเครื่องนี้ (a.id — กันเลขซ้ำหลายเครื่อง)
+  const numbers = [asset.asset_tag, asset.cpu_tag, asset.monitor_tag].filter((v): v is string => Boolean(v && v.trim()));
+  res.json({ data: await repairList("(t.asset_id = ? OR (t.asset_id IS NULL AND t.asset_tag IN (?) AND a.id = ?))", [asset.id, numbers, asset.id], 100) });
 });
 
 /**
@@ -660,8 +698,9 @@ assetRoutes.get("/repairs", async (req, res) => {
   const search = String(f.search ?? "").trim();
   if (search) {
     const like = `%${likeEscape(search)}%`;
-    where.push("(t.ticket_no LIKE ? OR t.asset_tag LIKE ? OR a.name LIKE ? OR t.device_name LIKE ? OR t.symptom LIKE ?)");
-    params.push(like, `${likeEscape(search)}%`, like, like, like);
+    // รหัสสินทรัพย์ที่ผูก (a.asset_tag) — ลิงก์ "ดูรายละเอียดทั้งหมด" จากหน้ารายละเอียดสินทรัพย์ค้นด้วยค่านี้
+    where.push("(t.ticket_no LIKE ? OR t.asset_tag LIKE ? OR a.asset_tag LIKE ? OR a.name LIKE ? OR t.device_name LIKE ? OR t.symptom LIKE ?)");
+    params.push(like, `${likeEscape(search)}%`, `${likeEscape(search)}%`, like, like, like);
   }
   if (f.status === "completed") where.push("t.status = 'completed'");
   else if (f.status === "open") where.push("t.status <> 'completed'");

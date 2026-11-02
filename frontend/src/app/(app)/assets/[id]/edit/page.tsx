@@ -52,6 +52,7 @@ function toFormValues(a: Asset): AssetFormValues {
       notify_days_before: a.license?.notify_days_before ? String(a.license.notify_days_before) : "",
       // กำหนดระยะเวลาเอง: เติมจำนวนปีถ้าช่วงวันลงตัวเป็นปีเต็ม
       duration_years: a.license?.billing === "custom" ? licenseYears(a.license.start_date, a.license.expires_at ?? "") : "",
+      software_type: a.license?.software_type ?? "other",
     },
   };
 }
@@ -78,25 +79,27 @@ export default async function EditAssetPage({ params }: PageProps<"/assets/[id]/
   const user = await getCurrentUser();
   if (!canEditAssets(user)) redirect("/assets");
 
-  const [asset, { data: locations }, { data: branches }, { t }, computerTypes, brands] = await Promise.all([
+  const [asset, { data: locations }, { data: branches }, { t }, computerTypes, brands, computerSpecs] = await Promise.all([
     getAsset(id),
     apiFetch<{ data: Location[] }>("/locations"),
     apiFetch<{ data: Branch[] }>("/branches"),
     getI18n(),
     apiFetch<{ data: { name: string }[] }>("/dropdown-options/computer_type").then((r) => r.data.map((o) => o.name)),
     apiFetch<{ data: { name: string }[] }>("/dropdown-options/brand").then((r) => r.data.map((o) => o.name)),
+    apiFetch<{ data: { name: string }[] }>("/dropdown-options/computer_spec").then((r) => r.data.map((o) => o.name)),
   ]);
 
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold">{t("assets.editTitle")}</h1>
+        <h1 className="text-2xl font-semibold">{asset.category === "SOFTWARE" ? t("licenses.editTitle") : t("assets.editTitle")}</h1>
         <p className="font-mono text-sm text-muted">{asset.asset_tag}</p>
       </div>
       <AssetForm
         locations={locations}
         branches={branches}
         computerTypes={computerTypes}
+        computerSpecs={computerSpecs}
         brands={brands}
         assetId={asset.id}
         initial={toFormValues(asset)}

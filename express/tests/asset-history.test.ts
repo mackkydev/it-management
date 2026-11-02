@@ -141,3 +141,50 @@ describe("asset list license usage", () => {
     expect((await (await as(await makeUser())).get("/api/v1/license-installations/licenses")).status).toBe(403);
   });
 });
+
+describe("assets to add (asset numbers typed in repair tickets that are not in the system)", () => {
+  it("lists unknown asset numbers once with the latest ticket; known new/old asset numbers and asset tags are left out", async () => {
+    const manager = await makeUser({ role: "manager" });
+    const api = await as(manager);
+    const user = await makeUser({ name: "ผู้แจ้ง" });
+    await makeAsset({ asset_tag: "PC-KNOWN", category: "COMPUTER", cpu_tag: "H-NEW-1", monitor_tag: "H-OLD-1" });
+    await ticket(user.id, { asset_tag: "H-MISSING", device_name: "Notebook HR", requested_at: "2026-10-01 03:00:00" });
+    await ticket(user.id, { asset_tag: " H-MISSING ", symptom: "เปิดไม่ติด", requested_at: "2026-10-05 03:00:00" });
+    await ticket(user.id, { asset_tag: "H-NEW-1" });
+    await ticket(user.id, { asset_tag: "H-OLD-1" });
+    await ticket(user.id, { asset_tag: "PC-KNOWN" });
+    await ticket(user.id, { asset_tag: "H-CANCEL", status: "cancelled" });
+    await ticket(user.id, { asset_tag: "H-INSTALL", type: "install" });
+
+    const res = await api.get("/api/v1/assets/missing");
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0]).toMatchObject({ asset_no: "H-MISSING", tickets: 2, last_ticket: { symptom: "เปิดไม่ติด", requester: "ผู้แจ้ง" } });
+
+    // เพิ่มสินทรัพย์ที่มีเลขนี้ → หายจากรายการ
+    await makeAsset({ asset_tag: "PC-NEW", category: "COMPUTER", cpu_tag: "H-MISSING" });
+    expect((await api.get("/api/v1/assets/missing")).body.data).toEqual([]);
+    expect((await (await as(await makeUser())).get("/api/v1/assets/missing")).status).toBe(403);
+  });
+});
+
+describe("repair tickets match assets by asset number (new / old) as well as the asset code", () => {
+  it("links a new ticket typed with the asset number and shows earlier unlinked tickets in the asset's repair history", async () => {
+    const user = await makeUser({ name: "ผู้แจ้ง" });
+    const admin = await as(await makeUser({ role: "admin" }));
+    const earlier = await ticket(user.id, { asset_tag: "H-OLD-9", symptom: "จอดับ" }); // แจ้งก่อนลงทะเบียนเครื่อง
+    const pc = await makeAsset({ asset_tag: "PC-NUM", category: "COMPUTER", cpu_tag: "H-NEW-9", monitor_tag: "H-OLD-9" });
+
+    const res = await (await as(user)).post("/api/v1/tickets").send({ type: "repair", branch_id: await makeBranch(), details: "เปิดไม่ติด", device_name: "Desktop", asset_tag: "H-NEW-9", symptom: "เปิดไม่ติด", assignee_id: (await makeUser({ is_it_staff: true })).id });
+    expect(res.status, JSON.stringify(res.body.errors)).toBe(201);
+    expect(res.body.data.asset).toMatchObject({ id: pc.uuid, asset_tag: "PC-NUM" });
+
+    const repairs = (await admin.get(`/api/v1/assets/${pc.uuid}/repairs`)).body.data as { symptom: string }[];
+    expect(repairs.map((r) => r.symptom).sort()).toEqual(["จอดับ", "เปิดไม่ติด"]);
+    // รายงานรวม: ใบเดิมที่ยังไม่ผูก asset_id ก็แสดงสินทรัพย์ที่ตรงเลข
+    const report = (await admin.get("/api/v1/repairs?search=PC-NUM")).body.data as { id: string; asset: { asset_tag: string } | null }[];
+    expect(report.length).toBe(2);
+    expect(report.every((r) => r.asset?.asset_tag === "PC-NUM")).toBe(true);
+    expect(earlier).toBeGreaterThan(0);
+  });
+});

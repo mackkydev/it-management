@@ -19,6 +19,7 @@ import {
   EMPTY_SOFTWARE,
   LICENSE_BILLINGS,
   SOFTWARE_SLOTS,
+  SOFTWARE_TYPES,
   STATUSES,
   type AssetFormValues,
   type Branch,
@@ -28,6 +29,7 @@ import {
   type SoftwareOption,
   type SoftwareRef,
   type SoftwareSlot,
+  type SoftwareType,
   type UserOption,
 } from "@/lib/types";
 import { SoftwareListPicker, SoftwareSlotPicker } from "./software-picker";
@@ -70,6 +72,7 @@ const EMPTY: AssetFormValues = {
     clear_license_key: false,
     notify_days_before: "",
     duration_years: "",
+    software_type: "other",
   },
   software: EMPTY_SOFTWARE,
 };
@@ -113,6 +116,8 @@ interface Props {
   branches: Branch[];
   /** ข้อมูล Drop Down (ข้อมูลหลัก) */
   computerTypes: string[];
+  /** สเปคคอมพิวเตอร์ (ข้อมูล Drop Down computer_spec) */
+  computerSpecs: string[];
   brands: string[];
   /** ไม่ระบุ = โหมดเพิ่มใหม่ */
   assetId?: string;
@@ -123,12 +128,35 @@ interface Props {
   hasLicenseKey?: boolean;
   /** โหมดเพิ่มใหม่: หมวดเริ่มต้น (เช่น ?category=SOFTWARE จากปุ่มเพิ่ม License ในช่อง Software) */
   defaultCategory?: string;
+  /** โหมดเพิ่ม License: ประเภทเริ่มต้น (?type= จากช่อง OS / Office / Anti Virus) */
+  defaultSoftwareType?: SoftwareType;
+  /** โหมดเพิ่มใหม่: ค่าเริ่มต้น (เช่น เลขที่ทรัพย์สิน + ชื่อเครื่องจากใบแจ้งซ่อม) */
+  prefill?: Partial<Pick<AssetFormValues, "cpu_tag" | "name">>;
 }
 
-export function AssetForm({ locations, branches, computerTypes, brands, assetId, initial, initialCustodian = null, canDelete = false, hasLicenseKey = false, defaultCategory }: Props) {
+export function AssetForm({
+  locations,
+  branches,
+  computerTypes,
+  computerSpecs,
+  brands,
+  assetId,
+  initial,
+  initialCustodian = null,
+  canDelete = false,
+  hasLicenseKey = false,
+  defaultCategory,
+  defaultSoftwareType,
+  prefill,
+}: Props) {
   const { t } = useI18n();
   const confirm = useConfirm();
-  const [values, setValues] = useState<AssetFormValues>(initial ?? (defaultCategory ? { ...EMPTY, category: defaultCategory } : EMPTY));
+  const [values, setValues] = useState<AssetFormValues>(
+    initial ??
+      (defaultCategory
+        ? { ...EMPTY, ...prefill, category: defaultCategory, license: { ...EMPTY.license, software_type: defaultSoftwareType ?? "other" } }
+        : { ...EMPTY, ...prefill }),
+  );
   const [custodian, setCustodian] = useState(initialCustodian);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [message, setMessage] = useState("");
@@ -193,6 +221,7 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
           installed={installedIds}
           onChange={(ref) => setSlot(slot, ref)}
           onClearLegacy={() => setSlot(slot, null)}
+          softwareType={slot}
           className={`${inputBase} ${err ? inputError : ""}`}
         />
         {err && <p className="mt-1 text-xs font-medium text-red-500">{err}</p>}
@@ -339,18 +368,41 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
               true,
             )}
             {field("name", t("assets.form.name"), input("name", { maxLength: 255, placeholder: form?.computer ? t("assets.computer.namePlaceholder") : undefined }), true)}
-            {field(
-              "category",
-              t("assets.form.category"),
-              <AppSelect id="category" name="category" value={values.category} onChange={onChange} className={cls("category")}>
-                <option value="">{t("assets.form.chooseCategory")}</option>
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {t(`assets.categories.${c}` as MessageKey)}
-                  </option>
-                ))}
-              </AppSelect>,
-              true,
+            {/* License ซอฟต์แวร์: หมวดหมู่ = ประเภท (Office / OS / Anti Virus / อื่นๆ) — สินทรัพย์ทั่วไปเลือก Software / License ไม่ได้ (อยู่เมนู ซอฟต์แวร์ License) */}
+            {form?.license ? (
+              <div>
+                <label htmlFor="license-software_type" className="mb-1 block text-sm font-medium">
+                  {t("assets.form.category")}
+                  <span className="text-red-500"> *</span>
+                </label>
+                <AppSelect
+                  id="license-software_type"
+                  value={lic.software_type}
+                  onValueChange={(v) => setLicense({ software_type: v as SoftwareType })}
+                  className={licCls("software_type")}
+                >
+                  {SOFTWARE_TYPES.map((s) => (
+                    <option key={s} value={s}>
+                      {t(`licenses.types.${s}`)}
+                    </option>
+                  ))}
+                </AppSelect>
+                {licErr("software_type") && <p className="mt-1 text-xs font-medium text-red-500">{licErr("software_type")}</p>}
+              </div>
+            ) : (
+              field(
+                "category",
+                t("assets.form.category"),
+                <AppSelect id="category" name="category" value={values.category} onChange={onChange} className={cls("category")}>
+                  <option value="">{t("assets.form.chooseCategory")}</option>
+                  {CATEGORIES.filter((c) => c !== "SOFTWARE").map((c) => (
+                    <option key={c} value={c}>
+                      {t(`assets.categories.${c}` as MessageKey)}
+                    </option>
+                  ))}
+                </AppSelect>,
+                true,
+              )
             )}
             {field(
               "status",
@@ -363,7 +415,8 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
                 ))}
               </AppSelect>,
             )}
-            {/* ป้ายกำกับ: เครื่องสำหรับยืม → แสดงในหน้า ยืมโน้ตบุ๊ก (สถานะใช้งาน / เก็บในคลัง) */}
+            {/* ป้ายกำกับ: เครื่องสำหรับยืม → แสดงในหน้า ยืมโน้ตบุ๊ก (สถานะใช้งาน / เก็บในคลัง) — License ไม่มี */}
+            {!form?.license && (
             <label className="flex cursor-pointer items-start gap-2.5 self-end rounded-xl p-2.5 ring-1 ring-line transition-colors hover:bg-subtle sm:col-span-2">
               <input
                 type="checkbox"
@@ -377,6 +430,7 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
                 <span className="block text-xs text-muted">{t("assets.form.loanableHint")}</span>
               </span>
             </label>
+            )}
             {field(
               "brand",
               t("assets.form.brand"),
@@ -423,6 +477,23 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
               t("assets.form.custodian"),
               <CustodianPicker id="custodian_id" value={custodian} onChange={onCustodianChange} className={cls("custodian_id")} />,
             )}
+            {/* ทะเบียนคอมพิวเตอร์: ชื่อ-สกุลผู้ใช้งาน อยู่กับข้อมูลทั่วไป (เลือกแล้วเติม Department ด้านล่าง) */}
+            {form?.computer &&
+              field(
+                "user_name",
+                t("assets.computer.userName"),
+                <SuggestInput<UserOption>
+                  id="user_name"
+                  value={values.user_name}
+                  onChange={(v) => setField("user_name", v)}
+                  load={loadUserNames}
+                  onPick={pickUser}
+                  allowNew={false}
+                  maxLength={255}
+                  placeholder={t("assets.computer.userNamePlaceholder")}
+                  className={cls("user_name")}
+                />,
+              )}
             {isMoving && (
               <div className={`sm:col-span-2 ${alert.info}`}>
                 <p className="mb-2 flex items-center gap-1.5 text-sm text-accent-800 dark:text-accent-200">
@@ -447,21 +518,6 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {field("department", t("assets.computer.department"), input("department", { maxLength: 100 }))}
               {field(
-                "user_name",
-                t("assets.computer.userName"),
-                <SuggestInput<UserOption>
-                  id="user_name"
-                  value={values.user_name}
-                  onChange={(v) => setField("user_name", v)}
-                  load={loadUserNames}
-                  onPick={pickUser}
-                  allowNew={false}
-                  maxLength={255}
-                  placeholder={t("assets.computer.userNamePlaceholder")}
-                  className={cls("user_name")}
-                />,
-              )}
-              {field(
                 "computer_type",
                 t("assets.computer.computerType"),
                 <OptionPicker
@@ -479,21 +535,48 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
               {field("work_group", t("assets.computer.workGroup"), input("work_group", { maxLength: 50, placeholder: "LAMPHUN" }))}
               {field("ip_address", t("assets.computer.ip"), input("ip_address", { maxLength: 45, placeholder: "192.168.4.36", className: `${cls("ip_address")} font-mono` }))}
               {field("mac_address", t("assets.computer.mac"), input("mac_address", { maxLength: 50, placeholder: "A0:36:BC:25:1C:5C", className: `${cls("mac_address")} font-mono` }))}
+              {/* สเปคคอมพิวเตอร์: ตัวเลือกจากข้อมูล Drop Down (list computer_spec) — เพิ่มด่วนได้ */}
               {field(
-                "monitor_tag",
-                t("assets.computer.monitorTag"),
-                <SuggestInput
-                  id="monitor_tag"
-                  value={values.monitor_tag}
-                  onChange={(v) => setField("monitor_tag", v)}
-                  load={loadMonitorTags}
-                  allowNew={false}
+                "computer_spec",
+                t("assets.computer.spec"),
+                <OptionPicker
+                  id="computer_spec"
+                  options={computerSpecs.map((c) => ({ value: c, label: c }))}
+                  value={values.computer_spec}
+                  onChange={(v) => setField("computer_spec", v)}
+                  onAdd={(name) => quickAddOption("computer_spec", name)}
                   maxLength={255}
-                  placeholder={t("assets.computer.monitorTagPlaceholder")}
-                  className={`${cls("monitor_tag")} font-mono`}
+                  className={cls("computer_spec")}
                 />,
               )}
-              {/* แถวเครื่อง: IP / MAC / Monitor — แถวซอฟต์แวร์: OS / Office / Anti Virus = license ที่ติดตั้งบนเครื่องนี้ (Email 365 ไม่แสดงในฟอร์ม — ค่าเดิมยังเก็บไว้) */}
+              {/* เลขที่ทรัพย์สิน + เลขที่ทรัพย์สิน (เดิม) บรรทัดเดียวกัน — ช่องเลขที่ทรัพย์สิน Notebook เลิกแสดง (ค่าเดิมยังเก็บไว้) */}
+              <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-2 lg:col-span-3">
+                {field("cpu_tag", t("assets.computer.cpuTag"), input("cpu_tag", { maxLength: 100, className: `${cls("cpu_tag")} font-mono` }))}
+                {field(
+                  "monitor_tag",
+                  t("assets.computer.monitorTag"),
+                  <SuggestInput
+                    id="monitor_tag"
+                    value={values.monitor_tag}
+                    onChange={(v) => setField("monitor_tag", v)}
+                    load={loadMonitorTags}
+                    allowNew={false}
+                    maxLength={255}
+                    placeholder={t("assets.computer.monitorTagPlaceholder")}
+                    className={`${cls("monitor_tag")} font-mono`}
+                  />,
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* OS และ Software = license ที่ติดตั้งบนเครื่องนี้ (Email 365 ไม่แสดงในฟอร์ม — ค่าเดิมยังเก็บไว้) */}
+        {form?.computer && (
+          <section className={`p-4 sm:p-6 ${card}`}>
+            <h2 className="font-semibold">{t("assets.software.section")}</h2>
+            <p className="mb-4 mt-1 text-sm text-muted">{t("assets.software.sectionHint")}</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {slotField("os", t("assets.computer.os"))}
               {slotField("office", t("assets.computer.office"))}
               {slotField("antivirus", t("assets.computer.antivirus"))}
@@ -537,8 +620,6 @@ export function AssetForm({ locations, branches, computerTypes, brands, assetId,
                   <p className="mt-1 text-xs text-muted">{t("assets.software.otherHint")}</p>
                 )}
               </div>
-              {field("notebook_tag", t("assets.computer.notebookTag"), input("notebook_tag", { maxLength: 100, className: `${cls("notebook_tag")} font-mono` }))}
-              {field("cpu_tag", t("assets.computer.cpuTag"), input("cpu_tag", { maxLength: 100, className: `${cls("cpu_tag")} font-mono` }))}
             </div>
           </section>
         )}

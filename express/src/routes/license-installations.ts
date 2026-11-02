@@ -78,9 +78,9 @@ licenseInstallationRoutes.get("/license-installations/licenses", async (req, res
   authorize(viewsLicenses(me(req)));
   const rows = await select<{
     id: number; uuid: string; asset_tag: string; name: string; seats: number | null; expires_at: string | null; used: number;
-    billing: string; vendor: string | null; status: string; files: number; icon_id: number | null;
+    billing: string; vendor: string | null; status: string; files: number; icon_id: number | null; software_type: string;
   }>(
-    `SELECT a.id, a.uuid, a.asset_tag, a.name, a.status, li.seats, li.expires_at, li.billing, li.vendor,
+    `SELECT a.id, a.uuid, a.asset_tag, a.name, a.status, li.seats, li.expires_at, li.billing, li.vendor, li.software_type,
             (SELECT COUNT(*) FROM license_installations i WHERE i.license_asset_id = a.id AND i.uninstalled_at IS NULL) AS used,
             (SELECT COUNT(*) FROM asset_files f WHERE f.asset_id = a.id AND f.kind <> ?) AS files,
             (SELECT MAX(f.id) FROM asset_files f WHERE f.asset_id = a.id AND f.kind = ?) AS icon_id
@@ -96,6 +96,7 @@ licenseInstallationRoutes.get("/license-installations/licenses", async (req, res
       name: r.name,
       ...usage(r.seats, Number(r.used)),
       billing: r.billing,
+      software_type: r.software_type,
       vendor: r.vendor,
       status: r.status,
       files_count: Number(r.files),

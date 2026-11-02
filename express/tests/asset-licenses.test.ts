@@ -36,7 +36,7 @@ describe("software licenses", () => {
     const res = await api.post("/api/v1/assets").send(software(yearly));
     expect(res.status).toBe(201);
     expect(res.body.data.license).toEqual({
-      billing: "yearly", start_date: day(0), expires_at: day(364), days_left: 364, seats: 25, vendor: "Reseller Co.", notify_days_before: null, has_key: true,
+      billing: "yearly", start_date: day(0), expires_at: day(364), days_left: 364, seats: 25, vendor: "Reseller Co.", notify_days_before: null, software_type: "other", has_key: true,
     });
     expect(JSON.stringify(res.body)).not.toContain("AAAA-BBBB-CCCC");
     const stored = await scalar<string>("SELECT license_key FROM asset_licenses");
@@ -179,5 +179,36 @@ describe("software licenses", () => {
     expect((await manager.delete(`/api/v1/assets/${id}/icon`)).status).toBe(204);
     expect((await manager.get(`/api/v1/assets/${id}`)).body.data.icon_id).toBeNull();
     expect((await manager.get(`/api/v1/assets/${id}/icon`)).status).toBe(404);
+  });
+
+  it("software type (Office / OS / Anti Virus / other) is saved, defaults to other and filters form options", async () => {
+    const manager = await as(await makeUser({ role: "manager" }));
+    const office = await manager.post("/api/v1/assets").send(software({ ...yearly, software_type: "office" }));
+    expect(office.status).toBe(201);
+    expect(office.body.data.license.software_type).toBe("office");
+    const plain = await manager.post("/api/v1/assets").send(software(yearly, { asset_tag: "SW-002", name: "Tool" }));
+    expect(plain.body.data.license.software_type).toBe("other");
+    const bad = await manager.post("/api/v1/assets").send(software({ ...yearly, software_type: "game" }, { asset_tag: "SW-003" }));
+    expect(bad.status).toBe(422);
+    expect(bad.body.errors["license.software_type"]).toBeDefined();
+    // แก้ไขโดยไม่ส่งประเภท = คงเดิม
+    const id = office.body.data.id;
+    await manager.patch(`/api/v1/assets/${id}`).send({ license: { billing: "yearly", start_date: day(0), expires_at: day(364) } });
+    expect((await manager.get(`/api/v1/assets/${id}`)).body.data.license.software_type).toBe("office");
+
+    const list = (await manager.get("/api/v1/license-installations/licenses")).body.data as { name: string; software_type: string }[];
+    expect(Object.fromEntries(list.map((l) => [l.name, l.software_type]))).toEqual({ "Microsoft 365 Business": "office", Tool: "other" });
+    const options = (await manager.get("/api/v1/assets/software-options")).body.data as { name: string; software_type: string }[];
+    expect(options.find((o) => o.name === "Tool")?.software_type).toBe("other");
+  });
+
+  it("computer spec is saved as text and offered from the computer_spec dropdown list", async () => {
+    const manager = await as(await makeUser({ role: "manager" }));
+    const pc = await manager.post("/api/v1/assets").send({ asset_tag: "PC-SPEC", name: "Desktop", category: "COMPUTER", computer_spec: "i5 / 16GB / SSD 512GB" });
+    expect(pc.status).toBe(201);
+    expect(pc.body.data.computer_spec).toBe("i5 / 16GB / SSD 512GB");
+    const added = await manager.post("/api/v1/dropdown-options/computer_spec").send({ name: "i7 / 32GB / SSD 1TB" });
+    expect(added.status).toBe(201);
+    expect((await manager.get("/api/v1/dropdown-options/computer_spec")).body.data.map((o: { name: string }) => o.name)).toContain("i7 / 32GB / SSD 1TB");
   });
 });

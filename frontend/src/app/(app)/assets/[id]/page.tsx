@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
-import { BoxIcon, ChevronLeftIcon, KeyIcon, MapPinIcon, MonitorIcon, PaperclipIcon, PencilIcon, UserIcon } from "@/components/icons";
+import { BoxIcon, ChevronLeftIcon, KeyIcon, MonitorIcon, PaperclipIcon, PencilIcon, UserIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
 import { LoadingLabel } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
@@ -11,10 +11,9 @@ import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
 import { canEditAssets, has, getAccess, getCurrentUser } from "@/lib/auth";
-import { CATEGORY_FORM, type Asset, type AssetMovement, type LicenseUsage, type Paginated } from "@/lib/types";
+import { CATEGORY_FORM, type Asset, type LicenseUsage, type SoftwareRef } from "@/lib/types";
 import { UsageBar } from "../../license-installations/usage-bar";
-import { MovementTimeline } from "../movement-timeline";
-import { RepairHistory, UserHistory } from "./history-sections";
+import { MovementSummary, RepairHistory, UserHistory } from "./history-sections";
 import { LicenseFiles, LicenseKey } from "./license-parts";
 import { LicenseIcon } from "../../licenses/license-icon";
 
@@ -40,9 +39,9 @@ function daysUntil(isoDate: string): number {
 }
 
 /** แถว ชื่อ : ค่า */
-function Item({ label, children }: { label: string; children: ReactNode }) {
+function Item({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
   return (
-    <div>
+    <div className={wide ? "sm:col-span-2" : undefined}>
       <dt className="text-xs text-muted">{label}</dt>
       <dd className="mt-0.5 font-medium text-ink">{children || "-"}</dd>
     </div>
@@ -63,9 +62,13 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
   );
 }
 
-async function Movements({ id }: { id: string }) {
-  const res = await apiFetch<Paginated<AssetMovement>>(`/assets/${id}/movements?per_page=50`);
-  return <MovementTimeline movements={res.data} total={res.meta.total} />;
+/** License ที่ติดตั้งบนเครื่อง → หน้าซอฟต์แวร์ License นั้น */
+function SoftwareLink({ sw }: { sw: SoftwareRef }) {
+  return (
+    <Link href={`/assets/${sw.id}`} className="cursor-pointer text-accent-700 hover:underline dark:text-accent-300">
+      {sw.name}
+    </Link>
+  );
 }
 
 /** หน้ารายละเอียดสินทรัพย์แบบดูอย่างเดียว — ผู้มี assets.view ดูของที่ตัวเองถือครองได้ (ไม่มีสิทธิ์ = API ตอบ 404 → ไม่พบ) */
@@ -133,18 +136,46 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
         )}
       </div>
 
+      {/* ข้อมูลทั่วไป = ข้อมูลสินทรัพย์ + ที่ตั้งและผู้ถือครอง (+ ชื่อ-สกุลผู้ใช้งานของทะเบียนคอมพิวเตอร์) */}
       <Section title={t("assets.detail.sectionInfo")} icon={<BoxIcon width={15} height={15} />}>
-        <Item label={t("assets.col.category")}>{t(`assets.categories.${asset.category}` as MessageKey)}</Item>
+        <Item label={t("assets.col.category")}>
+          {lic ? t(`licenses.types.${lic.software_type}`) : t(`assets.categories.${asset.category}` as MessageKey)}
+        </Item>
         <Item label={t("assets.detail.brandModel")}>{[asset.brand, asset.model].filter(Boolean).join(" ")}</Item>
         {!form?.hide?.includes("serial_number") && (
           <Item label={t("assets.form.serial")}>
             {asset.serial_number && <span className="font-mono text-sm">{asset.serial_number}</span>}
           </Item>
         )}
-        <Item label={t("assets.form.notes")}>{asset.notes && <span className="whitespace-pre-line font-normal">{asset.notes}</span>}</Item>
+        <Item label={t("assets.col.branch")}>
+          {asset.branch && (
+            <Link href={`/assets?branch_id=${asset.branch.id}`} className="cursor-pointer text-accent-700 hover:underline dark:text-accent-300">
+              {asset.branch.name}
+            </Link>
+          )}
+        </Item>
+        <Item label={t("assets.col.location")}>
+          {asset.location && (
+            <Link href={`/assets?location_id=${asset.location.id}`} className="cursor-pointer text-accent-700 hover:underline dark:text-accent-300">
+              {asset.location.name} <span className="font-mono text-xs text-muted">({asset.location.code})</span>
+            </Link>
+          )}
+        </Item>
+        <Item label={t("assets.col.custodian")}>
+          {asset.custodian && (
+            <span className="inline-flex items-center gap-1.5">
+              <UserIcon width={14} height={14} className="text-accent-400" />
+              {asset.custodian.name}
+            </span>
+          )}
+        </Item>
+        {form?.computer && <Item label={t("assets.computer.userName")}>{asset.user_name}</Item>}
+        <Item label={t("assets.form.notes")} wide>
+          {asset.notes && <span className="whitespace-pre-line font-normal">{asset.notes}</span>}
+        </Item>
       </Section>
 
-      {/* ทะเบียนคอมพิวเตอร์ — ช่องตามไฟล์ Excel ของฝ่าย IT */}
+      {/* ทะเบียนคอมพิวเตอร์ — ช่องตามไฟล์ Excel ของฝ่าย IT (เลขที่ทรัพย์สิน Notebook เลิกแสดง — ค่าเดิมยังเก็บไว้) */}
       {form?.computer && (
         <Section title={t("assets.computer.section")} icon={<MonitorIcon width={15} height={15} />}>
           <Item label={t("assets.computer.hostName")}>
@@ -152,24 +183,43 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
           </Item>
           <Item label={t("assets.computer.computerType")}>{asset.computer_type}</Item>
           <Item label={t("assets.computer.department")}>{asset.department}</Item>
-          <Item label={t("assets.computer.userName")}>{asset.user_name}</Item>
+          <Item label={t("assets.computer.spec")}>{asset.computer_spec}</Item>
           <Item label={t("assets.computer.receivedDate")}>{asset.received_date && fmt.date(asset.received_date)}</Item>
           <Item label={t("assets.computer.startUseDate")}>{asset.start_use_date && fmt.date(asset.start_use_date)}</Item>
           <Item label={t("assets.computer.workGroup")}>{asset.work_group}</Item>
           <Item label={t("assets.computer.ip")}>{asset.ip_address && <span className="font-mono text-sm">{asset.ip_address}</span>}</Item>
           <Item label={t("assets.computer.mac")}>{asset.mac_address && <span className="font-mono text-sm">{asset.mac_address}</span>}</Item>
-          <Item label={t("assets.computer.os")}>{asset.os}</Item>
-          <Item label={t("assets.computer.office")}>{asset.office}</Item>
-          <Item label={t("assets.computer.antivirus")}>{asset.antivirus}</Item>
-          {/* License ที่ผูกแล้ว + ข้อความที่ยังไม่ผูก (นำเข้า Excel) */}
-          <Item label={t("assets.computer.otherSoftware")}>
-            {[...(asset.software?.others.map((o) => o.name) ?? []), ...(asset.other_software?.split(/\r?\n/).filter(Boolean) ?? [])].join(", ")}
-          </Item>
           {/* Email 365 ไม่อยู่ในฟอร์มแล้ว — แสดงเฉพาะค่าเดิมที่มี */}
           {asset.email_365 && <Item label={t("assets.computer.email365")}>{asset.email_365}</Item>}
-          <Item label={t("assets.computer.notebookTag")}>{asset.notebook_tag && <span className="font-mono text-sm">{asset.notebook_tag}</span>}</Item>
-          <Item label={t("assets.computer.cpuTag")}>{asset.cpu_tag && <span className="font-mono text-sm">{asset.cpu_tag}</span>}</Item>
-          <Item label={t("assets.computer.monitorTag")}>{asset.monitor_tag && <span className="font-mono text-sm">{asset.monitor_tag}</span>}</Item>
+          {/* เลขที่ทรัพย์สิน + เลขที่ทรัพย์สิน (เดิม) บรรทัดเดียวกันเสมอ */}
+          <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-2">
+            <Item label={t("assets.computer.cpuTag")}>{asset.cpu_tag && <span className="font-mono text-sm">{asset.cpu_tag}</span>}</Item>
+            <Item label={t("assets.computer.monitorTag")}>{asset.monitor_tag && <span className="font-mono text-sm">{asset.monitor_tag}</span>}</Item>
+          </div>
+        </Section>
+      )}
+
+      {/* OS และ Software — ที่ผูก License แล้วคลิกไปหน้าซอฟต์แวร์ License นั้น, ข้อความที่ยังไม่ผูก (นำเข้า Excel) แสดงตามเดิม */}
+      {form?.computer && (
+        <Section title={t("assets.software.section")} icon={<KeyIcon width={15} height={15} />}>
+          {(["os", "office", "antivirus"] as const).map((slot) => (
+            <Item key={slot} label={t(`assets.computer.${slot}`)}>
+              {asset.software?.[slot] ? <SoftwareLink sw={asset.software[slot]} /> : asset[slot]}
+            </Item>
+          ))}
+          <Item label={t("assets.computer.otherSoftware")}>
+            {(asset.software?.others.length || asset.other_software) && (
+              <span className="flex flex-wrap gap-x-3 gap-y-1">
+                {asset.software?.others.map((o) => <SoftwareLink key={o.id} sw={o} />)}
+                {asset.other_software
+                  ?.split(/\r?\n/)
+                  .filter(Boolean)
+                  .map((name) => (
+                    <span key={name}>{name}</span>
+                  ))}
+              </span>
+            )}
+          </Item>
         </Section>
       )}
 
@@ -228,31 +278,6 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
         </section>
       )}
 
-      <Section title={t("assets.detail.sectionPlace")} icon={<MapPinIcon width={15} height={15} />}>
-        <Item label={t("assets.col.branch")}>
-          {asset.branch && (
-            <Link href={`/assets?branch_id=${asset.branch.id}`} className="cursor-pointer text-accent-700 hover:underline dark:text-accent-300">
-              {asset.branch.name}
-            </Link>
-          )}
-        </Item>
-        <Item label={t("assets.col.location")}>
-          {asset.location && (
-            <Link href={`/assets?location_id=${asset.location.id}`} className="cursor-pointer text-accent-700 hover:underline dark:text-accent-300">
-              {asset.location.name} <span className="font-mono text-xs text-muted">({asset.location.code})</span>
-            </Link>
-          )}
-        </Item>
-        <Item label={t("assets.col.custodian")}>
-          {asset.custodian && (
-            <span className="inline-flex items-center gap-1.5">
-              <UserIcon width={14} height={14} className="text-accent-400" />
-              {asset.custodian.name}
-            </span>
-          )}
-        </Item>
-      </Section>
-
       <Section title={t("assets.detail.sectionPurchase")} icon={<BoxIcon width={15} height={15} />}>
         <Item label={t("assets.form.purchaseDate")}>{asset.purchase_date && fmt.date(asset.purchase_date)}</Item>
         <Item label={t("assets.col.cost")}>{asset.purchase_cost && <span className="tabular-nums">{fmt.money(asset.purchase_cost)}</span>}</Item>
@@ -279,7 +304,7 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
           </section>
         }
       >
-        <Movements id={asset.id} />
+        <MovementSummary id={asset.id} href={has(user, "movements.view") ? `/movements?search=${encodeURIComponent(asset.asset_tag)}` : undefined} />
       </Suspense>
 
       {/* ประวัติผู้ใช้งาน — ช่องชื่อผู้ใช้งาน / Department ของทะเบียนคอมพิวเตอร์ */}
@@ -290,7 +315,10 @@ export default async function AssetDetailPage({ params }: PageProps<"/assets/[id
       )}
 
       <Suspense fallback={<section className={`p-4 sm:p-6 ${card}`}><LoadingLabel text={t("assets.repairs.loading")} /></section>}>
-        <RepairHistory id={asset.id} />
+        <RepairHistory
+          id={asset.id}
+          href={has(user, "assets.view_all") || has(user, "assets.update") ? `/repairs?search=${encodeURIComponent(asset.asset_tag)}` : undefined}
+        />
       </Suspense>
     </div>
   );

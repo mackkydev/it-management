@@ -21,6 +21,7 @@ const TABS = [
   { key: "contract_categories", perm: "contracts.categories" },
   { key: "vault_category", perm: "dropdowns.manage" },
   { key: "computer_type", perm: "dropdowns.manage" },
+  { key: "computer_spec", perm: "dropdowns.manage" },
   { key: "brand", perm: "dropdowns.manage" },
   { key: "ticket_types", perm: "dropdowns.manage" },
   { key: "meeting_purpose", perm: "meeting.rooms" },

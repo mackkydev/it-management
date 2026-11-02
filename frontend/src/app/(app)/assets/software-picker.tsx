@@ -4,7 +4,7 @@ import { useState, type KeyboardEvent } from "react";
 import { AlertIcon, ExternalLinkIcon, PlusIcon, SearchIcon, XIcon } from "@/components/icons";
 import { btn } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import type { SoftwareOption, SoftwareRef } from "@/lib/types";
+import type { SoftwareOption, SoftwareRef, SoftwareType } from "@/lib/types";
 
 const MAX_SHOWN = 50;
 /** เพิ่ม Software / License ใหม่ในแท็บใหม่ — กลับมาที่ฟอร์มแล้วรายการโหลดใหม่ให้อัตโนมัติ */
@@ -23,10 +23,12 @@ interface SearchProps {
   className: string;
   autoFocus?: boolean;
   onCancel?: () => void;
+  /** ประเภท License ของช่องนี้ — ลิงก์ "เพิ่ม License" ตั้งประเภทให้ */
+  softwareType: SoftwareType;
 }
 
 /** ช่องค้นหา license: พิมพ์ชื่อ/รุ่น/เลขครุภัณฑ์ → เลือก — แสดง seat คงเหลือ, seat เต็ม = เลือกไม่ได้ */
-function SoftwareSearch({ id, options, exclude, installed, onPick, placeholder, className, autoFocus, onCancel }: SearchProps) {
+function SoftwareSearch({ id, options, exclude, installed, onPick, placeholder, className, autoFocus, onCancel, softwareType }: SearchProps) {
   const { t, fmt } = useI18n();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(Boolean(autoFocus));
@@ -118,7 +120,7 @@ function SoftwareSearch({ id, options, exclude, installed, onPick, placeholder, 
           )}
           <li className="border-t border-line">
             <a
-              href={NEW_LICENSE_HREF}
+              href={`${NEW_LICENSE_HREF}&type=${softwareType}`}
               target="_blank"
               rel="noopener"
               onMouseDown={(e) => e.preventDefault()}
@@ -156,10 +158,15 @@ interface SlotProps {
   onChange: (ref: SoftwareRef | null) => void;
   onClearLegacy: () => void;
   className: string;
+  /** แสดงเฉพาะ License ประเภทนี้ (os / office / antivirus — Software อื่นๆ = other) */
+  softwareType: SoftwareType;
 }
 
+/** ตัวเลือกเฉพาะประเภทของช่อง (null = กำลังโหลด) */
+const ofType = (options: SoftwareOption[] | null, type: SoftwareType) => options && options.filter((o) => o.software_type === type);
+
 /** ช่องเดียว (OS / Office / Anti Virus): เลือก license 1 รายการ */
-export function SoftwareSlotPicker({ id, options, value, legacy, exclude, installed, onChange, onClearLegacy, className }: SlotProps) {
+export function SoftwareSlotPicker({ id, options, value, legacy, exclude, installed, onChange, onClearLegacy, className, softwareType }: SlotProps) {
   const { t } = useI18n();
   const [searching, setSearching] = useState(false);
 
@@ -197,7 +204,8 @@ export function SoftwareSlotPicker({ id, options, value, legacy, exclude, instal
   return (
     <SoftwareSearch
       id={id}
-      options={options}
+      options={ofType(options, softwareType)}
+      softwareType={softwareType}
       exclude={exclude}
       installed={installed}
       onPick={(ref) => (setSearching(false), onChange(ref))}
@@ -210,7 +218,7 @@ export function SoftwareSlotPicker({ id, options, value, legacy, exclude, instal
 }
 
 /** Software อื่นๆ: เลือกได้หลายรายการ */
-export function SoftwareListPicker({ id, options, value, exclude, installed, onChange, className }: Omit<SlotProps, "value" | "legacy" | "onClearLegacy" | "onChange"> & { value: SoftwareRef[]; onChange: (list: SoftwareRef[]) => void }) {
+export function SoftwareListPicker({ id, options, value, exclude, installed, onChange, className }: Omit<SlotProps, "value" | "legacy" | "onClearLegacy" | "onChange" | "softwareType"> & { value: SoftwareRef[]; onChange: (list: SoftwareRef[]) => void }) {
   const { t } = useI18n();
   const [adding, setAdding] = useState(false);
   return (
@@ -226,7 +234,8 @@ export function SoftwareListPicker({ id, options, value, exclude, installed, onC
         <div className="max-w-md">
           <SoftwareSearch
             id={id}
-            options={options}
+            options={ofType(options, "other")}
+            softwareType="other"
             exclude={[...exclude, ...value.map((v) => v.id)]}
             installed={installed}
             onPick={(ref) => (onChange([...value, ref]), setAdding(false))}

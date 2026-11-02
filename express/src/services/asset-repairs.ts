@@ -1,14 +1,34 @@
-import { select } from "../db.js";
+import { scalar, select } from "../db.js";
 import { iso } from "../lib/time.js";
 
 /**
  * ประวัติการซ่อม = ใบแจ้งงานประเภท repair (ไม่รวมใบที่ยกเลิก/ไม่อนุมัติ)
- * ผูกสินทรัพย์ด้วย asset_id หรือเลขครุภัณฑ์ (ใบที่แจ้งก่อนลงทะเบียนสินทรัพย์ asset_id ว่าง)
+ * ผูกสินทรัพย์ด้วย asset_id หรือเลขที่พิมพ์ในใบ (ใบที่แจ้งก่อนลงทะเบียนสินทรัพย์ asset_id ว่าง) — ตรงรหัสสินทรัพย์ / เลขที่ทรัพย์สิน / เลขที่ทรัพย์สิน (เดิม)
  * ใช้ทั้งหน้ารายละเอียดสินทรัพย์ (/assets/{uuid}/repairs) และหน้ารวม (/repairs)
  * ส่งเฉพาะข้อมูลการซ่อม (ไม่มีไฟล์แนบ/ลายเซ็น) — รายละเอียดเต็มเปิดที่หน้าใบงานซึ่งตรวจสิทธิ์เอง
  */
+/**
+ * สินทรัพย์ 1 รายการที่ตรงเลขที่ผู้แจ้งพิมพ์ (expr = นิพจน์ SQL ของเลขนั้น) — ลำดับ: รหัสสินทรัพย์ → เลขที่ทรัพย์สิน (cpu_tag) → เลขที่ทรัพย์สิน (เดิม) (monitor_tag)
+ * เลือกรายการเดียวเสมอ (กันแถวซ้ำเมื่อเลขเดียวกันไปตรงหลายเครื่อง)
+ */
+export const assetByNumberSql = (expr: string) =>
+  `(SELECT x.id FROM assets x WHERE x.deleted_at IS NULL AND (x.asset_tag = ${expr} OR x.cpu_tag = ${expr} OR x.monitor_tag = ${expr})
+     ORDER BY x.asset_tag = ${expr} DESC, x.cpu_tag = ${expr} DESC, x.id LIMIT 1)`;
+
+/** id สินทรัพย์ที่ตรงเลขที่พิมพ์ในใบแจ้งงาน (ไม่พบ = null) — ใช้ตอนแจ้ง/แก้ใบงาน */
+export async function assetIdByNumber(no: unknown): Promise<number | null> {
+  const tag = typeof no === "string" ? no.trim() : "";
+  if (!tag) return null;
+  const id = await scalar<number>(
+    `SELECT x.id FROM assets x WHERE x.deleted_at IS NULL AND (x.asset_tag = ? OR x.cpu_tag = ? OR x.monitor_tag = ?)
+      ORDER BY x.asset_tag = ? DESC, x.cpu_tag = ? DESC, x.id LIMIT 1`,
+    [tag, tag, tag, tag, tag],
+  );
+  return id === null || id === undefined ? null : Number(id);
+}
+
 export const REPAIR_FROM = `it_tickets t
-  LEFT JOIN assets a ON a.deleted_at IS NULL AND (a.id = t.asset_id OR (t.asset_id IS NULL AND a.asset_tag = t.asset_tag))
+  LEFT JOIN assets a ON a.deleted_at IS NULL AND a.id = COALESCE(t.asset_id, ${assetByNumberSql("t.asset_tag")})
   LEFT JOIN users r ON r.id = t.requester_id
   LEFT JOIN users s ON s.id = t.assignee_id
   LEFT JOIN branches b ON b.id = COALESCE(a.branch_id, t.branch_id)`;

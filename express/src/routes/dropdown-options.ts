@@ -41,6 +41,8 @@ const textColumn = (table: string, column: string): Pick<ListConfig, "usage" | "
 const LISTS: Record<string, ListConfig> = {
   computer_type: { ...textColumn("assets", "computer_type"), max: 30, quickAdd: ["assets.create", "assets.update"] },
   brand: { ...textColumn("assets", "brand"), max: 100, quickAdd: ["assets.create", "assets.update"] },
+  // สเปคคอมพิวเตอร์ (ทะเบียนคอมพิวเตอร์) — ภายหลังจะมีหน้า spec คอมพิวเตอร์แยก
+  computer_spec: { ...textColumn("assets", "computer_spec"), max: 255, quickAdd: ["assets.create", "assets.update"] },
   vault_category: { ...textColumn("credentials", "category"), max: 30, quickAdd: ["vault.create", "vault.update"] },
   meeting_purpose: { ...textColumn("meeting_bookings", "purpose"), max: 100, quickAdd: [], manage: "meeting.rooms" },
   vehicle_purpose: { ...textColumn("vehicle_bookings", "purpose"), max: 100, quickAdd: [], manage: "vehicle.manage" },
