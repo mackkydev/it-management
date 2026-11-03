@@ -25,6 +25,7 @@ import { expiringContractCount } from "./it-data.js";
 import { expiringLicenseCount } from "../services/licenses.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
 import { pendingVehicleBookings } from "./vehicles.js";
+import { pendingRepairOrders } from "./repair-orders.js";
 import { zoomBadges } from "./zoom.js";
 import { loanBadges } from "./loans.js";
 import {
@@ -140,9 +141,9 @@ async function detail(t: TicketRow, viewer: UserRow) {
     "SELECT id, name, quantity, photo_path FROM it_ticket_parts WHERE it_ticket_id = ? ORDER BY id",
     [row.id],
   );
-  const events = await select<{ id: number; action: string; comment: string | null; created_at: string; u_id: number | null; u_name: string | null }>(
-    `SELECT e.id, e.action, e.comment, e.created_at, u.id AS u_id, u.name AS u_name
-       FROM it_ticket_events e LEFT JOIN users u ON u.id = e.user_id WHERE e.it_ticket_id = ? ORDER BY e.id`,
+  const events = await select<{ id: number; action: string; comment: string | null; created_at: string; u_id: number | null; u_name: string | null; repair_uuid: string | null }>(
+    `SELECT e.id, e.action, e.comment, e.created_at, u.id AS u_id, u.name AS u_name, ro.uuid AS repair_uuid
+       FROM it_ticket_events e LEFT JOIN users u ON u.id = e.user_id LEFT JOIN repair_orders ro ON ro.id = e.repair_order_id WHERE e.it_ticket_id = ? ORDER BY e.id`,
     [row.id],
   );
   const file = (kind: string, id?: number) => `/tickets/${row.uuid}/files/${kind}${id ? `/${id}` : ""}`;
@@ -213,6 +214,8 @@ async function detail(t: TicketRow, viewer: UserRow) {
     // ไฟล์ที่แนบกับรายการนั้น (บันทึกผล / อัปเดตความคืบหน้า) — กดดูย้อนหลังได้จากประวัติ
     events: events.map((e) => ({
       id: e.id, action: e.action, comment: e.comment, user: person(e.u_id, e.u_name), created_at: iso(e.created_at),
+      // ลิงก์ไปรายการส่งซ่อม — เฉพาะฝ่าย IT (repair_orders.view)
+      repair_order_id: can(viewer, "repair_orders.view") ? e.repair_uuid : null,
       attachments: attachments
         .filter((a) => a.event_id !== null && Number(a.event_id) === Number(e.id))
         .map((a) => ({ id: a.id, kind: a.kind, name: a.original_name, mime: a.mime, size: Number(a.size), url: file("attachment", a.id) })),
@@ -495,6 +498,8 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
   Object.assign(data, await zoomBadges(u));
   // VPN รวมกับตัวเลขเดิมของ /loans/mine
   for (const [k, n] of Object.entries(await vpnBadges(u))) data[k] = Number(data[k] ?? 0) + n;
+  // เครื่องที่ส่งซ่อมอยู่ รอรับคืน
+  if (can(u, "repair_orders.manage")) data["/it/repair-orders"] = await pendingRepairOrders();
   if (can(u, "assets.create")) data["/assets"] = await missingAssetCount(u);
   if (can(u, "assets.update")) data["/licenses"] = await expiringLicenseCount();
   if (can(u, "contracts.update")) data["/contracts"] = await expiringContractCount(u);

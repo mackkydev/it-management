@@ -452,6 +452,12 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
               </p>
               <p className="text-xs text-faint">{fmt.dateTime(ev.created_at)}</p>
               {ev.comment && <p className="mt-1 rounded-lg bg-subtle px-3 py-1.5 text-sm">{ev.comment}</p>}
+              {/* ส่งซ่อม / รับคืน: API ส่ง repair_order_id เฉพาะผู้มี repair_orders.view (ฝ่าย IT) */}
+              {ev.repair_order_id && (
+                <Link href={`/it/repair-orders/${ev.repair_order_id}`} className="mt-1 inline-block cursor-pointer text-xs font-medium text-accent-700 hover:underline dark:text-accent-300">
+                  {t("tickets.detail.viewRepairOrder")}
+                </Link>
+              )}
               <FileList files={ev.attachments ?? []} />
             </li>
           ))}

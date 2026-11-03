@@ -293,7 +293,8 @@ model asset_user_logs {
 }
 
 model assets {
-  id                               BigInt                  @id @default(autoincrement())
+  repair_orders                    repair_orders[]
+  id                             BigInt                  @id @default(autoincrement())
   uuid                             String                  @unique(map: "assets_uuid_unique") @db.Char(36)
   asset_tag                        String                  @unique(map: "assets_asset_tag_unique") @db.VarChar(50)
   name                             String                  @db.VarChar(255)
@@ -574,7 +575,11 @@ model it_ticket_events {
   it_tickets   it_tickets              @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_events_it_ticket_id_foreign")
   attachments  it_ticket_attachments[]
   users        users?                  @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "it_ticket_events_user_id_foreign")
+  /// รายการส่งซ่อมของเหตุการณ์ repair_sent / repair_returned (ลิงก์ในประวัติใบงาน)
+  repair_order_id BigInt?
+  repair_orders   repair_orders?       @relation(fields: [repair_order_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "it_ticket_events_repair_order_id_foreign")
 
+  @@index([repair_order_id], map: "it_ticket_events_repair_order_id_index")
   @@index([it_ticket_id, created_at], map: "it_ticket_events_it_ticket_id_created_at_index")
   @@index([user_id], map: "it_ticket_events_user_id_index")
 }
@@ -610,6 +615,7 @@ model it_ticket_parts {
 }
 
 model it_tickets {
+  repair_orders repair_orders[]
   id                                   BigInt                     @id @default(autoincrement())
   uuid                                 String                     @unique(map: "it_tickets_uuid_unique") @db.Char(36)
   ticket_no                            String                     @unique(map: "it_tickets_ticket_no_unique") @db.VarChar(30)
@@ -827,7 +833,12 @@ model sessions {
 }
 
 model users {
-  licenses_cancelled                                       licenses[]                 @relation("licenses_cancelled_byTousers")
+  repair_orders_sent                                       repair_orders[]            @relation("repair_orders_sent_by")
+  repair_orders_received                                   repair_orders[]            @relation("repair_orders_received_by")
+  repair_orders_created                                    repair_orders[]            @relation("repair_orders_created_by")
+  repair_orders_cancelled                                  repair_orders[]            @relation("repair_orders_cancelled_by")
+  repair_order_files                                       repair_order_files[]
+  licenses_cancelled                                      licenses[]                 @relation("licenses_cancelled_byTousers")
   licenses_created                                         licenses[]                 @relation("licenses_created_byTousers")
   licenses_updated                                         licenses[]                 @relation("licenses_updated_byTousers")
   license_files                                            license_files[]
@@ -1689,4 +1700,88 @@ model vehicle_drivers {
   vehicle_bookings vehicle_bookings[]
 
   @@index([branch_id], map: "vehicle_drivers_branch_id_index")
+}
+
+/// ข้อมูลหลัก Vendor — ประเภทเก็บเป็นข้อความ (ข้อมูล Drop Down list vendor_type)
+model vendors {
+  id            BigInt          @id @default(autoincrement())
+  name          String          @db.VarChar(255)
+  tax_id        String?         @db.VarChar(20)
+  address       String          @db.Text
+  contact_name  String          @db.VarChar(255)
+  contact_phone String          @db.VarChar(50)
+  vendor_type   String          @db.VarChar(100)
+  is_active     Boolean         @default(true)
+  created_at    DateTime?       @db.DateTime(0)
+  updated_at    DateTime?       @db.DateTime(0)
+  deleted_at    DateTime?       @db.DateTime(0)
+  repair_orders repair_orders[]
+
+  @@index([name], map: "vendors_name_index")
+}
+
+/// รายการส่งซ่อม: ส่งเครื่องให้ vendor (sent) → รับคืน (returned) — item_no / item_name = สำเนาตอนส่ง
+model repair_orders {
+  id             BigInt               @id @default(autoincrement())
+  uuid           String               @unique(map: "repair_orders_uuid_unique") @db.Char(36)
+  asset_id       BigInt?
+  ticket_id      BigInt?
+  item_no        String?              @db.VarChar(100)
+  item_name      String               @db.VarChar(255)
+  /// รายละเอียดอาการเสีย
+  symptom        String               @db.Text
+  vendor_id      BigInt
+  /// วันเวลาที่ส่งซ่อม เวลาไทย
+  sent_on        DateTime             @db.Date
+  sent_time      String               @db.VarChar(5)
+  sent_by_id     BigInt
+  status         String               @default("sent") @db.VarChar(20)
+  returned_at    DateTime?            @db.DateTime(0)
+  received_by_id BigInt?
+  return_note    String?              @db.Text
+  /// สถานะสินทรัพย์ก่อนส่งซ่อม — รับคืน / ยกเลิก = กลับเป็นค่านี้
+  asset_prev_status String?           @db.VarChar(20)
+  cancelled_at   DateTime?            @db.DateTime(0)
+  cancelled_by_id BigInt?
+  cancel_reason  String?              @db.Text
+  created_by     BigInt
+  created_at     DateTime?            @db.DateTime(0)
+  updated_at     DateTime?            @db.DateTime(0)
+  assets         assets?              @relation(fields: [asset_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "repair_orders_asset_id_foreign")
+  it_tickets     it_tickets?          @relation(fields: [ticket_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "repair_orders_ticket_id_foreign")
+  vendors        vendors              @relation(fields: [vendor_id], references: [id], onUpdate: Restrict, map: "repair_orders_vendor_id_foreign")
+  sent_by        users                @relation("repair_orders_sent_by", fields: [sent_by_id], references: [id], onUpdate: Restrict, map: "repair_orders_sent_by_id_foreign")
+  received_by    users?               @relation("repair_orders_received_by", fields: [received_by_id], references: [id], onUpdate: Restrict, map: "repair_orders_received_by_id_foreign")
+  cancelled_by   users?               @relation("repair_orders_cancelled_by", fields: [cancelled_by_id], references: [id], onUpdate: Restrict, map: "repair_orders_cancelled_by_id_foreign")
+  creator        users                @relation("repair_orders_created_by", fields: [created_by], references: [id], onUpdate: Restrict, map: "repair_orders_created_by_foreign")
+  files          repair_order_files[]
+  events         it_ticket_events[]
+
+  @@index([status, sent_on], map: "repair_orders_status_sent_on_index")
+  @@index([asset_id], map: "repair_orders_asset_id_index")
+  @@index([ticket_id], map: "repair_orders_ticket_id_index")
+  @@index([vendor_id], map: "repair_orders_vendor_id_index")
+  @@index([sent_by_id], map: "repair_orders_sent_by_id_index")
+  @@index([received_by_id], map: "repair_orders_received_by_id_index")
+  @@index([created_by], map: "repair_orders_created_by_index")
+  @@index([cancelled_by_id], map: "repair_orders_cancelled_by_id_index")
+}
+
+/// เอกสาร/รูปของรายการส่งซ่อม — kind: send (ใบส่งซ่อม) / return (ตอนรับคืน)
+model repair_order_files {
+  id              BigInt        @id @default(autoincrement())
+  repair_order_id BigInt
+  kind            String        @db.VarChar(20)
+  original_name   String        @db.VarChar(255)
+  path            String        @db.VarChar(255)
+  mime            String        @db.VarChar(100)
+  size            Int
+  uploaded_by     BigInt?
+  created_at      DateTime?     @db.DateTime(0)
+  updated_at      DateTime?     @db.DateTime(0)
+  repair_orders   repair_orders @relation(fields: [repair_order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "repair_order_files_repair_order_id_foreign")
+  users           users?        @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "repair_order_files_uploaded_by_foreign")
+
+  @@index([repair_order_id], map: "repair_order_files_repair_order_id_index")
+  @@index([uploaded_by], map: "repair_order_files_uploaded_by_index")
 }

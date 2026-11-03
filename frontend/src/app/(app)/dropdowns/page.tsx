@@ -28,6 +28,7 @@ const TABS = [
   { key: "meeting_purpose", perm: "meeting.rooms" },
   { key: "meeting_equipment", perm: "meeting.rooms" },
   { key: "zoom_account", perm: "zoom.manage" },
+  { key: "vendor_type", perm: "vendors.manage" },
   { key: "vehicle_purpose", perm: "vehicle.manage" },
   { key: "vehicle_extra", perm: "vehicle.manage" },
   { key: "vehicle_type", perm: "vehicle.manage" },

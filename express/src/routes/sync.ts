@@ -22,6 +22,8 @@ export const SYNC_TABLES = [
   "kpi_entries", "license_installations", "locations", "users",
   // ปฏิทิน/ลา + ผู้ร่วมดำเนินการ — ตัวเลขเมนู (รออนุมัติลา) และหน้าปฏิทินอัปเดตทันที
   "leave_requests", "calendar_events", "company_holidays", "it_ticket_helpers",
+  // รายการส่งซ่อม — รอรับคืน (ตัวเลขเมนู)
+  "repair_orders", "vendors",
 ];
 const SYNC_SET = new Set(SYNC_TABLES);
 

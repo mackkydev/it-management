@@ -6,10 +6,10 @@ import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
 
 /** แผนก / ฝ่าย (ข้อมูลหลัก) — สิทธิ์ org.manage (API ตรวจซ้ำ) */
-export type OrgTable = "departments" | "divisions" | "contract_categories" | "asset_category" | "computer_type" | "computer_spec" | "brand" | "vault_category" | "meeting_purpose" | "meeting_equipment" | "zoom_account" | "vehicle_purpose" | "vehicle_extra" | "vehicle_type" | "vehicle_fuel";
+export type OrgTable = "departments" | "divisions" | "contract_categories" | "asset_category" | "computer_type" | "computer_spec" | "brand" | "vault_category" | "meeting_purpose" | "meeting_equipment" | "zoom_account" | "vendor_type" | "vehicle_purpose" | "vehicle_extra" | "vehicle_type" | "vehicle_fuel";
 export type OrgResult = ActionResult<"name" | "sort_order">;
 
-const TABLES: OrgTable[] = ["departments", "divisions", "contract_categories", "asset_category", "computer_type", "computer_spec", "brand", "vault_category", "meeting_purpose", "meeting_equipment", "zoom_account", "vehicle_purpose", "vehicle_extra", "vehicle_type", "vehicle_fuel"];
+const TABLES: OrgTable[] = ["departments", "divisions", "contract_categories", "asset_category", "computer_type", "computer_spec", "brand", "vault_category", "meeting_purpose", "meeting_equipment", "zoom_account", "vendor_type", "vehicle_purpose", "vehicle_extra", "vehicle_type", "vehicle_fuel"];
 /** path ของ API และหน้าเว็บ (หมวดหมู่สัญญาใช้ขีดกลาง) */
 const PATH: Record<OrgTable, string> = {
   departments: "/departments",
@@ -23,6 +23,7 @@ const PATH: Record<OrgTable, string> = {
   meeting_purpose: "/dropdown-options/meeting_purpose",
   meeting_equipment: "/dropdown-options/meeting_equipment",
   zoom_account: "/dropdown-options/zoom_account",
+  vendor_type: "/dropdown-options/vendor_type",
   vehicle_purpose: "/dropdown-options/vehicle_purpose",
   vehicle_extra: "/dropdown-options/vehicle_extra",
   vehicle_type: "/dropdown-options/vehicle_type",

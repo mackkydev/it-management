@@ -55,6 +55,8 @@ const LISTS: Record<string, ListConfig> = {
     usage: "(SELECT COUNT(*) FROM zoom_bookings x WHERE LOWER(TRIM(x.zoom_account)) = LOWER(o.name))",
     rename: (to, from) => exec("UPDATE zoom_bookings SET zoom_account = ?, updated_at = ? WHERE LOWER(TRIM(zoom_account)) = LOWER(?)", [to, nowDb(), from]),
   },
+  // ประเภท Vendor = vendors.vendor_type
+  vendor_type: { ...textColumn("vendors", "vendor_type"), max: 100, quickAdd: [], manage: "vendors.manage" },
   vehicle_purpose: { ...textColumn("vehicle_bookings", "purpose"), max: 100, quickAdd: [], manage: "vehicle.manage" },
   // ประเภทรถ / เชื้อเพลิง = vehicles.vehicle_type / fuel_type (ตาราง vehicles ไม่มี deleted_at)
   vehicle_type: {

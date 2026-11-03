@@ -19,10 +19,12 @@ export type PermissionAction = (typeof ACTIONS)[number];
 export const MODULES = [
   { key: "tickets", group: "tickets", name_th: "ใบแจ้งงาน", name_en: "Tickets" },
   { key: "it_jobs", group: "tickets", name_th: "งานฝ่าย IT (คิวงาน)", name_en: "IT jobs (queue)" },
+  { key: "repair_orders", group: "tickets", name_th: "รายการส่งซ่อม", name_en: "Repair orders" },
   { key: "kpi", group: "tickets", name_th: "KPI ฝ่าย IT", name_en: "IT KPI" },
   { key: "vault", group: "it_data", name_th: "คลังบัญชี/รหัสผ่าน", name_en: "Credential vault" },
   { key: "contracts", group: "it_data", name_th: "สัญญา vendor", name_en: "Vendor contracts" },
   { key: "announcements", group: "it_data", name_th: "ประกาศหน้า login", name_en: "Login announcements" },
+  { key: "vendors", group: "it_data", name_th: "Vendor", name_en: "Vendors" },
   { key: "assets", group: "assets", name_th: "สินทรัพย์", name_en: "Assets" },
   { key: "locations", group: "assets", name_th: "สถานที่", name_en: "Locations" },
   { key: "licenses", group: "assets", name_th: "การติดตั้ง License", name_en: "License installations" },
@@ -79,6 +81,10 @@ const DEFS: Def[] = [
   { key: "it_tickets.accept", module: "it_jobs", action: "other", name_th: "รับงานที่ยังไม่มีผู้รับ", name_en: "Accept unassigned tickets", defaults: ["admin"] },
   // คิวงาน IT: รับงานที่ผู้แจ้งเลือกคนอื่นไว้ (เช่น คนนั้นลา) — ผู้รับเดิมไม่มีงานค้างในเมนู/KPI อีก
   { key: "it_tickets.take_over", module: "it_jobs", action: "other", name_th: "รับงานแทนเจ้าหน้าที่ที่ถูกเลือก (คิวงาน IT)", name_en: "Take over tickets assigned to other staff (IT queue)", defaults: IT },
+  // รายการส่งซ่อม — ลิงก์จากประวัติใบแจ้งงานเปิดได้เฉพาะผู้มี repair_orders.view (ฝ่าย IT)
+  { key: "repair_orders.view", module: "repair_orders", action: "view", name_th: "ดูรายการส่งซ่อม", name_en: "View repair orders", defaults: IT },
+  { key: "repair_orders.manage", module: "repair_orders", action: "manage", name_th: "บันทึกการส่งซ่อม / รับเครื่องคืน", name_en: "Record sending for repair / receiving back", defaults: IT },
+  { key: "vendors.manage", module: "vendors", action: "manage", name_th: "จัดการข้อมูล Vendor", name_en: "Manage vendors", defaults: IT },
   { key: "kpi.view_all", module: "kpi", action: "view", name_th: "ดู KPI ของทุกคน", name_en: "View everyone's KPI", defaults: [] }, // หัวหน้า IT = ผู้ดูแลระบบสูงสุด (ผ่านทุกสิทธิ์) — ผู้ดูแลระบบเห็นแค่ของตัวเอง
   { key: "kpi.use", module: "kpi", action: "create", name_th: "บันทึก/ดู KPI ของตัวเอง", name_en: "Record / view own KPI", defaults: IT },
   { key: "kpi.edit_all", module: "kpi", action: "update", name_th: "แก้ไข/ลบ KPI ของผู้อื่น", name_en: "Edit / delete others' KPI", defaults: [] },

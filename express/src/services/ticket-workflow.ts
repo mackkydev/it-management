@@ -352,6 +352,13 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
     case "progress":
       recipients = [requester];
       break;
+    // ส่งซ่อม / รับเครื่องคืน (รายการส่งซ่อม) — เจ้าหน้าที่คนอื่นอาจเป็นผู้บันทึก จึงแจ้งผู้รับงาน + ผู้ร่วมด้วย
+    case "repair_sent":
+    case "repair_returned":
+    case "repair_updated":
+    case "repair_cancelled":
+      recipients = [requester, assignee, ...helpers];
+      break;
     case "resulted":
       recipients = await closersFor(t);
       break;

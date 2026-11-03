@@ -80,6 +80,62 @@ export interface Asset {
 }
 
 /** รูปแบบ pagination มาตรฐานของ Laravel API Resource */
+/** ข้อมูลหลัก Vendor (GET /vendors) */
+export interface Vendor {
+  id: number;
+  name: string;
+  tax_id: string | null;
+  address: string;
+  contact_name: string;
+  contact_phone: string;
+  vendor_type: string;
+  is_active: boolean;
+  repairs_count: number;
+}
+export type VendorFormValues = Pick<Vendor, "name" | "address" | "contact_name" | "contact_phone" | "vendor_type" | "is_active"> & { tax_id: string };
+
+/** ผลค้นหาของที่จะส่งซ่อม (GET /repair-orders/lookup) */
+export interface RepairLookupItem {
+  kind: "asset" | "ticket";
+  asset_id: string | null;
+  ticket_id: string | null;
+  ticket_no: string | null;
+  item_no: string | null;
+  item_name: string;
+  brand: string | null;
+  model: string | null;
+  serial_number: string | null;
+  holder: string | null;
+  symptom: string | null;
+}
+
+/** รายการส่งซ่อม (GET /repair-orders) */
+export interface RepairOrder {
+  id: string;
+  status: "sent" | "returned" | "cancelled";
+  item_no: string | null;
+  item_name: string;
+  symptom: string;
+  brand: string | null;
+  model: string | null;
+  serial_number: string | null;
+  holder: string | null;
+  asset_id: string | null;
+  ticket: { id: string; ticket_no: string } | null;
+  vendor: { id: number; name: string; vendor_type: string; contact_name: string; contact_phone: string };
+  sent_on: string;
+  sent_time: string;
+  sent_by: { id: number; name: string };
+  returned_at: string | null;
+  received_by: { id: number; name: string } | null;
+  return_note: string | null;
+  cancelled_at: string | null;
+  cancelled_by: { id: number; name: string } | null;
+  cancel_reason: string | null;
+  files: { id: number; kind: "send" | "return"; name: string; mime: string; size: number; url: string }[];
+  can_return: boolean;
+}
+
 export interface Paginated<T> {
   data: T[];
   meta: {
@@ -386,7 +442,7 @@ export interface TicketDetail extends TicketSummary {
   /** result_document / progress = แนบกับรายการในประวัติ (event_id) */
   attachments: { id: number; kind: TicketFileKind; name: string | null; mime: string | null; size: number; event_id: number | null; url: string }[];
   parts: { id: number; name: string; quantity: number; photo_url: string | null }[];
-  events: { id: number; action: string; comment: string | null; user: Person; created_at: string; attachments: TicketFile[] }[];
+  events: { id: number; action: string; comment: string | null; user: Person; created_at: string; attachments: TicketFile[]; repair_order_id: string | null }[];
   /** ขั้นอนุมัติปัจจุบัน (null = ระบบเดิม หรืออนุมัติครบแล้ว) */
   current_step: number | null;
   /** ขั้นอนุมัติตามสายอนุมัติ — ว่าง = ใบที่ใช้ระบบเดิม (หัวหน้าคนเดียว) */

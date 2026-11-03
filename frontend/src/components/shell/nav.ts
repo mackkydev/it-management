@@ -22,6 +22,7 @@ import {
   MeetingRoomIcon,
   CarIcon,
   ShieldIcon,
+  TruckIcon,
   UsersIcon,
   WrenchIcon,
   VideoIcon,
@@ -157,6 +158,8 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "nav.itMyQueue", href: "/it/tickets", icon: InboxIcon, visible: perm("it_tickets.queue") },
       { label: "nav.itBackoffice", href: "/it/queue", icon: WrenchIcon, visible: perm("it_tickets.queue") },
+      // ส่งเครื่องให้ vendor / รับคืน (ตัวเลข = ส่งซ่อมอยู่ รอรับคืน)
+      { label: "nav.repairOrders", href: "/it/repair-orders", icon: TruckIcon, visible: perm("repair_orders.view") },
       { label: "nav.kpi", href: "/kpi", icon: ChartIcon, visible: perm("kpi.use") },
     ],
   },
@@ -191,8 +194,9 @@ export const NAV: NavGroup[] = [
       // ฝ่าย + แผนก รวมเป็นหน้าเดียว (แท็บ) — /divisions, /departments พามาที่แท็บนั้น
       { label: "nav.orgUnits", href: "/org-units", icon: BuildingIcon, visible: perm("org.manage") },
       // ข้อมูล Drop Down: หมวดหมู่สัญญา / หมวดหมู่คลังบัญชี / Computer Type / ยี่ห้อ / ตัวเลือกเรื่อง "อื่นๆ" (แท็บตามสิทธิ์)
-      { label: "nav.dropdowns", href: "/dropdowns", icon: ListIcon, visible: (u) => has(u, "contracts.categories") || has(u, "dropdowns.manage") || has(u, "settings.manage") || has(u, "meeting.rooms") || has(u, "zoom.manage") || has(u, "vehicle.manage") },
+      { label: "nav.dropdowns", href: "/dropdowns", icon: ListIcon, visible: (u) => has(u, "contracts.categories") || has(u, "dropdowns.manage") || has(u, "settings.manage") || has(u, "meeting.rooms") || has(u, "zoom.manage") || has(u, "vehicle.manage") || has(u, "vendors.manage") },
       { label: "nav.locations", href: "/locations", icon: MapPinIcon, visible: (u) => has(u, "locations.view") || has(u, "locations.manage") },
+      { label: "nav.vendors", href: "/vendors", icon: BuildingIcon, visible: perm("vendors.manage") },
       { label: "nav.users", href: "/users", icon: UsersIcon, visible: perm("users.view") },
     ],
   },
