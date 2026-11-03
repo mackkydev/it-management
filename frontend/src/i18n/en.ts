@@ -38,7 +38,7 @@ const en: Dictionary = {
   dashboard: {
     title: "Overview",
     news: {
-      title: "News",
+      title: "Announcements / News",
       sample: "Sample",
       readMore: "Read more",
       goTo: "Go to news {n}",

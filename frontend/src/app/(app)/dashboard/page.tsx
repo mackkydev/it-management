@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ComponentType, ReactNode, SVGProps } from "react";
 import {
-  BoxIcon, CalendarIcon, CarIcon, ChartIcon, CheckCircleIcon, ClipboardIcon, GaugeIcon, InboxIcon, KeyIcon, MeetingRoomIcon, UserIcon, WrenchIcon,
+  BellIcon, BoxIcon, CalendarIcon, CarIcon, ChartIcon, CheckCircleIcon, ClipboardIcon, GaugeIcon, InboxIcon, KeyIcon, MeetingRoomIcon, UserIcon, WrenchIcon,
 } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { card, tone } from "@/components/ui";
@@ -26,7 +26,7 @@ interface Dashboard {
     to_close: number;
     completed: number;
     recent_scope: "all" | "mine";
-    recent: { id: string; ticket_no: string; type: TicketType; type_other: string | null; status: TicketStatus; requested_at: string; requester: string | null; assignee: string | null }[];
+    recent: { id: string; type: TicketType; type_other: string | null; status: TicketStatus; requested_at: string; requester: string | null; assignee: string | null }[];
   };
   approvals: number;
   it: { waiting: number; in_progress: number; review: number; done_month: number; kpi_pending: number } | null;
@@ -102,9 +102,9 @@ function Panel({ title, icon: Icon, href, more, empty, color, children }: { titl
 }
 
 /** หัวข้อของแต่ละกลุ่ม */
-function Group({ title, icon: Icon, children }: { title: string; icon: Icon; children: ReactNode }) {
+function Group({ title, icon: Icon, className = "", children }: { title: string; icon: Icon; className?: string; children: ReactNode }) {
   return (
-    <section className="space-y-3">
+    <section className={`space-y-3 ${className}`}>
       <h2 className="flex items-center gap-2 text-base font-semibold">
         <Icon width={18} height={18} className="text-accent-500" />
         {title}
@@ -135,7 +135,9 @@ export default async function DashboardPage() {
 
       {/* แถวบน: ข่าวสาร · งานฝ่าย IT + ใบแจ้งงานล่าสุด */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <NewsCarousel key={news.map((a) => a.id).join(",")} items={news} />
+        <Group title={t("dashboard.news.title")} icon={BellIcon} className="flex flex-col">
+          <NewsCarousel key={news.map((a) => a.id).join(",")} items={news} />
+        </Group>
         <Group title={t("dashboard.sectionIt")} icon={WrenchIcon}>
           <div className={`grid grid-cols-2 gap-3 ${isIt ? "sm:grid-cols-4" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
             {!isIt && <Stat href="/tickets?mine=1" label={t("dashboard.ticketsOpen")} value={d.tickets.open} icon={ClipboardIcon} color="info" />}
@@ -163,7 +165,6 @@ export default async function DashboardPage() {
             {d.tickets.recent.map((tk) => (
               <li key={tk.id} className={row}>
                 <Link href={`/tickets/${tk.id}`} className="min-w-0 cursor-pointer hover:underline">
-                  <span className="font-mono text-xs text-accent-700 dark:text-accent-300">{tk.ticket_no}</span>
                   <span className="block truncate">{ticketSubject(tk.type, tk.type_other, t)}</span>
                   {d.tickets.recent_scope === "all" && (
                     <span className="block truncate text-xs text-muted">

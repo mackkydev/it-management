@@ -37,7 +37,7 @@ const th = {
   dashboard: {
     title: "ภาพรวม",
     news: {
-      title: "ข่าวสาร",
+      title: "ประกาศ/ข่าวสาร",
       sample: "ตัวอย่าง",
       readMore: "อ่านต่อ",
       goTo: "ไปข่าวที่ {n}",

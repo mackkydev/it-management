@@ -56,7 +56,7 @@ export function NewsCarousel({ items }: { items: PublicAnnouncement[] }) {
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
-      className={`relative flex h-full min-h-[30rem] flex-col overflow-hidden ${card}`}
+      className={`relative flex min-h-[30rem] flex-1 flex-col overflow-hidden ${card}`}
     >
       {slides.map((s, i) => {
         const look = LOOK[s.level] ?? LOOK.info;
