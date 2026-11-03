@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { CheckCircleIcon, ChevronLeftIcon, ClipboardIcon, FileTextIcon, HistoryIcon, PaperclipIcon, WrenchIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
-import { card, tone } from "@/components/ui";
+import { alert, card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -17,6 +17,7 @@ import { ProcessTimeline } from "./process-timeline";
 import { PrintModal } from "@/components/print-modal";
 import { SignatureNotice } from "@/components/signature-notice";
 import { TicketActions } from "./ticket-actions";
+import { ZoomApproveButton } from "./zoom-approve-button";
 import { HelpersCard } from "./helpers-card";
 import { OnsiteCard } from "./onsite-card";
 import { TicketPaper } from "./ticket-paper";
@@ -167,6 +168,14 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
   const approvalReason = [...tk.events].reverse().find((e) => e.action === "approval_requested")?.comment ?? null;
   return (
     <div className="space-y-5">
+      {/* ใบงานของการจอง ZOOM: จัดการที่หน้า ZOOM */}
+      {tk.zoom_booking_id && (
+        <p role="status" className={alert.info}>
+          <Link href={`/zoom/bookings/${tk.zoom_booking_id}`} className="cursor-pointer font-medium underline-offset-2 hover:underline">
+            {t("zoom.detail.ticketManaged")}
+          </Link>
+        </p>
+      )}
       <div className="flex items-center justify-between print:hidden">
         <Link href="/tickets" className="inline-flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink">
           <LinkPendingIcon icon={<ChevronLeftIcon width={15} height={15} />} size={15} />
@@ -213,6 +222,7 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
         </div>
       )}
       {tk.actions.includes("approve") && <SignatureNotice user={user} t={t} />}
+      {tk.can_zoom_approve && tk.zoom_booking_id && <ZoomApproveButton bookingId={tk.zoom_booking_id} />}
       {tk.actions.length > 0 && <TicketActions ticket={tk} />}
       {/* ไปทำงานหน้างาน + ผู้ร่วมดำเนินการ — แถวเดียว 2 คอลัมน์บนจอใหญ่ (มีการ์ดเดียว = เต็มแถว) */}
       <div className="grid gap-4 empty:hidden lg:grid-cols-2 lg:[&>*:only-child]:col-span-2">

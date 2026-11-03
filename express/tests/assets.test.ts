@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { first, scalar } from "../src/db.js";
 import { verifyHash } from "../src/lib/validator.js";
-import { as, guest, makeAsset, makeLocation, makeUser, tokenFor } from "./helpers.js";
+import { as, guest, makeAsset, makeBranch, makeLocation, makeUser, tokenFor } from "./helpers.js";
 
 /** ตรงกับ AssetApiTest / ProfileAndLocaleTest / UserApiTest / AssetMovementApiTest ของ Laravel */
 describe("auth + assets", () => {
@@ -136,7 +136,7 @@ describe("profile + locale", () => {
     expect(th.body.data[0].status_label).toBe("ส่งซ่อม");
 
     const thErr = await (await as(manager, "th")).post("/api/v1/assets").send({});
-    expect(thErr.body.errors.asset_tag[0]).toBe("กรุณากรอกเลขครุภัณฑ์");
+    expect(thErr.body.errors.asset_tag[0]).toBe("กรุณากรอกเลขที่ทรัพย์สิน");
     const enErr = await (await as(manager, "en")).post("/api/v1/assets").send({});
     expect(enErr.body.errors.asset_tag[0]).toBe("The asset tag field is required.");
   });
@@ -256,5 +256,69 @@ describe("asset movements", () => {
     const it = await as(await makeUser({ is_it_staff: true }));
     expect((await it.get("/api/v1/assets")).body.meta.total).toBe(3);
     expect((await it.get("/api/v1/movements")).status).toBe(200);
+  });
+});
+
+describe("shared holder and editable categories", () => {
+  it("a shared asset has no user holder, needs a branch, and stops being shared when given to someone", async () => {
+    const api = await as(await makeUser({ role: "super_admin" }));
+    const person = await makeUser({ name: "สมชาย" });
+    const branch = await makeBranch();
+    const base = { asset_tag: "SH-1", name: "Printer", category: "ปริ้นเตอร์" };
+    expect((await api.post("/api/v1/assets").send({ ...base, is_shared: true })).status).toBe(422);
+
+    const made = await api.post("/api/v1/assets").send({ ...base, is_shared: true, branch_id: branch, department: "บัญชี", custodian_id: person.id });
+    expect(made.status).toBe(201);
+    expect(made.body.data).toMatchObject({ is_shared: true, custodian: null, user_name: "ส่วนกลาง", department: "บัญชี", category: "ปริ้นเตอร์" });
+    const id = made.body.data.id;
+
+    expect((await api.patch(`/api/v1/assets/${id}`).send({ branch_id: null })).status).toBe(422);
+    // แก้ช่องอื่น = ยังเป็นส่วนกลาง
+    expect((await api.patch(`/api/v1/assets/${id}`).send({ notes: "x" })).body.data.is_shared).toBe(true);
+    // เลือกผู้ถือครอง = เลิกเป็นส่วนกลาง
+    const given = await api.patch(`/api/v1/assets/${id}`).send({ custodian_id: person.id });
+    expect(given.body.data).toMatchObject({ is_shared: false, user_name: "สมชาย" });
+    // กลับเป็นส่วนกลาง แล้วเอาติ๊กออก = ไม่มีผู้ใช้งานค้าง
+    expect((await api.patch(`/api/v1/assets/${id}`).send({ is_shared: true })).body.data).toMatchObject({ custodian: null, user_name: "ส่วนกลาง" });
+    expect((await api.patch(`/api/v1/assets/${id}`).send({ is_shared: false })).body.data).toMatchObject({ is_shared: false, user_name: null });
+    // โอนย้ายให้ผู้ใช้ = เลิกเป็นส่วนกลาง
+    await api.patch(`/api/v1/assets/${id}`).send({ is_shared: true });
+    expect((await api.post(`/api/v1/assets/${id}/movements`).send({ custodian_id: person.id, reason: "x" })).status).toBe(201);
+    expect((await api.get(`/api/v1/assets/${id}`)).body.data).toMatchObject({ is_shared: false, user_name: "สมชาย" });
+  });
+
+  it("categories live in the dropdown list: rename follows assets, fixed codes are reserved", async () => {
+    const api = await as(await makeUser({ role: "super_admin" }));
+    expect((await api.post("/api/v1/dropdown-options/asset_category").send({ name: "computer" })).status).toBe(422);
+    const added = await api.post("/api/v1/dropdown-options/asset_category").send({ name: "กล้องวงจรปิด" });
+    expect(added.status).toBe(201);
+    const asset = await api.post("/api/v1/assets").send({ asset_tag: "CAM-1", name: "CCTV", category: "กล้องวงจรปิด" });
+    expect((await api.put(`/api/v1/dropdown-options/asset_category/${added.body.data.id}`).send({ name: "CCTV" })).status).toBe(200);
+    expect((await api.get(`/api/v1/assets/${asset.body.data.id}`)).body.data.category).toBe("CCTV");
+  });
+});
+
+describe("asset number field", () => {
+  it("a computer keeps its number in cpu_tag and its Host Name in asset_tag; numbers cannot repeat; search finds the number", async () => {
+    const api = await as(await makeUser({ role: "super_admin" }));
+    await api.post("/api/v1/assets").send({ asset_tag: "PR-100", name: "Printer", category: "ปริ้นเตอร์" });
+    const pc = { name: "Desktop", category: "COMPUTER" };
+    const made = await api.post("/api/v1/assets").send({ ...pc, asset_tag: "HOST-1", cpu_tag: "NO-1" });
+    expect(made.body.data).toMatchObject({ asset_tag: "HOST-1", cpu_tag: "NO-1" });
+    const id = made.body.data.id;
+
+    expect((await api.post("/api/v1/assets").send({ ...pc, asset_tag: "HOST-2", cpu_tag: "NO-1" })).body.errors.cpu_tag).toBeTruthy();
+    expect((await api.post("/api/v1/assets").send({ ...pc, asset_tag: "HOST-2", cpu_tag: "PR-100" })).body.errors.cpu_tag).toBeTruthy();
+    expect((await api.post("/api/v1/assets").send({ asset_tag: "NO-1", name: "x", category: "ปริ้นเตอร์" })).body.errors.asset_tag).toBeTruthy();
+    // Host Name ซ้ำ = ข้อความของ Host Name
+    expect((await api.post("/api/v1/assets", ).set("Accept-Language", "en").send({ ...pc, asset_tag: "HOST-1", cpu_tag: "NO-2" })).body.errors.asset_tag[0]).toBe("This Host Name already exists.");
+    // แก้ช่องอื่นโดยเลขเดิม ไม่ถูกกัน และคอมพิวเตอร์เดิมไม่มีเลขยังแก้ได้
+    expect((await api.patch(`/api/v1/assets/${id}`).send({ cpu_tag: "NO-1", notes: "x" })).status).toBe(200);
+    const old = await makeAsset({ asset_tag: "HOST-OLD", category: "COMPUTER" });
+    const oldUuid = (await api.get("/api/v1/assets?search=HOST-OLD")).body.data[0].id;
+    expect(old.id).toBeGreaterThan(0);
+    expect((await api.patch(`/api/v1/assets/${oldUuid}`).send({ notes: "x" })).status).toBe(200);
+
+    expect((await api.get("/api/v1/assets?search=NO-1")).body.data.map((a: { asset_tag: string }) => a.asset_tag)).toEqual(["HOST-1"]);
   });
 });

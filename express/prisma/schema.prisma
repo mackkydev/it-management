@@ -99,31 +99,102 @@ model it_ticket_approval_steps {
 
 /// ข้อมูล license ของสินทรัพย์หมวด SOFTWARE (1:1) — billing: yearly | custom | perpetual (perpetual = ไม่มีวันหมดอายุ)
 model asset_licenses {
-  id                      BigInt    @id @default(autoincrement())
-  asset_id                BigInt    @unique(map: "asset_licenses_asset_id_unique")
-  billing                 String    @db.VarChar(20)
-  start_date              DateTime  @db.Date
-  expires_at              DateTime? @db.Date
-  seats                   Int?
-  vendor                  String?   @db.VarChar(255)
+  id                                       BigInt    @id @default(autoincrement())
+  asset_id                                 BigInt    @unique(map: "asset_licenses_asset_id_unique")
+  billing                                  String    @db.VarChar(20)
+  start_date                               DateTime  @db.Date
+  expires_at                               DateTime? @db.Date
+  seats                                    Int?
+  vendor                                   String?   @db.VarChar(255)
   /// license key เข้ารหัสด้วย APP_KEY (รูปแบบเดียวกับ Laravel Crypt)
-  license_key             String?   @db.Text
-  notify_days_before      Int?      @db.SmallInt
-  notified_for_expires_at DateTime? @db.Date
+  license_key                              String?   @db.Text
+  notify_days_before                       Int?      @db.SmallInt
+  notified_for_expires_at                  DateTime? @db.Date
   /// ประเภท: office / os / antivirus / other (ช่องซอฟต์แวร์ในฟอร์มคอมพิวเตอร์)
-  software_type           String    @default("other") @db.VarChar(20)
-  created_at              DateTime? @db.DateTime(0)
-  updated_at              DateTime? @db.DateTime(0)
-  assets                  assets    @relation(fields: [asset_id], references: [id], onDelete: Cascade, map: "asset_licenses_asset_id_foreign")
+  software_type                            String    @default("other") @db.VarChar(20)
+  /// ยกเลิกสัญญา (จัดการสัญญา) — ไม่นับกำลังจะหมดอายุ/ไม่แจ้งเตือน; ต่อสัญญา = ล้างค่า
+  cancelled_at                             DateTime? @db.DateTime(0)
+  cancelled_by                             BigInt?
+  cancel_reason                            String?   @db.VarChar(500)
+  users_asset_licenses_cancelled_byTousers users?    @relation("asset_licenses_cancelled_byTousers", fields: [cancelled_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "asset_licenses_cancelled_by_foreign")
+  created_at                               DateTime? @db.DateTime(0)
+  updated_at                               DateTime? @db.DateTime(0)
+  assets                                   assets    @relation(fields: [asset_id], references: [id], onDelete: Cascade, map: "asset_licenses_asset_id_foreign")
 
   @@index([expires_at], map: "asset_licenses_expires_at_index")
+}
+
+/// License ซอฟต์แวร์ — แยกจากสินทรัพย์ (เลขที่ทรัพย์สินไม่บังคับ)
+model licenses {
+  id                      BigInt                  @id @default(autoincrement())
+  uuid                    String                  @unique(map: "licenses_uuid_unique") @db.Char(36)
+  license_no              String?                 @unique(map: "licenses_license_no_unique") @db.VarChar(50)
+  name                    String                  @db.VarChar(255)
+  brand                   String?                 @db.VarChar(100)
+  model                   String?                 @db.VarChar(100)
+  serial_number           String?                 @db.VarChar(100)
+  /// active / inactive / lost / disposed
+  status                  String                  @default("active") @db.VarChar(20)
+  location_id             BigInt?
+  branch_id               BigInt?
+  purchase_date           DateTime?               @db.Date
+  purchase_cost           Decimal?                @db.Decimal(15, 2)
+  notes                   String?                 @db.Text
+  software_type           String                  @default("other") @db.VarChar(20)
+  billing                 String                  @db.VarChar(20)
+  start_date              DateTime                @db.Date
+  expires_at              DateTime?               @db.Date
+  seats                   Int?
+  vendor                  String?                 @db.VarChar(255)
+  /// license key เข้ารหัสด้วย APP_KEY
+  license_key             String?                 @db.Text
+  notify_days_before      Int?                    @db.SmallInt
+  notified_for_expires_at DateTime?               @db.Date
+  cancelled_at            DateTime?               @db.DateTime(0)
+  cancelled_by            BigInt?
+  cancel_reason           String?                 @db.VarChar(500)
+  created_by              BigInt?
+  updated_by              BigInt?
+  created_at              DateTime?               @db.DateTime(0)
+  updated_at              DateTime?               @db.DateTime(0)
+  deleted_at              DateTime?               @db.DateTime(0)
+  locations               locations?              @relation(fields: [location_id], references: [id], onUpdate: Restrict, map: "licenses_location_id_foreign")
+  branches                branches?               @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "licenses_branch_id_foreign")
+  cancelled_by_user       users?                  @relation("licenses_cancelled_byTousers", fields: [cancelled_by], references: [id], onUpdate: Restrict, map: "licenses_cancelled_by_foreign")
+  created_by_user         users?                  @relation("licenses_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "licenses_created_by_foreign")
+  updated_by_user         users?                  @relation("licenses_updated_byTousers", fields: [updated_by], references: [id], onUpdate: Restrict, map: "licenses_updated_by_foreign")
+  license_files           license_files[]
+  license_installations   license_installations[]
+
+  @@index([expires_at], map: "licenses_expires_at_index")
+  @@index([name], map: "licenses_name_index")
+}
+
+/// ไฟล์แนบ + โลโก้ (kind icon) ของ License
+model license_files {
+  id            BigInt    @id @default(autoincrement())
+  license_id    BigInt
+  kind          String    @default("license") @db.VarChar(20)
+  original_name String    @db.VarChar(255)
+  path          String    @db.VarChar(255)
+  mime          String    @db.VarChar(100)
+  size          Int
+  uploaded_by   BigInt?
+  created_at    DateTime? @db.DateTime(0)
+  updated_at    DateTime? @db.DateTime(0)
+  licenses      licenses  @relation(fields: [license_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "license_files_license_id_foreign")
+  users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "license_files_uploaded_by_foreign")
+
+  @@index([license_id], map: "license_files_license_id_index")
 }
 
 /// การติดตั้ง software license — เครื่องเลือกจากสินทรัพย์ (device_asset_id) หรือพิมพ์ชื่อเครื่องเอง (device_name)
 /// ใช้ seat ขณะ uninstalled_at เป็น null (ถอนการติดตั้งแล้วเก็บเป็นประวัติ)
 model license_installations {
   id                                                    BigInt    @id @default(autoincrement())
-  license_asset_id                                      BigInt
+  license_asset_id                                      BigInt?
+  /// License ตารางใหม่ (license_asset_id = ค่าเดิมก่อนแยก เลิกใช้)
+  license_id                                            BigInt?
   device_asset_id                                       BigInt?
   device_name                                           String?   @db.VarChar(255)
   user_id                                               BigInt?
@@ -136,13 +207,16 @@ model license_installations {
   created_by                                            BigInt?
   created_at                                            DateTime? @db.DateTime(0)
   updated_at                                            DateTime? @db.DateTime(0)
-  assets_license_installations_license_asset_idToassets assets    @relation("license_installations_license_asset_idToassets", fields: [license_asset_id], references: [id], onDelete: Cascade, map: "license_installations_license_asset_id_foreign")
+  assets_license_installations_license_asset_idToassets assets?   @relation("license_installations_license_asset_idToassets", fields: [license_asset_id], references: [id], onDelete: Cascade, map: "license_installations_license_asset_id_foreign")
   assets_license_installations_device_asset_idToassets  assets?   @relation("license_installations_device_asset_idToassets", fields: [device_asset_id], references: [id], onDelete: SetNull, map: "license_installations_device_asset_id_foreign")
   users_license_installations_user_idTousers            users?    @relation("license_installations_user_idTousers", fields: [user_id], references: [id], onDelete: SetNull, map: "license_installations_user_id_foreign")
   users_license_installations_created_byTousers         users?    @relation("license_installations_created_byTousers", fields: [created_by], references: [id], onDelete: SetNull, map: "license_installations_created_by_foreign")
   branches                                              branches? @relation(fields: [branch_id], references: [id], onDelete: SetNull, map: "license_installations_branch_id_foreign")
 
+  licenses licenses? @relation(fields: [license_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "license_installations_license_id_foreign")
+
   @@index([license_asset_id, uninstalled_at], map: "license_installations_license_active_index")
+  @@index([license_id, uninstalled_at], map: "license_installations_license_id_active_index")
   @@index([device_asset_id], map: "license_installations_device_asset_id_index")
   @@index([user_id], map: "license_installations_user_id_index")
   @@index([branch_id], map: "license_installations_branch_id_index")
@@ -178,6 +252,11 @@ model asset_movements {
   moved_at                                              DateTime   @db.DateTime(0)
   reason                                                String?    @db.Text
   performed_by                                          BigInt?
+  /// สาขาก่อน/หลังโอนย้าย (ปุ่ม "โอนย้าย" ในหน้ารายละเอียดสินทรัพย์)
+  from_branch_id                                        BigInt?
+  to_branch_id                                          BigInt?
+  branches_asset_movements_from_branch_idTobranches     branches?  @relation("asset_movements_from_branch_idTobranches", fields: [from_branch_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "asset_movements_from_branch_id_foreign")
+  branches_asset_movements_to_branch_idTobranches       branches?  @relation("asset_movements_to_branch_idTobranches", fields: [to_branch_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "asset_movements_to_branch_id_foreign")
   created_at                                            DateTime   @default(now()) @db.DateTime(0)
   assets                                                assets     @relation(fields: [asset_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "asset_movements_asset_id_foreign")
   users_asset_movements_from_custodian_idTousers        users?     @relation("asset_movements_from_custodian_idTousers", fields: [from_custodian_id], references: [id], onUpdate: Restrict, map: "asset_movements_from_custodian_id_foreign")
@@ -225,6 +304,8 @@ model assets {
   status                           String                  @default("active") @db.VarChar(20)
   /// เป็นเครื่องสำหรับยืม (หน้า ยืมโน้ตบุ๊ก) — ติ๊กในฟอร์มสินทรัพย์
   is_loanable                      Boolean                 @default(false)
+  /// ผู้ถือครองส่วนกลาง: ถือครองโดยสาขา/แผนก ไม่ผูกผู้ใช้
+  is_shared                        Boolean                 @default(false)
   location_id                      BigInt?
   custodian_id                     BigInt?
   purchase_date                    DateTime?               @db.Date
@@ -287,33 +368,36 @@ model assets {
 }
 
 model branches {
-  id                     BigInt                  @id @default(autoincrement())
-  code                   String                  @unique(map: "branches_code_unique") @db.VarChar(30)
-  name                   String                  @db.VarChar(255)
-  sort_order             Int                     @default(0) @db.SmallInt
-  is_active              Boolean                 @default(true)
-  created_at             DateTime?               @db.DateTime(0)
-  updated_at             DateTime?               @db.DateTime(0)
-  deleted_at             DateTime?               @db.DateTime(0)
+  licenses                                                 licenses[]
+  id                                                       BigInt                  @id @default(autoincrement())
+  code                                                     String                  @unique(map: "branches_code_unique") @db.VarChar(30)
+  name                                                     String                  @db.VarChar(255)
+  sort_order                                               Int                     @default(0) @db.SmallInt
+  is_active                                                Boolean                 @default(true)
+  created_at                                               DateTime?               @db.DateTime(0)
+  updated_at                                               DateTime?               @db.DateTime(0)
+  deleted_at                                               DateTime?               @db.DateTime(0)
   /// ชื่อ Work Group ของ Windows ที่สาขานี้ใช้ (เช่น LAMPHUN) — import ทะเบียนคอมพิวเตอร์จับคู่สาขาจากค่านี้ (ไม่ซ้ำ ไม่สนตัวพิมพ์)
-  work_group             String?                 @unique(map: "branches_work_group_unique") @db.VarChar(50)
+  work_group                                               String?                 @unique(map: "branches_work_group_unique") @db.VarChar(50)
   /// ปฏิทินวันหยุดที่สาขานี้ใช้ (NULL = ชุดตั้งต้น)
-  holiday_calendar_id    BigInt?
-  holiday_calendars      holiday_calendars?      @relation(fields: [holiday_calendar_id], references: [id], onUpdate: Restrict, map: "branches_holiday_calendar_id_foreign")
-  approval_routes        approval_routes[]
-  locations              locations[]
-  assets                 assets[]
-  license_installations  license_installations[]
-  contracts              contracts[]
-  credentials            credentials[]
-  it_tickets             it_tickets[]
-  users                  users[]
-  meeting_rooms          meeting_rooms[]
-  vehicles               vehicles[]
-  vehicle_bookings       vehicle_bookings[]
-  vehicle_drivers        vehicle_drivers[]
-  vehicle_transfers_from vehicle_transfers[]     @relation("vehicle_transfer_from")
-  vehicle_transfers_to   vehicle_transfers[]     @relation("vehicle_transfer_to")
+  holiday_calendar_id                                      BigInt?
+  holiday_calendars                                        holiday_calendars?      @relation(fields: [holiday_calendar_id], references: [id], onUpdate: Restrict, map: "branches_holiday_calendar_id_foreign")
+  approval_routes                                          approval_routes[]
+  locations                                                locations[]
+  assets                                                   assets[]
+  asset_movements_asset_movements_from_branch_idTobranches asset_movements[]       @relation("asset_movements_from_branch_idTobranches")
+  asset_movements_asset_movements_to_branch_idTobranches   asset_movements[]       @relation("asset_movements_to_branch_idTobranches")
+  license_installations                                    license_installations[]
+  contracts                                                contracts[]
+  credentials                                              credentials[]
+  it_tickets                                               it_tickets[]
+  users                                                    users[]
+  meeting_rooms                                            meeting_rooms[]
+  vehicles                                                 vehicles[]
+  vehicle_bookings                                         vehicle_bookings[]
+  vehicle_drivers                                          vehicle_drivers[]
+  vehicle_transfers_from                                   vehicle_transfers[]     @relation("vehicle_transfer_from")
+  vehicle_transfers_to                                     vehicle_transfers[]     @relation("vehicle_transfer_to")
 
   @@index([is_active, sort_order], map: "branches_is_active_sort_order_index")
   @@index([holiday_calendar_id], map: "branches_holiday_calendar_id_index")
@@ -459,21 +543,21 @@ model failed_jobs {
 }
 
 model it_ticket_attachments {
-  id            BigInt     @id @default(autoincrement())
+  id            BigInt            @id @default(autoincrement())
   it_ticket_id  BigInt
-  kind          String     @db.VarChar(20)
-  path          String     @db.VarChar(255)
-  original_name String?    @db.VarChar(255)
-  mime          String?    @db.VarChar(100)
-  size          Int        @default(0)
+  kind          String            @db.VarChar(20)
+  path          String            @db.VarChar(255)
+  original_name String?           @db.VarChar(255)
+  mime          String?           @db.VarChar(100)
+  size          Int               @default(0)
   uploaded_by   BigInt?
-  created_at    DateTime?  @db.DateTime(0)
-  updated_at    DateTime?  @db.DateTime(0)
+  created_at    DateTime?         @db.DateTime(0)
+  updated_at    DateTime?         @db.DateTime(0)
   /// เหตุการณ์ในประวัติที่แนบไฟล์นี้ (progress / resulted) — NULL = ไฟล์ตอนแจ้งงาน
   event_id      BigInt?
-  it_tickets    it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_attachments_it_ticket_id_foreign")
+  it_tickets    it_tickets        @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_attachments_it_ticket_id_foreign")
   event         it_ticket_events? @relation(fields: [event_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "it_ticket_attachments_event_id_foreign")
-  users         users?     @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "it_ticket_attachments_uploaded_by_foreign")
+  users         users?            @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "it_ticket_attachments_uploaded_by_foreign")
 
   @@index([it_ticket_id, kind], map: "it_ticket_attachments_it_ticket_id_kind_index")
   @@index([uploaded_by], map: "it_ticket_attachments_uploaded_by_index")
@@ -481,15 +565,15 @@ model it_ticket_attachments {
 }
 
 model it_ticket_events {
-  id           BigInt     @id @default(autoincrement())
+  id           BigInt                  @id @default(autoincrement())
   it_ticket_id BigInt
   user_id      BigInt?
-  action       String     @db.VarChar(30)
-  comment      String?    @db.Text
-  created_at   DateTime   @default(now()) @db.DateTime(0)
-  it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_events_it_ticket_id_foreign")
+  action       String                  @db.VarChar(30)
+  comment      String?                 @db.Text
+  created_at   DateTime                @default(now()) @db.DateTime(0)
+  it_tickets   it_tickets              @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_events_it_ticket_id_foreign")
   attachments  it_ticket_attachments[]
-  users        users?     @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "it_ticket_events_user_id_foreign")
+  users        users?                  @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "it_ticket_events_user_id_foreign")
 
   @@index([it_ticket_id, created_at], map: "it_ticket_events_it_ticket_id_created_at_index")
   @@index([user_id], map: "it_ticket_events_user_id_index")
@@ -567,6 +651,8 @@ model it_tickets {
   /// สำเนาลายเซ็นผู้อนุมัติ ณ ตอนอนุมัติขั้นสุดท้าย (แบบฟอร์มพิมพ์)
   approver_signature                   String?                    @db.VarChar(255)
   closed_at                            DateTime?                  @db.DateTime(0)
+  /// ระบบที่จัดการใบนี้ — 'zoom' = เดินสถานะจากหน้าจอง ZOOM เท่านั้น (ไม่ขึ้นคิวงาน IT, ปุ่มในหน้าใบงานปิด), null = ใบแจ้งงานปกติ
+  source                               String?                    @db.VarChar(20)
   /// ขอยกเลิกหลังอนุมัติ: status = pending_cancel ระหว่างรอเจ้าหน้าที่ IT ยืนยัน → cancelled (ปฏิเสธ/ถอน = กลับสถานะเดิม)
   cancel_reason                        String?                    @db.Text
   cancel_requested_at                  DateTime?                  @db.DateTime(0)
@@ -654,6 +740,7 @@ model kpi_entries {
 }
 
 model locations {
+  licenses                                                    licenses[]
   id                                                          BigInt            @id @default(autoincrement())
   code                                                        String            @unique(map: "locations_code_unique") @db.VarChar(50)
   name                                                        String            @db.VarChar(255)
@@ -740,6 +827,10 @@ model sessions {
 }
 
 model users {
+  licenses_cancelled                                       licenses[]                 @relation("licenses_cancelled_byTousers")
+  licenses_created                                         licenses[]                 @relation("licenses_created_byTousers")
+  licenses_updated                                         licenses[]                 @relation("licenses_updated_byTousers")
+  license_files                                            license_files[]
   id                                                       BigInt                     @id @default(autoincrement())
   name                                                     String                     @db.VarChar(255)
   /// LOCAL: login ด้วยอีเมล+รหัสผ่านของระบบเรา (ต้องมี) / API: อาจว่างได้ถ้าต้นทางไม่ส่งอีเมลมา
@@ -747,6 +838,8 @@ model users {
   username                                                 String?                    @db.VarChar(50)
   email                                                    String?                    @unique(map: "users_email_unique") @db.VarChar(255)
   role                                                     String                     @default("viewer") @db.VarChar(20)
+  /// ตำแหน่งงาน (ข้อความ ไม่บังคับ) — แยกจากสิทธิ์กลุ่มใช้งาน role
+  job_title                                                String?                    @db.VarChar(100)
   is_active                                                Boolean                    @default(true)
   branch_id                                                BigInt?
   department                                               String?                    @db.VarChar(100)
@@ -795,6 +888,7 @@ model users {
   app_settings                                             app_settings[]
   kpi_entries                                              kpi_entries[]
   asset_movements_asset_movements_from_custodian_idTousers asset_movements[]          @relation("asset_movements_from_custodian_idTousers")
+  asset_licenses_asset_licenses_cancelled_byTousers        asset_licenses[]           @relation("asset_licenses_cancelled_byTousers")
   asset_movements_asset_movements_performed_byTousers      asset_movements[]          @relation("asset_movements_performed_byTousers")
   asset_user_logs                                          asset_user_logs[]
   asset_movements_asset_movements_to_custodian_idTousers   asset_movements[]          @relation("asset_movements_to_custodian_idTousers")
@@ -1265,6 +1359,8 @@ model meeting_bookings {
   users                     users                       @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "meeting_bookings_user_id_foreign")
   meeting_booking_equipment meeting_booking_equipment[]
 
+  zoom_bookings zoom_bookings[]
+
   @@index([room_id, booking_date], map: "meeting_bookings_room_id_booking_date_index")
   @@index([room_id, end_date], map: "meeting_bookings_room_id_end_date_index")
   @@index([booking_date], map: "meeting_bookings_booking_date_index")
@@ -1525,45 +1621,51 @@ model policy_acceptances {
 /// จอง ZOOM — ผู้ใช้จองช่วงวันเวลา → ฝ่าย IT (zoom.manage) รับงาน (accepted) → ส่งลิงก์ (confirmed + ใบแจ้งงานที่ปิดแล้ว ticket_id ลง KPI ของผู้รับงาน)
 /// หรือแจ้งกลับว่ามีการใช้งานแล้ว (rejected + reject_reason) / ผู้จองยกเลิก (cancelled) — routes/zoom.ts
 model zoom_bookings {
-  id            BigInt      @id @default(autoincrement())
-  uuid          String      @unique(map: "zoom_bookings_uuid_unique") @db.Char(36)
-  user_id       BigInt
-  department    String?     @db.VarChar(255)
-  branch_id     BigInt?
-  title         String      @db.VarChar(255)
-  details       String?     @db.Text
-  start_on      DateTime    @db.Date
-  start_time    String      @db.VarChar(5)
-  end_on        DateTime    @db.Date
-  end_time      String      @db.VarChar(5)
-  /// pending (รอ IT รับงาน) / accepted (รับงานแล้ว) / confirmed (ส่งลิงก์แล้ว) / rejected (มีการใช้งานแล้ว) / cancelled
-  status        String      @default("pending") @db.VarChar(20)
-  assignee_id   BigInt?
-  accepted_at   DateTime?   @db.DateTime(0)
-  meeting_link  String?     @db.VarChar(1000)
+  id                 BigInt            @id @default(autoincrement())
+  uuid               String            @unique(map: "zoom_bookings_uuid_unique") @db.Char(36)
+  user_id            BigInt
+  department         String?           @db.VarChar(255)
+  branch_id          BigInt?
+  title              String            @db.VarChar(255)
+  details            String?           @db.Text
+  start_on           DateTime          @db.Date
+  start_time         String            @db.VarChar(5)
+  end_on             DateTime          @db.Date
+  end_time           String            @db.VarChar(5)
+  /// pending (รอ IT รับงาน) / accepted (รับงานแล้ว) / needs_change (IT แจ้งว่าไม่ว่าง รอผู้จองแก้วันเวลา) / confirmed (ส่งลิงก์แล้ว) / rejected (ข้อมูลเดิม) / cancelled
+  status             String            @default("pending") @db.VarChar(20)
+  assignee_id        BigInt?
+  accepted_at        DateTime?         @db.DateTime(0)
+  meeting_link       String?           @db.VarChar(1000)
   /// ข้อความเชิญเต็มจาก ZOOM ที่ฝ่าย IT วาง (ดึง Topic / ลิงก์ / Meeting ID / Passcode ออกมา)
-  link_note     String?     @db.Text
-  meeting_topic String?     @db.VarChar(255)
-  meeting_id    String?     @db.VarChar(50)
-  passcode      String?     @db.VarChar(50)
-  confirmed_by  BigInt?
-  confirmed_at  DateTime?   @db.DateTime(0)
-  reject_reason String?     @db.VarChar(1000)
-  rejected_by   BigInt?
-  rejected_at   DateTime?   @db.DateTime(0)
-  cancelled_by  BigInt?
-  cancelled_at  DateTime?   @db.DateTime(0)
-  /// ใบแจ้งงาน (เรื่องอื่นๆ ปิดแล้ว) ที่สร้างตอนส่งลิงก์ — แถวใบงานในชีต KPI ของผู้รับงาน
-  ticket_id     BigInt?
-  created_at    DateTime?   @db.DateTime(0)
-  updated_at    DateTime?   @db.DateTime(0)
-  users         users       @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "zoom_bookings_user_id_foreign")
-  it_tickets    it_tickets? @relation(fields: [ticket_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "zoom_bookings_ticket_id_foreign")
+  link_note          String?           @db.Text
+  meeting_topic      String?           @db.VarChar(255)
+  meeting_id         String?           @db.VarChar(50)
+  passcode           String?           @db.VarChar(50)
+  /// บัญชี ZOOM ที่ฝ่าย IT ใช้ (ข้อมูล Drop Down list zoom_account เก็บเป็นข้อความ)
+  zoom_account String? @db.VarChar(100)
+  confirmed_by       BigInt?
+  confirmed_at       DateTime?         @db.DateTime(0)
+  reject_reason      String?           @db.VarChar(1000)
+  rejected_by        BigInt?
+  rejected_at        DateTime?         @db.DateTime(0)
+  cancelled_by       BigInt?
+  cancelled_at       DateTime?         @db.DateTime(0)
+  /// ใบแจ้งงาน (เรื่องอื่นๆ) ที่สร้างตอนจอง — สถานะเดินตามการจอง (it_tickets.source = 'zoom'), อนุมัติผลแล้วขึ้นชีต KPI ของผู้รับงาน
+  ticket_id          BigInt?
+  /// จองมาพร้อมการจองห้องประชุม — ยกเลิกห้อง = ยกเลิก ZOOM, เปลี่ยนเวลาห้อง = เวลา ZOOM เปลี่ยนตาม
+  meeting_booking_id BigInt?
+  created_at         DateTime?         @db.DateTime(0)
+  updated_at         DateTime?         @db.DateTime(0)
+  users              users             @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "zoom_bookings_user_id_foreign")
+  it_tickets         it_tickets?       @relation(fields: [ticket_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "zoom_bookings_ticket_id_foreign")
+  meeting_bookings   meeting_bookings? @relation(fields: [meeting_booking_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "zoom_bookings_meeting_booking_id_foreign")
 
   @@index([start_on, end_on], map: "zoom_bookings_start_on_end_on_index")
   @@index([user_id], map: "zoom_bookings_user_id_index")
   @@index([status], map: "zoom_bookings_status_index")
   @@index([ticket_id], map: "zoom_bookings_ticket_id_index")
+  @@index([meeting_booking_id], map: "zoom_bookings_meeting_booking_id_index")
 }
 
 /// ตัวนับเวอร์ชันข้อมูล (แถว name = "data") — API เพิ่มค่าหลังบันทึกตารางที่หน้าจอแสดงผล (routes/sync.ts) แทนการนับแถวทุกตารางทุกครั้งที่ถาม /sync/version

@@ -14,6 +14,7 @@ import { branchWhere, canManageBranch, canSeeBranch, scopeOf, type ScopeOf } fro
 import { notifyUsers } from "../services/notifications.js";
 import { MAX_PHOTOS, processPhoto } from "../services/photos.js";
 import { deleteStored, randomString, readStored, writeStored } from "../services/ticket-files.js";
+import { bookingInput as zoomBookingInput, cancelMeetingZoom, createZoomBooking, syncMeetingZoom } from "./zoom.js";
 
 /**
  * ระบบจองห้องประชุม — ทุกคนดูปฏิทินห้อง / จอง / แก้-ยกเลิก-ลบการจองของตัวเอง
@@ -27,6 +28,7 @@ import { deleteStored, randomString, readStored, writeStored } from "../services
  *     แก้/ยกเลิก/ลบของผู้อื่น = meeting.manage_any (แจ้งเตือนเจ้าของการจอง)
  *   ขอบเขตตามสาขาต่อกลุ่ม (services/booking-scope.ts): branch = เห็น/จองห้องสาขาตัวเอง + ห้องใช้ร่วมกัน, จัดการได้เฉพาะห้องสาขาตัวเอง
  *     ขอบเขต all เลือกดูเฉพาะสาขาได้ด้วย ?branch_id= (GET /meeting-rooms, GET /meeting-bookings)
+ *   จองพร้อม ZOOM: ส่ง zoom { title?, details?, start_on?, start_time?, end_on?, end_time? } ตอนจอง/แก้ไข = สร้างการจอง ZOOM + ใบแจ้งงาน ไม่ส่ง = เวลาเดียวกับห้อง (routes/zoom.ts), zoom_cancel: true ตอนแก้ไข = ยกเลิก ZOOM (ห้องคงเดิม) — resource คืน zoom เฉพาะผู้จอง + ผู้จัดการการจอง
  * ประเภทการใช้งาน / อุปกรณ์ = dropdown_options (meeting_purpose / meeting_equipment) — routes/dropdown-options.ts
  */
 export const meetingRoutes = Router();
@@ -351,6 +353,9 @@ async function bookingsJson(rows: BookingRow[], u: UserRow) {
   const equipment = rows.length
     ? await select<{ booking_id: number; name: string }>("SELECT booking_id, name FROM meeting_booking_equipment WHERE booking_id IN (?) ORDER BY name", [rows.map((r) => r.id)])
     : [];
+  const zooms = rows.length
+    ? await select<{ meeting_booking_id: number; uuid: string; status: string }>("SELECT meeting_booking_id, uuid, status FROM zoom_bookings WHERE meeting_booking_id IN (?) AND status NOT IN ('cancelled', 'rejected') ORDER BY id", [rows.map((r) => r.id)])
+    : [];
   return rows.map((r) => {
     const date = dateOnly(r.booking_date)!;
     const mine = Number(r.user_id) === u.id;
@@ -377,6 +382,11 @@ async function bookingsJson(rows: BookingRow[], u: UserRow) {
       cancelled_at: iso(r.cancelled_at),
       created_at: iso(r.created_at),
       updated_at: iso(r.updated_at),
+      // ZOOM ที่จองพร้อมห้องนี้
+      zoom: (() => {
+        const z = allowed ? zooms.find((x) => Number(x.meeting_booking_id) === Number(r.id)) : undefined;
+        return z ? { id: z.uuid, status: z.status } : null;
+      })(),
       can_edit: allowed && active && !over,
       can_cancel: allowed && active && !over,
       // การจองที่ใช้ไปแล้วเก็บเป็นประวัติ — ลบได้เฉพาะที่ยกเลิกแล้ว / ยังไม่ถึงเวลา
@@ -569,9 +579,28 @@ async function saveEquipment(bookingId: number, names: string[]) {
 
 const auditView = (v: Awaited<ReturnType<typeof bookingInput>>) => ({ ...v });
 
+const zoomTimes = (v: Pick<Slot, "booking_date" | "end_date" | "start_time" | "end_time">) => ({ start_on: v.booking_date, start_time: v.start_time, end_on: v.end_date, end_time: v.end_time });
+/** zoom { ... } ของคำขอ — ไม่ส่ง = ไม่จอง ZOOM, ไม่กรอกหัวข้อ = หัวข้อประชุม, ไม่ส่งวันเวลา = ตามห้อง (ตรวจด้วยกฎเดียวกับการจอง ZOOM) */
+async function zoomInput(req: Request, room: { title: string } & Pick<Slot, "booking_date" | "end_date" | "start_time" | "end_time">) {
+  const raw = req.input.zoom;
+  if (!raw || typeof raw !== "object") return null;
+  const z = raw as Record<string, unknown>;
+  const given = (x: unknown) => (typeof x === "string" && x.trim() ? x.trim() : null);
+  const times = zoomTimes(room);
+  return zoomBookingInput(req, {
+    title: given(z.title) ?? room.title,
+    details: z.details ?? null,
+    start_on: given(z.start_on) ?? times.start_on,
+    start_time: given(z.start_time) ?? times.start_time,
+    end_on: given(z.end_on) ?? times.end_on,
+    end_time: given(z.end_time) ?? times.end_time,
+  });
+}
+
 meetingRoutes.post("/meeting-bookings", async (req, res) => {
   const u = me(req);
   const v = await bookingInput(req, null, []);
+  const zoom = await zoomInput(req, v);
   const now = nowDb();
   const uuid = randomUUID();
   const { equipment, ...row } = v;
@@ -584,6 +613,7 @@ meetingRoutes.post("/meeting-bookings", async (req, res) => {
     return bookingId;
   });
   await audit(req, { action: "meeting_booking.created", subjectType: "meeting_booking", subjectId: id, after: auditView(v) });
+  if (zoom) await createZoomBooking(req, u, u.id, zoom, id);
   const [json] = await bookingsJson([(await first<BookingRow>(`${BOOKING_SELECT} WHERE m.id = ?`, [id]))!], u);
   res.status(201).json({ data: json });
 });
@@ -617,6 +647,7 @@ meetingRoutes.put("/meeting-bookings/:uuid", async (req, res) => {
   if (b.status !== "confirmed" || isOver(lastDay(b), b.end_time)) throw ValidationError.withMessages({ status: t(req, "eam.meeting.not_editable") });
   const currentEquipment = (await select<{ name: string }>("SELECT name FROM meeting_booking_equipment WHERE booking_id = ?", [b.id])).map((e) => e.name);
   const v = await bookingInput(req, b, currentEquipment);
+  const zoom = await zoomInput(req, v);
   const { equipment, ...row } = v;
   // ห้องปลายทางมีการจองชน → สลับห้องกับรายการนั้น (ต้องยืนยัน swap: true)
   const other = await swapCandidate(req, u, b, v, bool(req.input.swap));
@@ -639,6 +670,12 @@ meetingRoutes.put("/meeting-bookings/:uuid", async (req, res) => {
     after: auditView(v),
   });
   await notifyOwner(u, b, "updated");
+  // ZOOM ที่จองพร้อมห้อง: เวลาเปลี่ยนตาม (เมื่อเดิมตรงกับห้อง) / ติ๊กเพิ่ม ZOOM ตอนแก้ไข = จองใหม่ (เจ้าของ = เจ้าของการจองห้อง)
+  if (bool(req.input.zoom_cancel)) await cancelMeetingZoom(req, u, Number(b.id));
+  await syncMeetingZoom(req, u, Number(b.id), zoomTimes(v), zoomTimes(slotOf(b)));
+  if (zoom && !(await scalar("SELECT 1 FROM zoom_bookings WHERE meeting_booking_id = ? AND status NOT IN ('cancelled', 'rejected') LIMIT 1", [b.id]))) {
+    await createZoomBooking(req, u, Number(b.user_id), zoom, Number(b.id));
+  }
   if (other) {
     await audit(req, { action: "meeting_booking.swapped", subjectType: "meeting_booking", subjectId: other.id, before: { room_id: Number(other.room_id) }, after: { room_id: Number(b.room_id), swapped_with: b.uuid } });
     // แจ้งเจ้าของรายการที่ถูกย้ายห้อง (ชื่อห้องใหม่)
@@ -656,6 +693,7 @@ meetingRoutes.post("/meeting-bookings/:uuid/cancel", async (req, res) => {
   const now = nowDb();
   await update("meeting_bookings", { status: "cancelled", cancelled_at: now, cancelled_by: u.id, updated_at: now }, "id = ?", [b.id]);
   await audit(req, { action: "meeting_booking.cancelled", subjectType: "meeting_booking", subjectId: b.id, before: { status: b.status } });
+  await cancelMeetingZoom(req, u, Number(b.id));
   await notifyOwner(u, b, "cancelled");
   const [json] = await bookingsJson([(await first<BookingRow>(`${BOOKING_SELECT} WHERE m.id = ?`, [b.id]))!], u);
   res.json({ data: json });
@@ -670,5 +708,6 @@ meetingRoutes.delete("/meeting-bookings/:uuid", async (req, res) => {
   await update("meeting_bookings", { deleted_at: nowDb() }, "id = ?", [b.id]);
   await audit(req, { action: "meeting_booking.deleted", subjectType: "meeting_booking", subjectId: b.id, before: { title: b.title, booking_date: dateOnly(b.booking_date), end_date: lastDay(b), start_time: b.start_time, end_time: b.end_time, status: b.status } });
   if (b.status === "confirmed") await notifyOwner(u, b, "deleted");
+  await cancelMeetingZoom(req, u, Number(b.id));
   res.status(204).end();
 });

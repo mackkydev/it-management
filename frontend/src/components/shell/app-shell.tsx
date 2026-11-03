@@ -18,6 +18,7 @@ import { activeHref, navFor, navLabel, type NavGroup } from "./nav";
 import { NotificationBell } from "./notification-bell";
 import { GroupBadge, ItemBadge, MenuBadgesProvider } from "./menu-badges";
 import { PrefsControls } from "./prefs-controls";
+import { RouteGuard } from "./route-guard";
 import { SidebarNav } from "./sidebar-nav";
 import { Avatar, LogoutButton, UserLabel } from "./user-bits";
 
@@ -611,7 +612,13 @@ export function AppShell({ layout, user, uiConfig, children }: { layout: Layout;
   const [drawer, setDrawer] = useState(false);
 
   // เนื้อหาเต็มความกว้างหน้าจอ (ไม่จำกัด max-width)
-  const main = <main className="w-full min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>;
+  const main = (
+    <main className="w-full min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+      <RouteGuard user={user} uiConfig={uiConfig}>
+        {children}
+      </RouteGuard>
+    </main>
+  );
 
   if (layout === "topbar") {
     return (

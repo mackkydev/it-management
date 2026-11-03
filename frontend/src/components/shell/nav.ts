@@ -27,7 +27,7 @@ import {
   VideoIcon,
 } from "@/components/icons";
 import type { MessageKey } from "@/i18n/types";
-import { EMPTY_UI_CONFIG, canViewAssets, canViewLicenses, has, isAllowed, isLocalSuperAdmin, sortByOrder, type UiConfig } from "@/lib/permissions";
+import { EMPTY_UI_CONFIG, READ_ONLY_HIDDEN, canViewAssets, canViewLicenses, has, isAllowed, isReadOnly, sortByOrder, type UiConfig } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
@@ -128,6 +128,14 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
+    // ประกาศข่าวสาร (แสดงที่หน้าภาพรวม) — คลิกเข้าหน้าจัดการเลย เห็นเฉพาะ announcements.manage
+    id: "news",
+    label: "nav.announcements",
+    icon: BellIcon,
+    direct: true,
+    items: [{ label: "nav.announcements", href: "/announcements", icon: BellIcon, visible: perm("announcements.manage") }],
+  },
+  {
     // ยืมอุปกรณ์ / VPN — ทุกคน: ยืมโน้ตบุ๊ก (รายการเครื่อง + ปฏิทิน) / ขอใช้ VPN / การยืมของฉัน (ตัวเลข = เกินกำหนดคืน + VPN ใกล้หมดอายุ);
     // ส่งมอบ/รับคืน + จัดการ VPN = loans.manage (ตัวเลข = รอส่งมอบที่ถึงวัน + เกินกำหนด / คำขอ VPN รอมอบ + หมดอายุ)
     id: "loans",
@@ -168,7 +176,7 @@ export const NAV: NavGroup[] = [
     items: [
       // assets.view (ผู้ใช้ทั่วไปไม่มีเป็นค่าตั้งต้น) = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง, assets.view_all = ทั้งหมด
       { label: "nav.assetList", href: "/assets", icon: ListIcon, visible: (u) => canViewAssets(u) },
-      // License ซอฟต์แวร์ (หมวด SOFTWARE แยกจากรายการสินทรัพย์) — การติดตั้งเปิดจากการ์ดในหน้านี้ (ไม่มีเมนูแยก)
+      // License ซอฟต์แวร์ (ตาราง licenses แยกจากสินทรัพย์) — การติดตั้งเปิดจากการ์ดในหน้านี้ (ไม่มีเมนูแยก)
       { label: "nav.licenses", href: "/licenses", icon: KeyIcon, visible: (u) => canViewLicenses(u) },
       { label: "nav.movements", href: "/movements", icon: HistoryIcon, visible: perm("movements.view") },
       { label: "nav.repairs", href: "/repairs", icon: WrenchIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.update") },
@@ -183,10 +191,9 @@ export const NAV: NavGroup[] = [
       // ฝ่าย + แผนก รวมเป็นหน้าเดียว (แท็บ) — /divisions, /departments พามาที่แท็บนั้น
       { label: "nav.orgUnits", href: "/org-units", icon: BuildingIcon, visible: perm("org.manage") },
       // ข้อมูล Drop Down: หมวดหมู่สัญญา / หมวดหมู่คลังบัญชี / Computer Type / ยี่ห้อ / ตัวเลือกเรื่อง "อื่นๆ" (แท็บตามสิทธิ์)
-      { label: "nav.dropdowns", href: "/dropdowns", icon: ListIcon, visible: (u) => has(u, "contracts.categories") || has(u, "dropdowns.manage") || has(u, "settings.manage") || has(u, "meeting.rooms") || has(u, "vehicle.manage") },
+      { label: "nav.dropdowns", href: "/dropdowns", icon: ListIcon, visible: (u) => has(u, "contracts.categories") || has(u, "dropdowns.manage") || has(u, "settings.manage") || has(u, "meeting.rooms") || has(u, "zoom.manage") || has(u, "vehicle.manage") },
       { label: "nav.locations", href: "/locations", icon: MapPinIcon, visible: (u) => has(u, "locations.view") || has(u, "locations.manage") },
       { label: "nav.users", href: "/users", icon: UsersIcon, visible: perm("users.view") },
-      { label: "nav.apiUsers", href: "/api-users", icon: UsersIcon, visible: perm("access.assign") },
     ],
   },
   {
@@ -196,12 +203,12 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "nav.notificationSettings", href: "/settings", icon: SettingsIcon, visible: perm("settings.manage") },
       { label: "nav.approvalRoutes", href: "/approval-routes", icon: GitBranchIcon, visible: perm("approval_routes.manage") },
-      { label: "nav.announcements", href: "/announcements", icon: BellIcon, visible: perm("announcements.manage") },
       { label: "nav.permissions", href: "/permissions", icon: ShieldIcon, visible: (u) => has(u, "access.manage") || has(u, "access.groups") },
       { label: "nav.rolePermissions", href: "/role-permissions", icon: ShieldIcon, visible: (u) => has(u, "access.manage") || has(u, "access.groups") || has(u, "access.assign") },
       // สมาชิกกลุ่ม + สิทธิ์ที่มอบรายคน (ดู / แก้วันหมดอายุ / ยกเลิก)
       { label: "nav.accessReview", href: "/access-review", icon: ShieldIcon, visible: perm("access.assign") },
-      { label: "nav.apiConnections", href: "/api-connections", icon: GitBranchIcon, visible: isLocalSuperAdmin },
+      // เมนู "การเชื่อมต่อ API" (/api-connections) เอาออก — ยังไม่ใช้; หน้า + API เก็บไว้ ใส่บรรทัดนี้กลับเมื่อใช้งาน:
+      // { label: "nav.apiConnections", href: "/api-connections", icon: GitBranchIcon, visible: isLocalSuperAdmin }, (import isLocalSuperAdmin จาก lib/permissions ด้วย)
       { label: "nav.auditLogs", href: "/audit-logs", icon: HistoryIcon, visible: perm("audit_logs.view") },
     ],
   },
@@ -223,6 +230,48 @@ export function navFor(user: User, config: UiConfig = EMPTY_UI_CONFIG): NavGroup
     ),
   })).filter((g) => g.items.length > 0);
   return sortByOrder(groups, config.menu_order.groups, (g) => g.id);
+}
+
+/** หน้าที่ไม่มีเมนูของตัวเอง → ใช้กฎของเมนูเจ้าของ */
+const ROUTE_OWNERS: Record<string, string> = {
+  "/license-installations": "/licenses",
+  "/divisions": "/org-units",
+  "/departments": "/org-units",
+  "/contract-categories": "/dropdowns",
+  "/ticket-types": "/dropdowns",
+};
+
+/**
+ * หน้ารายละเอียดเอกสารรายใบ — API ตรวจสิทธิ์รายใบอยู่แล้ว และผู้เกี่ยวข้องต้องเปิดจากแจ้งเตือนได้แม้ถูกซ่อนเมนูนั้น
+ * /users/{id}/permissions = หน้ามอบสิทธิ์ (access.assign ตรวจที่หน้าเอง)
+ */
+const RECORD_PAGES = [
+  /^\/(tickets|leave|loans)\/[0-9a-f-]{36}(\/|$)/i,
+  /^\/(meeting-rooms|vehicles|zoom)\/bookings\//,
+  /^\/users\/\d+\/permissions$/,
+];
+
+/**
+ * เปิดหน้านี้ได้ไหม = กฎเดียวกับการแสดงเมนู (สิทธิ์ของเมนู + การซ่อนตามกลุ่ม + สาขา) — เมนูใหม่ใน NAV ถูกกันอัตโนมัติ
+ * หน้าที่ไม่อยู่ใต้เมนูใด (โปรไฟล์ / แจ้งเตือน / เกี่ยวกับ) เปิดได้เสมอ — ข้อมูลจริงยังตรวจสิทธิ์ที่ API
+ */
+export function routeAllowed(user: User, config: UiConfig, pathname: string): boolean {
+  if (isReadOnly(user) && READ_ONLY_HIDDEN.test(pathname)) return false;
+  if (RECORD_PAGES.some((re) => re.test(pathname))) return true;
+  const root = Object.keys(ROUTE_OWNERS).find((p) => pathname === p || pathname.startsWith(`${p}/`));
+  const path = root ? ROUTE_OWNERS[root] : pathname;
+  const owner = NAV.flatMap((g) => g.items)
+    .filter((i) => path === i.href || path.startsWith(`${i.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  if (!owner) return true;
+  return (!owner.visible || owner.visible(user)) && isAllowed(config, user, owner.href);
+}
+
+/** ปลายทางเมื่อเปิดหน้าไม่ได้: ภาพรวม → เมนูแรกที่เห็น → โปรไฟล์ (กันวนซ้ำ) */
+export function deniedTarget(user: User, config: UiConfig): string {
+  if (routeAllowed(user, config, "/dashboard")) return "/dashboard?denied=1";
+  const first = navFor(user, config)[0]?.items[0]?.href;
+  return `${first ?? "/profile"}?denied=1`;
 }
 
 /** ชื่อเมนูที่แสดง: ชื่อที่แก้เองของภาษานั้น → ไม่มีใช้ชื่อตั้งต้นจากไฟล์แปล */

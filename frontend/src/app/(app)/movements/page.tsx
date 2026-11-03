@@ -12,9 +12,9 @@ import { btn, card, input, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { redirect } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { assetCategoryNames } from "@/lib/asset-categories";
 import { getCurrentUser, has } from "@/lib/auth";
-import type { MessageKey } from "@/i18n/types";
-import { CATEGORIES, type AssetMovement, type Branch, type Location, type Paginated } from "@/lib/types";
+import { assetCategoryLabel, CATEGORIES, type AssetMovement, type Branch, type Location, type Paginated } from "@/lib/types";
 import { MOVEMENT_STYLE, MovementChanges } from "../assets/movement-timeline";
 import { AppSelect } from "@/components/app-select";
 import { Tooltip } from "@/components/tooltip";
@@ -68,9 +68,9 @@ export default async function MovementsPage({ searchParams }: PageProps<"/moveme
         </AppSelect>
         <AppSelect name="category" defaultValue={str("category")} className={input} aria-label={t("assets.col.category")}>
           <option value="">{t("assets.allCategories")}</option>
-          {CATEGORIES.map((c) => (
+          {[...CATEGORIES, ...(await assetCategoryNames())].map((c) => (
             <option key={c} value={c}>
-              {t(`assets.categories.${c}` as MessageKey)}
+              {assetCategoryLabel(t, c)}
             </option>
           ))}
         </AppSelect>

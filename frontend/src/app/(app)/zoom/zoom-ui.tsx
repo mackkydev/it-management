@@ -9,6 +9,7 @@ const BADGE = {
   pending: tone.warning.badge,
   accepted: tone.info.badge,
   confirmed: tone.success.badge,
+  needs_change: tone.danger.badge,
   over: tone.idle.badge,
   rejected: tone.danger.badge,
   cancelled: tone.idle.badge,

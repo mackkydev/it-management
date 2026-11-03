@@ -13,7 +13,7 @@ import type { BranchChoices, VehicleDriver } from "@/lib/types";
 const EMPTY = (choices: BranchChoices): DriverValues => ({ name: "", nickname: "", branch_id: choices.defaultId ? String(choices.defaultId) : "", is_active: true });
 
 /** รายชื่อคนขับรถ: เพิ่ม / แก้ไข (ชื่อ-สกุล, ชื่อเล่น, สาขา, ใช้งาน) / ลบ (เฉพาะที่ยังไม่เคยถูกเลือก) */
-export function DriverManager({ drivers, choices }: { drivers: VehicleDriver[]; choices: BranchChoices }) {
+export function DriverManager({ drivers, choices, canCreate }: { drivers: VehicleDriver[]; choices: BranchChoices; canCreate: boolean }) {
   const { t, fmt } = useI18n();
   const router = useRouter();
   const confirm = useConfirm();
@@ -147,7 +147,7 @@ export function DriverManager({ drivers, choices }: { drivers: VehicleDriver[]; 
         ) : (
           <span />
         )}
-        {editing === null && (
+        {editing === null && canCreate && (
           <button type="button" onClick={() => open(null)} className={btn.primary}>
             <PlusIcon />
             {t("vehicle.drivers.add")}

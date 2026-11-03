@@ -13,10 +13,11 @@ import { TableSkeleton } from "@/components/skeletons";
 import { Tooltip } from "@/components/tooltip";
 import { btn, card, input, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
-import type { Formatters, MessageKey, TFunction } from "@/i18n/types";
+import type { Formatters, TFunction } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
+import { assetCategoryNames } from "@/lib/asset-categories";
 import { canViewAllAssets, getCurrentUser } from "@/lib/auth";
-import { CATEGORIES, type AssetRepair, type Branch, type Paginated } from "@/lib/types";
+import { assetCategoryLabel, CATEGORIES, type AssetRepair, type Branch, type Paginated } from "@/lib/types";
 import { TicketStatusBadge } from "../tickets/ticket-ui";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -71,9 +72,9 @@ export default async function RepairsPage({ searchParams }: PageProps<"/repairs"
         </AppSelect>
         <AppSelect name="category" defaultValue={str("category")} className={input} aria-label={t("assets.col.category")}>
           <option value="">{t("assets.allCategories")}</option>
-          {CATEGORIES.map((c) => (
+          {[...CATEGORIES, ...(await assetCategoryNames())].map((c) => (
             <option key={c} value={c}>
-              {t(`assets.categories.${c}` as MessageKey)}
+              {assetCategoryLabel(t, c)}
             </option>
           ))}
         </AppSelect>
@@ -133,6 +134,8 @@ async function RepairResults({ query }: { query: URLSearchParams }) {
         <span className="font-mono text-xs text-accent-700 group-hover:underline dark:text-accent-300">{r.asset.asset_tag}</span>
         <span className="block font-medium text-ink">{r.asset.name}</span>
         {r.branch && <span className="block text-xs text-muted">{r.branch}</span>}
+        {/* เครื่องย้ายสาขาแล้ว: สาขาในรายงาน = สาขาตอนแจ้ง + แสดงสาขาปัจจุบันประกอบ */}
+        {r.asset_branch && r.asset_branch !== r.branch && <span className="block text-xs text-faint">{t("repairs.currentBranch", { branch: r.asset_branch })}</span>}
       </Link>
     ) : (
       <div>

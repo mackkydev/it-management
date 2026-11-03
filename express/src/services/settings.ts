@@ -18,13 +18,17 @@ export const DEFAULTS = {
   menu_order: [] as unknown,
   // ชื่อเมนูที่แก้เอง { "<group id | /href>": { th, en } } — ไม่มี = ใช้ชื่อตั้งต้นจากไฟล์แปลของหน้าเว็บ
   menu_labels: [] as unknown,
+  /** เมนูเฉพาะสาขา { "/href": [branchId, ...] } — ไม่มี key = ทุกสาขา */
+  menu_branches: [] as unknown,
   // โลโก้ระบบ (routes/branding.ts) — null = ใช้ icon เดิม
   logo_path: null as string | null,
   logo_version: null as string | null,
   // การป้องกันตอนเปิดดูรหัสผ่าน / License key (services/secret-guard.ts) — null = ค่าเริ่มต้น
   secret_guard: null as unknown,
-  // บังคับผู้ดูแลระบบ (super_admin / admin บัญชี LOCAL) ใช้ 2FA — services/two-factor.ts
+  // ค่าเดิมก่อนมีรายกลุ่ม (true = super_admin + admin) — อ่านอย่างเดียวเมื่อยังไม่ตั้ง two_factor_groups
   two_factor_required: false as unknown,
+  // กลุ่มที่บังคับใช้ 2FA (key กลุ่มสิทธิ์) — services/two-factor.ts
+  two_factor_groups: null as unknown,
   // PIN กลางสำหรับเปิดดูข้อมูลลับ { hash, set_at, set_by } — ห้ามส่ง hash ออกนอก API (routes/it-data.ts ตัดออก)
   secret_pin: null as unknown,
   // นโยบายรหัสผ่าน: ล็อกบัญชีเมื่อ login ผิด + บังคับเปลี่ยนรหัสผ่านทุก N วัน (services/password-policy.ts) — null = ค่าเริ่มต้น

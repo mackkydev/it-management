@@ -1,5 +1,5 @@
 import { select } from "../db.js";
-import { can, isSuperAdmin, type UserRow } from "../models/user.js";
+import { can, isReadOnly, isSuperAdmin, type UserRow } from "../models/user.js";
 import { activeClause, groupsOf } from "./permissions.js";
 import { getSetting } from "./settings.js";
 
@@ -25,7 +25,7 @@ export async function manageScopeSettings(): Promise<Record<string, ManageScope>
 /** ขอบเขตของสิทธิ์ key ของผู้ใช้ — null = ไม่มีสิทธิ์ข้อนี้ */
 export async function scopeOf(u: UserRow, key: string): Promise<ManageScope | null> {
   if (!can(u, key)) return null;
-  if (isSuperAdmin(u)) return "all";
+  if (isSuperAdmin(u) || isReadOnly(u)) return "all";
   const map = await manageScopeSettings();
   const groups = await groupsOf(u);
   const granting = (

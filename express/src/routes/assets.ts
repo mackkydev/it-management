@@ -2,18 +2,14 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request } from "express";
 import { exec, first, insert, isUuid, likeEscape, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
-import { trans } from "../lib/i18n.js";
-import { iso, localToday, nowDb, parseDate } from "../lib/time.js";
+import { trans, type Locale } from "../lib/i18n.js";
+import { addDays, dateOnly, fromDbDate, iso, localToday, nowDb, parseDate, toDbDate } from "../lib/time.js";
 import { bool, exists, int, regex, unique, validate, type ErrorBag, type Rules } from "../lib/validator.js";
-import { limits } from "../lib/rate-limit.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
 import { me, pageParam, paginated } from "../http.js";
 import { can, type UserRow } from "../models/user.js";
-import {
-  activeCount, BILLINGS, deleteLicense, ICON_KIND, SOFTWARE_TYPES, LICENSE_CATEGORY, loadFiles, loadLicense, revealKey, saveLicense, type AssetFileRow, type LicenseRow,
-} from "../services/asset-licenses.js";
-import { deleteStored, randomString, readStored, storeUploadIn, writeStored } from "../services/ticket-files.js";
-import { processIcon } from "../services/photos.js";
+import { loadFiles, type AssetFileRow } from "../services/asset-files.js";
+import { deleteStored, readStored, storeUploadIn } from "../services/ticket-files.js";
 import {
   assetResource, MOVEMENT_JOINS, MOVEMENT_SELECT, movementResource,
   type AssetRow, type LocationRow, type MovementJoinedRow,
@@ -22,18 +18,18 @@ import { recordIfMoved, recordRegistration, recordUserChange } from "../services
 import { REPAIR_BASE_WHERE, REPAIR_FROM, repairList } from "../services/asset-repairs.js";
 import { COMPUTER_CATEGORY, COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, buildExport, buildTemplate, importRows, parseWorkbook } from "../services/asset-import.js";
 import { audit } from "../services/audit.js";
-import { assertCanReveal, notifyReveal } from "../services/secret-guard.js";
 import { loadSoftware, softwareErrors, softwareOptions, syncSoftware, SOFTWARE_SLOTS } from "../services/asset-software.js";
 
 /** AssetController + AssetMovementController + MovementController */
 export const assetRoutes = Router();
 
 const STATUSES = ["active", "in_storage", "in_repair", "lost", "disposed"];
+const LEGACY_LICENSE_CATEGORY = "SOFTWARE";
 const SORTABLE = ["asset_tag", "name", "category", "status", "purchase_date", "created_at"];
 const TAG = /^[A-Za-z0-9\-_/]+$/;
 const FILLABLE = [
   "asset_tag", "name", "category", "brand", "model", "serial_number", "status", "location_id",
-  "custodian_id", "purchase_date", "purchase_cost", "warranty_expires_at", "notes", "branch_id", "is_loanable",
+  "custodian_id", "purchase_date", "purchase_cost", "warranty_expires_at", "notes", "branch_id", "is_loanable", "is_shared",
   ...(Object.keys(COMPUTER_TEXT_FIELDS) as (keyof typeof COMPUTER_TEXT_FIELDS)[]),
   ...COMPUTER_DATE_FIELDS,
 ] as const;
@@ -65,43 +61,65 @@ async function findVisibleAsset(req: Request, uuid: string): Promise<AssetRow> {
   return asset;
 }
 
-/** โหลด location (เต็ม) + custodian + license + ไฟล์ แบบ $asset->load([...]) */
+/**
+ * ผู้ถือครอง = ผู้ใช้งาน: มีผู้ถือครอง → "ชื่อ-สกุลผู้ใช้งาน" = ชื่อของผู้ใช้คนนั้นเสมอ
+ * (ข้อความ user_name อิสระใช้เฉพาะเมื่อยังไม่มีผู้ถือครอง เช่น นำเข้าจาก Excel แล้วยังไม่ผูกผู้ใช้)
+ */
+async function holderName(custodianId: unknown): Promise<string | null> {
+  const id = int(custodianId);
+  return id ? ((await scalar<string>("SELECT name FROM users WHERE id = ?", [id])) ?? null) : null;
+}
+
+/** ชื่อผู้ใช้งานของสินทรัพย์ส่วนกลาง — เก็บใน user_name เพื่อให้รายการ / ค้นหา / ประวัติผู้ใช้งานแสดงตามเดิม */
+const SHARED_HOLDER = "ส่วนกลาง";
+
+/**
+ * ผู้ถือครองส่วนกลาง (ถือครองโดยสาขา/แผนก): ติ๊กแล้วไม่มีผู้ถือครองที่เป็นผู้ใช้ และต้องมีสาขา
+ * ส่งผู้ถือครองมาโดยไม่ส่ง is_shared = เลิกเป็นส่วนกลาง; เลิกแล้วไม่มีผู้ถือครอง = ล้างชื่อผู้ใช้งาน
+ */
+function applyShared(values: Record<string, unknown>, current: AssetRow | null, locale: Locale): void {
+  const was = Boolean(current?.is_shared);
+  const shared = "is_shared" in values ? Boolean(values.is_shared) : was && !("custodian_id" in values && values.custodian_id);
+  if (shared) {
+    const branch = "branch_id" in values ? values.branch_id : current?.branch_id;
+    if (!branch) throw ValidationError.withMessages({ branch_id: trans(locale, "eam.validation.asset_shared_branch") });
+    values.custodian_id = null;
+    values.user_name = SHARED_HOLDER;
+  } else if (was && !values.custodian_id) {
+    values.user_name = null;
+  }
+  if ("is_shared" in values || shared !== was) values.is_shared = shared;
+}
+
+/** โหลด location (เต็ม) + custodian + ไฟล์ แบบ $asset->load([...]) */
 async function withRelations(a: AssetRow) {
   const location = a.location_id
     ? await first<LocationRow>("SELECT id, code, name, type, parent_id, address, is_active FROM locations WHERE id = ? AND deleted_at IS NULL", [a.location_id])
     : null;
   const custodian = a.custodian_id ? await first<{ id: number; name: string }>("SELECT id, name FROM users WHERE id = ?", [a.custodian_id]) : null;
   const branch = a.branch_id ? await first<{ id: number; name: string }>("SELECT id, name FROM branches WHERE id = ?", [a.branch_id]) : null;
-  return { location, custodian, branch, license: await loadLicense(a.id), files: await loadFiles(a.id), software: await loadSoftware(a.id) };
+  return { location, custodian, branch, files: await loadFiles(a.id), software: await loadSoftware(a.id) };
 }
 
 /**
- * กฎของข้อมูล license — ใช้เมื่อหมวด (ค่าใหม่ หรือค่าเดิมถ้าไม่ได้ส่งมา) เป็น SOFTWARE
- * บังคับส่ง license ตอนเพิ่มใหม่/เปลี่ยนมาเป็น SOFTWARE; แก้ไขโดยไม่ส่ง license = คงค่าเดิม
+ * เลขที่ทรัพย์สินต้องไม่ซ้ำรายการอื่น (คอมพิวเตอร์เก็บที่ cpu_tag, หมวดอื่นเก็บที่ asset_tag) — ใบแจ้งซ่อมจับคู่กับเครื่องด้วยเลขนี้
+ * ตรวจเฉพาะเมื่อเลขเปลี่ยน ไม่ให้ข้อมูลเดิมขวางการแก้ช่องอื่น
  */
-function licenseRules(input: Record<string, unknown>, current?: AssetRow): Rules {
-  const category = "category" in input ? input.category : current?.category;
-  if (category !== LICENSE_CATEGORY) return {};
-  const required = !current || current.category !== LICENSE_CATEGORY;
-  if (!required && !("license" in input)) return {};
-  return {
-    license: ["required", "array"],
-    "license.billing": ["required", `in:${BILLINGS.join(",")}`],
-    "license.start_date": ["required", "date"],
-    "license.expires_at": ["required_if:license.billing,yearly,custom", "nullable", "date"],
-    "license.seats": ["nullable", "integer", "min:1", "max:1000000"],
-    "license.vendor": ["nullable", "string", "max:255"],
-    "license.license_key": ["nullable", "string", "max:5000"],
-    "license.clear_license_key": ["sometimes", "boolean"],
-    "license.notify_days_before": ["nullable", "integer", "min:1", "max:365"],
-    "license.software_type": ["nullable", `in:${SOFTWARE_TYPES.join(",")}`],
-  };
+async function assetNumberAfter(req: Request, currentId: number | undefined, { data, errors }: { data: Record<string, unknown>; errors: ErrorBag }) {
+  const current = currentId ? await first<Pick<AssetRow, "asset_tag" | "cpu_tag" | "category">>("SELECT asset_tag, cpu_tag, category FROM assets WHERE id = ?", [currentId]) : null;
+  const category = "category" in data ? data.category : current?.category;
+  const key = category === COMPUTER_CATEGORY ? "cpu_tag" : "asset_tag";
+  if (!(key in data) || errors.has(key)) return;
+  const no = String(data[key] ?? "").trim();
+  if (!no || no === String(current?.[key] ?? "").trim()) return;
+  const taken = await scalar("SELECT 1 FROM assets WHERE deleted_at IS NULL AND (asset_tag = ? OR cpu_tag = ?) AND id <> ? LIMIT 1", [no, no, currentId ?? 0]);
+  if (taken !== null && taken !== undefined) errors.add(key, trans(req.locale, "eam.validation.asset_no_duplicate"));
 }
 
-/** วันหมดอายุต้องไม่ก่อนวันเริ่ม (Laravel ทำใน after() เหมือนกัน — after_or_equal อ้างฟิลด์ซ้อนไม่ได้ตรงกันทั้งสองฝั่ง) */
-/** license + ซอฟต์แวร์ที่ติดตั้ง (input.software — ต้องเป็น license จริง) */
 const assetAfter = (req: Request, currentId?: number) => async (ctx: { data: Record<string, unknown>; errors: ErrorBag }) => {
-  await licenseAfter(req, currentId)(ctx);
+  // License แยกตารางแล้ว (POST /licenses) — ไม่รับหมวดเดิม
+  if (ctx.data.category === LEGACY_LICENSE_CATEGORY) ctx.errors.add("category", trans(req.locale, "eam.license.software_moved"));
+  await assetNumberAfter(req, currentId, ctx);
   if ("software" in req.input) for (const [k, m] of Object.entries(await softwareErrors(req.input.software, req.locale))) ctx.errors.add(k, m);
 };
 
@@ -116,20 +134,6 @@ async function applySoftware(req: Request, assetId: number, userId: number) {
   const linked = Object.fromEntries(SOFTWARE_SLOTS.filter((s) => names[s]).map((s) => [s, names[s]!.slice(0, 100)]));
   if (Object.keys(linked).length) await update("assets", linked, "id = ?", [assetId]);
 }
-
-const licenseAfter = (req: Request, currentId?: number) => async ({ data, errors }: { data: Record<string, unknown>; errors: ErrorBag }) => {
-  const l = data.license as Record<string, unknown> | undefined;
-  if (!l || typeof l !== "object") return;
-  // จำนวน seat ต้องไม่น้อยกว่าการติดตั้งที่ใช้งานอยู่
-  if (currentId && !errors.has("license.seats") && l.seats !== null && l.seats !== undefined && l.seats !== "") {
-    const used = await activeCount(currentId);
-    if (Number(l.seats) < used) errors.add("license.seats", trans(req.locale, "eam.license.seats_below_used", { used }));
-  }
-  if (l.billing === "perpetual" || errors.has("license.expires_at") || errors.has("license.start_date")) return;
-  if (typeof l.start_date === "string" && typeof l.expires_at === "string" && l.expires_at.slice(0, 10) < l.start_date.slice(0, 10)) {
-    errors.add("license.expires_at", trans(req.locale, "eam.license.expires_before_start"));
-  }
-};
 
 function assetRules(ignoreId?: number): Rules {
   const s = ignoreId ? ["sometimes"] : [];
@@ -150,6 +154,8 @@ function assetRules(ignoreId?: number): Rules {
     notes: r(["nullable", "string", "max:5000"]),
     // เป็นเครื่องสำหรับยืม → แสดงในหน้า ยืมโน้ตบุ๊ก
     is_loanable: ["sometimes", "boolean"],
+    // ผู้ถือครองส่วนกลาง (applyShared)
+    is_shared: ["sometimes", "boolean"],
     branch_id: r(["nullable", "integer", exists("branches", "id", "deleted_at IS NULL")]),
     // ข้อมูลเครื่องคอมพิวเตอร์ (ใช้กับหมวด COMPUTER — หมวดอื่นส่งมาได้แต่ฟอร์มไม่แสดง)
     ...Object.fromEntries(Object.entries(COMPUTER_TEXT_FIELDS).map(([k, max]) => [k, r(["nullable", "string", `max:${max}`])])),
@@ -159,8 +165,9 @@ function assetRules(ignoreId?: number): Rules {
 }
 
 const assetMessages = (req: Request) => ({
-  "asset_tag.regex": trans(req.locale, "eam.validation.asset_tag_regex"),
-  "asset_tag.unique": trans(req.locale, "eam.validation.asset_tag_unique"),
+  // หมวดคอมพิวเตอร์: asset_tag = Host Name
+  "asset_tag.regex": trans(req.locale, req.input.category === COMPUTER_CATEGORY ? "eam.validation.asset_host_regex" : "eam.validation.asset_tag_regex"),
+  "asset_tag.unique": trans(req.locale, req.input.category === COMPUTER_CATEGORY ? "eam.validation.asset_host_unique" : "eam.validation.asset_tag_unique"),
   "purchase_date.before_or_equal": trans(req.locale, "eam.validation.purchase_date_future"),
 });
 
@@ -171,7 +178,7 @@ function columnValue(key: string, v: unknown): unknown {
   if ((COMPUTER_DATE_FIELDS as readonly string[]).includes(key)) return String(v).slice(0, 10);
   if (key === "purchase_date" || key === "warranty_expires_at") return String(v).slice(0, 10);
   if (key === "purchase_cost") return Number(v).toFixed(2);
-  if (key === "is_loanable") return bool(v);
+  if (key === "is_loanable" || key === "is_shared") return bool(v);
   return v;
 }
 
@@ -192,14 +199,13 @@ function filterWhere(req: Request, f: Record<string, unknown>): { whereSql: stri
   const term = String(f.search ?? "").trim();
   if (term) {
     const esc = likeEscape(term);
-    // asset_tag (Host Name) / serial ใช้ prefix match, ชื่อ/ยี่ห้อ/รุ่น/ผู้ใช้งาน/IP ค้นหาบางส่วนของคำ
-    where.push("(a.asset_tag LIKE ? OR a.serial_number LIKE ? OR a.name LIKE ? OR a.brand LIKE ? OR a.model LIKE ? OR a.user_name LIKE ? OR a.ip_address LIKE ?)");
-    params.push(`${esc}%`, `${esc}%`, `%${esc}%`, `%${esc}%`, `%${esc}%`, `%${esc}%`, `${esc}%`);
+    // เลขที่ทรัพย์สิน cpu_tag (คอมพิวเตอร์) ค้นได้ด้วย — asset_tag (Host Name) / serial ใช้ prefix match, ชื่อ/ยี่ห้อ/รุ่น/ผู้ใช้งาน/IP ค้นหาบางส่วนของคำ
+    where.push("(a.asset_tag LIKE ? OR a.cpu_tag LIKE ? OR a.serial_number LIKE ? OR a.name LIKE ? OR a.brand LIKE ? OR a.model LIKE ? OR a.user_name LIKE ? OR a.ip_address LIKE ?)");
+    params.push(`${esc}%`, `${esc}%`, `${esc}%`, `%${esc}%`, `%${esc}%`, `%${esc}%`, `%${esc}%`, `${esc}%`);
   }
   if (f.status) (where.push("a.status = ?"), params.push(f.status));
   // License ซอฟต์แวร์ (หมวด SOFTWARE) แยกไปเมนู /licenses — ไม่ขึ้นในรายการสินทรัพย์ เว้นแต่ขอหมวดนี้ตรงๆ
   if (f.category) (where.push("a.category = ?"), params.push(f.category));
-  else (where.push("a.category <> ?"), params.push(LICENSE_CATEGORY));
   if (f.location_id) (where.push("a.location_id = ?"), params.push(int(f.location_id)));
   if (f.branch_id) (where.push("a.branch_id = ?"), params.push(int(f.branch_id)));
   // ไม่มีสิทธิ์ดูทั้งหมด → เฉพาะที่ตัวเองถือครอง
@@ -232,18 +238,13 @@ assetRoutes.get("/assets", async (req, res) => {
   const rows = await select<
     AssetRow & {
       l_id: number | null; l_code: string; l_name: string; l_type: string; l_parent_id: number | null; c_id: number | null; c_name: string;
-      li_id: number | null; li_billing: string; li_start_date: string; li_expires_at: string | null; li_seats: number | null;
-      li_vendor: string | null; li_notify: number | null; li_has_key: boolean; li_used: number | null; b_name: string | null;
+      b_name: string | null;
     }
   >(
-    `SELECT a.*, l.id AS l_id, l.code AS l_code, l.name AS l_name, l.type AS l_type, l.parent_id AS l_parent_id, c.id AS c_id, c.name AS c_name,
-            li.id AS li_id, li.billing AS li_billing, li.start_date AS li_start_date, li.expires_at AS li_expires_at, li.seats AS li_seats,
-            li.vendor AS li_vendor, li.notify_days_before AS li_notify, (li.license_key IS NOT NULL) AS li_has_key, br.name AS b_name,
-            (SELECT COUNT(*) FROM license_installations i WHERE li.id IS NOT NULL AND i.license_asset_id = a.id AND i.uninstalled_at IS NULL) AS li_used
+    `SELECT a.*, l.id AS l_id, l.code AS l_code, l.name AS l_name, l.type AS l_type, l.parent_id AS l_parent_id, c.id AS c_id, c.name AS c_name, br.name AS b_name
        FROM assets a
        LEFT JOIN locations l ON l.id = a.location_id AND l.deleted_at IS NULL
        LEFT JOIN users c ON c.id = a.custodian_id
-       LEFT JOIN asset_licenses li ON li.asset_id = a.id
        LEFT JOIN branches br ON br.id = a.branch_id
       WHERE ${whereSql}
       ORDER BY a."${column}" ${dir}, a.id ${dir}
@@ -251,22 +252,14 @@ assetRoutes.get("/assets", async (req, res) => {
     [...params, perPage, (page - 1) * perPage],
   );
 
-  const data = rows.map((r) => ({
-    ...assetResource(r, req.locale, {
+  const data = rows.map((r) =>
+    assetResource(r, req.locale, {
       // index โหลด location เฉพาะ id,code,name,type,parent_id
       location: r.l_id ? { id: r.l_id, code: r.l_code, name: r.l_name, type: r.l_type, parent_id: r.l_parent_id } : null,
       custodian: r.c_id ? { id: r.c_id, name: r.c_name } : null,
       branch: r.branch_id && r.b_name ? { id: r.branch_id, name: r.b_name } : null,
-      license: r.li_id
-        ? ({
-            id: r.li_id, asset_id: r.id, billing: r.li_billing, start_date: r.li_start_date, expires_at: r.li_expires_at, seats: r.li_seats,
-            vendor: r.li_vendor, notify_days_before: r.li_notify, license_key: r.li_has_key ? "" : null, notified_for_expires_at: null,
-          } satisfies LicenseRow)
-        : null,
     }),
-    // license: จำนวนที่ติดตั้งใช้อยู่ / คงเหลือ (seats null = ไม่จำกัด)
-    ...(r.li_id ? { license_usage: { seats: r.li_seats, used: Number(r.li_used ?? 0), available: r.li_seats === null ? null : Math.max(0, r.li_seats - Number(r.li_used ?? 0)) } } : {}),
-  }));
+  );
   res.json(paginated(req, data, total, page, perPage));
 });
 
@@ -275,6 +268,47 @@ assetRoutes.get("/assets", async (req, res) => {
  * (ไม่ตรง asset_tag / เลขที่ทรัพย์สิน cpu_tag / เลขที่ทรัพย์สิน (เดิม) monitor_tag ของสินทรัพย์ใด) — 1 แถวต่อเลข + ใบล่าสุด
  * เพิ่มสินทรัพย์ที่มีเลขนั้นแล้ว = หายจากรายการเอง; ผู้เพิ่มสินทรัพย์ได้ (assets.create) — ต้องประกาศก่อน /assets/:uuid
  */
+/** เลขทรัพย์สินในใบแจ้งซ่อมที่ไม่พบในระบบ (เงื่อนไขเดียวกับ GET /assets/missing) */
+const MISSING_WHERE = `${REPAIR_BASE_WHERE} AND t.asset_id IS NULL AND t.asset_tag IS NOT NULL AND TRIM(t.asset_tag) <> ''
+  AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.deleted_at IS NULL
+                    AND (a.asset_tag = TRIM(t.asset_tag) OR a.cpu_tag = TRIM(t.asset_tag) OR a.monitor_tag = TRIM(t.asset_tag)))`;
+
+/** ตัวเลขเมนู /assets + แท็บ "สินทรัพย์ที่ต้องเพิ่ม" (ผู้เพิ่มสินทรัพย์ได้) */
+export async function missingAssetCount(u: UserRow): Promise<number> {
+  if (!can(u, "assets.create")) return 0;
+  return Number(await scalar(`SELECT COUNT(DISTINCT TRIM(t.asset_tag)) FROM it_tickets t WHERE ${MISSING_WHERE}`));
+}
+
+/**
+ * ผูกใบแจ้งซ่อมที่พิมพ์เลขนี้เข้ากับสินทรัพย์ (เขียน it_tickets.asset_id) — เลขในใบอาจไม่ตรงเลขจริงของเครื่อง เช่น ผู้แจ้งพิมพ์ผิด
+ * ไม่แก้เลขที่ผู้แจ้งพิมพ์ — ใบที่ผูกแล้วขึ้นประวัติซ่อมของเครื่อง และหายจาก "สินทรัพย์ที่ต้องเพิ่ม"
+ */
+async function linkTicketsToAsset(req: Request, assetNo: string, assetId: number): Promise<number> {
+  const { rowCount } = await exec(
+    `UPDATE it_tickets t SET t.asset_id = ?, t.updated_at = ? WHERE ${REPAIR_BASE_WHERE} AND t.asset_id IS NULL AND TRIM(t.asset_tag) = ?`,
+    [assetId, nowDb(), assetNo],
+  );
+  if (rowCount) await audit(req, { action: "asset.tickets_linked", subjectType: "asset", subjectId: assetId, after: { asset_no: assetNo, tickets: rowCount } });
+  return rowCount;
+}
+
+/** POST /assets/missing/link { asset_no, asset_tag } — เลขในใบไม่ตรงสินทรัพย์ที่มีอยู่แล้ว: เลือกสินทรัพย์ให้เอง */
+assetRoutes.post("/assets/missing/link", async (req, res) => {
+  authorize(can(me(req), "assets.update"));
+  const data = await validate(
+    req.input,
+    {
+      asset_no: ["required", "string", "max:100"],
+      asset_tag: ["required", "string", "max:50", exists("assets", "asset_tag", "deleted_at IS NULL")],
+    },
+    { locale: req.locale },
+  );
+  const assetId = Number(await scalar("SELECT id FROM assets WHERE asset_tag = ? AND deleted_at IS NULL", [data.asset_tag]));
+  const tickets = await linkTicketsToAsset(req, String(data.asset_no).trim(), assetId);
+  if (!tickets) throw ValidationError.withMessages({ asset_no: trans(req.locale, "eam.validation.asset_no_no_tickets") });
+  res.json({ data: { tickets } });
+});
+
 assetRoutes.get("/assets/missing", async (req, res) => {
   authorize(can(me(req), "assets.create"));
   const rows = await select<{
@@ -288,9 +322,7 @@ assetRoutes.get("/assets/missing", async (req, res) => {
                FROM it_tickets t
                LEFT JOIN users u ON u.id = t.requester_id
                LEFT JOIN branches b ON b.id = t.branch_id
-              WHERE ${REPAIR_BASE_WHERE} AND t.asset_id IS NULL AND t.asset_tag IS NOT NULL AND TRIM(t.asset_tag) <> ''
-                AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.deleted_at IS NULL
-                                  AND (a.asset_tag = TRIM(t.asset_tag) OR a.cpu_tag = TRIM(t.asset_tag) OR a.monitor_tag = TRIM(t.asset_tag)))) x
+              WHERE ${MISSING_WHERE}) x
       WHERE x.rn = 1
       ORDER BY x.requested_at DESC
       LIMIT 500`,
@@ -342,7 +374,7 @@ assetRoutes.get("/assets/tag-suggestions", async (req, res) => {
   authorize(editsAssets(me(req)));
   const f = await validate(req.input, { q: ["nullable", "string", "max:100"] }, { locale: req.locale });
   const where = ["a.deleted_at IS NULL", "a.category NOT IN (?)"];
-  const params: unknown[] = [[COMPUTER_CATEGORY, LICENSE_CATEGORY]];
+  const params: unknown[] = [[COMPUTER_CATEGORY]];
   const term = String(f.q ?? "").trim();
   if (term) {
     const esc = likeEscape(term);
@@ -421,7 +453,8 @@ assetRoutes.post("/assets/import", async (req, res) => {
 });
 
 assetRoutes.post("/assets", async (req, res) => {
-  const data = await validate(req.input, { ...assetRules(), ...licenseRules(req.input) }, { locale: req.locale, messages: assetMessages(req), after: assetAfter(req) });
+  // source_asset_no = เพิ่มจากแท็บ "สินทรัพย์ที่ต้องเพิ่ม": เลขในใบแจ้งซ่อมที่จะผูกกับสินทรัพย์นี้
+  const data = await validate(req.input, { ...assetRules(), source_asset_no: ["sometimes", "nullable", "string", "max:100"] }, { locale: req.locale, messages: assetMessages(req), after: assetAfter(req) });
   const u = me(req);
   authorize(can(u, "assets.create"));
 
@@ -429,6 +462,9 @@ assetRoutes.post("/assets", async (req, res) => {
     const now = nowDb();
     const values: Record<string, unknown> = {};
     for (const key of FILLABLE) if (key in data) values[key] = columnValue(key, data[key]);
+    applyShared(values, null, req.locale);
+    const holder = await holderName(values.custodian_id);
+    if (holder) values.user_name = holder;
     const assetId = await insert("assets", {
       uuid: randomUUID(),
       status: "active",
@@ -438,10 +474,10 @@ assetRoutes.post("/assets", async (req, res) => {
       created_at: now,
       updated_at: now,
     });
-    await recordRegistration(assetId, (values.location_id as number) ?? null, (values.custodian_id as number) ?? null, u.id);
+    await recordRegistration(assetId, (values.location_id as number) ?? null, (values.custodian_id as number) ?? null, u.id, (values.branch_id as number) ?? null);
     await recordUserChange(assetId, { user_name: null, department: null }, { user_name: (values.user_name as string) ?? null, department: (values.department as string) ?? null }, u.id, "create");
-    if (values.category === LICENSE_CATEGORY) await saveLicense(assetId, data.license as Record<string, unknown>);
     await applySoftware(req, assetId, u.id);
+    if (data.source_asset_no) await linkTicketsToAsset(req, String(data.source_asset_no).trim(), assetId);
     return assetId;
   });
 
@@ -457,7 +493,7 @@ assetRoutes.get("/assets/:uuid", async (req, res) => {
 /** PUT/PATCH — ถ้าสถานที่/ผู้ถือครองเปลี่ยน บันทึกประวัติการโอนย้ายอัตโนมัติ (movement_reason = เหตุผล) */
 async function updateAsset(req: Request, res: import("express").Response) {
   const current = await findAsset(String(req.params.uuid));
-  const data = await validate(req.input, { ...assetRules(current.id), ...licenseRules(req.input, current) }, {
+  const data = await validate(req.input, assetRules(current.id), {
     locale: req.locale,
     messages: assetMessages(req),
     after: assetAfter(req, current.id),
@@ -470,13 +506,23 @@ async function updateAsset(req: Request, res: import("express").Response) {
     const locked = (await first<AssetRow>("SELECT * FROM assets WHERE id = ? FOR UPDATE", [current.id]))!;
     const changes: Record<string, unknown> = {};
     for (const key of FILLABLE) if (key in data) changes[key] = columnValue(key, data[key]);
+    applyShared(changes, locked, req.locale);
+    const holder = await holderName("custodian_id" in changes ? changes.custodian_id : locked.custodian_id);
+    if (holder) changes.user_name = holder;
     await update("assets", { ...changes, updated_by: u.id, updated_at: nowDb() }, "id = ?", [current.id]);
 
     const to = {
       location: "location_id" in changes ? (changes.location_id as number | null) : locked.location_id,
       custodian: "custodian_id" in changes ? (changes.custodian_id as number | null) : locked.custodian_id,
+      branch: "branch_id" in changes ? (changes.branch_id as number | null) : locked.branch_id,
     };
-    await recordIfMoved(current.id, { location: locked.location_id, custodian: locked.custodian_id }, to, u.id, (data.movement_reason as string) ?? null);
+    await recordIfMoved(
+      current.id,
+      { location: locked.location_id, custodian: locked.custodian_id, branch: locked.branch_id },
+      to,
+      u.id,
+      (data.movement_reason as string) ?? null,
+    );
     await recordUserChange(
       current.id,
       { user_name: locked.user_name, department: locked.department },
@@ -488,13 +534,6 @@ async function updateAsset(req: Request, res: import("express").Response) {
       "edit",
     );
 
-    // license ตามหมวดใหม่: SOFTWARE → บันทึก (ถ้าส่งมา), หมวดอื่น → ลบ (ไฟล์แนบยังเก็บไว้)
-    const category = "category" in changes ? changes.category : locked.category;
-    if (category === LICENSE_CATEGORY) {
-      if ("license" in data) await saveLicense(current.id, data.license as Record<string, unknown>);
-    } else {
-      await deleteLicense(current.id);
-    }
     await applySoftware(req, current.id, u.id);
   });
 
@@ -513,25 +552,13 @@ assetRoutes.delete("/assets/:uuid", async (req, res) => {
   res.status(204).end();
 });
 
-/* ---------------------------------------------------------------- license key + ไฟล์ */
-
-/** ดู license key (ถอดรหัส) — ผู้จัดการสินทรัพย์ หรือฝ่าย IT; ตรวจ IP / ยืนยันรหัสผ่านซ้ำ (ถ้าเปิดใช้) + บันทึก audit ทุกครั้ง + แจ้งหัวหน้า IT (ถ้าเปิดใช้) */
-assetRoutes.post("/assets/:uuid/license-key", limits.reveal, async (req, res) => {
-  const asset = await findAsset(String(req.params.uuid));
-  const u = me(req);
-  authorize(can(u, "assets.license_key"));
-  await assertCanReveal(req);
-  const key = await revealKey(asset.id);
-  await audit(req, { action: "asset.license_key_revealed", subjectType: "asset", subjectId: asset.id, after: { asset_tag: asset.asset_tag, name: asset.name } });
-  await notifyReveal(req, "license", { id: asset.uuid, title: `${asset.asset_tag} — ${asset.name}` });
-  res.json({ data: { license_key: key } });
-});
+/* ---------------------------------------------------------------- ไฟล์แนบ */
 
 const FILE_RULE = ["file", "mimes:pdf,txt,xml,zip,jpg,jpeg,png,webp,doc,docx,xls,xlsx", "max:10240"]; // ≤ 10MB
 /** พรีวิวในเบราว์เซอร์ได้ (ที่เหลือดาวน์โหลด) */
 const INLINE_MIME = /^(application\/pdf|image\/(jpeg|png|gif|webp)|text\/plain)$/;
 
-/** POST /assets/{uuid}/files — อัปโหลดไฟล์ license (multipart files[] ≤ 10 ไฟล์ต่อครั้ง) */
+/** POST /assets/{uuid}/files — อัปโหลดไฟล์ (multipart files[] ≤ 10 ไฟล์ต่อครั้ง) */
 assetRoutes.post("/assets/:uuid/files", async (req, res) => {
   const asset = await findAsset(req.params.uuid);
   const u = me(req);
@@ -542,7 +569,7 @@ assetRoutes.post("/assets/:uuid/files", async (req, res) => {
   const now = nowDb();
   for (const file of uploads) {
     const stored = await storeUploadIn(`assets/${asset.uuid}/files`, file);
-    await insert("asset_files", { asset_id: asset.id, kind: "license", ...stored, uploaded_by: u.id, created_at: now, updated_at: now });
+    await insert("asset_files", { asset_id: asset.id, ...stored, uploaded_by: u.id, created_at: now, updated_at: now });
   }
   res.status(201).json({ data: assetResource(asset, req.locale, await withRelations(asset)) });
 });
@@ -559,64 +586,6 @@ assetRoutes.get("/assets/:uuid/files/:id", async (req, res) => {
   res.send(stored.data);
 });
 
-/* ---------------------------------------------------------------- ไอคอน (License ซอฟต์แวร์) */
-
-const findIcon = (assetId: number) =>
-  first<AssetFileRow>("SELECT * FROM asset_files WHERE asset_id = ? AND kind = ? ORDER BY id DESC LIMIT 1", [assetId, ICON_KIND]);
-
-/** PUT /assets/{uuid}/icon — อัปโหลดไอคอน (multipart icon, รูป ≤ 1MB → WebP 256px ไม่มี metadata) แทนอันเดิม */
-assetRoutes.put("/assets/:uuid/icon", async (req, res) => {
-  const asset = await findAsset(req.params.uuid);
-  const u = me(req);
-  authorize(can(u, "assets.update"));
-  const data = await validate(req.input, { icon: ["required", "file", "image", "mimes:jpg,jpeg,png,webp,gif", "max:1024"] }, { locale: req.locale });
-  const file = data.icon as UploadedFile;
-  let buf: Buffer;
-  try {
-    buf = await processIcon(file);
-  } catch {
-    throw ValidationError.withMessages({ icon: trans(req.locale, "eam.meeting.image_invalid", { name: [...file.originalName].slice(0, 80).join("") }) });
-  }
-  const old = await findIcon(asset.id);
-  const path = `assets/${asset.uuid}/icon-${randomString(16)}.webp`;
-  await writeStored(path, buf);
-  const now = nowDb();
-  const id = await insert("asset_files", {
-    asset_id: asset.id, kind: ICON_KIND, original_name: "icon.webp", path, mime: "image/webp", size: buf.length, uploaded_by: u.id, created_at: now, updated_at: now,
-  });
-  if (old) {
-    await exec("DELETE FROM asset_files WHERE id = ?", [old.id]);
-    await deleteStored(old.path);
-  }
-  await audit(req, { action: "asset.icon_updated", subjectType: "asset", subjectId: asset.id, after: { file_id: id } });
-  res.json({ data: { icon_id: id } });
-});
-
-/** DELETE /assets/{uuid}/icon */
-assetRoutes.delete("/assets/:uuid/icon", async (req, res) => {
-  const asset = await findAsset(req.params.uuid);
-  authorize(can(me(req), "assets.update"));
-  const icon = await findIcon(asset.id);
-  if (icon) {
-    await exec("DELETE FROM asset_files WHERE id = ?", [icon.id]);
-    await deleteStored(icon.path);
-    await audit(req, { action: "asset.icon_deleted", subjectType: "asset", subjectId: asset.id, before: { file_id: icon.id } });
-  }
-  res.status(204).end();
-});
-
-/** GET /assets/{uuid}/icon — ผู้เห็นสินทรัพย์ หรือผู้บันทึกการติดตั้ง license (เมนู License ซอฟต์แวร์) */
-assetRoutes.get("/assets/:uuid/icon", async (req, res) => {
-  const asset = can(me(req), "licenses.install") ? await findAsset(req.params.uuid) : await findVisibleAsset(req, req.params.uuid);
-  const icon = await findIcon(asset.id);
-  if (!icon) throw notFound();
-  const stored = await readStored(icon.path);
-  res.setHeader("Content-Type", icon.mime);
-  res.setHeader("Cache-Control", "private, max-age=86400");
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.send(stored.data);
-});
-
 /** ลบไฟล์ — ผู้จัดการสินทรัพย์ */
 assetRoutes.delete("/assets/:uuid/files/:id", async (req, res) => {
   const asset = await findAsset(req.params.uuid);
@@ -628,7 +597,7 @@ assetRoutes.delete("/assets/:uuid/files/:id", async (req, res) => {
 });
 
 async function findFile(assetId: number, id: string): Promise<AssetFileRow> {
-  const row = /^\d+$/.test(id) ? await first<AssetFileRow>("SELECT * FROM asset_files WHERE id = ? AND asset_id = ? AND kind <> ?", [Number(id), assetId, ICON_KIND]) : null;
+  const row = /^\d+$/.test(id) ? await first<AssetFileRow>("SELECT * FROM asset_files WHERE id = ? AND asset_id = ?", [Number(id), assetId]) : null;
   if (!row) throw notFound();
   return row;
 }
@@ -748,6 +717,7 @@ assetRoutes.post("/assets/:uuid/movements", async (req, res) => {
     {
       location_id: ["sometimes", "nullable", "integer", exists("locations", "id", "deleted_at IS NULL")],
       custodian_id: ["sometimes", "nullable", "integer", exists("users", "id", "is_active = true")],
+      branch_id: ["sometimes", "nullable", "integer", exists("branches", "id", "deleted_at IS NULL")],
       moved_at: ["nullable", "date", "before_or_equal:now"],
       reason: ["nullable", "string", "max:1000"],
     },
@@ -755,7 +725,7 @@ assetRoutes.post("/assets/:uuid/movements", async (req, res) => {
       locale: req.locale,
       messages: { "moved_at.before_or_equal": trans(req.locale, "eam.movement.future_date") },
       after: ({ errors }) => {
-        if (!("location_id" in input) && !("custodian_id" in input)) {
+        if (!("location_id" in input) && !("custodian_id" in input) && !("branch_id" in input)) {
           errors.add("location_id", trans(req.locale, "eam.movement.nothing_to_change"));
         }
       },
@@ -769,12 +739,30 @@ assetRoutes.post("/assets/:uuid/movements", async (req, res) => {
     const to = {
       location: "location_id" in data ? int(data.location_id) : locked.location_id,
       custodian: "custodian_id" in data ? int(data.custodian_id) : locked.custodian_id,
+      branch: "branch_id" in data ? int(data.branch_id) : locked.branch_id,
     };
     const movedAt = data.moved_at ? parseDate(data.moved_at) : null;
-    const id = await recordIfMoved(current.id, { location: locked.location_id, custodian: locked.custodian_id }, to, u.id, (data.reason as string) ?? null, movedAt);
+    const id = await recordIfMoved(
+      current.id,
+      { location: locked.location_id, custodian: locked.custodian_id, branch: locked.branch_id },
+      to,
+      u.id,
+      (data.reason as string) ?? null,
+      movedAt,
+    );
     if (!id) throw ValidationError.withMessages({ location_id: trans(req.locale, "eam.movement.no_change") });
 
-    await update("assets", { location_id: to.location, custodian_id: to.custodian, updated_by: u.id, updated_at: nowDb() }, "id = ?", [current.id]);
+    // ผู้ถือครองใหม่ = ผู้ใช้งาน (+ ประวัติผู้ใช้งาน)
+    const holder = await holderName(to.custodian);
+    const userName = holder ?? (to.custodian === locked.custodian_id ? locked.user_name : null);
+    await update(
+      "assets",
+      // โอนให้ผู้ใช้ = เลิกเป็นส่วนกลาง
+      { location_id: to.location, custodian_id: to.custodian, branch_id: to.branch, user_name: userName, ...(holder ? { is_shared: false } : {}), updated_by: u.id, updated_at: nowDb() },
+      "id = ?",
+      [current.id],
+    );
+    await recordUserChange(current.id, { user_name: locked.user_name, department: locked.department }, { user_name: userName, department: locked.department }, u.id, "edit");
     return id;
   });
 

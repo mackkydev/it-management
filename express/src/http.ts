@@ -5,7 +5,7 @@ import { HttpError, unauthenticated, ValidationError } from "./lib/errors.js";
 import { trans, type Locale } from "./lib/i18n.js";
 import { findToken } from "./lib/tokens.js";
 import { UploadedFile } from "./lib/uploaded-file.js";
-import { findUser, type UserRow } from "./models/user.js";
+import { findUser, isReadOnly, type UserRow } from "./models/user.js";
 import { checkApiSession } from "./services/api-auth.js";
 import { PASSWORD_EXPIRED_ALLOWED, passwordPolicy, passwordStatus } from "./services/password-policy.js";
 import { acceptanceOf, POLICY_ALLOWED, policyActive, systemPolicy } from "./services/system-policy.js";
@@ -182,10 +182,18 @@ export async function auth(req: Request, _res: Response, next: NextFunction) {
     }
   }
 
+  // ผู้ตรวจสอบ: อ่านอย่างเดียว — ยกเว้นบัญชีของตัวเอง (โปรไฟล์ / รหัสผ่าน / ออกจากระบบ), ยอมรับนโยบาย, แจ้งเตือนของตัวเอง
+  if (isReadOnly(user) && !["GET", "HEAD", "OPTIONS"].includes(req.method) && !READ_ONLY_ALLOWED.test(req.path)) {
+    throw new HttpError(403, trans(req.locale, "eam.auth.read_only"), {}, { code: "read_only" });
+  }
+
   req.user = user;
   req.tokenId = token.id;
   next();
 }
+
+/** คำขอแก้ไขที่ผู้ตรวจสอบทำได้ (เฉพาะเรื่องของตัวเอง) */
+const READ_ONLY_ALLOWED = /^\/(auth\/|policy\/accept$|notifications(\/|$))/;
 
 /* -------------------------------------------------- errors */
 

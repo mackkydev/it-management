@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
 import { first, insert, scalar, select } from "../src/db.js";
 import { nowDb } from "../src/lib/time.js";
-import { as, makeAsset, makeBranch, makeUser } from "./helpers.js";
+import { as, makeAsset, makeBranch, makeLicenseRow, makeUser } from "./helpers.js";
 
 /** ทะเบียนคอมพิวเตอร์: import Excel (หัวตารางตามไฟล์จริงของฝ่าย IT) + template + ตัวกรองสาขา */
 
@@ -21,15 +21,12 @@ const SHEET_HEADERS = [
 ];
 
 async function makeLicense(name: string, seats: number | null, tag?: string) {
-  const a = await makeAsset({ name, category: "SOFTWARE", ...(tag ? { asset_tag: tag } : {}) });
-  const now = nowDb();
-  await insert("asset_licenses", { asset_id: a.id, billing: "perpetual", start_date: "2026-01-01", seats, created_at: now, updated_at: now });
-  return a;
+  return makeLicenseRow({ name, seats, ...(tag ? { license_no: tag } : {}) });
 }
 
 const installs = (host: string) =>
   select<{ name: string; slot: string | null }>(
-    `SELECT l.name, i.slot FROM license_installations i JOIN assets l ON l.id = i.license_asset_id JOIN assets d ON d.id = i.device_asset_id
+    `SELECT l.name, i.slot FROM license_installations i JOIN licenses l ON l.id = i.license_id JOIN assets d ON d.id = i.device_asset_id
       WHERE d.asset_tag = ? AND i.uninstalled_at IS NULL ORDER BY i.id`,
     [host],
   );

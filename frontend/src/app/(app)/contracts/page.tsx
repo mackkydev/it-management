@@ -133,7 +133,13 @@ async function ContractResults({ query, status, search, canEdit }: { query: URLS
         {STATUSES.map((s) => (
           <Link key={s} href={chipHref(s)} className={chip(status === s)}>
             <span className={`h-2 w-2 rounded-full ${STATUS_TONE[s].dot}`} />
-            {t(`contracts.statuses.${s}`)} <span className="text-xs opacity-70">{fmt.number(res.summary[s])}</span>
+            {t(`contracts.statuses.${s}`)}{" "}
+            {/* ใกล้หมดอายุ = ตัวเลขแดง (เท่ากับตัวเลขเมนู /contracts) สำหรับผู้แก้ไขสัญญาได้ */}
+            {s === "expiring" && canEdit && res.summary[s] > 0 ? (
+              <span className="rounded-full bg-danger-500 px-1.5 text-xs font-semibold tabular-nums text-white">{fmt.number(res.summary[s])}</span>
+            ) : (
+              <span className="text-xs opacity-70">{fmt.number(res.summary[s])}</span>
+            )}
           </Link>
         ))}
       </div>

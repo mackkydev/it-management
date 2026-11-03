@@ -8,12 +8,11 @@ import { dateOnly, iso, localToday, nowDb, toDbDateTime } from "../lib/time.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
 import { exists, int, validate, type Rule } from "../lib/validator.js";
 import { me, pageParam, shortMeta } from "../http.js";
-import { can, type UserRow } from "../models/user.js";
+import { can, type UserRow, isReadOnly } from "../models/user.js";
 import { person } from "../resources.js";
 import { getSetting } from "../services/settings.js";
 import { readStored, storeSignature, storeUpload, deleteTicketFiles } from "../services/ticket-files.js";
-import {
-  acceptors, actionsFor, canAccept, canForward, isTakeOver, closers, closersAmong, isSelfClose, withCloseInfo, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel, canRequestApproval, isDirectToIt } from "../services/ticket-workflow.js";
+import { acceptors, canCloseResult, closersFor, isZoomTicket, actionsFor, canAccept, canForward, isTakeOver, closers, closersAmong, isSelfClose, withCloseInfo, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel, canRequestApproval, isDirectToIt } from "../services/ticket-workflow.js";
 import { activeSignature, copySignatureTo, mimeOf, readSignature, requireSignature, rememberDrawnSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
 import { scopeWhere } from "../services/manage-scope.js";
@@ -21,7 +20,9 @@ import { usersWithPermissions } from "../services/permissions.js";
 import { markNoticesRead, notifyUsers, TICKET_ACTIVITY } from "../services/notifications.js";
 import { busyOf, datesBetween } from "../services/calendar.js";
 import { kpiPendingCount, MAX_WORK_SPAN_DAYS } from "../services/kpi.js";
-import { OWN_SQL } from "./assets.js";
+import { missingAssetCount, OWN_SQL } from "./assets.js";
+import { expiringContractCount } from "./it-data.js";
+import { expiringLicenseCount } from "../services/licenses.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
 import { pendingVehicleBookings } from "./vehicles.js";
 import { zoomBadges } from "./zoom.js";
@@ -49,6 +50,9 @@ const FILLABLE = [
   "type", "type_other", "branch_id", "department", "division", "details", "due_date",
   "person_name_th", "person_name_en", "device_name", "asset_tag", "symptom", "assignee_id",
 ] as const;
+
+/** ใบแจ้งงานปกติ — ใบงานของการจอง ZOOM รับงาน/ส่งลิงก์ที่หน้า ZOOM จึงไม่ขึ้นคิวงาน / ตัวเลขเมนูใบงาน ยกเว้นช่วงรอผู้จัดการ IT อนุมัติ (คิวงาน IT) */
+const NOT_ZOOM = "t.source IS NULL";
 
 /** โหลดใบแจ้งงาน + ข้อมูลขั้นอนุมัติที่กติกาสิทธิ์ใช้ (TICKET_APPROVAL_COLUMNS) */
 const loadTicket = (where: string, param: unknown) =>
@@ -217,6 +221,9 @@ async function detail(t: TicketRow, viewer: UserRow) {
     calendar_event: await onsiteOf(t.id),
     // ขอใช้งาน VPN: ช่วงวันที่ที่ขอ + สถานะการมอบบัญชี (ผู้ดูแลมอบที่หน้า จัดการ VPN)
     vpn_request: await vpnOfTicket(t.id),
+    // ใบงานของการจอง ZOOM: จัดการที่หน้า ZOOM (อ่านอย่างเดียวในหน้านี้)
+    zoom_booking_id: isZoomTicket(t) ? ((await first<{ uuid: string }>("SELECT uuid FROM zoom_bookings WHERE ticket_id = ?", [t.id]))?.uuid ?? null) : null,
+    can_zoom_approve: isZoomTicket(t) && canCloseResult(viewer, t),
     can_edit_calendar: canEditOnsite(viewer, t),
     // ผู้ร่วมดำเนินการ — ผู้รับงานเลือกเพิ่มตอนรับงาน / แก้ภายหลัง (ตัวเลือก = เจ้าหน้าที่ IT)
     helpers: await helpersOf(t.id),
@@ -296,6 +303,7 @@ async function onsiteOf(ticketId: number) {
 
 /** ผู้รับงาน (หรือผู้จัดการงานแทนผู้อื่น) ระหว่างงานยังไม่ปิด */
 const canEditOnsite = (u: UserRow, t: TicketRow) =>
+  !isZoomTicket(t) &&
   t.assignee_id !== null && ["in_progress", "pending_it_head", "pending_requester", "pending_cancel"].includes(t.status) && (t.assignee_id === u.id || can(u, "it_tickets.manage_all"));
 
 /** ตรวจ calendar { start_on, end_on, note } ของคำขอ — ไม่ส่งมา = null */
@@ -383,7 +391,7 @@ async function itMineWhere(u: UserRow): Promise<{ sql: string; params: unknown[]
 }
 
 async function counts(u: UserRow) {
-  const count = async (sql: string, params: unknown[] = []) => Number(await scalar(`SELECT COUNT(*) FROM it_tickets t WHERE ${sql}`, params));
+  const count = async (sql: string, params: unknown[] = []) => Number(await scalar(`SELECT COUNT(*) FROM it_tickets t WHERE ${NOT_ZOOM} AND ${sql}`, params));
   const ap = approvalsWhere(u);
   const out: Record<string, number> = {
     mine_open: await count("t.requester_id = ? AND t.status NOT IN ('completed', 'rejected', 'cancelled')", [u.id]),
@@ -399,7 +407,8 @@ async function counts(u: UserRow) {
     out.it_new = await count("t.status = 'approved'");
     out.it_in_progress = await count("t.status = 'in_progress'");
     out.it_mine = await count("t.status = 'in_progress' AND (t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?))", [u.id, u.id]);
-    out.it_review = await count("t.status = 'pending_it_head'");
+    // รออนุมัติผล: รวมใบงานของการจอง ZOOM (ผู้จัดการ IT อนุมัติที่หน้าใบงาน)
+    out.it_review = Number(await scalar("SELECT COUNT(*) FROM it_tickets t WHERE t.status = 'pending_it_head'"));
     out.it_cancel = await count("t.status = 'pending_cancel'");
   }
   return out;
@@ -416,10 +425,16 @@ async function counts(u: UserRow) {
  *   /vehicles/dispatch การจองรถที่ยังไม่ระบุรถ (ผู้จัดคิวรถ)
  *   /loans/mine, /loans/manage  ยืมอุปกรณ์ IT (routes/loans.ts loanBadges)
  *   /zoom/manage       คำขอจอง ZOOM รอรับงาน + งานที่ฉันรับแล้วยังไม่ส่งลิงก์ (zoom.manage — routes/zoom.ts zoomBadges)
+ *   /assets            สินทรัพย์ที่ต้องเพิ่ม: เลขทรัพย์สินจากใบแจ้งซ่อมที่ไม่พบในระบบ (assets.create — missingAssetCount)
+ *   /licenses          ซอฟต์แวร์ License กำลังจะหมดอายุ ที่ยังไม่ต่อสัญญา/ยกเลิก (assets.update — expiringLicenseCount)
+ *   /contracts         สัญญา vendor ใกล้หมดอายุ (contracts.update — expiringContractCount)
+ * หน้าที่มีแท็บแสดงตัวเลขเดียวกันบนแท็บนั้น (กฎ: เมนูที่มีแจ้งเตือน = ตัวเลขที่เมนู + ที่แท็บ)
  */
 ticketRoutes.get("/menu-badges", async (req, res) => {
   const u = me(req);
-  const count = async (sql: string, params: unknown[] = []) => Number(await scalar(`SELECT COUNT(*) FROM it_tickets t WHERE ${sql}`, params));
+  // ผู้ตรวจสอบไม่มีงานรอทำ
+  if (isReadOnly(u)) return void res.json({ data: {} });
+  const count = async (sql: string, params: unknown[] = []) => Number(await scalar(`SELECT COUNT(*) FROM it_tickets t WHERE ${NOT_ZOOM} AND ${sql}`, params));
   const ap = approvalsWhere(u);
   const data: Record<string, number> = {
     "/tickets": await count("t.status = 'pending_requester' AND t.requester_id = ?", [u.id]),
@@ -434,9 +449,9 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
     data["/it/tickets"] = Number(
       await scalar(
         `SELECT COUNT(*) FROM (
-           SELECT t.id FROM it_tickets t WHERE t.assignee_id = ? AND t.status IN ('approved', 'in_progress', 'pending_cancel')
+           SELECT t.id FROM it_tickets t WHERE t.assignee_id = ? AND t.status IN ('approved', 'in_progress', 'pending_cancel') AND ${NOT_ZOOM}
            UNION
-           SELECT t.id FROM it_ticket_helpers h JOIN it_tickets t ON t.id = h.it_ticket_id WHERE h.user_id = ? AND t.status = 'in_progress'
+           SELECT t.id FROM it_ticket_helpers h JOIN it_tickets t ON t.id = h.it_ticket_id WHERE h.user_id = ? AND t.status = 'in_progress' AND ${NOT_ZOOM}
          ) x`,
         [u.id, u.id],
       ),
@@ -480,6 +495,9 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
   Object.assign(data, await zoomBadges(u));
   // VPN รวมกับตัวเลขเดิมของ /loans/mine
   for (const [k, n] of Object.entries(await vpnBadges(u))) data[k] = Number(data[k] ?? 0) + n;
+  if (can(u, "assets.create")) data["/assets"] = await missingAssetCount(u);
+  if (can(u, "assets.update")) data["/licenses"] = await expiringLicenseCount();
+  if (can(u, "contracts.update")) data["/contracts"] = await expiringContractCount(u);
   res.json({ data });
 });
 
@@ -548,6 +566,9 @@ ticketRoutes.get("/tickets", async (req, res) => {
   const where: string[] = ["1 = 1"];
   const params: unknown[] = [];
   if (scope === "mine") (where.push("t.requester_id = ?"), params.push(u.id));
+  // ใบงานของการจอง ZOOM ทำที่หน้า ZOOM — คิวงาน IT แสดงเฉพาะช่วงรอผู้จัดการ IT อนุมัติ
+  if (scope === "it") where.push(`(${NOT_ZOOM} OR t.status = 'pending_it_head')`);
+  if (scope === "it_mine") where.push(NOT_ZOOM);
   // คิวงาน IT: เฉพาะใบที่หัวหน้าอนุมัติแล้ว
   if (scope === "it" || (scope === "all" && !can(u, "it_tickets.manage_all"))) where.push(`t.status NOT IN (${PRE_APPROVAL.map((s) => `'${s}'`).join(", ")})`);
   // ช่วงวันที่แจ้ง (เวลาไทย — requested_at เก็บ UTC): แปลงขอบวันเป็น UTC แทนการแปลงคอลัมน์ → ใช้ index it_tickets_requested_at_index ได้
@@ -832,48 +853,104 @@ export async function createSystemTicket(
   return created;
 }
 
-/**
- * ใบแจ้งงานที่ระบบสร้างจากงานที่ฝ่าย IT ทำเสร็จแล้วในระบบอื่น (เช่น ส่งลิงก์ ZOOM) — เรื่องอื่นๆ สถานะเสร็จสิ้นทันที
- * ไม่แจ้งเตือน / ไม่ผ่านขั้นอนุมัติผล → ขึ้นแถวใบงานในชีต KPI ของผู้รับงาน (เดือนตามวันที่แจ้ง = requestedAt) — เรียกภายใน transaction ได้
- */
-export async function createCompletedTicket(
-  requesterId: number,
-  opts: { typeOther: string; details: string; assigneeId: number; requestedAt: string; acceptedAt: string; solution: string; comment: string },
-): Promise<{ id: number; uuid: string; ticket_no: string }> {
+/* ---------------------------------------------------------------- ใบงานของการจอง ZOOM (routes/zoom.ts — เรียกภายใน transaction ได้, ไม่แจ้งเตือนฝั่งใบงาน) */
+
+/** จอง ZOOM = เปิดใบงานเรื่องอื่นๆ รอรับงาน — ลายเซ็นผู้แจ้ง = สำเนาลายเซ็นในโปรไฟล์ (ถ้ามี) */
+export async function createZoomTicket(req: Request, requesterId: number, opts: { typeOther: string; details: string; requestedAt: string }): Promise<number> {
   return transaction(async () => {
     const requester = await first<{ branch_id: number | null; department: string | null; division: string | null }>("SELECT branch_id, department, division FROM users WHERE id = ?", [requesterId]);
     const uuid = randomUUID();
     const now = nowDb();
-    const ticketNo = await nextTicketNo();
     const id = await insert("it_tickets", {
       uuid,
-      ticket_no: ticketNo,
+      ticket_no: await nextTicketNo(),
       type: "other",
       type_other: opts.typeOther.slice(0, 255),
-      status: "completed",
+      status: "approved",
+      source: "zoom",
       requester_id: requesterId,
       branch_id: requester?.branch_id ?? null,
       department: requester?.department ?? null,
       division: requester?.division ?? null,
       details: opts.details.slice(0, 5000),
-      assignee_id: opts.assigneeId,
       requested_at: opts.requestedAt,
       approved_at: opts.requestedAt,
-      accepted_at: opts.acceptedAt,
-      result: "completed",
-      completed_on: localToday(),
-      repair_details: opts.solution.slice(0, 5000),
-      resulted_at: now,
-      closed_at: now,
       created_at: now,
       updated_at: now,
     });
+    const signature = await copySignatureTo(requesterId, `tickets/${uuid}/signatures`, "requester", req, { ticket: uuid });
+    if (signature) await update("it_tickets", { requester_signature: signature }, "id = ?", [id]);
     await insert("it_ticket_events", { it_ticket_id: id, user_id: requesterId, action: "submitted", comment: null, created_at: opts.requestedAt });
-    await insert("it_ticket_events", { it_ticket_id: id, user_id: opts.assigneeId, action: "accepted", comment: null, created_at: opts.acceptedAt });
-    await log(id, opts.assigneeId, "resulted", opts.comment);
-    return { id, uuid, ticket_no: ticketNo };
+    return id;
   });
 }
+
+/** แก้หัวข้อ / วันเวลาของการจอง → รายละเอียดในใบงานตาม + บันทึกประวัติ (ไม่ส่ง comment = ไม่ลงประวัติ) */
+export async function zoomTicketDetails(id: number, userId: number | null, details: string, comment: string | null) {
+  await update("it_tickets", { details: details.slice(0, 5000), updated_at: nowDb() }, "id = ?", [id]);
+  if (comment) await log(id, userId, "progress", comment);
+}
+
+export const zoomTicketLog = async (id: number, userId: number | null, comment: string) => {
+  await update("it_tickets", { updated_at: nowDb() }, "id = ?", [id]);
+  await log(id, userId, "progress", comment);
+};
+
+export async function zoomTicketAccepted(id: number, assigneeId: number, acceptedAt: string) {
+  await update("it_tickets", { status: "in_progress", assignee_id: assigneeId, accepted_at: acceptedAt, updated_at: nowDb() }, "id = ? AND status = 'approved'", [id]);
+  await insert("it_ticket_events", { it_ticket_id: id, user_id: assigneeId, action: "accepted", comment: null, created_at: acceptedAt });
+}
+
+/** ส่งลิงก์ครั้งแรก = บันทึกผลสำเร็จ → รอผู้จัดการ IT อนุมัติผล (ลายเซ็นผู้รับงาน = สำเนาลายเซ็นในโปรไฟล์ ถ้ามี) */
+export async function zoomTicketResulted(req: Request, id: number, assigneeId: number, solution: string, comment: string) {
+  const t = (await loadTicket("t.id = ?", id))!;
+  const now = nowDb();
+  const signature = await copySignatureTo(assigneeId, `tickets/${t.uuid}/signatures`, "staff", req, { ticket: t.uuid });
+  await update(
+    "it_tickets",
+    { status: "pending_it_head", result: "completed", completed_on: localToday(), repair_details: solution.slice(0, 5000), resulted_at: now, updated_at: now, ...(signature ? { staff_signature: signature } : {}) },
+    "id = ?",
+    [id],
+  );
+  await log(id, assigneeId, "resulted", comment);
+}
+
+/** แก้ลิงก์หลังส่งแล้ว = ผลในใบงานตาม */
+export const zoomTicketSolution = (id: number, solution: string) => update("it_tickets", { repair_details: solution.slice(0, 5000), updated_at: nowDb() }, "id = ?", [id]);
+
+/**
+ * ผู้จัดการ IT อนุมัติผลจากหน้า ZOOM = ประทับชื่อ + สำเนาลายเซ็นในโปรไฟล์ → รอผู้จองกดรับ (ขึ้น KPI ของผู้รับงาน)
+ * กติกาเดียวกับ /tickets/:uuid/close (canCloseResult) — ไม่มีลายเซ็นในโปรไฟล์ = 422
+ */
+export async function zoomTicketApprove(req: Request, id: number, u: UserRow) {
+  const t = await withCloseInfo((await loadTicket("t.id = ?", id))!);
+  authorize(canCloseResult(u, t));
+  const signature = await copySignatureTo(u.id, `tickets/${t.uuid}/signatures`, "it-head", req, { ticket: t.uuid });
+  if (!signature) throw ValidationError.withMessages({ signature: trans(req.locale, "eam.zoom.signature_required") });
+  const selfClose = isSelfClose(u, t);
+  await transaction(async () => {
+    await update("it_tickets", { status: "pending_requester", it_head_id: u.id, it_head_signature: signature, updated_at: nowDb() }, "id = ? AND status = 'pending_it_head'", [id]);
+    await log(id, u.id, "head_approved", selfClose ? trans(req.locale, "eam.ticket.self_closed") : null);
+  });
+  if (selfClose) await audit(req, { action: "ticket.self_closed", subjectType: "ticket", subjectId: t.uuid, after: { ticket_no: t.ticket_no } });
+}
+
+/** ผู้จองกดรับ = ปิดงาน */
+export async function zoomTicketConfirm(id: number, userId: number) {
+  const now = nowDb();
+  await update("it_tickets", { status: "completed", closed_at: now, updated_at: now }, "id = ? AND status = 'pending_requester'", [id]);
+  await log(id, userId, "confirmed");
+}
+
+/** ยกเลิกการจอง = ใบงานยกเลิก ไม่นับ KPI (KPI_TICKET_STATUSES) — ทุกสถานะ รวมใบที่ปิดไปแล้ว */
+export async function zoomTicketCancel(id: number, userId: number | null, comment: string | null) {
+  const now = nowDb();
+  await update("it_tickets", { status: "cancelled", cancelled_at: now, cancelled_by: userId, closed_at: now, updated_at: now }, "id = ?", [id]);
+  await log(id, userId, "cancelled", comment);
+}
+
+/** ผู้รับแจ้งเตือน "รออนุมัติผล" ของใบนี้ — เงื่อนไขเดียวกับใบงานปกติ (closersFor) */
+export const zoomTicketClosers = async (id: number) => closersFor((await loadTicket("t.id = ?", id))!);
 
 ticketRoutes.get("/tickets/:uuid", async (req, res) => {
   const t = await findTicket(req.params.uuid);
@@ -1312,7 +1389,9 @@ async function updateTicket(req: Request, res: Response) {
   if (type !== "other") values.type_other = null;
   if (values.due_date) values.due_date = String(values.due_date).slice(0, 10);
   for (const key of ["branch_id", "assignee_id"]) values[key] = int(values[key]);
-  const assetId = await assetIdByNumber(values.asset_tag);
+  // เลขเดิม + ผูกสินทรัพย์ไว้แล้ว = คงการผูกเดิม (IT อาจผูกเองเพราะเลขที่พิมพ์ไม่ตรงเครื่อง)
+  const sameNumber = String(values.asset_tag ?? "").trim() === String(t.asset_tag ?? "").trim();
+  const assetId = sameNumber && t.asset_id ? t.asset_id : await assetIdByNumber(values.asset_tag);
 
   // เปลี่ยนผู้อนุมัติ (ยังไม่มีใครอนุมัติ — canEdit): แทนผู้อนุมัติของขั้นปัจจุบัน / ระบบเดิมแทน approver_id
   let approverChanged = false;

@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { acceptZoomBooking } from "@/app/actions/zoom";
+import { acceptZoomBooking, acknowledgeZoomBooking } from "@/app/actions/zoom";
 import { useAlert } from "@/components/dialog-provider";
-import { CheckCircleIcon, ExternalLinkIcon, EyeIcon, SpinnerIcon } from "@/components/icons";
+import { CheckCircleIcon, ExternalLinkIcon, EyeIcon, PencilIcon, SpinnerIcon } from "@/components/icons";
 import { btn, card, table } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { ZoomBooking } from "@/lib/types";
@@ -24,27 +24,31 @@ export function ZoomList({ items, mode }: { items: ZoomBooking[]; mode: "mine" |
   const [accepting, setAccepting] = useState<string | null>(null);
   const [, start] = useTransition();
 
-  const accept = (z: ZoomBooking) => {
+  const act = (z: ZoomBooking, fn: typeof acceptZoomBooking, done: string) => {
     setAccepting(z.id);
     start(async () => {
-      const res = await acceptZoomBooking(z.id);
+      const res = await fn(z.id);
       setAccepting(null);
       if (!res.ok) return void (await showAlert(res.message ?? t("common.saveFailed")));
-      router.push(`/zoom/bookings/${z.id}?done=accepted`);
+      router.push(`/zoom/bookings/${z.id}?done=${done}`);
     });
   };
+  const accept = (z: ZoomBooking) => act(z, acceptZoomBooking, "accepted");
+  const acknowledge = (z: ZoomBooking) => act(z, acknowledgeZoomBooking, "acknowledged");
 
   /** ผลของการจอง: ลิงก์ (ส่งแล้ว) / เหตุผล (แจ้งกลับ) / ผู้รับงาน */
   const outcome = (z: ZoomBooking) => (
     <div className="space-y-1 text-xs">
       {z.assignee && <p className="text-muted">{t("zoom.list.assignee", { name: z.assignee.name })}</p>}
+      {z.zoom_account && <p className="text-muted">{t("zoom.list.account", { name: z.zoom_account })}</p>}
       {z.status === "confirmed" && z.meeting_link && (
         <a href={z.meeting_link} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-72 cursor-pointer items-center gap-1 truncate font-medium text-accent-600 hover:underline dark:text-accent-300">
           <ExternalLinkIcon width={12} height={12} className="shrink-0" />
           <span className="truncate">{z.meeting_link}</span>
         </a>
       )}
-      {z.status === "rejected" && z.reject_reason && <p className="max-w-72 whitespace-normal text-danger-700 dark:text-danger-300">{z.reject_reason}</p>}
+      {(z.status === "rejected" || z.status === "needs_change") && z.reject_reason && <p className="max-w-72 whitespace-normal text-danger-700 dark:text-danger-300">{z.reject_reason}</p>}
+      {z.head_approval && <p className="text-muted">{t("zoom.list.headApproved", { name: z.head_approval.name })}</p>}
       {z.status === "pending" && <p className="text-muted">{t("zoom.detail.waiting")}</p>}
     </div>
   );
@@ -57,6 +61,18 @@ export function ZoomList({ items, mode }: { items: ZoomBooking[]; mode: "mine" |
           {accepting === z.id ? <SpinnerIcon width={14} height={14} /> : <CheckCircleIcon width={14} height={14} />}
           {t("zoom.actions.accept")}
         </button>
+      )}
+      {mode === "mine" && z.can_acknowledge && (
+        <button type="button" onClick={() => acknowledge(z)} disabled={accepting !== null} className={`${btn.primary} ${btn.sm} whitespace-nowrap`}>
+          {accepting === z.id ? <SpinnerIcon width={14} height={14} /> : <CheckCircleIcon width={14} height={14} />}
+          {t("zoom.actions.acknowledge")}
+        </button>
+      )}
+      {mode === "mine" && z.can_edit && z.status === "needs_change" && (
+        <Link href={`/zoom/bookings/${z.id}/edit`} className={`${btn.primary} ${btn.sm} whitespace-nowrap`}>
+          <PencilIcon width={14} height={14} />
+          {t("zoom.actions.changeTime")}
+        </Link>
       )}
       <Link href={`/zoom/bookings/${z.id}`} className={`${mode === "manage" && z.can_link ? btn.primary : btn.secondary} ${btn.sm} whitespace-nowrap`}>
         <EyeIcon width={14} height={14} />

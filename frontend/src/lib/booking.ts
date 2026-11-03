@@ -18,6 +18,9 @@ export function toneOf(list: { id: number }[], id: number | null | undefined): T
   return i < 0 ? IDLE_TONE : TONES[i % TONES.length];
 }
 
+/** สีตามลำดับในรายการ (วนซ้ำเมื่อเกินจำนวนสี) — order = ลำดับ index ของ TONES */
+export const toneAt = (i: number, order: readonly number[]): Tone => TONES[order[i % order.length]];
+
 /** "HH:MM" ↔ นาทีตั้งแต่เที่ยงคืน */
 export const toMin = (hm: string) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
 export const fromMin = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;

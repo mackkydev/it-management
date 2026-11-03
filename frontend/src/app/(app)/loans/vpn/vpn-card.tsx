@@ -50,6 +50,7 @@ function RevealVpn({ id }: { id: string }) {
   const [value, setValue] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [clearIn, setClearIn] = useState(0);
   const [reauth, setReauth] = useState<ReauthChallenge | null>(null);
   const [pending, start] = useTransition();
 
@@ -69,7 +70,7 @@ function RevealVpn({ id }: { id: string }) {
     });
   const copy = async () => {
     if (value === null) return;
-    await copySecret(value);
+    setClearIn(await copySecret(value));
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
@@ -86,7 +87,7 @@ function RevealVpn({ id }: { id: string }) {
         </button>
       </Tooltip>
       {value !== null && (
-        <Tooltip label={copied ? t("vault.copied") : t("vault.copy")} side="top">
+        <Tooltip label={copied ? t("vault.copied", { seconds: clearIn }) : t("vault.copy")} side="top">
           <button type="button" onClick={copy} aria-label={t("vault.copy")} className={iconBtn}>
             {copied ? <CheckIcon width={15} height={15} className="text-success-500" /> : <CopyIcon width={15} height={15} />}
           </button>

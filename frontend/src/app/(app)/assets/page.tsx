@@ -9,49 +9,19 @@ import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Tooltip } from "@/components/tooltip";
-import { alert, btn, card, input, table, tone } from "@/components/ui";
+import { alert, btn, card, input, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
-import type { Formatters, MessageKey, TFunction } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
+import { assetCategoryNames } from "@/lib/asset-categories";
 import { getAccess, canCreateAssets, canEditAssets, canViewAllAssets, canViewAssets, getCurrentUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { CATEGORIES, STATUSES, type Asset, type AssetLicense, type Branch, type LicenseUsage, type Location, type MissingAsset, type Paginated } from "@/lib/types";
+import { assetCategoryLabel, STATUSES, type Asset, type Branch, type Location, type MissingAsset, type Paginated } from "@/lib/types";
 import { ImportAssets } from "./import-assets";
 import { MissingAssets } from "./missing-assets";
 import { ClickableRow } from "@/components/clickable-row";
 import { AppSelect } from "@/components/app-select";
 import { ConfirmDownload } from "@/components/confirm-download";
 
-/** วันหมดอายุ license ในรายการ: หมดแล้ว = แดง, เหลือ ≤ 30 วัน = เหลือง */
-function LicenseExpiry({ license: l, t, fmt }: { license: AssetLicense; t: TFunction; fmt: Formatters }) {
-  if (!l.expires_at || l.days_left === null) return <div className="text-xs text-muted">{t("assets.license.noExpiry")}</div>;
-  const look = l.days_left < 0 ? tone.danger : l.days_left <= 30 ? tone.warning : tone.idle;
-  return (
-    <div className="mt-0.5">
-      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${look.badge}`}>
-        {l.days_left < 0 ? t("assets.license.expiredOn", { date: fmt.date(l.expires_at) }) : t("assets.license.expiresOn", { date: fmt.date(l.expires_at) })}
-      </span>
-    </div>
-  );
-}
-
-/** จำนวนสิทธิ์ license ในรายการ: ใช้ครบ = แดง, เหลือ ≤ 10% = เหลือง, ไม่จำกัด = เทา */
-function LicenseSeats({ usage: u, t, fmt }: { usage: LicenseUsage; t: TFunction; fmt: Formatters }) {
-  const n = (v: number | null) => fmt.number(v ?? 0);
-  const look = u.seats === null ? tone.idle : u.available === 0 ? tone.danger : (u.available ?? 0) <= Math.ceil(u.seats * 0.1) ? tone.warning : tone.info;
-  // ป้ายแสดงแค่ตัวเลข คงเหลือ/ทั้งหมด (เช่น 18/20) — คำอธิบายเต็มอยู่ใน tooltip
-  const title =
-    u.seats === null
-      ? t("assets.license.usageUnlimited", { used: n(u.used) })
-      : u.available === 0
-        ? t("assets.license.usageFull", { used: n(u.used), seats: n(u.seats) })
-        : t("assets.license.usage", { seats: n(u.seats), used: n(u.used), available: n(u.available) });
-  return (
-    <span title={title} className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${look.badge}`}>
-      {u.seats === null ? "∞" : `${n(u.available)}/${n(u.seats)}`}
-    </span>
-  );
-}
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -158,7 +128,7 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
       )}
 
       {tab === "missing" ? (
-        <MissingAssets items={missing} />
+        <MissingAssets items={missing} canAdd={can("btn:assets:add-missing")} canLink={can("btn:assets:link-missing")} />
       ) : (
         <>
 
@@ -185,10 +155,9 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
         </AppSelect>
         <AppSelect name="category" defaultValue={params.category as string | undefined} className={input}>
           <option value="">{t("assets.allCategories")}</option>
-          {/* License ซอฟต์แวร์แยกไปเมนู /licenses */}
-          {CATEGORIES.filter((c) => c !== "SOFTWARE").map((c) => (
+          {["COMPUTER", ...(await assetCategoryNames())].map((c) => (
             <option key={c} value={c}>
-              {t(`assets.categories.${c}` as MessageKey)}
+              {assetCategoryLabel(t, c)}
             </option>
           ))}
         </AppSelect>
@@ -290,12 +259,7 @@ async function AssetResults({ query, canEdit, mineOnly }: { query: URLSearchPara
                       )}
                     </td>
                     <td className={table.td}>
-                      {/* หมวดหมู่ + จำนวนสิทธิ์ (seat) บรรทัดเดียวกัน, วันหมดอายุบรรทัดถัดไป */}
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        {t(`assets.categories.${a.category}` as MessageKey)}
-                        {a.license_usage && <LicenseSeats usage={a.license_usage} t={t} fmt={fmt} />}
-                      </div>
-                      {a.license && <LicenseExpiry license={a.license} t={t} fmt={fmt} />}
+                      {assetCategoryLabel(t, a.category)}
                     </td>
                     <td className={table.td}>{a.branch?.name ?? "-"}</td>
                     <td className={table.td}>{a.location?.name ?? "-"}</td>
@@ -325,12 +289,6 @@ async function AssetResults({ query, canEdit, mineOnly }: { query: URLSearchPara
                   {a.name}
                 </Link>
                 <div className="text-xs text-muted">{[a.brand, a.model].filter(Boolean).join(" ")}</div>
-                {a.license_usage && (
-                  <div className="mt-0.5">
-                    <LicenseSeats usage={a.license_usage} t={t} fmt={fmt} />
-                  </div>
-                )}
-                {a.license && <LicenseExpiry license={a.license} t={t} fmt={fmt} />}
                 {(a.user_name || a.ip_address) && <div className="text-xs text-muted">{[a.user_name, a.ip_address].filter(Boolean).join(" · ")}</div>}
                 <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                   <dt className="text-muted">{t("assets.col.branch")}</dt>

@@ -13,8 +13,8 @@ beforeEach(async () => {
 
 async function makeLicense(seats: number | null, tag = "SW-1"): Promise<string> {
   const api = await as(await makeUser({ role: "manager" }));
-  const res = await api.post("/api/v1/assets").send({
-    asset_tag: tag, name: `Office ${tag}`, category: "SOFTWARE",
+  const res = await api.post("/api/v1/licenses").send({
+    license_no: tag, name: `Office ${tag}`,
     license: { billing: "yearly", start_date: day(0), expires_at: day(364), seats },
   });
   expect(res.status).toBe(201);
@@ -33,14 +33,14 @@ describe("license installations", () => {
     expect(bad.body.errors.device_name[0]).toBe("ระบุเครื่องที่ติดตั้ง — เลือกจากสินทรัพย์ หรือพิมพ์ชื่อเครื่อง");
     expect(bad.body.errors.installed_at).toBeDefined(); // วันในอนาคต
     const notLicense = await api.post("/api/v1/license-installations").send({ license_id: pc.uuid, device_name: "X", installed_at: day(0) });
-    expect(notLicense.body.errors.license_id[0]).toBe("กรุณาเลือก license (สินทรัพย์หมวด Software ที่มีข้อมูล license)");
+    expect(notLicense.body.errors.license_id[0]).toBe("กรุณาเลือก License");
 
     const first = await api.post("/api/v1/license-installations").send({
       license_id: lic, device_asset_id: pc.uuid, device_name: "ไม่ใช้", user_id: user.id, branch_id: branch, installed_at: day(-3), notes: "ติดตั้งใหม่",
     });
     expect(first.status).toBe(201);
     expect(first.body.data).toMatchObject({
-      license: { id: lic, asset_tag: "SW-1" },
+      license: { id: lic, license_no: "SW-1" },
       device: { id: pc.uuid, asset_tag: "PC-001" },
       device_name: null,
       user: { id: user.id, name: "สมชาย" },
@@ -61,7 +61,7 @@ describe("license installations", () => {
     expect(list.body.usage).toEqual({ seats: 2, used: 2, available: 0 });
     expect(list.body.data.map((r: { device_name: string | null }) => r.device_name)).toEqual(["ACC-PC-07", null]);
     expect((await api.get("/api/v1/license-installations?search=dell")).body.data).toHaveLength(1);
-    expect((await api.get("/api/v1/license-installations/licenses")).body.data[0]).toMatchObject({ id: lic, seats: 2, used: 2, available: 0, days_left: 364 });
+    expect((await api.get("/api/v1/licenses")).body.data[0]).toMatchObject({ id: lic, seats: 2, used: 2, available: 0, days_left: 364 });
 
     // ถอนการติดตั้ง → คืน seat (เก็บประวัติ)
     const removed = await api.post(`/api/v1/license-installations/${second.body.data.id}/uninstall`).send({});
@@ -74,7 +74,7 @@ describe("license installations", () => {
 
     // ลดจำนวน seat ต่ำกว่าที่ใช้อยู่ไม่ได้
     const manager = await as(await makeUser({ role: "manager" }), "th");
-    const shrink = await manager.patch(`/api/v1/assets/${lic}`).send({ license: { billing: "yearly", start_date: day(0), expires_at: day(364), seats: 1 } });
+    const shrink = await manager.patch(`/api/v1/licenses/${lic}`).send({ license: { billing: "yearly", start_date: day(0), expires_at: day(364), seats: 1 } });
     expect(shrink.status).toBe(422);
     expect(shrink.body.errors["license.seats"][0]).toBe("จำนวน seat ต้องไม่น้อยกว่าที่ติดตั้งใช้งานอยู่ (2 เครื่อง)");
 

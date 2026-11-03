@@ -1,7 +1,7 @@
 import { trans, type Locale } from "./lib/i18n.js";
 import { dateOnly, iso } from "./lib/time.js";
 import type { UserRow } from "./models/user.js";
-import { fileJson, ICON_KIND, licenseJson, type AssetFileRow, type LicenseRow } from "./services/asset-licenses.js";
+import { fileJson, type AssetFileRow } from "./services/asset-files.js";
 import type { SoftwareSet } from "./services/asset-software.js";
 import { loginLockedMinutes } from "./services/password-policy.js";
 
@@ -46,6 +46,7 @@ export function userResource(
     division: u.division,
     supervisor_id: u.supervisor_id,
     ...("supervisor" in extra ? { supervisor: extra.supervisor } : {}),
+    job_title: u.job_title ?? null,
     is_it_staff: bool(u.is_it_staff),
     is_it_head: bool(u.is_it_head),
     approval_route_id: u.approval_route_id,
@@ -109,6 +110,7 @@ export interface AssetRow {
   notes: string | null;
   branch_id: number | null;
   is_loanable: boolean | number;
+  is_shared?: boolean | number;
   /** ข้อมูลเครื่องคอมพิวเตอร์ (หมวด COMPUTER) — ดู COMPUTER_FIELDS */
   department: string | null;
   user_name: string | null;
@@ -139,7 +141,6 @@ export function assetResource(
     location?: LocationRow | null;
     custodian?: { id: number; name: string } | null;
     branch?: { id: number; name: string } | null;
-    license?: LicenseRow | null;
     files?: AssetFileRow[];
     software?: SoftwareSet;
   } = {},
@@ -155,6 +156,7 @@ export function assetResource(
     status: a.status,
     status_label: trans(locale, `eam.status.${a.status}`),
     is_loanable: Boolean(a.is_loanable),
+    is_shared: Boolean(a.is_shared),
     ...("location" in rel ? { location: rel.location ? locationResource(rel.location) : null } : {}),
     ...("custodian" in rel ? { custodian: rel.custodian } : {}),
     purchase_date: dateOnly(a.purchase_date),
@@ -179,13 +181,10 @@ export function assetResource(
     computer_spec: a.computer_spec ?? null,
     monitor_tag: a.monitor_tag,
     other_software: a.other_software,
-    ...("license" in rel ? { license: rel.license ? licenseJson(rel.license) : null } : {}),
     ...(rel.software ? { software: rel.software } : {}),
-    // ไอคอน (asset_files kind icon — License ซอฟต์แวร์) แยกจากเอกสารแนบ: icon_id ใช้ทำ URL /assets/{uuid}/icon?v=
     ...("files" in rel
       ? {
-          files: (rel.files ?? []).filter((f) => f.kind !== ICON_KIND).map((f) => fileJson(a.uuid, f)),
-          icon_id: (rel.files ?? []).find((f) => f.kind === ICON_KIND)?.id ?? null,
+          files: (rel.files ?? []).map((f) => fileJson(a.uuid, f)),
         }
       : {}),
     created_at: iso(a.created_at),
@@ -205,6 +204,8 @@ export interface MovementJoinedRow {
   fc_id: number | null; fc_name: string | null;
   tc_id: number | null; tc_name: string | null;
   pb_id: number | null; pb_name: string | null;
+  fb_id: number | null; fb_name: string | null;
+  tb_id: number | null; tb_name: string | null;
   a_uuid?: string | null; a_tag?: string | null; a_name?: string | null;
 }
 
@@ -215,14 +216,18 @@ export const MOVEMENT_SELECT = `
   tl.id AS tl_id, tl.code AS tl_code, tl.name AS tl_name,
   fc.id AS fc_id, fc.name AS fc_name,
   tc.id AS tc_id, tc.name AS tc_name,
-  pb.id AS pb_id, pb.name AS pb_name`;
+  pb.id AS pb_id, pb.name AS pb_name,
+  fb.id AS fb_id, fb.name AS fb_name,
+  tb.id AS tb_id, tb.name AS tb_name`;
 
 export const MOVEMENT_JOINS = `
   LEFT JOIN locations fl ON fl.id = m.from_location_id AND fl.deleted_at IS NULL
   LEFT JOIN locations tl ON tl.id = m.to_location_id AND tl.deleted_at IS NULL
   LEFT JOIN users fc ON fc.id = m.from_custodian_id
   LEFT JOIN users tc ON tc.id = m.to_custodian_id
-  LEFT JOIN users pb ON pb.id = m.performed_by`;
+  LEFT JOIN users pb ON pb.id = m.performed_by
+  LEFT JOIN branches fb ON fb.id = m.from_branch_id
+  LEFT JOIN branches tb ON tb.id = m.to_branch_id`;
 
 export function movementResource(m: MovementJoinedRow, locale: Locale, withAsset = false) {
   const loc = (id: number | null, code: string | null, name: string | null) => (id ? { id, code, name } : null);
@@ -235,6 +240,8 @@ export function movementResource(m: MovementJoinedRow, locale: Locale, withAsset
     to_location: loc(m.tl_id, m.tl_code, m.tl_name),
     from_custodian: person(m.fc_id, m.fc_name),
     to_custodian: person(m.tc_id, m.tc_name),
+    from_branch: person(m.fb_id, m.fb_name),
+    to_branch: person(m.tb_id, m.tb_name),
     moved_at: iso(m.moved_at),
     reason: m.reason,
     performed_by: person(m.pb_id, m.pb_name),

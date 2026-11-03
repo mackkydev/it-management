@@ -1,7 +1,7 @@
 import { first, insert, select } from "../db.js";
 import { dateOnly, localToday, nowDb } from "../lib/time.js";
 import { trans, type Locale } from "../lib/i18n.js";
-import { isSuperAdmin, type UserRow } from "../models/user.js";
+import { isReadOnly, isSuperAdmin, type UserRow } from "../models/user.js";
 import { groupsOf } from "./permissions.js";
 import { getSetting } from "./settings.js";
 
@@ -56,7 +56,7 @@ export async function scopeSettings(kind: ScopeKind = "calendar"): Promise<Recor
 
 /** ขอบเขตสูงสุดที่ผู้ใช้เห็นได้ (กว้างสุดของทุกกลุ่ม; กลุ่มที่ไม่ได้ตั้ง = แผนก) */
 export async function maxScope(u: UserRow, kind: ScopeKind = "calendar"): Promise<Scope> {
-  if (isSuperAdmin(u)) return "all";
+  if (isSuperAdmin(u) || isReadOnly(u)) return "all";
   const map = await scopeSettings(kind);
   const groups = await groupsOf(u);
   return groups.reduce<Scope>((best, g) => {

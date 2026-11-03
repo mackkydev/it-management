@@ -1,35 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
-import { createAsset, deleteAsset, loadSoftwareOptions, searchUsers, suggestAssetTags, suggestAssetValues, updateAsset, type SaveResult } from "@/app/actions/assets";
+import { useEffect, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { createAsset, deleteAsset, loadSoftwareOptions, suggestAssetTags, suggestAssetValues, updateAsset, type SaveResult } from "@/app/actions/assets";
 import { DateInput } from "@/components/date-input";
 import { SuggestInput, type SuggestItem } from "@/components/suggest-input";
 import { Tooltip } from "@/components/tooltip";
 import { AlertIcon, SaveIcon, SpinnerIcon, TrashIcon, TruckIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input as inputBase, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import type { MessageKey, TFunction } from "@/i18n/types";
-import { addToIsoDate, LICENSE_MAX_YEARS, licenseExpiryAfter, licenseYears, localToday } from "@/lib/date";
+import type { TFunction } from "@/i18n/types";
+import { localToday } from "@/lib/date";
 import {
-  CATEGORIES,
+  assetCategoryLabel,
   COMPUTER_DATE_FIELDS,
   COMPUTER_TEXT_FIELDS,
   CATEGORY_FORM,
   EMPTY_SOFTWARE,
-  LICENSE_BILLINGS,
   SOFTWARE_SLOTS,
-  SOFTWARE_TYPES,
   STATUSES,
   type AssetFormValues,
   type Branch,
   type FieldErrors,
-  type LicenseFormValues,
   type Location,
   type SoftwareOption,
   type SoftwareRef,
   type SoftwareSlot,
-  type SoftwareType,
   type UserOption,
 } from "@/lib/types";
 import { SoftwareListPicker, SoftwareSlotPicker } from "./software-picker";
@@ -39,7 +35,6 @@ import { OptionPicker } from "@/components/option-picker";
 import { quickAddOption } from "@/app/actions/dropdowns";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
-import { PasswordInput } from "@/components/password-input";
 
 type ComputerField = (typeof COMPUTER_TEXT_FIELDS)[number] | (typeof COMPUTER_DATE_FIELDS)[number];
 
@@ -54,6 +49,7 @@ const EMPTY: AssetFormValues = {
   status: "active",
   location_id: "",
   custodian_id: "",
+  is_shared: false,
   purchase_date: "",
   purchase_cost: "",
   warranty_expires_at: "",
@@ -62,43 +58,24 @@ const EMPTY: AssetFormValues = {
   is_loanable: false,
   ...(Object.fromEntries([...COMPUTER_TEXT_FIELDS, ...COMPUTER_DATE_FIELDS].map((k) => [k, ""])) as Record<ComputerField, string>),
   movement_reason: "",
-  license: {
-    billing: "yearly",
-    start_date: "",
-    expires_at: "",
-    seats: "",
-    vendor: "",
-    license_key: "",
-    clear_license_key: false,
-    notify_days_before: "",
-    duration_years: "",
-    software_type: "other",
-  },
   software: EMPTY_SOFTWARE,
 };
 
-/** วันหมดอายุของ license รายปี: วันเริ่ม + 1 ปี − 1 วัน */
-const yearlyExpiry = (start: string) => (start ? addToIsoDate(start, { years: 1, days: -1 }) : "");
+/** เพิ่มใหม่ / เปลี่ยนหมวด / เดิมมีเลขอยู่แล้ว = ต้องมีเลขที่ทรัพย์สิน — คอมพิวเตอร์เดิมที่ยังไม่มีเลขไม่บังคับ */
+const numberRequired = (v: AssetFormValues, initial?: AssetFormValues) =>
+  !(initial && initial.category === v.category && CATEGORY_FORM[v.category]?.computer && !initial.cpu_tag.trim());
 
 /** ตรวจเบื้องต้นฝั่ง client ให้ผู้ใช้เห็นทันที — API ตรวจซ้ำทุกครั้ง */
-function validate(v: AssetFormValues, t: TFunction): FieldErrors {
+function validate(v: AssetFormValues, t: TFunction, initial?: AssetFormValues): FieldErrors {
   const e: FieldErrors = {};
-  if (CATEGORY_FORM[v.category]?.license) {
-    const l = v.license;
-    if (!l.start_date) e["license.start_date"] = t("assets.license.validate.startDate");
-    if (l.billing !== "perpetual") {
-      if (!l.expires_at) e["license.expires_at"] = t("assets.license.validate.expiresAt");
-      else if (l.start_date && l.expires_at < l.start_date) e["license.expires_at"] = t("assets.license.validate.expiresBeforeStart");
-    }
-    if (l.seats && (!/^\d+$/.test(l.seats) || Number(l.seats) < 1)) e["license.seats"] = t("assets.license.validate.seats");
-    if (l.billing === "custom" && l.duration_years && !licenseExpiryAfter(l.start_date || "2000-01-01", l.duration_years)) {
-      e["license.duration_years"] = t("assets.license.validate.durationYears", { max: LICENSE_MAX_YEARS });
-    }
-  }
-  if (!v.asset_tag.trim()) e.asset_tag = t("assets.validate.tagRequired");
-  else if (!/^[A-Za-z0-9\-_/]+$/.test(v.asset_tag.trim())) e.asset_tag = t("assets.validate.tagFormat");
+  const computer = Boolean(CATEGORY_FORM[v.category]?.computer);
+  // คอมพิวเตอร์: asset_tag = Host Name, เลขที่ทรัพย์สิน = cpu_tag (เครื่องเดิมที่ยังไม่มีเลข แก้ช่องอื่นได้โดยไม่บังคับ)
+  if (!v.asset_tag.trim()) e.asset_tag = t(computer ? "assets.validate.hostRequired" : "assets.validate.tagRequired");
+  else if (!/^[A-Za-z0-9\-_/]+$/.test(v.asset_tag.trim())) e.asset_tag = t(computer ? "assets.validate.hostFormat" : "assets.validate.tagFormat");
+  if (computer && !v.cpu_tag.trim() && numberRequired(v, initial)) e.cpu_tag = t("assets.validate.tagRequired");
   if (!v.name.trim()) e.name = t("assets.validate.nameRequired");
   if (!v.category) e.category = t("assets.validate.categoryRequired");
+  if (v.is_shared && !v.branch_id) e.branch_id = t("assets.validate.sharedBranch");
   if (v.purchase_cost && (isNaN(Number(v.purchase_cost)) || Number(v.purchase_cost) < 0)) {
     e.purchase_cost = t("assets.validate.costInvalid");
   }
@@ -119,19 +96,19 @@ interface Props {
   /** สเปคคอมพิวเตอร์ (ข้อมูล Drop Down computer_spec) */
   computerSpecs: string[];
   brands: string[];
+  /** หมวดหมู่ที่แก้ได้ (ข้อมูล Drop Down asset_category) */
+  categories: string[];
+  /** ชื่อแผนกจากข้อมูลหลัก */
+  departments: string[];
   /** ไม่ระบุ = โหมดเพิ่มใหม่ */
   assetId?: string;
   initial?: AssetFormValues;
   initialCustodian?: { id: number; name: string } | null;
   canDelete?: boolean;
-  /** มี license key เดิมอยู่แล้ว (โหมดแก้ไข) */
-  hasLicenseKey?: boolean;
-  /** โหมดเพิ่มใหม่: หมวดเริ่มต้น (เช่น ?category=SOFTWARE จากปุ่มเพิ่ม License ในช่อง Software) */
+  /** โหมดเพิ่มใหม่: หมวดเริ่มต้น (?category=) */
   defaultCategory?: string;
-  /** โหมดเพิ่ม License: ประเภทเริ่มต้น (?type= จากช่อง OS / Office / Anti Virus) */
-  defaultSoftwareType?: SoftwareType;
   /** โหมดเพิ่มใหม่: ค่าเริ่มต้น (เช่น เลขที่ทรัพย์สิน + ชื่อเครื่องจากใบแจ้งซ่อม) */
-  prefill?: Partial<Pick<AssetFormValues, "cpu_tag" | "name">>;
+  prefill?: Partial<Pick<AssetFormValues, "cpu_tag" | "name" | "source_asset_no">>;
 }
 
 export function AssetForm({
@@ -140,13 +117,13 @@ export function AssetForm({
   computerTypes,
   computerSpecs,
   brands,
+  categories,
+  departments,
   assetId,
   initial,
   initialCustodian = null,
   canDelete = false,
-  hasLicenseKey = false,
   defaultCategory,
-  defaultSoftwareType,
   prefill,
 }: Props) {
   const { t } = useI18n();
@@ -154,7 +131,7 @@ export function AssetForm({
   const [values, setValues] = useState<AssetFormValues>(
     initial ??
       (defaultCategory
-        ? { ...EMPTY, ...prefill, category: defaultCategory, license: { ...EMPTY.license, software_type: defaultSoftwareType ?? "other" } }
+        ? { ...EMPTY, ...prefill, category: defaultCategory }
         : { ...EMPTY, ...prefill }),
   );
   const [custodian, setCustodian] = useState(initialCustodian);
@@ -168,9 +145,19 @@ export function AssetForm({
     isEdit && (values.location_id !== initial?.location_id || values.custodian_id !== initial?.custodian_id);
 
   const onChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const field = e.target.name as Exclude<keyof AssetFormValues, "license" | "software" | "is_loanable">;
-    setValues((v) => ({ ...v, [field]: e.target.value }));
-    setErrors((prev) => ({ ...prev, [field]: "" })); // ล้าง error ของช่องที่แก้ทันที
+    const field = e.target.name as Exclude<keyof AssetFormValues, "license" | "software" | "is_loanable" | "is_shared" | "source_asset_no">;
+    setValues((v) => {
+      const next = { ...v, [field]: e.target.value };
+      // เปลี่ยนหมวด: เลขที่ทรัพย์สินในช่องบนสุดคงเดิม — คอมพิวเตอร์เก็บที่ cpu_tag, หมวดอื่นเก็บที่ asset_tag
+      if (field === "category") {
+        const was = Boolean(CATEGORY_FORM[v.category]?.computer);
+        const now = Boolean(CATEGORY_FORM[next.category]?.computer);
+        if (was && !now) Object.assign(next, { asset_tag: v.cpu_tag.slice(0, 50), cpu_tag: "" });
+        if (!was && now) Object.assign(next, { cpu_tag: v.asset_tag, asset_tag: "" });
+      }
+      return next;
+    });
+    setErrors((prev) => ({ ...prev, [field]: "", ...(field === "category" ? { asset_tag: "", cpu_tag: "" } : {}) })); // ล้าง error ของช่องที่แก้ทันที
   };
 
   const onLocationChange = (id: string) => {
@@ -229,27 +216,25 @@ export function AssetForm({
     );
   };
 
-  // ---- ชื่อ-สกุลผู้ใช้งาน: ค้นจากผู้ใช้ (LOCAL + API) → เลือกแล้วเติมชื่อ + แผนก (พิมพ์เองได้เหมือนเดิม)
-  const loadUserNames = async (q: string): Promise<SuggestItem<UserOption>[]> =>
-    (await searchUsers(q)).map((u) => ({
-      value: u.name,
-      hint: [u.department, u.type === "API" ? t("assets.computer.apiUser") : null, u.email].filter(Boolean).join(" · "),
-      data: u,
-    }));
-  const pickUser = (item: SuggestItem<UserOption>) => {
-    const dept = item.data?.department?.trim();
-    setValues((v) => ({ ...v, user_name: item.value, ...(dept ? { department: dept.slice(0, 100) } : {}) }));
-    setErrors((prev) => ({ ...prev, user_name: "", ...(dept ? { department: "" } : {}) }));
-  };
   // ---- เลขที่ทรัพย์สิน Monitor: ค้นจากทะเบียนสินทรัพย์ (พิมพ์เองได้เหมือนเดิม)
   const loadMonitorTags = async (q: string): Promise<SuggestItem[]> =>
     (await suggestAssetTags(q)).map((a) => ({ value: a.asset_tag, hint: [a.name, [a.brand, a.model].filter(Boolean).join(" ")].filter(Boolean).join(" · ") }));
 
+  // ผู้ถือครอง = ผู้ใช้งาน: เลือกแล้วเติมชื่อ-สกุลผู้ใช้งาน + Department ให้ (API บันทึกชื่อผู้ใช้งานตามผู้ถือครองเสมอ)
   const onCustodianChange = (user: UserOption | null) => {
     setCustodian(user);
-    setValues((v) => ({ ...v, custodian_id: user ? String(user.id) : "" }));
-    setErrors((prev) => ({ ...prev, custodian_id: "" }));
+    const dept = user?.department?.trim();
+    setValues((v) => ({ ...v, custodian_id: user ? String(user.id) : "", ...(user ? { user_name: user.name, ...(dept ? { department: dept.slice(0, 100) } : {}) } : {}) }));
+    setErrors((prev) => ({ ...prev, custodian_id: "", user_name: "" }));
   };
+
+  // ส่วนกลาง: ถือครองโดยสาขา/แผนก — ไม่มีผู้ถือครองที่เป็นผู้ใช้ (ต้องเลือกสาขา)
+  const onSharedChange = (shared: boolean) => {
+    setCustodian(null);
+    setValues((v) => ({ ...v, is_shared: shared, custodian_id: "", user_name: "" }));
+    setErrors((prev) => ({ ...prev, custodian_id: "", user_name: "", branch_id: "" }));
+  };
+  const branchName = branches.find((b) => String(b.id) === values.branch_id)?.name;
 
   const handleResult = (result: SaveResult | undefined) => {
     // สำเร็จ = server action redirect ไปหน้ารายการ จึงมาถึงตรงนี้เฉพาะกรณีผิดพลาด
@@ -260,7 +245,7 @@ export function AssetForm({
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    const found = validate(values, t);
+    const found = validate(values, t, initial);
     if (Object.keys(found).length > 0) {
       setErrors(found);
       setMessage(t("common.checkInput"));
@@ -276,10 +261,10 @@ export function AssetForm({
   const onDelete = async () => {
     if (!assetId || !(await confirm(t("assets.form.confirmDelete", { tag: values.asset_tag })))) return;
     setPendingAction("delete");
-    startTransition(async () => handleResult(await deleteAsset(assetId, values.category === "SOFTWARE")));
+    startTransition(async () => handleResult(await deleteAsset(assetId)));
   };
 
-  type Plain = Exclude<keyof AssetFormValues, "license" | "software" | "is_loanable">;
+  type Plain = Exclude<keyof AssetFormValues, "license" | "software" | "is_loanable" | "is_shared" | "source_asset_no">;
   const field = (name: Plain, label: string, control: ReactNode, required = false, wide = false) => (
     <div className={wide ? "sm:col-span-2" : undefined}>
       <label htmlFor={name} className="mb-1 block text-sm font-medium">
@@ -303,46 +288,7 @@ export function AssetForm({
     <DateInput id={name} value={values[name]} onChange={(d) => setField(name, d)} className={cls(name)} {...props} />
   );
 
-  // ---- license (หมวดที่ CATEGORY_FORM กำหนด license: true)
   const form = CATEGORY_FORM[values.category];
-  const hidden = (name: keyof AssetFormValues) => form?.hide?.includes(name) ?? false;
-  const lic = values.license;
-  // กำหนดระยะเวลาเอง: เลือกแล้วพาไปที่ช่องจำนวนปีทันที (ช่องเพิ่งแสดงหลัง render รอบถัดไป)
-  const yearsRef = useRef<HTMLInputElement>(null);
-  const chooseBilling = (b: LicenseFormValues["billing"]) => {
-    setLicense({ billing: b });
-    if (b === "custom") window.setTimeout(() => yearsRef.current?.focus(), 0);
-  };
-  // ยังไม่กรอกจำนวนปี → ขอบสีเน้นให้รู้ว่าต้องกรอก
-  const yearsPending = lic.billing === "custom" && !lic.duration_years && !errors["license.duration_years"];
-  const setLicense = (patch: Partial<LicenseFormValues>) => {
-    setValues((v) => {
-      const next = { ...v.license, ...patch };
-      // รายปี: คำนวณวันหมดอายุจากวันเริ่มให้อัตโนมัติ (แก้เองได้)
-      if (next.billing === "yearly" && ("start_date" in patch || patch.billing === "yearly")) next.expires_at = yearlyExpiry(next.start_date);
-      // กำหนดระยะเวลาเอง: กรอกจำนวนปี → คำนวณวันหมดอายุ (แก้วันหมดอายุเองได้ — จำนวนปีปรับตามถ้าลงตัว ไม่ลงตัว = ว่าง)
-      if (next.billing === "custom") {
-        if ("duration_years" in patch || "start_date" in patch || patch.billing === "custom") {
-          const calc = licenseExpiryAfter(next.start_date, next.duration_years);
-          if (calc) next.expires_at = calc;
-        } else if ("expires_at" in patch) next.duration_years = licenseYears(next.start_date, next.expires_at);
-      }
-      return { ...v, license: next };
-    });
-    setErrors((prev) => ({ ...prev, ...Object.fromEntries(Object.keys(patch).map((k) => [`license.${k}`, ""])), "license.expires_at": "" }));
-  };
-  const licErr = (k: keyof LicenseFormValues) => errors[`license.${k}`];
-  const licCls = (k: keyof LicenseFormValues) => `${inputBase} ${licErr(k) ? inputError : ""}`;
-  const licField = (k: keyof LicenseFormValues, label: string, control: ReactNode, opts: { required?: boolean; hint?: string } = {}) => (
-    <div>
-      <label htmlFor={`license-${k}`} className="mb-1 block text-sm font-medium">
-        {label}
-        {opts.required && <span className="text-red-500"> *</span>}
-      </label>
-      {control}
-      {licErr(k) ? <p className="mt-1 text-xs font-medium text-red-500">{licErr(k)}</p> : opts.hint && <p className="mt-1 text-xs text-muted">{opts.hint}</p>}
-    </div>
-  );
   const saving = pending && pendingAction === "save";
   const deleting = pending && pendingAction === "delete";
 
@@ -356,53 +302,29 @@ export function AssetForm({
       )}
 
       {/* ล็อกช่องกรอกระหว่างบันทึก/ลบ ป้องกันการแก้ค่าระหว่างส่งข้อมูล */}
+      {values.source_asset_no && <p className={alert.info}>{t("assets.form.sourceLinked", { no: values.source_asset_no })}</p>}
       <fieldset disabled={pending} aria-busy={pending} className="space-y-6 transition-opacity disabled:opacity-60">
         <section className={`p-4 sm:p-6 ${card}`}>
           <h2 className="mb-4 font-semibold">{t("assets.form.sectionInfo")}</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {/* หมวด COMPUTER: รหัสสินทรัพย์ = Host Name */}
-            {field(
-              "asset_tag",
-              form?.computer ? t("assets.computer.hostName") : t("assets.form.tag"),
-              input("asset_tag", { maxLength: 50, placeholder: form?.computer ? "LPPCPRD001" : t("assets.form.tagPlaceholder") }),
-              true,
-            )}
+            {/* เลขที่ทรัพย์สิน: หมวด COMPUTER เก็บที่ cpu_tag (asset_tag = Host Name อยู่ในข้อมูลเครื่อง), หมวดอื่นเก็บที่ asset_tag */}
+            {form?.computer
+              ? field("cpu_tag", t("assets.form.tag"), input("cpu_tag", { maxLength: 100, placeholder: t("assets.form.tagPlaceholder") }), numberRequired(values, initial))
+              : field("asset_tag", t("assets.form.tag"), input("asset_tag", { maxLength: 50, placeholder: t("assets.form.tagPlaceholder") }), true)}
             {field("name", t("assets.form.name"), input("name", { maxLength: 255, placeholder: form?.computer ? t("assets.computer.namePlaceholder") : undefined }), true)}
-            {/* License ซอฟต์แวร์: หมวดหมู่ = ประเภท (Office / OS / Anti Virus / อื่นๆ) — สินทรัพย์ทั่วไปเลือก Software / License ไม่ได้ (อยู่เมนู ซอฟต์แวร์ License) */}
-            {form?.license ? (
-              <div>
-                <label htmlFor="license-software_type" className="mb-1 block text-sm font-medium">
-                  {t("assets.form.category")}
-                  <span className="text-red-500"> *</span>
-                </label>
-                <AppSelect
-                  id="license-software_type"
-                  value={lic.software_type}
-                  onValueChange={(v) => setLicense({ software_type: v as SoftwareType })}
-                  className={licCls("software_type")}
-                >
-                  {SOFTWARE_TYPES.map((s) => (
-                    <option key={s} value={s}>
-                      {t(`licenses.types.${s}`)}
-                    </option>
-                  ))}
-                </AppSelect>
-                {licErr("software_type") && <p className="mt-1 text-xs font-medium text-red-500">{licErr("software_type")}</p>}
-              </div>
-            ) : (
-              field(
-                "category",
-                t("assets.form.category"),
-                <AppSelect id="category" name="category" value={values.category} onChange={onChange} className={cls("category")}>
-                  <option value="">{t("assets.form.chooseCategory")}</option>
-                  {CATEGORIES.filter((c) => c !== "SOFTWARE").map((c) => (
-                    <option key={c} value={c}>
-                      {t(`assets.categories.${c}` as MessageKey)}
-                    </option>
-                  ))}
-                </AppSelect>,
-                true,
-              )
+            {field(
+              "category",
+              t("assets.form.category"),
+              <AppSelect id="category" name="category" value={values.category} onChange={onChange} className={cls("category")}>
+                <option value="">{t("assets.form.chooseCategory")}</option>
+                {/* หมวดเดิมที่ถูกปิดใช้งาน/ไม่อยู่ในรายการแล้ว ยังแสดงเพื่อไม่ให้ค่าหาย */}
+                {[...new Set(["COMPUTER", ...categories, ...(values.category ? [values.category] : [])])].map((c) => (
+                  <option key={c} value={c}>
+                    {assetCategoryLabel(t, c)}
+                  </option>
+                ))}
+              </AppSelect>,
+              true,
             )}
             {field(
               "status",
@@ -415,8 +337,7 @@ export function AssetForm({
                 ))}
               </AppSelect>,
             )}
-            {/* ป้ายกำกับ: เครื่องสำหรับยืม → แสดงในหน้า ยืมโน้ตบุ๊ก (สถานะใช้งาน / เก็บในคลัง) — License ไม่มี */}
-            {!form?.license && (
+            {/* ป้ายกำกับ: เครื่องสำหรับยืม → แสดงในหน้า ยืมโน้ตบุ๊ก (สถานะใช้งาน / เก็บในคลัง) */}
             <label className="flex cursor-pointer items-start gap-2.5 self-end rounded-xl p-2.5 ring-1 ring-line transition-colors hover:bg-subtle sm:col-span-2">
               <input
                 type="checkbox"
@@ -430,7 +351,6 @@ export function AssetForm({
                 <span className="block text-xs text-muted">{t("assets.form.loanableHint")}</span>
               </span>
             </label>
-            )}
             {field(
               "brand",
               t("assets.form.brand"),
@@ -454,7 +374,7 @@ export function AssetForm({
                 className={cls("model")}
               />,
             )}
-            {!hidden("serial_number") && field("serial_number", t("assets.form.serial"), input("serial_number", { maxLength: 100 }))}
+            {field("serial_number", t("assets.form.serial"), input("serial_number", { maxLength: 100 }))}
             {field(
               "branch_id",
               t("assets.form.branch"),
@@ -468,32 +388,53 @@ export function AssetForm({
               </AppSelect>,
             )}
             {field(
+              "department",
+              t("assets.form.department"),
+              <AppSelect id="department" name="department" value={values.department} onChange={onChange} className={cls("department")}>
+                <option value="">{t("common.none")}</option>
+                {/* แผนกเดิมที่ไม่อยู่ในข้อมูลหลัก (เช่น จากไฟล์ Excel) ยังแสดงเพื่อไม่ให้ค่าหาย */}
+                {[...new Set([...departments, ...(values.department.trim() ? [values.department] : [])])].map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </AppSelect>,
+            )}
+            {field(
               "location_id",
               t("assets.form.location"),
               <LocationPicker id="location_id" locations={locations} value={values.location_id} onChange={onLocationChange} className={cls("location_id")} />,
             )}
-            {field(
-              "custodian_id",
-              t("assets.form.custodian"),
-              <CustodianPicker id="custodian_id" value={custodian} onChange={onCustodianChange} className={cls("custodian_id")} />,
-            )}
-            {/* ทะเบียนคอมพิวเตอร์: ชื่อ-สกุลผู้ใช้งาน อยู่กับข้อมูลทั่วไป (เลือกแล้วเติม Department ด้านล่าง) */}
-            {form?.computer &&
-              field(
-                "user_name",
-                t("assets.computer.userName"),
-                <SuggestInput<UserOption>
-                  id="user_name"
-                  value={values.user_name}
-                  onChange={(v) => setField("user_name", v)}
-                  load={loadUserNames}
-                  onPick={pickUser}
-                  allowNew={false}
-                  maxLength={255}
-                  placeholder={t("assets.computer.userNamePlaceholder")}
-                  className={cls("user_name")}
-                />,
+            {/* ผู้ถือครอง = ผู้ใช้งาน (ช่องเดียว) */}
+            <div>
+              <label htmlFor="custodian_id" className="mb-1 block text-sm font-medium">
+                {t("assets.detail.holder")}
+              </label>
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  {values.is_shared ? (
+                    <p className={`${inputBase} truncate bg-subtle text-muted`}>{[t("assets.form.shared"), branchName, values.department].filter(Boolean).join(" · ")}</p>
+                  ) : (
+                    <CustodianPicker id="custodian_id" value={custodian} onChange={onCustodianChange} className={cls("custodian_id")} />
+                  )}
+                </div>
+                <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    name="is_shared"
+                    checked={values.is_shared}
+                    onChange={(e) => onSharedChange(e.target.checked)}
+                    className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+                  />
+                  {t("assets.form.shared")}
+                </label>
+              </div>
+              {errors.custodian_id && <p className="mt-1 text-xs font-medium text-red-500">{errors.custodian_id}</p>}
+              {/* ชื่อจากทะเบียน Excel ที่ยังไม่ผูกผู้ใช้ — เลือกผู้ถือครองแล้วแทนที่ */}
+              {!custodian && !values.is_shared && values.user_name.trim() && (
+                <p className="mt-1 text-xs text-muted">{t("assets.form.holderLegacy", { name: values.user_name })}</p>
               )}
+            </div>
             {isMoving && (
               <div className={`sm:col-span-2 ${alert.info}`}>
                 <p className="mb-2 flex items-center gap-1.5 text-sm text-accent-800 dark:text-accent-200">
@@ -516,7 +457,6 @@ export function AssetForm({
             <h2 className="font-semibold">{t("assets.computer.section")}</h2>
             <p className="mb-4 mt-1 text-sm text-muted">{t("assets.computer.sectionHint")}</p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {field("department", t("assets.computer.department"), input("department", { maxLength: 100 }))}
               {field(
                 "computer_type",
                 t("assets.computer.computerType"),
@@ -532,9 +472,8 @@ export function AssetForm({
               )}
               {field("received_date", t("assets.computer.receivedDate"), dateInput("received_date"))}
               {field("start_use_date", t("assets.computer.startUseDate"), dateInput("start_use_date"))}
+              {field("asset_tag", t("assets.computer.hostName"), input("asset_tag", { maxLength: 50, placeholder: "LPPCPRD001" }), true)}
               {field("work_group", t("assets.computer.workGroup"), input("work_group", { maxLength: 50, placeholder: "LAMPHUN" }))}
-              {field("ip_address", t("assets.computer.ip"), input("ip_address", { maxLength: 45, placeholder: "192.168.4.36", className: `${cls("ip_address")} font-mono` }))}
-              {field("mac_address", t("assets.computer.mac"), input("mac_address", { maxLength: 50, placeholder: "A0:36:BC:25:1C:5C", className: `${cls("mac_address")} font-mono` }))}
               {/* สเปคคอมพิวเตอร์: ตัวเลือกจากข้อมูล Drop Down (list computer_spec) — เพิ่มด่วนได้ */}
               {field(
                 "computer_spec",
@@ -549,9 +488,16 @@ export function AssetForm({
                   className={cls("computer_spec")}
                 />,
               )}
-              {/* เลขที่ทรัพย์สิน + เลขที่ทรัพย์สิน (เดิม) บรรทัดเดียวกัน — ช่องเลขที่ทรัพย์สิน Notebook เลิกแสดง (ค่าเดิมยังเก็บไว้) */}
+              {field("ip_address", t("assets.computer.ip"), input("ip_address", { maxLength: 45, placeholder: "192.168.4.36", className: `${cls("ip_address")} font-mono` }))}
+              {field("mac_address", t("assets.computer.mac"), input("mac_address", { maxLength: 50, placeholder: "A0:36:BC:25:1C:5C", className: `${cls("mac_address")} font-mono` }))}
+              {/* เลขที่ทรัพย์สิน (แสดงค่าจากช่องบนสุด แก้ที่นี่ไม่ได้) + เลขที่ทรัพย์สิน (เดิม) บรรทัดเดียวกัน — ช่องเลขที่ทรัพย์สิน Notebook เลิกแสดง (ค่าเดิมยังเก็บไว้) */}
               <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-2 lg:col-span-3">
-                {field("cpu_tag", t("assets.computer.cpuTag"), input("cpu_tag", { maxLength: 100, className: `${cls("cpu_tag")} font-mono` }))}
+                <div>
+                  <label htmlFor="cpu_tag_view" className="mb-1 block text-sm font-medium">
+                    {t("assets.computer.cpuTag")}
+                  </label>
+                  <input id="cpu_tag_view" value={values.cpu_tag} readOnly disabled className={`${inputBase} cursor-not-allowed bg-subtle font-mono text-muted`} />
+                </div>
                 {field(
                   "monitor_tag",
                   t("assets.computer.monitorTag"),
@@ -624,131 +570,12 @@ export function AssetForm({
           </section>
         )}
 
-        {form?.license && (
-          <section className={`p-4 sm:p-6 ${card}`}>
-            <h2 className="font-semibold">{t("assets.license.section")}</h2>
-            <p className="mb-4 mt-1 text-sm text-muted">{t("assets.license.sectionHint")}</p>
-            {errors.license && <p className="mb-3 text-xs font-medium text-red-500">{errors.license}</p>}
-            {errors["license.billing"] && <p className="mb-3 text-xs font-medium text-red-500">{errors["license.billing"]}</p>}
-            <fieldset className="mb-4">
-              <legend className="mb-1 text-sm font-medium">
-                {t("assets.license.billing")} <span className="text-red-500">*</span>
-              </legend>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {LICENSE_BILLINGS.map((b) => (
-                  <label
-                    key={b}
-                    className={`flex cursor-pointer gap-2 rounded-xl p-3 ring-1 transition-colors ${
-                      lic.billing === b ? "bg-accent-50 ring-accent-300 dark:bg-accent-400/10 dark:ring-accent-400/40" : "ring-line hover:bg-subtle"
-                    }`}
-                  >
-                    <input type="radio" name="license-billing" value={b} checked={lic.billing === b} onChange={() => chooseBilling(b)} className="mt-1 accent-[var(--accent-500)]" />
-                    <span>
-                      <span className="block text-sm font-medium">{t(`assets.license.billings.${b}`)}</span>
-                      <span className="block text-xs text-muted">{t(`assets.license.billingHints.${b}`)}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {licField(
-                "start_date",
-                t("assets.license.startDate"),
-                <DateInput id="license-start_date" value={lic.start_date} onChange={(d) => setLicense({ start_date: d })} className={licCls("start_date")} />,
-                { required: true },
-              )}
-              {lic.billing === "custom" &&
-                licField(
-                  "duration_years",
-                  t("assets.license.durationYears"),
-                  <input
-                    ref={yearsRef}
-                    id="license-duration_years"
-                    type="number"
-                    min={1}
-                    max={LICENSE_MAX_YEARS}
-                    step={1}
-                    inputMode="numeric"
-                    value={lic.duration_years}
-                    onChange={(e) => setLicense({ duration_years: e.target.value })}
-                    placeholder={t("assets.license.durationYearsPlaceholder")}
-                    className={`${licCls("duration_years")} ${yearsPending ? "border-accent-400 ring-2 ring-accent-200 dark:ring-accent-400/30" : ""}`}
-                  />,
-                  { hint: t("assets.license.durationYearsHint") },
-                )}
-              {lic.billing !== "perpetual" &&
-                licField(
-                  "expires_at",
-                  t("assets.license.expiresAt"),
-                  <DateInput id="license-expires_at" value={lic.expires_at} min={lic.start_date || undefined} onChange={(d) => setLicense({ expires_at: d })} className={licCls("expires_at")} />,
-                  { required: true, hint: lic.billing === "yearly" ? t("assets.license.yearlyHint") : undefined },
-                )}
-              {licField(
-                "seats",
-                t("assets.license.seats"),
-                <input id="license-seats" type="number" min={1} inputMode="numeric" value={lic.seats} onChange={(e) => setLicense({ seats: e.target.value })} className={licCls("seats")} />,
-                { hint: t("assets.license.seatsHint") },
-              )}
-              {licField(
-                "vendor",
-                t("assets.license.vendor"),
-                <input id="license-vendor" maxLength={255} value={lic.vendor} onChange={(e) => setLicense({ vendor: e.target.value })} className={licCls("vendor")} />,
-              )}
-              {lic.billing !== "perpetual" &&
-                licField(
-                  "notify_days_before",
-                  t("assets.license.notifyDays"),
-                  <input
-                    id="license-notify_days_before"
-                    type="number"
-                    min={1}
-                    max={365}
-                    inputMode="numeric"
-                    value={lic.notify_days_before}
-                    onChange={(e) => setLicense({ notify_days_before: e.target.value })}
-                    className={licCls("notify_days_before")}
-                  />,
-                  { hint: t("assets.license.notifyDaysHint") },
-                )}
-              <div className="sm:col-span-2 lg:col-span-3">
-                {licField(
-                  "license_key",
-                  t("assets.license.key"),
-                  <PasswordInput
-                    id="license-license_key"
-                    autoComplete="new-password"
-                    maxLength={5000}
-                    value={lic.license_key}
-                    disabled={lic.clear_license_key}
-                    placeholder={hasLicenseKey ? t("assets.license.keyKeepPlaceholder") : undefined}
-                    onChange={(e) => setLicense({ license_key: e.target.value })}
-                    className={`${licCls("license_key")} font-mono`}
-                  />,
-                  { hint: t("assets.license.keyHint") },
-                )}
-                {hasLicenseKey && (
-                  <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-sm text-muted">
-                    <input
-                      type="checkbox"
-                      checked={lic.clear_license_key}
-                      onChange={(e) => setLicense({ clear_license_key: e.target.checked, license_key: "" })}
-                      className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
-                    />
-                    {t("assets.license.clearKey")}
-                  </label>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-
         <section className={`p-4 sm:p-6 ${card}`}>
           <h2 className="mb-4 font-semibold">{t("assets.form.sectionPurchase")}</h2>
-          <div className={`grid grid-cols-1 gap-4 ${hidden("warranty_expires_at") ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {field("purchase_date", t("assets.form.purchaseDate"), dateInput("purchase_date", { max: localToday() }))}
             {field("purchase_cost", t("assets.form.cost"), input("purchase_cost", { type: "number", min: 0, step: "0.01", inputMode: "decimal" }))}
-            {!hidden("warranty_expires_at") && field("warranty_expires_at", t("assets.form.warranty"), dateInput("warranty_expires_at"))}
+            {field("warranty_expires_at", t("assets.form.warranty"), dateInput("warranty_expires_at"))}
           </div>
           <div className="mt-4">
             {field(
@@ -768,7 +595,7 @@ export function AssetForm({
           </button>
         )}
         <div className="flex gap-2 sm:ml-auto">
-          <Link href={values.category === "SOFTWARE" ? "/licenses" : "/assets"} className={`${btn.secondary} flex-1 sm:flex-none`}>
+          <Link href="/assets" className={`${btn.secondary} flex-1 sm:flex-none`}>
             <XIcon className="text-faint" />
             {t("common.cancel")}
           </Link>

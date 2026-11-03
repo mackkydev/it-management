@@ -7,7 +7,7 @@ import { card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { ZoomBooking } from "@/lib/types";
-import { segmentOf, ZOOM_BAR } from "../../zoom-utils";
+import { segmentOf, zoomBarOf } from "../../zoom-utils";
 import { ZoomStatusBadge } from "../../zoom-ui";
 
 const noopSubscribe = () => () => {};
@@ -41,7 +41,7 @@ function lanesOf(list: ZoomBooking[], date: string): { lane: Map<string, number>
  * ไทม์ไลน์การใช้ ZOOM ของวัน (00:00–24:00) — การจองที่เวลาซ้อนกันแยกช่องแนวตั้ง, คลิกแถบ = รายละเอียด,
  * คลิกช่องว่าง = จองตั้งแต่เวลานั้น (ปัดลงชั่วโมง)
  */
-export function ZoomTimeline({ date, bookings, bookable = true }: { date: string; bookings: ZoomBooking[]; bookable?: boolean }) {
+export function ZoomTimeline({ date, bookings, accounts = [], bookable = true }: { date: string; bookings: ZoomBooking[]; accounts?: string[]; bookable?: boolean }) {
   const { t } = useI18n();
   const router = useRouter();
   const [hover, setHover] = useState<number | null>(null);
@@ -100,12 +100,13 @@ export function ZoomTimeline({ date, bookings, bookable = true }: { date: string
                 href={`/zoom/bookings/${b.id}`}
                 onClick={(ev) => ev.stopPropagation()}
                 onMouseMove={(ev) => ev.stopPropagation()}
-                className={`absolute z-10 cursor-pointer overflow-hidden rounded-md px-2 text-left ring-1 ring-inset ${ZOOM_BAR[b.status]}`}
+                className={`absolute z-10 cursor-pointer overflow-hidden rounded-md px-2 text-left ring-1 ring-inset ${zoomBarOf(b, accounts)}`}
                 style={{ left: `${pct(s)}%`, width: `${pct(e - s)}%`, ...box }}
               >
                 <span className="block truncate text-xs font-semibold leading-5">{b.title}</span>
                 <span className="block truncate text-[11px] leading-4 opacity-80">
                   {timeText(b)} · {b.user.name}
+                  {b.zoom_account ? ` · ${b.zoom_account}` : ""}
                 </span>
               </Link>
             );
@@ -120,7 +121,7 @@ export function ZoomTimeline({ date, bookings, bookable = true }: { date: string
           <p className="text-sm text-muted">{t("zoom.free")}</p>
         ) : (
           bookings.map((b) => (
-            <Link key={b.id} href={`/zoom/bookings/${b.id}`} className={`block w-full cursor-pointer rounded-lg px-2.5 py-1.5 text-left ring-1 ring-inset ${ZOOM_BAR[b.status]}`}>
+            <Link key={b.id} href={`/zoom/bookings/${b.id}`} className={`block w-full cursor-pointer rounded-lg px-2.5 py-1.5 text-left ring-1 ring-inset ${zoomBarOf(b, accounts)}`}>
               <span className="flex items-center justify-between gap-2 text-xs font-semibold">
                 <span className="truncate">
                   {timeText(b)} · {b.title}

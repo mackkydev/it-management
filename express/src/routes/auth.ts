@@ -260,6 +260,8 @@ authRoutes.get("/auth/me", async (req, res) => {
       can_approve: await canApprove(u),
       // เปิดบังคับลายเซ็น — ไม่มีลายเซ็น (signature_id null) = หน้าเว็บเตือนและปิดปุ่มบันทึก/อนุมัติเอกสาร
       signature_required: await signatureRequired(),
+      // ล้าง clipboard หลังคัดลอกข้อมูลลับ (ตั้งที่ ความปลอดภัยตอนเปิดดูรหัสผ่าน / License key)
+      clipboard_clear_seconds: (await secretGuard()).clipboard_clear_seconds,
       // วันหมดอายุรหัสผ่าน (LOCAL + เปิดบังคับเปลี่ยน) — หมดอายุแล้วหน้าเว็บพาไปหน้าเปลี่ยนรหัสผ่าน
       ...passwordStatus(u, await passwordPolicy()),
       // นโยบายของระบบ: ยังไม่ยอมรับเวอร์ชันปัจจุบัน = หน้าเว็บพาไปหน้ายอมรับนโยบาย

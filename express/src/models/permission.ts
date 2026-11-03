@@ -10,7 +10,7 @@
  */
 
 /** กลุ่มตามตำแหน่ง (system) — ใช้กับ defaults (super_admin ผ่านทุกสิทธิ์ ไม่ต้องระบุ) — กลุ่มฝ่าย IT เดิมถูกยุบเข้า admin / super_admin แล้ว */
-export type Audience = "admin" | "division_manager" | "manager" | "viewer";
+export type Audience = "admin" | "executive" | "division_manager" | "manager" | "viewer";
 
 export const ACTIONS = ["view", "create", "update", "delete", "approve", "manage", "other"] as const;
 export type PermissionAction = (typeof ACTIONS)[number];
@@ -72,7 +72,7 @@ const DEFS: Def[] = [
   { key: "tickets.view_all", module: "tickets", action: "view", name_th: "ดูใบแจ้งงานทั้งหมด (รวมที่ยังไม่อนุมัติ)", name_en: "View every ticket (including pending approval)", defaults: ["admin"] },
   { key: "tickets.approve_any", module: "tickets", action: "approve", name_th: "อนุมัติแทนผู้อนุมัติทุกสาย", name_en: "Approve on behalf of any approver", defaults: [], locked: true },
   // ผู้จัดการขึ้นไปอนุมัติใบแจ้งงานของตัวเองได้ (ทุกขั้นของสาย) — ปุ่มอนุมัติในหน้าใบงาน ไม่นับเป็นงานรออนุมัติ (ตัวเลขเมนู)
-  { key: "tickets.approve_own", module: "tickets", action: "approve", name_th: "อนุมัติใบแจ้งงานของตัวเอง", name_en: "Approve own tickets", defaults: ["division_manager", "manager"], selfScoped: true },
+  { key: "tickets.approve_own", module: "tickets", action: "approve", name_th: "อนุมัติใบแจ้งงานของตัวเอง", name_en: "Approve own tickets", defaults: ["executive", "division_manager", "manager"], selfScoped: true },
   { key: "it_tickets.queue", module: "it_jobs", action: "view", name_th: "เห็นคิวงาน IT และใบงานที่อนุมัติแล้ว", name_en: "See the IT queue and approved tickets", defaults: IT },
   { key: "it_tickets.manage_all", module: "it_jobs", action: "update", name_th: "รับงาน/บันทึกความคืบหน้าและผลแทนผู้อื่น", name_en: "Accept / update tickets on behalf of others", defaults: ["admin"] },
   { key: "it_tickets.close", module: "it_jobs", action: "approve", name_th: "ตรวจรับและปิดงาน / ส่งกลับแก้ไข", name_en: "Review and close / return tickets", defaults: ["admin"] },
@@ -96,18 +96,18 @@ const DEFS: Def[] = [
   { key: "contracts.delete", module: "contracts", action: "delete", name_th: "ลบสัญญา vendor", name_en: "Delete vendor contracts", defaults: IT, from: "contracts.manage" },
   // ผู้ที่แก้สัญญาได้อยู่แล้ว ได้สิทธิ์จัดการหมวดหมู่ตั้งแต่แรก (from)
   { key: "contracts.categories", module: "contracts", action: "manage", name_th: "จัดการหมวดหมู่สัญญา (ข้อมูลหลัก)", name_en: "Manage contract categories (master data)", defaults: IT, from: "contracts.update" },
-  { key: "announcements.manage", module: "announcements", action: "manage", name_th: "จัดการประกาศหน้า login", name_en: "Manage login announcements", defaults: IT },
+  { key: "announcements.manage", module: "announcements", action: "manage", name_th: "จัดการประกาศข่าวสาร", name_en: "Manage news announcements", defaults: IT },
 
   // สินทรัพย์ — ไม่มี assets.view_all (และไม่มี assets.create/update) = เห็นเฉพาะสินทรัพย์ที่ตัวเองถือครอง
   // เมนูสินทรัพย์ (ดูที่ตัวเองถือครอง) — ผู้ใช้ทั่วไป (viewer) ไม่ได้เป็นค่าตั้งต้น; การเลือกสินทรัพย์ตอนแจ้งซ่อม (form-options my_assets) ไม่ใช้สิทธิ์นี้
-  { key: "assets.view", module: "assets", action: "view", name_th: "เปิดเมนูสินทรัพย์ — ดูสินทรัพย์ที่ตัวเองถือครอง (เลือกสินทรัพย์ตอนแจ้งซ่อมได้ทุกคน)", name_en: "Open the assets menu — view assets the user holds (everyone can pick assets when reporting a repair)", defaults: ["admin", "division_manager", "manager"] },
+  { key: "assets.view", module: "assets", action: "view", name_th: "เปิดเมนูสินทรัพย์ — ดูสินทรัพย์ที่ตัวเองถือครอง (เลือกสินทรัพย์ตอนแจ้งซ่อมได้ทุกคน)", name_en: "Open the assets menu — view assets the user holds (everyone can pick assets when reporting a repair)", defaults: ["admin", "executive", "division_manager", "manager"] },
   { key: "assets.view_all", module: "assets", action: "view", name_th: "ดูสินทรัพย์ทั้งหมด (ไม่มีสิทธิ์นี้ = เห็นเฉพาะที่ตัวเองถือครอง)", name_en: "View all assets (otherwise only the user's own)", defaults: MANAGERS_IT },
   { key: "assets.create", module: "assets", action: "create", name_th: "เพิ่มสินทรัพย์ / นำเข้า Excel", name_en: "Add assets / import Excel", defaults: MANAGERS, from: "assets.manage" },
   { key: "assets.update", module: "assets", action: "update", name_th: "แก้ไขสินทรัพย์ ไฟล์ และการโอนย้าย", name_en: "Edit assets, files and movements", defaults: MANAGERS, from: "assets.manage" },
   { key: "assets.delete", module: "assets", action: "delete", name_th: "ลบสินทรัพย์", name_en: "Delete assets", defaults: ["admin"] },
   { key: "movements.view", module: "assets", action: "other", name_th: "ดูรายงานประวัติการโอนย้าย (ทุกเครื่อง)", name_en: "View the movement report (all assets)", defaults: MANAGERS_IT, from: "assets.view_all" },
   { key: "assets.license_key", module: "assets", action: "other", name_th: "เปิดดู license key", name_en: "Reveal license keys", defaults: MANAGERS_IT },
-  { key: "locations.view", module: "locations", action: "view", name_th: "เปิดหน้ารายการสถานที่ (ช่องเลือกสถานที่ในฟอร์มใช้ได้ทุกคน)", name_en: "Open the location list (location pickers work for everyone)", defaults: ["admin", "division_manager", "manager", "viewer"] },
+  { key: "locations.view", module: "locations", action: "view", name_th: "เปิดหน้ารายการสถานที่ (ช่องเลือกสถานที่ในฟอร์มใช้ได้ทุกคน)", name_en: "Open the location list (location pickers work for everyone)", defaults: ["admin", "executive", "division_manager", "manager", "viewer"] },
   { key: "locations.manage", module: "locations", action: "manage", name_th: "เพิ่ม/แก้ไขสถานที่", name_en: "Add / edit locations", defaults: MANAGERS, from: "assets.manage" },
   { key: "locations.delete", module: "locations", action: "delete", name_th: "ลบสถานที่", name_en: "Delete locations", defaults: ["admin"] },
   { key: "licenses.install", module: "licenses", action: "manage", name_th: "บันทึก/ถอนการติดตั้ง license", name_en: "Record / remove license installations", defaults: MANAGERS_IT },
@@ -121,7 +121,7 @@ const DEFS: Def[] = [
   { key: "branches.manage", module: "branches", action: "manage", name_th: "จัดการสาขา", name_en: "Manage branches", defaults: ["admin"] },
   { key: "org.manage", module: "org", action: "manage", name_th: "จัดการแผนกและฝ่าย", name_en: "Manage departments and divisions", defaults: ["admin"] },
   // ลายเซ็น: จัดการของตัวเอง (ตั้งต้นทุกกลุ่ม) / ใช้ลายเซ็นของผู้อื่นในเอกสาร
-  { key: "signature.manage_own", module: "signature", action: "manage", name_th: "อัปโหลด/วาด/ลบลายเซ็นของตัวเอง", name_en: "Upload / draw / delete own signature", defaults: ["admin", "division_manager", "manager", "viewer"] },
+  { key: "signature.manage_own", module: "signature", action: "manage", name_th: "อัปโหลด/วาด/ลบลายเซ็นของตัวเอง", name_en: "Upload / draw / delete own signature", defaults: ["admin", "executive", "division_manager", "manager", "viewer"] },
   { key: "signature.use", module: "signature", action: "other", name_th: "ใช้ลายเซ็นของผู้อื่นในเอกสาร", name_en: "Use other users' signatures in documents", defaults: [], locked: true },
 
   // ตั้งค่าระบบ

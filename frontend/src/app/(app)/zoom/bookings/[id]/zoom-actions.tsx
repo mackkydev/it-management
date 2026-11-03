@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
-import { acceptZoomBooking, cancelZoomBooking, sendZoomLink, zoomBusy } from "@/app/actions/zoom";
+import { acceptZoomBooking, acknowledgeZoomBooking, cancelZoomBooking, sendZoomLink, zoomBusy } from "@/app/actions/zoom";
+import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
 import { AlertIcon, CheckCircleIcon, PencilIcon, SendIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError } from "@/components/ui";
@@ -11,13 +12,13 @@ import { useI18n } from "@/i18n/client";
 import type { ZoomBooking } from "@/lib/types";
 import { parseZoomInvitation, type ZoomMeetingInfo } from "../../zoom-utils";
 
-type Busy = "accept" | "link" | "busy" | "cancel" | null;
+type Busy = "accept" | "link" | "busy" | "cancel" | "acknowledge" | null;
 
 /**
- * ปุ่มของหน้าการจอง ZOOM — ผู้จอง: แก้ไข (ก่อนรับงาน) / ยกเลิก
- * ฝ่าย IT (zoom.manage): รับงาน → วางลิงก์ประชุม + หมายเหตุ แล้วบันทึก (แจ้งผู้จอง + ขึ้น KPI ของผู้รับงาน) / แจ้งกลับว่ามีการใช้งานแล้ว
+ * ปุ่มของหน้าการจอง ZOOM — ผู้จอง: แก้ไข (ก่อนรับงาน / IT ส่งกลับให้แก้วันเวลา) / ยกเลิก / กดรับ
+ * ฝ่าย IT (zoom.manage): รับงาน → วางลิงก์ประชุม + หมายเหตุ แล้วบันทึก (แจ้งผู้จอง + ผู้จัดการ IT ซึ่งอนุมัติที่หน้าใบแจ้งงาน) / แจ้งกลับให้แก้วันเวลา
  */
-export function ZoomActions({ booking: z }: { booking: ZoomBooking }) {
+export function ZoomActions({ booking: z, accounts = [] }: { booking: ZoomBooking; accounts?: string[] }) {
   const { t } = useI18n();
   const router = useRouter();
   const confirm = useConfirm();
@@ -35,6 +36,7 @@ export function ZoomActions({ booking: z }: { booking: ZoomBooking }) {
     setInfo((x) => ({ link: p.link || x.link, topic: p.topic || x.topic, meeting_id: p.meeting_id || x.meeting_id, passcode: p.passcode || x.passcode }));
     if (p.link) setErrors((x) => ({ ...x, meeting_link: "" }));
   };
+  const [account, setAccount] = useState(z.zoom_account ?? "");
   const [reason, setReason] = useState("");
   const [showBusy, setShowBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -56,8 +58,9 @@ export function ZoomActions({ booking: z }: { booking: ZoomBooking }) {
 
   const accept = () => run("accept", () => acceptZoomBooking(z.id), "accepted");
   const saveLink = () => {
-    if (!/^https?:\/\/\S+$/i.test(info.link.trim())) return setErrors({ meeting_link: t("zoom.validate.link") });
-    run("link", () => sendZoomLink(z.id, { ...info, invitation }), z.status === "confirmed" ? "link_updated" : "linked");
+    const found = { ...(account ? {} : { zoom_account: t("zoom.validate.account") }), ...(/^https?:\/\/\S+$/i.test(info.link.trim()) ? {} : { meeting_link: t("zoom.validate.link") }) };
+    if (Object.keys(found).length) return setErrors(found);
+    run("link", () => sendZoomLink(z.id, { ...info, account, invitation }), z.status === "confirmed" ? "link_updated" : "linked");
   };
   const reply = async () => {
     if (!(await confirm(t("zoom.actions.busyConfirm")))) return;
@@ -68,7 +71,8 @@ export function ZoomActions({ booking: z }: { booking: ZoomBooking }) {
     run("cancel", () => cancelZoomBooking(z.id), "cancelled");
   };
 
-  const owner = z.can_edit || z.can_cancel;
+  const acknowledge = () => run("acknowledge", () => acknowledgeZoomBooking(z.id), "acknowledged");
+  const owner = z.can_edit || z.can_cancel || z.can_acknowledge;
   const it = z.can_accept || z.can_link || z.can_busy;
   if (!owner && !it) return null;
   const spin = (k: Busy, icon: ReactNode) => (busy === k ? <SpinnerIcon width={14} height={14} /> : icon);
@@ -97,6 +101,28 @@ export function ZoomActions({ booking: z }: { booking: ZoomBooking }) {
           )}
           {z.can_link && (
             <div className="space-y-3 rounded-xl p-3 ring-1 ring-line">
+              <div>
+                <label htmlFor="zoom_account" className="mb-1 block text-sm font-medium">
+                  {t("zoom.actions.account")} <span className="text-red-500">*</span>
+                </label>
+                <AppSelect
+                  id="zoom_account"
+                  value={account}
+                  onValueChange={(x) => {
+                    setAccount(x);
+                    setErrors((e) => ({ ...e, zoom_account: "" }));
+                  }}
+                  className={`${input} ${errors.zoom_account ? inputError : ""}`}
+                >
+                  <option value="">{t("zoom.actions.accountPlaceholder")}</option>
+                  {[...new Set([...accounts, ...(z.zoom_account ? [z.zoom_account] : [])])].map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </AppSelect>
+                {errors.zoom_account && <p className="mt-1 text-xs font-medium text-red-500">{errors.zoom_account}</p>}
+              </div>
               <div>
                 <label htmlFor="invitation" className="mb-1 block text-sm font-medium">
                   {t("zoom.actions.invitation")}
@@ -188,11 +214,17 @@ export function ZoomActions({ booking: z }: { booking: ZoomBooking }) {
 
       {/* ผู้จอง */}
       {owner && (
-        <div className={`flex flex-wrap gap-2 ${it ? "border-t border-line pt-4" : ""}`}>
+        <div className={`flex flex-wrap items-center gap-2 ${it ? "border-t border-line pt-4" : ""}`}>
+          {z.can_acknowledge && (
+            <button type="button" onClick={acknowledge} disabled={busy !== null} className={btn.primary}>
+              {spin("acknowledge", <CheckCircleIcon width={16} height={16} />)}
+              {t("zoom.actions.acknowledge")}
+            </button>
+          )}
           {z.can_edit && (
-            <Link href={`/zoom/bookings/${z.id}/edit`} className={btn.soft}>
+            <Link href={`/zoom/bookings/${z.id}/edit`} className={z.status === "needs_change" ? btn.primary : btn.soft}>
               <PencilIcon width={16} height={16} />
-              {t("zoom.actions.edit")}
+              {z.status === "needs_change" ? t("zoom.actions.changeTime") : t("zoom.actions.edit")}
             </Link>
           )}
           {z.can_cancel && (

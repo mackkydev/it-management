@@ -41,7 +41,7 @@ export default async function LicenseInstallationsPage({ searchParams }: PagePro
 
   const [{ t, fmt }, { data: licenses }, { data: branches }, can] = await Promise.all([
     getI18n(),
-    apiFetch<{ data: LicenseSummary[] }>("/license-installations/licenses"),
+    apiFetch<{ data: LicenseSummary[] }>("/licenses"),
     apiFetch<{ data: Branch[] }>("/branches"),
     getAccess(),
   ]);

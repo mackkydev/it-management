@@ -1,8 +1,8 @@
 import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
-import { insert } from "../src/db.js";
+import { insert, scalar } from "../src/db.js";
 import { nowDb } from "../src/lib/time.js";
-import { as, makeAsset, makeBranch, makeLocation, makeUser } from "./helpers.js";
+import { as, makeAsset, makeBranch, makeLicenseRow, makeLocation, makeUser } from "./helpers.js";
 
 /** หน้ารายละเอียดสินทรัพย์: ประวัติผู้ใช้งาน + ประวัติการซ่อม / หน้าประวัติการโอนย้าย: ตัวกรองเพิ่ม */
 
@@ -117,28 +117,23 @@ describe("repairs report (all assets)", () => {
 describe("asset list license usage", () => {
   it("shows installed / remaining seats for license assets", async () => {
     const api = await as(await makeUser({ role: "admin" }));
-    const lic = await makeAsset({ asset_tag: "SW-1", category: "SOFTWARE" });
     const now = nowDb();
-    await insert("asset_licenses", { asset_id: lic.id, billing: "yearly", start_date: "2026-01-01", expires_at: "2026-12-31", seats: 5, created_at: now, updated_at: now });
+    const lic = await makeLicenseRow({ license_no: "SW-1", billing: "yearly", expires_at: "2026-12-31", seats: 5 });
     for (const removed of [null, null, "2026-05-01"]) {
-      await insert("license_installations", { license_asset_id: lic.id, device_name: "PC", installed_at: "2026-02-01", uninstalled_at: removed, created_at: now, updated_at: now });
+      await insert("license_installations", { license_id: lic.id, device_name: "PC", installed_at: "2026-02-01", uninstalled_at: removed, created_at: now, updated_at: now });
     }
-    const unlimited = await makeAsset({ asset_tag: "SW-2", category: "SOFTWARE" });
-    await insert("asset_licenses", { asset_id: unlimited.id, billing: "perpetual", start_date: "2026-01-01", seats: null, created_at: now, updated_at: now });
+    await makeLicenseRow({ license_no: "SW-2", seats: null });
     await makeAsset({ asset_tag: "PC-1", category: "COMPUTER" });
 
-    // License ซอฟต์แวร์แยกไปเมนู /licenses — รายการสินทรัพย์ปกติไม่รวมหมวด SOFTWARE
+    // License แยกตารางแล้ว — รายการสินทรัพย์ไม่รวม
     const assets = (await api.get("/api/v1/assets?per_page=10")).body.data as { asset_tag: string }[];
     expect(assets.map((a) => a.asset_tag)).toEqual(["PC-1"]);
-    const list = (await api.get("/api/v1/assets?per_page=10&category=SOFTWARE")).body.data as { asset_tag: string; license_usage?: unknown }[];
-    const byTag = Object.fromEntries(list.map((a) => [a.asset_tag, a.license_usage]));
-    expect(byTag["SW-1"]).toEqual({ seats: 5, used: 2, available: 3 });
-    expect(byTag["SW-2"]).toEqual({ seats: null, used: 0, available: null });
 
     // เมนู License ซอฟต์แวร์: จำนวนที่ใช้ + ไฟล์แนบ — ผู้ใช้ทั่วไปเปิดไม่ได้
-    const licenses = (await api.get("/api/v1/license-installations/licenses")).body.data as { asset_tag: string; used: number; files_count: number; billing: string }[];
-    expect(licenses.find((l) => l.asset_tag === "SW-1")).toMatchObject({ used: 2, files_count: 0, billing: "yearly" });
-    expect((await (await as(await makeUser())).get("/api/v1/license-installations/licenses")).status).toBe(403);
+    const licenses = (await api.get("/api/v1/licenses")).body.data as { license_no: string; used: number; files_count: number; billing: string; seats: number | null; available: number | null }[];
+    expect(licenses.find((l) => l.license_no === "SW-1")).toMatchObject({ seats: 5, used: 2, available: 3, files_count: 0, billing: "yearly" });
+    expect(licenses.find((l) => l.license_no === "SW-2")).toMatchObject({ seats: null, used: 0, available: null });
+    expect((await (await as(await makeUser())).get("/api/v1/licenses")).status).toBe(403);
   });
 });
 
@@ -186,5 +181,92 @@ describe("repair tickets match assets by asset number (new / old) as well as the
     expect(report.length).toBe(2);
     expect(report.every((r) => r.asset?.asset_tag === "PC-NUM")).toBe(true);
     expect(earlier).toBeGreaterThan(0);
+  });
+});
+
+describe("holder = user, transfer by branch", () => {
+  it("custodian sets the user name; the transfer button moves branch + holder and records both histories", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const api = await as(admin);
+    const [bkk, lpn] = [await makeBranch({ code: "BKK1", name: "กรุงเทพ" }), await makeBranch({ code: "LPN1", name: "ลำพูน" })];
+    const [a, b] = [await makeUser({ name: "สมชาย ใจดี" }), await makeUser({ name: "สมหญิง รักดี" })];
+    const created = await api.post("/api/v1/assets").send({ asset_tag: "PC-HOLD", name: "Desktop", category: "COMPUTER", branch_id: bkk, custodian_id: a.id, user_name: "ชื่ออื่น" });
+    expect(created.body.data).toMatchObject({ user_name: "สมชาย ใจดี", custodian: { id: a.id } });
+    const id = created.body.data.id;
+
+    const moved = await api.post(`/api/v1/assets/${id}/movements`).send({ branch_id: lpn, custodian_id: b.id, reason: "ย้ายสาขา" });
+    expect(moved.status).toBe(201);
+    expect(moved.body.data).toMatchObject({ from_branch: { id: bkk, name: "กรุงเทพ" }, to_branch: { id: lpn, name: "ลำพูน" }, to_custodian: { id: b.id } });
+    const detail = (await api.get(`/api/v1/assets/${id}`)).body.data;
+    expect(detail).toMatchObject({ branch: { id: lpn }, custodian: { id: b.id }, user_name: "สมหญิง รักดี" });
+    const logs = (await api.get(`/api/v1/assets/${id}/user-logs`)).body.data as { from_user_name: string | null; to_user_name: string | null }[];
+    expect(logs[0]).toMatchObject({ from_user_name: "สมชาย ใจดี", to_user_name: "สมหญิง รักดี" });
+    // ย้ายสาขาอย่างเดียวก็บันทึกได้
+    expect((await api.post(`/api/v1/assets/${id}/movements`).send({ branch_id: bkk })).status).toBe(201);
+    expect((await api.post(`/api/v1/assets/${id}/movements`).send({ branch_id: bkk })).status).toBe(422); // ไม่เปลี่ยน
+  });
+});
+
+describe("repairs report keeps the branch recorded on the ticket", () => {
+  it("a ticket stays under the branch it was reported from after the asset moves", async () => {
+    const admin = await as(await makeUser({ role: "admin" }));
+    const user = await makeUser();
+    const [lpn, bkk] = [await makeBranch({ code: "LPN2", name: "ลำพูน" }), await makeBranch({ code: "BKK2", name: "กรุงเทพ" })];
+    const pc = await makeAsset({ asset_tag: "PC-MOVE", category: "COMPUTER", branch_id: lpn });
+    await ticket(user.id, { asset_id: pc.id, asset_tag: "PC-MOVE", branch_id: lpn, symptom: "ตอนอยู่ลำพูน" });
+    await ticket(user.id, { asset_id: pc.id, asset_tag: "PC-MOVE", symptom: "ใบไม่ระบุสาขา" });
+    expect((await admin.post(`/api/v1/assets/${pc.uuid}/movements`).send({ branch_id: bkk })).status).toBe(201);
+
+    const at = async (branch: number) => ((await admin.get(`/api/v1/repairs?branch_id=${branch}`)).body.data as { symptom: string; branch: string; asset_branch: string }[]);
+    const inLpn = await at(lpn);
+    expect(inLpn.map((r) => r.symptom)).toEqual(["ตอนอยู่ลำพูน"]);
+    expect(inLpn[0]).toMatchObject({ branch: "ลำพูน", asset_branch: "กรุงเทพ" });
+    // ใบที่ไม่ได้ระบุสาขา = ตามสาขาปัจจุบันของเครื่อง
+    expect((await at(bkk)).map((r) => r.symptom)).toEqual(["ใบไม่ระบุสาขา"]);
+  });
+});
+
+describe("linking repair tickets typed with a number not in the register", () => {
+  it("adding the asset from the list links its tickets even when the real number differs", async () => {
+    const api = await as(await makeUser({ role: "super_admin" }));
+    const user = await makeUser({ name: "ผู้แจ้ง" });
+    const first = await ticket(user.id, { asset_tag: "cccccc", status: "in_progress", device_name: "EPSON" });
+    const second = await ticket(user.id, { asset_tag: "cccccc", status: "completed" });
+    const cancelled = await ticket(user.id, { asset_tag: "cccccc", status: "cancelled" });
+
+    // เปลี่ยนเป็นเลขจริง + หมวดที่ไม่ใช่คอมพิวเตอร์ = ยังผูกกับใบเดิม
+    const made = await api.post("/api/v1/assets").send({ asset_tag: "LQ310R5", name: "ปริ้นเตอร์", category: "ปริ้นเตอร์", source_asset_no: "cccccc" });
+    expect(made.status).toBe(201);
+    expect((await api.get("/api/v1/assets/missing")).body.data).toEqual([]);
+    const id = await scalar<number>("SELECT id FROM assets WHERE asset_tag = 'LQ310R5'");
+    for (const ticketId of [first, second]) expect(Number(await scalar("SELECT asset_id FROM it_tickets WHERE id = ?", [ticketId]))).toBe(Number(id));
+    expect(await scalar("SELECT asset_id FROM it_tickets WHERE id = ?", [cancelled])).toBeNull();
+    expect((await api.get(`/api/v1/assets/${made.body.data.id}/repairs`)).body.data).toHaveLength(2);
+    // เลขที่ผู้แจ้งพิมพ์คงเดิม
+    expect(await scalar("SELECT asset_tag FROM it_tickets WHERE id = ?", [first])).toBe("cccccc");
+  });
+
+  it("a number can be linked to an existing asset by hand; the link survives editing the ticket", async () => {
+    const api = await as(await makeUser({ role: "super_admin" }));
+    const branch = await makeBranch();
+    const boss = await makeUser({ role: "manager", branch_id: branch });
+    const it = await makeUser({ role: "admin", is_it_staff: true });
+    const user = await makeUser({ branch_id: branch });
+    await makeAsset({ asset_tag: "PR-1", name: "Printer", category: "ปริ้นเตอร์" });
+    const id = await ticket(user.id, { asset_tag: "typo", status: "pending_supervisor", approver_id: boss.id, device_name: "EPSON", symptom: "หัวพัง", branch_id: branch });
+    await ticket(user.id, { asset_tag: "other" });
+
+    expect((await api.post("/api/v1/assets/missing/link").send({ asset_no: "typo", asset_tag: "NOPE" })).status).toBe(422);
+    expect((await (await as(await makeUser())).post("/api/v1/assets/missing/link").send({ asset_no: "typo", asset_tag: "PR-1" })).status).toBe(403);
+    const linked = await api.post("/api/v1/assets/missing/link").send({ asset_no: "typo", asset_tag: "PR-1" });
+    expect(linked.body.data.tickets).toBe(1);
+    expect((await api.get("/api/v1/assets/missing")).body.data.map((m: { asset_no: string }) => m.asset_no)).toEqual(["other"]);
+    expect((await api.post("/api/v1/assets/missing/link").send({ asset_no: "typo", asset_tag: "PR-1" })).status).toBe(422);
+    expect(Number(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'asset.tickets_linked'"))).toBe(1);
+
+    const uuid = await scalar<string>("SELECT uuid FROM it_tickets WHERE id = ?", [id]);
+    const edited = await (await as(user)).put(`/api/v1/tickets/${uuid}`).send({ type: "repair", branch_id: branch, details: "x", device_name: "EPSON", symptom: "หัวพัง", asset_tag: "typo", approver_id: boss.id, assignee_id: it.id });
+    expect(edited.status).toBe(200);
+    expect(await scalar("SELECT asset_id FROM it_tickets WHERE id = ?", [id])).not.toBeNull();
   });
 });

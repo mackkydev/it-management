@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { deleteAssetFile, revealLicenseKey, uploadAssetFiles } from "@/app/actions/assets";
+import { deleteLicenseFile, revealLicenseKey, uploadLicenseFiles } from "@/app/actions/licenses";
 import { AlertIcon, CheckIcon, CopyIcon, DownloadIcon, EyeIcon, EyeOffIcon, FileTextIcon, SpinnerIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import { ReauthPrompt } from "@/components/reauth-prompt";
 import type { ReauthChallenge } from "@/lib/types";
@@ -16,18 +16,19 @@ const ICON_BTN =
   "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
 
 /** license key: แสดง •••• กดดูได้ (API ตรวจสิทธิ์ + จำกัดจำนวนครั้ง) และคัดลอก */
-export function LicenseKey({ assetId }: { assetId: string }) {
+export function LicenseKey({ licenseId }: { licenseId: string }) {
   const { t } = useI18n();
   const [key, setKey] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [clearIn, setClearIn] = useState(0);
   const [pending, start] = useTransition();
 
   // ต้องยืนยันรหัสผ่านซ้ำก่อน (ตั้งค่าความปลอดภัย) → แสดงช่องยืนยัน แล้วเปิดดูอีกครั้งอัตโนมัติ
   const [reauth, setReauth] = useState<ReauthChallenge | null>(null);
   const reveal = () =>
     start(async () => {
-      const res = await revealLicenseKey(assetId);
+      const res = await revealLicenseKey(licenseId);
       if (res.reauth) setReauth(res.reauth);
       else if (res.message) setError(res.message);
       else setKey(res.key ?? "");
@@ -46,7 +47,7 @@ export function LicenseKey({ assetId }: { assetId: string }) {
   const copy = async () => {
     if (!key) return;
     // ล้าง clipboard อัตโนมัติใน 30 วินาที (lib/clipboard.ts)
-    await copySecret(key);
+    setClearIn(await copySecret(key));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -60,7 +61,7 @@ export function LicenseKey({ assetId }: { assetId: string }) {
         </button>
       </Tooltip>
       {key && (
-        <Tooltip label={copied ? t("assets.license.copied") : t("assets.license.copyKey")}>
+        <Tooltip label={copied ? t("assets.license.copied", { seconds: clearIn }) : t("assets.license.copyKey")}>
           <button type="button" onClick={copy} aria-label={t("assets.license.copyKey")} className={ICON_BTN}>
             {copied ? <CheckIcon width={15} height={15} className="text-success-500" /> : <CopyIcon width={15} height={15} />}
           </button>
@@ -78,7 +79,7 @@ const previewable = (mime: string) => /^(application\/pdf|image\/|text\/plain)/.
 const sizeText = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(2)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 
 /** ไฟล์ license: รายการ + พรีวิว/ดาวน์โหลด, อัปโหลดหลายไฟล์ และลบ (ผู้จัดการสินทรัพย์) */
-export function LicenseFiles({ assetId, files, canManage }: { assetId: string; files: AssetFile[]; canManage: boolean }) {
+export function LicenseFiles({ licenseId, files, canManage }: { licenseId: string; files: AssetFile[]; canManage: boolean }) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const picker = useRef<HTMLInputElement>(null);
@@ -100,7 +101,7 @@ export function LicenseFiles({ assetId, files, canManage }: { assetId: string; f
         setProgress(t("assets.files.uploading", { current: String(i + 1), total: String(chosen.length) }));
         const fd = new FormData();
         fd.append("files[]", file);
-        const res = await uploadAssetFiles(assetId, fd);
+        const res = await uploadLicenseFiles(licenseId, fd);
         if (!res.ok) {
           const detail = Object.values(res.errors ?? {})[0] ?? res.message ?? "";
           setMessage({ ok: false, text: `${file.name}: ${detail}` });
@@ -117,7 +118,7 @@ export function LicenseFiles({ assetId, files, canManage }: { assetId: string; f
     if (!(await confirm(t("assets.files.confirmDelete", { name: f.name })))) return;
     setDeleting(f.id);
     start(async () => {
-      const res = await deleteAssetFile(assetId, f.id);
+      const res = await deleteLicenseFile(licenseId, f.id);
       setDeleting(null);
       setMessage(res.ok ? { ok: true, text: t("assets.files.deleted") } : { ok: false, text: res.message ?? "" });
     });

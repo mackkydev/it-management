@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { has, getCurrentUser, getUiConfig } from "@/lib/auth";
-import type { AppSettings, PolicyAcceptance, SystemPolicy } from "@/lib/types";
+import type { AppSettings, PermissionCatalog, PolicyAcceptance, SystemPolicy } from "@/lib/types";
 import { LogoCard } from "./logo-card";
 import { SecurityForm } from "./security-form";
 import { SettingsForm } from "./settings-form";
@@ -47,8 +47,8 @@ export default async function SettingsPage() {
       <SignaturePolicy initial={Boolean(data.require_signature)} />
       {/* นโยบายการใช้งานระบบที่ต้องยอมรับก่อนใช้งาน + รายชื่อผู้ยอมรับ (settings.manage) */}
       <PolicySettings initial={policy.data} acceptances={acceptances} />
-      {/* บังคับ 2FA ผู้ดูแลระบบ — นโยบายการเข้าสู่ระบบ (access.manage) */}
-      {has(user, "access.manage") && <TwoFactorPolicy initial={Boolean(data.two_factor_required)} />}
+      {/* บังคับ 2FA ตามกลุ่ม — นโยบายการเข้าสู่ระบบ (access.manage) */}
+      {has(user, "access.manage") && <TwoFactorPolicy groups={(await apiFetch<PermissionCatalog>("/permissions")).groups} initial={data.two_factor_groups ?? []} />}
       {/* นโยบายรหัสผ่าน: ล็อกบัญชีเมื่อ login ผิด + บังคับเปลี่ยนรหัสผ่านทุก N วัน (access.manage) */}
       {has(user, "access.manage") && <PasswordPolicyForm initial={data.password_policy} />}
     </div>

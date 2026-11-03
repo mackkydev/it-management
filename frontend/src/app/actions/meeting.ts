@@ -41,6 +41,16 @@ export interface BookingValues {
   end_date: string;
   start_time: string;
   end_time: string;
+  /** จองพร้อม ZOOM (เลือกอุปกรณ์ที่มีคำว่า Zoom แล้วกรอก modal) — หัวข้อว่าง = หัวข้อประชุม */
+  add_zoom: boolean;
+  /** แก้ไข: เอาอุปกรณ์ Zoom ออก = ยกเลิก ZOOM ที่จองไว้ */
+  zoom_cancel: boolean;
+  zoom_title: string;
+  zoom_details: string;
+  zoom_start_on: string;
+  zoom_start_time: string;
+  zoom_end_on: string;
+  zoom_end_time: string;
 }
 
 /** จองใหม่ (id = null) / แก้ไขการจอง — swap = ยืนยันสลับห้องกับการจองที่ใช้ห้องนั้นอยู่ (ผู้ดูแลห้อง) */
@@ -61,6 +71,8 @@ export async function saveBooking(id: string | null, v: BookingValues, swap = fa
         end_date: v.end_date && v.end_date >= v.date ? v.end_date : v.date,
         start_time: v.start_time,
         end_time: v.end_time,
+        ...(v.add_zoom ? { zoom: { title: v.zoom_title.trim() || null, details: v.zoom_details.trim() || null, start_on: v.zoom_start_on, start_time: v.zoom_start_time, end_on: v.zoom_end_on, end_time: v.zoom_end_time } } : {}),
+        ...(v.zoom_cancel ? { zoom_cancel: true } : {}),
         ...(swap ? { swap: true } : {}),
       }),
     });

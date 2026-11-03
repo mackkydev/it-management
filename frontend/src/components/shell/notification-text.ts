@@ -59,7 +59,7 @@ export function notificationText(n: AppNotification, t: TFunction, date: (iso: s
 export function notificationHref(n: AppNotification): string {
   if (n.data.kind === "ticket") return `/tickets/${n.data.ticket_id}`;
   // รหัสผ่านในคลังบัญชี → หน้าแก้ไขที่มีประวัติการเปิดดู / License key → หน้าสินทรัพย์
-  if (n.data.kind === "secret_revealed") return n.data.secret === "vault" ? `/vault/${n.data.subject_id}/edit` : `/assets/${n.data.subject_id}`;
+  if (n.data.kind === "secret_revealed") return n.data.secret === "vault" ? `/vault/${n.data.subject_id}/edit` : `/licenses/${n.data.subject_id}`;
   // การเปลี่ยนสิทธิ์ → หน้าสิทธิ์ของผู้ใช้ / หน้าสิทธิ์ตามกลุ่ม · PIN กลาง → คลังบัญชี (ฟอร์ม PIN)
   if (n.data.kind === "access_changed") {
     if (n.data.change === "user") return `/users/${n.data.subject_id}/permissions`;
@@ -78,7 +78,7 @@ export function notificationHref(n: AppNotification): string {
     return n.data.event === "cancelled" || n.data.event === "rejected" ? "/vehicles/mine?status=cancelled" : "/vehicles/mine";
   }
   // จอง ZOOM → หน้ารายละเอียดของการจองนั้น (ฝ่าย IT รับงาน / ส่งลิงก์, ผู้จองดูลิงก์ / เหตุผล)
-  if (n.data.kind === "zoom") return `/zoom/bookings/${n.data.zoom_booking_id}`;
+  if (n.data.kind === "zoom") return n.data.open_ticket ? `/tickets/${n.data.open_ticket}` : `/zoom/bookings/${n.data.zoom_booking_id}`;
   // ยืมอุปกรณ์: รอส่งมอบ → หน้าส่งมอบ/รับคืน, เกินกำหนด → ผู้จัดการไปแท็บเกินกำหนด (ผู้ยืมไปการยืมของฉัน — ลิงก์เดียวกัน redirect ตามสิทธิ์), อื่นๆ → การยืมของฉัน
   if (n.data.kind === "loan") {
     if (n.data.event === "requested") return "/loans/manage?status=pending";

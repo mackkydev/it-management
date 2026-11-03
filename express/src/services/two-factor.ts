@@ -5,6 +5,7 @@ import { exec, update } from "../db.js";
 import { decryptString, encryptString } from "../lib/laravel-crypt.js";
 import { nowDb } from "../lib/time.js";
 import type { UserRow } from "../models/user.js";
+import { groupsOf } from "./permissions.js";
 import { getSetting } from "./settings.js";
 
 /**
@@ -13,7 +14,7 @@ import { getSetting } from "./settings.js";
  * - secret เก็บเข้ารหัสด้วย APP_KEY (users.two_factor_secret) — ยืนยันรหัสแรกแล้วจึงมีผล (two_factor_confirmed_at)
  * - รับรหัสช่วงเวลาก่อน/หลัง 1 ช่วง (นาฬิกาคลาดเคลื่อน) และห้ามใช้รหัสช่วงเดิมซ้ำ (two_factor_last_step)
  * - recovery codes 8 ชุด (ใช้ได้ครั้งเดียว) เก็บเป็น SHA-256 — แสดงให้ผู้ใช้ครั้งเดียวตอนสร้าง
- * - บังคับใช้กับผู้ดูแลระบบ (super_admin / admin บัญชี LOCAL) เมื่อเปิด app_settings.two_factor_required
+ * - บังคับใช้กับบัญชี LOCAL ในกลุ่มที่เปิดไว้ app_settings.two_factor_groups
  */
 
 const PERIOD = 30;
@@ -163,10 +164,19 @@ export async function disableTwoFactor(userId: number): Promise<void> {
   );
 }
 
-/** บังคับ 2FA กับผู้ใช้นี้ไหม (สวิตช์ two_factor_required + ผู้ดูแลระบบบัญชี LOCAL) */
+/** กลุ่มที่บังคับ 2FA — ยังไม่เคยตั้งรายกลุ่ม = ตามสวิตช์เดิม two_factor_required (super_admin + admin) */
+export async function twoFactorGroups(): Promise<string[]> {
+  const groups = await getSetting("two_factor_groups");
+  if (Array.isArray(groups)) return groups.map(String);
+  return (await getSetting("two_factor_required")) === true ? ["super_admin", "admin"] : [];
+}
+
+/** บังคับ 2FA กับผู้ใช้นี้ไหม (บัญชี LOCAL + อยู่ในกลุ่มที่เปิดไว้ นับทั้งกลุ่มตามตำแหน่งและกลุ่มที่มอบเพิ่ม) */
 export async function twoFactorRequiredFor(u: UserRow): Promise<boolean> {
-  if (u.type !== "LOCAL" || !["super_admin", "admin"].includes(u.role)) return false;
-  return (await getSetting("two_factor_required")) === true;
+  if (u.type !== "LOCAL") return false;
+  const required = await twoFactorGroups();
+  if (!required.length) return false;
+  return (await groupsOf(u)).some((g) => required.includes(g));
 }
 
 /* ---------------------------------------------------------------- challenge ระหว่าง login 2 ขั้น */

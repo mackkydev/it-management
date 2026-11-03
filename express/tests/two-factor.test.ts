@@ -71,8 +71,8 @@ describe("two-factor authentication (TOTP)", () => {
     const viewer = await as(await makeUser());
     const adminUser = await makeUser({ role: "admin", email: "boss@corp.test", password: "Secret123" });
     await makeUser({ email: "plain@corp.test", password: "Secret123" });
-    expect((await viewer.put("/api/v1/settings").send({ two_factor_required: true })).status).toBe(403);
-    expect((await superAdmin.put("/api/v1/settings").send({ two_factor_required: true })).status).toBe(200);
+    expect((await viewer.put("/api/v1/settings").send({ two_factor_groups: ["super_admin", "admin"] })).status).toBe(403);
+    expect((await superAdmin.put("/api/v1/settings").send({ two_factor_groups: ["super_admin", "admin"] })).status).toBe(200);
 
     // พนักงานทั่วไปไม่ถูกบังคับ
     expect((await login("plain@corp.test")).body.token).toBeTruthy();
@@ -93,5 +93,41 @@ describe("two-factor authentication (TOTP)", () => {
     expect((await viewer.delete(`/api/v1/users/${adminUser.id}/2fa`)).status).toBe(403);
     expect((await superAdmin.delete(`/api/v1/users/${adminUser.id}/2fa`)).status).toBe(204);
     expect((await login("boss@corp.test")).body.two_factor).toBe("setup");
+  });
+});
+
+describe("two-factor required per group", () => {
+  it("forces members of the selected groups only; the old switch still works until groups are saved", async () => {
+    const root = await as(await makeUser({ role: "super_admin" }));
+    const plainUser = await makeUser({ email: "g-plain@corp.test", password: "Secret123" });
+    const manager = await makeUser({ role: "manager", email: "g-manager@corp.test", password: "Secret123" });
+    const admin = await makeUser({ role: "admin", email: "g-admin@corp.test", password: "Secret123" });
+    const member = await makeUser({ email: "g-member@corp.test", password: "Secret123" });
+    await exec("INSERT INTO permission_groups (\"key\", name_th, name_en, is_system, sort_order) VALUES ('tfa_force', 'บังคับ', 'Forced', 0, 99)");
+    await exec("INSERT INTO user_groups (user_id, group_key) VALUES (?, 'tfa_force')", [member.id]);
+
+    // ค่าเดิม: สวิตช์เก่าเปิด + ยังไม่ตั้งรายกลุ่ม = ผู้ดูแลระบบ
+    await exec("INSERT INTO app_settings (\"key\", \"value\") VALUES ('two_factor_required', 'true') AS new ON DUPLICATE KEY UPDATE \"value\" = new.\"value\"");
+    expect((await root.get("/api/v1/settings")).body.data.two_factor_groups).toEqual(["super_admin", "admin"]);
+
+    expect((await root.put("/api/v1/settings").send({ two_factor_groups: ["nope"] })).status).toBe(422);
+    expect((await root.put("/api/v1/settings").send({ two_factor_groups: ["manager", "tfa_force"] })).status).toBe(200);
+    expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'settings.two_factor_groups'")).toBe(1);
+
+    expect((await login("g-manager@corp.test")).body).toMatchObject({ two_factor: "setup" });
+    expect((await login("g-member@corp.test")).body).toMatchObject({ two_factor: "setup" });
+    expect((await login("g-plain@corp.test")).body.token).toBeTruthy();
+    // ถอดกลุ่มผู้ดูแลระบบออกแล้ว = ไม่ถูกบังคับ
+    expect((await login("g-admin@corp.test")).body.token).toBeTruthy();
+
+    // หน้าแก้ไขผู้ใช้รู้ว่าคนนี้ถูกบังคับไหม
+    expect((await root.get(`/api/v1/users/${manager.id}`)).body.meta.two_factor_required).toBe(true);
+    expect((await root.get(`/api/v1/users/${plainUser.id}`)).body.meta.two_factor_required).toBe(false);
+
+    // ปิดทุกกลุ่ม = ไม่กลับไปใช้สวิตช์เก่า
+    expect((await root.put("/api/v1/settings").send({ two_factor_groups: [] })).status).toBe(200);
+    expect((await root.get("/api/v1/settings")).body.data.two_factor_groups).toEqual([]);
+    expect((await login("g-manager@corp.test")).body.token).toBeTruthy();
+    expect(admin.id).toBeGreaterThan(0);
   });
 });

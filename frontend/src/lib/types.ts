@@ -1,3 +1,5 @@
+import type { MessageKey, TFunction } from "@/i18n/types";
+
 export type AssetStatus = "active" | "in_storage" | "in_repair" | "lost" | "disposed";
 
 export const LOCATION_TYPES = ["site", "building", "floor", "room", "warehouse"] as const;
@@ -46,6 +48,8 @@ export interface Asset {
   notes: string | null;
   /** เป็นเครื่องสำหรับยืม (แสดงในหน้า ยืมโน้ตบุ๊ก) */
   is_loanable: boolean;
+  /** ผู้ถือครองส่วนกลาง: ถือครองโดยสาขา/แผนก */
+  is_shared?: boolean;
   branch?: { id: number; name: string } | null;
   /** ข้อมูลเครื่องคอมพิวเตอร์ (หมวด COMPUTER — asset_tag = Host Name) */
   department: string | null;
@@ -67,14 +71,8 @@ export interface Asset {
   other_software: string | null;
   /** สเปคคอมพิวเตอร์ (ข้อมูล Drop Down computer_spec) */
   computer_spec: string | null;
-  /** เฉพาะหมวด SOFTWARE (null = ไม่มี) */
-  license?: AssetLicense | null;
-  /** หน้ารายการ: จำนวนสิทธิ์ทั้งหมด / ติดตั้งแล้ว / คงเหลือ (เฉพาะ license) */
-  license_usage?: LicenseUsage;
   /** เฉพาะหน้ารายละเอียด */
   files?: AssetFile[];
-  /** เฉพาะหน้ารายละเอียด: ไอคอน License ซอฟต์แวร์ (/files/assets/{id}/icon?v=icon_id) */
-  icon_id?: number | null;
   /** เฉพาะหน้ารายละเอียด: ซอฟต์แวร์ (license) ที่ติดตั้งบนเครื่องนี้ */
   software?: SoftwareSet;
   created_at: string;
@@ -111,6 +109,8 @@ export interface User {
   can_approve?: boolean;
   /** API User (จาก GET /auth/me): ระบบต้นทาง + ลิงก์เปลี่ยนรหัสผ่านที่ต้นทาง */
   external_connection?: { name: string; change_password_url: string | null };
+  /** ตำแหน่งงาน (ข้อความ ไม่บังคับ) — แยกจากสิทธิ์กลุ่มใช้งาน role */
+  job_title?: string | null;
   // สังกัด / สายบังคับบัญชา / ฝ่าย IT
   branch_id?: number | null;
   branch?: { id: number; name: string } | null;
@@ -139,6 +139,8 @@ export interface User {
   policy_accepted_at?: string | null;
   /** เปิดบังคับลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (ตั้งค่าระบบ) */
   signature_required?: boolean;
+  /** ล้าง clipboard หลังคัดลอกข้อมูลลับ (วินาที) */
+  clipboard_clear_seconds?: number;
   password_warn?: boolean;
   is_active?: boolean;
   /** สายอนุมัติที่กำหนดรายบุคคล (null = จับคู่อัตโนมัติตามสาขา+แผนก) */
@@ -174,7 +176,7 @@ export interface PasswordPolicy {
 
 export interface AppSettings {
   /** บังคับผู้ดูแลระบบใช้ 2FA (แก้ได้เฉพาะ access.manage) */
-  two_factor_required?: boolean;
+  two_factor_groups?: string[];
   /** บังคับให้มีลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (ใบแจ้งงาน / ใบลา) */
   require_signature?: boolean;
   password_policy: PasswordPolicy;
@@ -222,6 +224,8 @@ export interface SecretGuard {
   notify_heads: boolean;
   /** ผู้รับแจ้งเตือนเมื่อมีคนเปิดดู — [] = หัวหน้า IT ทุกคน */
   notify_user_ids: number[];
+  /** ล้าง clipboard หลังคัดลอก (วินาที, 5–600) */
+  clipboard_clear_seconds: number;
 }
 
 /** หมวดตั้งต้น (แก้ไม่ได้) — คลังบัญชีและหมวดหมู่สัญญาใช้ชุดเดียวกัน ("other" ท้ายสุด) */
@@ -341,6 +345,10 @@ export interface TicketDetail extends TicketSummary {
   forward_options?: { id: number; name: string; busy: "leave" | "onsite" | null }[];
   /** รับงานแทนผู้ที่ผู้แจ้งเลือกไว้ (ชื่อผู้ถูกเลือกเดิม) — null = รับงานของตัวเอง */
   take_over_from?: string | null;
+  /** ใบงานของการจอง ZOOM: จัดการที่หน้า ZOOM (หน้านี้อ่านอย่างเดียว) */
+  zoom_booking_id?: string | null;
+  /** ผู้จัดการ IT กดอนุมัติใบงานของการจอง ZOOM ได้ */
+  can_zoom_approve?: boolean;
   department: string | null;
   division: string | null;
   requester: { id: number; name: string; email: string } | null;
@@ -475,8 +483,10 @@ export interface AppNotification {
     | {
         // จอง ZOOM: requested = คำขอใหม่ (ถึงฝ่าย IT zoom.manage), accepted / confirmed / link_updated / rejected = ถึงผู้จอง, cancelled = ผู้จองยกเลิก (ถึงผู้รับงาน)
         kind: "zoom";
-        event: "requested" | "accepted" | "confirmed" | "link_updated" | "rejected" | "cancelled";
+        event: "requested" | "accepted" | "confirmed" | "link_updated" | "rejected" | "needs_change" | "resubmitted" | "time_changed" | "head_requested" | "head_approved" | "expired" | "cancelled";
         zoom_booking_id: string;
+        /** เปิดที่หน้าใบแจ้งงาน (ผู้จัดการ IT อนุมัติ) */
+        open_ticket?: string | null;
         actor: string;
         title: string;
         start_on: string;
@@ -558,7 +568,10 @@ export interface AssetRepair {
   device_name: string | null;
   asset_tag: string | null;
   asset: { id: string; asset_tag: string; name: string; category: string } | null;
+  /** สาขาตอนแจ้ง (ใบงาน) */
   branch: string | null;
+  /** สาขาปัจจุบันของเครื่อง */
+  asset_branch: string | null;
 }
 
 export interface AssetMovement {
@@ -571,6 +584,8 @@ export interface AssetMovement {
   to_location: Pick<Location, "id" | "code" | "name"> | null;
   from_custodian: { id: number; name: string } | null;
   to_custodian: { id: number; name: string } | null;
+  from_branch: { id: number; name: string } | null;
+  to_branch: { id: number; name: string } | null;
   moved_at: string;
   reason: string | null;
   performed_by: { id: number; name: string } | null;
@@ -579,7 +594,7 @@ export interface AssetMovement {
 
 /** ผู้ดูแลระบบ / ผู้จัดการฝ่าย / ผู้จัดการ / เจ้าหน้าที่ IT / พนักงาน — สิทธิ์ของแต่ละบทบาทตั้งที่หน้า "สิทธิ์ตามบทบาท" */
 /** ตำแหน่ง: ผู้ดูแลระบบสูงสุด > ผู้ดูแลระบบ > ผู้จัดการฝ่าย > ผู้จัดการ > พนักงาน (ผู้ใช้ LOCAL และ API ได้ทุกตำแหน่ง) */
-export const ROLES = ["super_admin", "admin", "division_manager", "manager", "viewer"] as const;
+export const ROLES = ["super_admin", "admin", "executive", "division_manager", "manager", "viewer", "auditor"] as const;
 export type Role = (typeof ROLES)[number];
 
 /** ผู้ใช้ในหน้าจัดการ (GET /users?manage=1, GET /users/{id}) — admin เท่านั้น */
@@ -592,6 +607,12 @@ export interface ManagedUser extends User {
 }
 
 export interface UserFormValues {
+  /** กลุ่มงานเพิ่มเติม (เฉพาะตอนสร้างผู้ใช้) */
+  groups?: string[];
+  /** ตำแหน่งงาน (ไม่บังคับ) */
+  job_title: string;
+  /** ผู้จัดการฝ่าย IT: อนุมัติผลงานใบแจ้งงาน */
+  is_it_head: boolean;
   name: string;
   email: string;
   username: string;
@@ -603,8 +624,6 @@ export interface UserFormValues {
   department: string;
   division: string;
   supervisor_id: string;
-  is_it_staff: boolean;
-  is_it_head: boolean;
   /** "" = จับคู่สายอนุมัติอัตโนมัติตามสาขา+แผนก */
   approval_route_id: string;
 }
@@ -628,16 +647,19 @@ export interface AssetTagOption {
   category: string;
 }
 
-export const CATEGORIES = ["COMPUTER", "IT", "SOFTWARE", "FURNITURE", "VEHICLE", "EQUIPMENT"];
+/** หมวดรหัสตายตัว — หมวดอื่นแก้ได้ที่ ข้อมูล Drop Down (asset_category) เก็บชื่อเป็นข้อความใน assets.category */
+export const CATEGORIES = ["COMPUTER"];
+/** ชื่อหมวด: รหัสตายตัว / รหัสเดิม = ไฟล์แปล, ที่เหลือ = ชื่อจากข้อมูล Drop Down */
+export const assetCategoryLabel = (t: TFunction, category: string) =>
+  [...CATEGORIES, "SOFTWARE", "IT", "FURNITURE", "VEHICLE", "EQUIPMENT"].includes(category) ? t(`assets.categories.${category}` as MessageKey) : category;
 
 /**
  * หมวดหมู่กำหนดฟอร์มเพิ่มเติม — license: แสดงส่วนข้อมูล license (+ ไฟล์ license), computer: ข้อมูลเครื่องคอมพิวเตอร์, hide: ซ่อนช่องที่ไม่เกี่ยว
  * หมวดที่ไม่อยู่ในนี้ใช้ฟอร์มปกติ — เพิ่มหมวด/ฟิลด์ใหม่แก้ที่นี่ที่เดียว
  */
-export const CATEGORY_FORM: Record<string, { license?: boolean; computer?: boolean; hide?: (keyof AssetFormValues)[] }> = {
+export const CATEGORY_FORM: Record<string, { computer?: boolean }> = {
   // ทะเบียนคอมพิวเตอร์: รหัส = Host Name + ข้อมูลเครื่อง (COMPUTER_FIELDS)
   COMPUTER: { computer: true },
-  SOFTWARE: { license: true, hide: ["serial_number", "warranty_expires_at"] },
 };
 
 /** ช่องข้อมูลเครื่องคอมพิวเตอร์ตามลำดับทะเบียน Excel — ข้อความ / วันที่ */
@@ -666,6 +688,10 @@ export interface AssetLicense {
   vendor: string | null;
   notify_days_before: number | null;
   software_type: SoftwareType;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  /** กำลังจะหมดอายุ (ถึงช่วงแจ้งเตือน ยังไม่ต่อสัญญา/ยกเลิก) — มีในหน้ารายละเอียด */
+  expiring?: boolean;
   has_key: boolean;
 }
 
@@ -699,7 +725,7 @@ export interface LoginConnection {
   forgot_password_url: string | null;
 }
 
-/** ประกาศบนหน้า login (GET /announcements/public) */
+/** ประกาศข่าวสารที่แสดงอยู่ — หน้าภาพรวม (GET /announcements/public) */
 export interface PublicAnnouncement {
   id: number;
   title: string;
@@ -732,10 +758,39 @@ export interface MissingAsset {
   last_ticket: { id: string; ticket_no: string; requested_at: string; symptom: string | null; requester: string | null; branch: string | null };
 }
 
-/** GET /license-installations/licenses */
+/** GET /licenses */
+export const LICENSE_STATUSES = ["active", "inactive", "lost", "disposed"] as const;
+export type LicenseStatus = (typeof LICENSE_STATUSES)[number];
+
+/** GET /licenses/{id} — License ซอฟต์แวร์ (ตาราง licenses แยกจากสินทรัพย์) */
+export interface License {
+  id: string;
+  license_no: string | null;
+  name: string;
+  brand: string | null;
+  model: string | null;
+  serial_number: string | null;
+  status: LicenseStatus;
+  location: { id: number; code: string; name: string } | null;
+  branch: { id: number; name: string } | null;
+  purchase_date: string | null;
+  purchase_cost: string | null;
+  notes: string | null;
+  license: AssetLicense;
+  license_usage: LicenseUsage;
+  files: AssetFile[];
+  icon_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface LicenseSummary extends LicenseUsage {
   id: string;
-  asset_tag: string;
+  license_no: string | null;
+  /** S/N ของกล่อง */
+  serial_number: string | null;
+  /** เครื่องที่ติดตั้งอยู่ (id = null: ชื่อที่พิมพ์เอง ไม่ผูกสินทรัพย์) */
+  devices: { id: string | null; asset_tag: string | null; name: string | null }[];
   name: string;
   billing: string;
   vendor: string | null;
@@ -743,13 +798,15 @@ export interface LicenseSummary extends LicenseUsage {
   files_count: number;
   icon_id: number | null;
   software_type: SoftwareType;
+  cancelled_at: string | null;
+  expiring: boolean;
   expires_at: string | null;
   days_left: number | null;
 }
 
 export interface LicenseInstallation {
   id: number;
-  license: { id: string; asset_tag: string; name: string };
+  license: { id: string; license_no: string | null; name: string };
   device: { id: string; asset_tag: string; name: string } | null;
   device_name: string | null;
   user: { id: number; name: string } | null;
@@ -803,6 +860,10 @@ export interface AssetFormValues {
   notes: string;
   branch_id: string;
   is_loanable: boolean;
+  /** ผู้ถือครองส่วนกลาง: ถือครองโดยสาขา/แผนก */
+  is_shared: boolean;
+  /** เพิ่มจากแท็บ สินทรัพย์ที่ต้องเพิ่ม: เลขในใบแจ้งซ่อมที่จะผูกกับสินทรัพย์นี้ */
+  source_asset_no?: string;
   /** ข้อมูลเครื่องคอมพิวเตอร์ (CATEGORY_FORM.computer) */
   department: string;
   user_name: string;
@@ -823,32 +884,48 @@ export interface AssetFormValues {
   computer_spec: string;
   /** เหตุผลการโอนย้าย — ส่งเฉพาะตอนแก้ไขและสถานที่/ผู้ถือครองเปลี่ยน */
   movement_reason: string;
-  /** ใช้เมื่อหมวดมี license (CATEGORY_FORM) */
-  license: LicenseFormValues;
   /** หมวดคอมพิวเตอร์: OS / Office / Anti Virus / Software อื่นๆ ที่เลือกจาก license */
   software: SoftwareSet;
 }
 
 export type FieldErrors = Partial<
-  Record<Exclude<keyof AssetFormValues, "license" | "software"> | "license" | `license.${keyof LicenseFormValues}` | `software.${SoftwareSlot | "others"}`, string>
+  Record<Exclude<keyof AssetFormValues, "software"> | `software.${SoftwareSlot | "others"}`, string>
 >;
 
 /** ซอฟต์แวร์บนเครื่อง = license (สินทรัพย์หมวด Software) — ช่อง os / office / antivirus + อื่นๆ */
 export const SOFTWARE_SLOTS = ["os", "office", "antivirus"] as const;
 export type SoftwareSlot = (typeof SOFTWARE_SLOTS)[number];
 export interface SoftwareRef {
-  id: string; // uuid ของสินทรัพย์ license
-  asset_tag: string;
+  id: string; // uuid ของ License
+  license_no: string | null;
   name: string;
 }
 export type SoftwareSet = Record<SoftwareSlot, SoftwareRef | null> & { others: SoftwareRef[] };
 export interface SoftwareOption extends SoftwareRef {
+  serial_number: string | null;
   model: string | null;
   software_type: SoftwareType;
   seats: number | null;
   used: number;
   available: number | null;
 }
+/** ค่าจากฟอร์ม License */
+export interface LicenseRecordValues {
+  license_no: string;
+  name: string;
+  brand: string;
+  model: string;
+  serial_number: string;
+  status: LicenseStatus;
+  location_id: string;
+  branch_id: string;
+  purchase_date: string;
+  purchase_cost: string;
+  notes: string;
+  license: LicenseFormValues;
+}
+export type LicenseFieldErrors = Partial<Record<Exclude<keyof LicenseRecordValues, "license"> | "license" | `license.${keyof LicenseFormValues}`, string>>;
+
 export const EMPTY_SOFTWARE: SoftwareSet = { os: null, office: null, antivirus: null, others: [] };
 
 /** ค่าสถานะทั้งหมด — ข้อความแสดงผลอยู่ใน dictionary: t(`status.${value}`) */
@@ -928,26 +1005,6 @@ export interface UserPermissionView {
   role_synced: boolean;
   /** ผู้เปิดดูแก้ผู้ใช้นี้ไม่ได้เพราะ (null = แก้ได้) */
   locked_reason?: string | null;
-}
-
-/** GET /api-users */
-export interface ApiUser {
-  id: number;
-  name: string;
-  email: string | null;
-  role: Role;
-  is_active: boolean;
-  external_id: string;
-  external_synced_at: string | null;
-  created_at: string | null;
-  connection_id: number;
-  connection_name: string;
-  overrides_count: number;
-  /** สถานะจากการซิงค์รายชื่อ: active | disabled (ปิดที่ต้นทาง) | missing (ไม่พบที่ต้นทาง) */
-  external_status: "active" | "disabled" | "missing" | null;
-  /** อีเมลจากต้นทางที่ซ้ำกับผู้ใช้อื่น (รอผูกบัญชี) */
-  conflict_email: string | null;
-  conflict_user_id: number | null;
 }
 
 export const API_AUTH_TYPES = ["none", "api_key", "bearer", "basic"] as const;
@@ -1231,6 +1288,8 @@ export interface MeetingBooking {
   cancelled_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  /** การจอง ZOOM ที่จองพร้อมห้องนี้ */
+  zoom: { id: string; status: string } | null;
   can_edit: boolean;
   can_cancel: boolean;
   can_delete: boolean;
@@ -1273,7 +1332,7 @@ export interface ZoomBooking {
   start_time: string;
   end_on: string;
   end_time: string;
-  status: "pending" | "accepted" | "confirmed" | "rejected" | "cancelled";
+  status: "pending" | "accepted" | "needs_change" | "confirmed" | "rejected" | "cancelled";
   is_over: boolean;
   assignee: { id: number; name: string } | null;
   accepted_at: string | null;
@@ -1283,17 +1342,24 @@ export interface ZoomBooking {
   meeting_topic: string | null;
   meeting_id: string | null;
   passcode: string | null;
+  /** บัญชี ZOOM ที่ฝ่าย IT ใช้ — ปฏิทินแสดงสีตามบัญชี */
+  zoom_account: string | null;
   confirmed_by: string | null;
   confirmed_at: string | null;
   reject_reason: string | null;
   rejected_by: string | null;
   rejected_at: string | null;
   cancelled_at: string | null;
-  ticket: { id: string; ticket_no: string } | null;
+  ticket: { id: string; ticket_no: string; status: string } | null;
+  /** ผู้จัดการ IT อนุมัติแล้ว: ชื่อ + ลายเซ็นที่ประทับลงใบงาน */
+  head_approval: { name: string; at: string | null; signature_url: string | null } | null;
+  /** จองมาพร้อมการจองห้องประชุม */
+  from_meeting: boolean;
   created_at: string | null;
   updated_at: string | null;
   can_edit: boolean;
   can_cancel: boolean;
+  can_acknowledge: boolean;
   can_accept: boolean;
   can_link: boolean;
   can_busy: boolean;

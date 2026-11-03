@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useTransition } from "react";
-import { deleteAssetIcon, uploadAssetIcon } from "@/app/actions/assets";
+import { deleteLicenseIcon, uploadLicenseIcon } from "@/app/actions/licenses";
 import { useAlert, useConfirm } from "@/components/dialog-provider";
 import { KeyIcon, SpinnerIcon, UploadIcon, XIcon } from "@/components/icons";
 import { Tooltip } from "@/components/tooltip";
@@ -17,14 +17,14 @@ const SIZES = { md: { box: "h-12 w-12 rounded-xl", icon: 20 }, lg: { box: "h-14 
  * canEdit = คลิกเพื่ออัปโหลด/เปลี่ยน (รูป ≤ 1MB — API ย่อเป็น WebP 256px), removable = ปุ่ม × ลบไอคอน
  */
 export function LicenseIcon({
-  assetId,
+  licenseId,
   iconId,
   name,
   canEdit = false,
   removable = false,
   size = "md",
 }: {
-  assetId: string;
+  licenseId: string;
   iconId: number | null | undefined;
   name: string;
   canEdit?: boolean;
@@ -41,7 +41,7 @@ export function LicenseIcon({
 
   const face = iconId ? (
     // eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน /files (ไม่ใช้ next/image)
-    <img src={`/files/assets/${assetId}/icon?v=${iconId}`} alt={name} className="h-full w-full object-contain p-1" />
+    <img src={`/files/licenses/${licenseId}/icon?v=${iconId}`} alt={name} className="h-full w-full object-contain p-1" />
   ) : (
     <KeyIcon width={s.icon} height={s.icon} />
   );
@@ -58,7 +58,7 @@ export function LicenseIcon({
     const form = new FormData();
     form.append("icon", file);
     start(async () => {
-      const res = await uploadAssetIcon(assetId, form);
+      const res = await uploadLicenseIcon(licenseId, form);
       if (!res.ok) return void (await showAlert(res.errors?.icon ?? res.message ?? t("common.saveFailed")));
       router.refresh();
     });
@@ -66,7 +66,7 @@ export function LicenseIcon({
   const remove = async () => {
     if (!(await confirm(t("licenses.icon.confirmDelete")))) return;
     start(async () => {
-      const res = await deleteAssetIcon(assetId);
+      const res = await deleteLicenseIcon(licenseId);
       if (!res.ok) return void (await showAlert(res.message ?? t("common.saveFailed")));
       router.refresh();
     });

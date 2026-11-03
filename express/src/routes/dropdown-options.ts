@@ -39,12 +39,22 @@ const textColumn = (table: string, column: string): Pick<ListConfig, "usage" | "
 });
 
 const LISTS: Record<string, ListConfig> = {
+  // หมวดหมู่สินทรัพย์ — คอมพิวเตอร์ / Software เป็นรหัสตายตัว (ฟอร์มและสิทธิ์อิงรหัสนี้) ไม่อยู่ในรายการ
+  asset_category: { ...textColumn("assets", "category"), max: 30, quickAdd: [] },
   computer_type: { ...textColumn("assets", "computer_type"), max: 30, quickAdd: ["assets.create", "assets.update"] },
   brand: { ...textColumn("assets", "brand"), max: 100, quickAdd: ["assets.create", "assets.update"] },
   // สเปคคอมพิวเตอร์ (ทะเบียนคอมพิวเตอร์) — ภายหลังจะมีหน้า spec คอมพิวเตอร์แยก
   computer_spec: { ...textColumn("assets", "computer_spec"), max: 255, quickAdd: ["assets.create", "assets.update"] },
   vault_category: { ...textColumn("credentials", "category"), max: 30, quickAdd: ["vault.create", "vault.update"] },
   meeting_purpose: { ...textColumn("meeting_bookings", "purpose"), max: 100, quickAdd: [], manage: "meeting.rooms" },
+  // บัญชี ZOOM ที่ฝ่าย IT เลือกตอนส่งลิงก์ = zoom_bookings.zoom_account (ตารางไม่มี deleted_at)
+  zoom_account: {
+    max: 100,
+    quickAdd: [],
+    manage: "zoom.manage",
+    usage: "(SELECT COUNT(*) FROM zoom_bookings x WHERE LOWER(TRIM(x.zoom_account)) = LOWER(o.name))",
+    rename: (to, from) => exec("UPDATE zoom_bookings SET zoom_account = ?, updated_at = ? WHERE LOWER(TRIM(zoom_account)) = LOWER(?)", [to, nowDb(), from]),
+  },
   vehicle_purpose: { ...textColumn("vehicle_bookings", "purpose"), max: 100, quickAdd: [], manage: "vehicle.manage" },
   // ประเภทรถ / เชื้อเพลิง = vehicles.vehicle_type / fuel_type (ตาราง vehicles ไม่มี deleted_at)
   vehicle_type: {
@@ -129,6 +139,7 @@ const input = (req: Request, list: string, cfg: ListConfig, current: OptionRow |
         custom(async (v) => {
           const name = String(v).trim();
           if (list === "vault_category" && isBuiltinName(name)) return false;
+          if (list === "asset_category" && ["COMPUTER", "SOFTWARE"].includes(name.toUpperCase())) return false;
           const dup = await scalar(
             `SELECT 1 FROM dropdown_options WHERE list = ? AND LOWER(name) = LOWER(?)${current ? " AND id <> ?" : ""}`,
             current ? [list, name, current.id] : [list, name],

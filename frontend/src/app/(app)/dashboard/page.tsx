@@ -10,8 +10,9 @@ import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
-import type { TicketStatus, TicketType } from "@/lib/types";
+import type { PublicAnnouncement, TicketStatus, TicketType } from "@/lib/types";
 import { TicketStatusBadge, ticketSubject } from "../tickets/ticket-ui";
+import { NewsCarousel } from "./news-carousel";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -39,39 +40,54 @@ interface Dashboard {
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 
-/** โทนพาสเทลของกล่อง (token สีสถานะ / สีธีม — จางลงในโหมดมืด) */
-const PASTEL = {
-  accent: { box: "bg-accent-50 ring-accent-100 dark:bg-accent-400/[0.07] dark:ring-accent-400/15", chip: "bg-accent-100 text-accent-700 dark:bg-accent-400/15 dark:text-accent-300" },
-  info: { box: "bg-info-50 ring-info-100 dark:bg-info-400/[0.07] dark:ring-info-400/15", chip: "bg-info-100 text-info-700 dark:bg-info-400/15 dark:text-info-300" },
-  success: { box: "bg-success-50 ring-success-100 dark:bg-success-400/[0.07] dark:ring-success-400/15", chip: "bg-success-100 text-success-700 dark:bg-success-400/15 dark:text-success-300" },
-  warning: { box: "bg-warning-50 ring-warning-100 dark:bg-warning-400/[0.07] dark:ring-warning-400/15", chip: "bg-warning-100 text-warning-700 dark:bg-warning-400/15 dark:text-warning-300" },
-  danger: { box: "bg-danger-50 ring-danger-100 dark:bg-danger-400/[0.07] dark:ring-danger-400/15", chip: "bg-danger-100 text-danger-700 dark:bg-danger-400/15 dark:text-danger-300" },
-  idle: { box: "bg-idle-50 ring-idle-100 dark:bg-idle-400/[0.07] dark:ring-idle-400/15", chip: "bg-idle-100 text-idle-700 dark:bg-idle-400/15 dark:text-idle-300" },
+/** สีไอคอนของกล่อง (token สีสถานะ / สีธีม) — พื้นกล่องเป็นสีขาวตามการ์ดปกติ */
+const CHIP = {
+  accent: "bg-accent-100 text-accent-700 dark:bg-accent-400/15 dark:text-accent-300",
+  info: "bg-info-100 text-info-700 dark:bg-info-400/15 dark:text-info-300",
+  success: "bg-success-100 text-success-700 dark:bg-success-400/15 dark:text-success-300",
+  warning: "bg-warning-100 text-warning-700 dark:bg-warning-400/15 dark:text-warning-300",
+  danger: "bg-danger-100 text-danger-700 dark:bg-danger-400/15 dark:text-danger-300",
+  idle: "bg-idle-100 text-idle-700 dark:bg-idle-400/15 dark:text-idle-300",
 } as const;
-type Pastel = keyof typeof PASTEL;
+type Chip = keyof typeof CHIP;
 
-/** ตัวเลขสรุป (กล่องสีพาสเทล) — คลิกไปหน้าที่เกี่ยวข้อง */
-function Stat({ href, label, value, icon: Icon, color }: { href: string; label: string; value: number; icon: Icon; color: Pastel }) {
+/** ตัวเลขสรุป (บล็อกขาว + ไอคอนสี) — คลิกไปหน้าที่เกี่ยวข้อง */
+function Stat({ href, label, value, icon: Icon, color }: { href: string; label: string; value: number; icon: Icon; color: Chip }) {
   return (
-    <Link href={href} className={`group flex cursor-pointer items-center gap-3 rounded-2xl p-4 ring-1 transition hover:brightness-[0.98] hover:shadow-sm ${PASTEL[color].box}`}>
-      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${PASTEL[color].chip}`}>
+    <Link href={href} className={`group flex cursor-pointer flex-col gap-3 p-4 transition-shadow hover:shadow-md ${card}`}>
+      <span className={`grid h-10 w-10 place-items-center rounded-xl ${CHIP[color]}`}>
         <Icon width={20} height={20} />
       </span>
       <span className="min-w-0">
-        <span className="block text-2xl font-semibold tabular-nums">{value}</span>
         <span className="block truncate text-xs text-muted group-hover:text-ink">{label}</span>
+        <span className="mt-0.5 block text-2xl font-semibold tabular-nums">{value}</span>
       </span>
     </Link>
   );
 }
 
+/** วงแหวนสัดส่วน (เช่น วันลาที่ใช้ไป / โควตา) */
+function Ring({ pct, className }: { pct: number; className: string }) {
+  const r = 26;
+  const length = 2 * Math.PI * r;
+  return (
+    <span className="relative grid h-16 w-16 shrink-0 place-items-center" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+      <svg viewBox="0 0 64 64" className="absolute inset-0 -rotate-90" aria-hidden="true">
+        <circle cx="32" cy="32" r={r} fill="none" strokeWidth="6" className="stroke-line" />
+        <circle cx="32" cy="32" r={r} fill="none" strokeWidth="6" strokeLinecap="round" strokeDasharray={length} strokeDashoffset={length * (1 - pct / 100)} className={className} />
+      </svg>
+      <span className="text-xs font-semibold tabular-nums text-muted">{pct}%</span>
+    </span>
+  );
+}
+
 /** กล่องรายการ (พื้นปกติ — สีพาสเทลเฉพาะไอคอน) ว่าง = ข้อความ พร้อมลิงก์ "ดูทั้งหมด" */
-function Panel({ title, icon: Icon, href, more, empty, color, children }: { title: string; icon: Icon; href: string; more: string; empty: string; color: Pastel; children: ReactNode[] }) {
+function Panel({ title, icon: Icon, href, more, empty, color, children }: { title: string; icon: Icon; href: string; more: string; empty: string; color: Chip; children: ReactNode[] }) {
   return (
     <section className={`flex flex-col p-4 sm:p-5 ${card}`}>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 font-semibold">
-          <span className={`grid h-7 w-7 place-items-center rounded-lg ${PASTEL[color].chip}`}>
+          <span className={`grid h-7 w-7 place-items-center rounded-lg ${CHIP[color]}`}>
             <Icon width={15} height={15} />
           </span>
           {title}
@@ -98,13 +114,16 @@ function Group({ title, icon: Icon, children }: { title: string; icon: Icon; chi
   );
 }
 
+/** ประกาศข่าวสาร (เปิดใช้งาน + อยู่ในช่วงวันที่) — ดึงไม่ได้ก็ยังแสดงหน้าภาพรวมตามปกติ */
+const loadNews = () => apiFetch<{ data: PublicAnnouncement[] }>("/announcements/public").then((r) => r.data).catch(() => [] as PublicAnnouncement[]);
+
 /**
- * ภาพรวม (GET /dashboard) — 3 หัวข้อ:
- *   งานฝ่าย IT (ใบแจ้งงาน + งานที่รอฉัน + งานของเจ้าหน้าที่ IT + ใบแจ้งงานล่าสุด + อุปกรณ์ที่ยืม/VPN) · การจอง (ห้องประชุม / รถ) · สรุปข้อมูลส่วนบุคคล (วันลา)
- *   สีพื้นพาสเทลเฉพาะกล่องตัวเลขสรุป (Stat) — กล่องรายการพื้นปกติ
+ * ภาพรวม (GET /dashboard) = ศูนย์รวมข้อมูลและข่าวสาร:
+ *   แถวบน ข่าวสาร (ซ้าย) · งานฝ่าย IT + ใบแจ้งงานล่าสุด (ขวา) → สรุปข้อมูลส่วนบุคคล (วันลา) → การจอง + อุปกรณ์ที่ยืม/VPN
+ *   ตัวเลขสรุป = บล็อกขาว + ไอคอนสี
  */
 export default async function DashboardPage() {
-  const [{ data: d }, user, { t, fmt }] = await Promise.all([apiFetch<{ data: Dashboard }>("/dashboard"), getCurrentUser(), getI18n()]);
+  const [{ data: d }, user, { t, fmt }, news] = await Promise.all([apiFetch<{ data: Dashboard }>("/dashboard"), getCurrentUser(), getI18n(), loadNews()]);
   const range = (from: string, to: string) => (from === to ? fmt.date(from) : `${fmt.date(from)} – ${fmt.date(to)}`);
   const row = "flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 text-sm";
   const isIt = Boolean(d.it);
@@ -114,23 +133,25 @@ export default async function DashboardPage() {
     <div className="space-y-7">
       <PageHeader icon={GaugeIcon} title={t("dashboard.title")} subtitle={t("dashboard.subtitle", { name: user.name })} />
 
-      {/* งานฝ่าย IT — ใบแจ้งงานของฉัน / งานที่รอฉัน (+ งานของเจ้าหน้าที่ IT) + ใบแจ้งงานล่าสุด + อุปกรณ์ที่ยืม/VPN */}
-      <Group title={t("dashboard.sectionIt")} icon={WrenchIcon}>
-        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${isIt ? "lg:grid-cols-4 xl:grid-cols-7" : "lg:grid-cols-4"}`}>
-          {!isIt && <Stat href="/tickets?mine=1" label={t("dashboard.ticketsOpen")} value={d.tickets.open} icon={ClipboardIcon} color="info" />}
-          <Stat href={waitingHref} label={t("dashboard.ticketsWaitingMe")} value={d.tickets.waiting_me} icon={InboxIcon} color="warning" />
-          <Stat href="/tickets?mine=1&status=pending_requester" label={t("dashboard.toClose")} value={d.tickets.to_close} icon={CheckCircleIcon} color="danger" />
-          <Stat href="/tickets?mine=1&status=completed" label={t("dashboard.ticketsCompleted")} value={d.tickets.completed} icon={CheckCircleIcon} color="success" />
-          {d.it && (
-            <>
-              <Stat href="/it/tickets?status=approved" label={t("dashboard.itWaiting")} value={d.it.waiting} icon={InboxIcon} color="accent" />
-              <Stat href="/it/tickets?status=in_progress" label={t("dashboard.itInProgress")} value={d.it.in_progress} icon={WrenchIcon} color="info" />
-              <Stat href="/it/tickets?status=pending_it_head" label={t("dashboard.itReview")} value={d.it.review} icon={ClipboardIcon} color="idle" />
-              <Stat href="/kpi" label={t("dashboard.kpiPending")} value={d.it.kpi_pending} icon={ChartIcon} color="warning" />
-            </>
-          )}
-        </div>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* แถวบน: ข่าวสาร · งานฝ่าย IT + ใบแจ้งงานล่าสุด */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <NewsCarousel key={news.map((a) => a.id).join(",")} items={news} />
+        <Group title={t("dashboard.sectionIt")} icon={WrenchIcon}>
+          <div className={`grid grid-cols-2 gap-3 ${isIt ? "sm:grid-cols-4" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
+            {!isIt && <Stat href="/tickets?mine=1" label={t("dashboard.ticketsOpen")} value={d.tickets.open} icon={ClipboardIcon} color="info" />}
+            <Stat href={waitingHref} label={t("dashboard.ticketsWaitingMe")} value={d.tickets.waiting_me} icon={InboxIcon} color="warning" />
+            <Stat href="/tickets?mine=1&status=pending_requester" label={t("dashboard.toClose")} value={d.tickets.to_close} icon={CheckCircleIcon} color="danger" />
+            <Stat href="/tickets?mine=1&status=completed" label={t("dashboard.ticketsCompleted")} value={d.tickets.completed} icon={CheckCircleIcon} color="success" />
+            {d.it && (
+              <>
+                <Stat href="/it/tickets?status=approved" label={t("dashboard.itWaiting")} value={d.it.waiting} icon={InboxIcon} color="accent" />
+                <Stat href="/it/tickets?status=in_progress" label={t("dashboard.itInProgress")} value={d.it.in_progress} icon={WrenchIcon} color="info" />
+                <Stat href="/it/tickets?status=pending_it_head" label={t("dashboard.itReview")} value={d.it.review} icon={ClipboardIcon} color="idle" />
+                <Stat href="/it/tickets?status=completed" label={t("dashboard.itDoneMonth")} value={d.it.done_month} icon={CheckCircleIcon} color="success" />
+                <Stat href="/kpi" label={t("dashboard.kpiPending")} value={d.it.kpi_pending} icon={ChartIcon} color="warning" />
+              </>
+            )}
+          </div>
           <Panel
             title={t(d.tickets.recent_scope === "all" ? "dashboard.recentAll" : "dashboard.recentTickets")}
             icon={ClipboardIcon}
@@ -158,7 +179,63 @@ export default async function DashboardPage() {
               </li>
             ))}
           </Panel>
+        </Group>
+      </div>
 
+      {/* สรุปข้อมูลส่วนบุคคล — วันลาคงเหลือปีนี้ (วงแหวน) + วันลาที่กำลังจะถึง */}
+      <Group title={t("dashboard.sectionPersonal")} icon={UserIcon}>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <section className={`p-4 sm:p-5 ${card}`}>
+            <h3 className="mb-3 flex items-center gap-2 font-semibold">
+              <span className={`grid h-7 w-7 place-items-center rounded-lg ${CHIP.accent}`}>
+                <ChartIcon width={15} height={15} />
+              </span>
+              {t("dashboard.leaveBalance")}
+            </h3>
+            {/* การ์ดละประเภท: ชื่อ + คงเหลือ + ใช้ไป/โควตา + วงแหวน (ไม่จำกัด = ไม่มีวงแหวน) */}
+            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {d.leave_balance.map((b) => {
+                const used = b.approved + b.pending;
+                const pct = b.quota ? Math.min(100, Math.round((used / b.quota) * 100)) : 0;
+                const low = b.remaining !== null && b.quota !== null && b.remaining <= Math.max(1, b.quota * 0.2);
+                return (
+                  <li key={b.type} className="flex items-center justify-between gap-3 rounded-xl p-3 ring-1 ring-line">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm text-muted">{t(`leave.types.${b.type}` as MessageKey)}</span>
+                      <span className="mt-0.5 block text-lg font-semibold tabular-nums">{b.remaining === null ? t("dashboard.unlimited") : t("dashboard.leaveLeft", { days: fmt.number(b.remaining) })}</span>
+                      <span className="block text-xs tabular-nums text-faint">
+                        {t("dashboard.leaveUsed", { used: fmt.number(used) })}
+                        {b.quota !== null && ` / ${fmt.number(b.quota)}`}
+                      </span>
+                    </span>
+                    {b.quota !== null && <Ring pct={pct} className={low ? "stroke-warning-400" : "stroke-accent-400"} />}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+
+          <Panel title={t("dashboard.leaves")} icon={CalendarIcon} href="/leave" more={t("dashboard.viewAll")} empty={t("dashboard.noLeaves")} color="danger">
+            {d.leaves.map((l) => (
+              <li key={l.id} className={row}>
+                <span className="min-w-0">
+                  <span className="block font-medium">{t(`leave.types.${l.leave_type}` as MessageKey)}</span>
+                  <span className="block text-xs text-muted">
+                    {range(l.start_on, l.end_on)} · {t("dashboard.leaveDays", { days: fmt.number(l.days) })}
+                  </span>
+                </span>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${l.status === "approved" ? tone.success.badge : tone.warning.badge}`}>
+                  {t(`leave.statuses.${l.status}` as MessageKey)}
+                </span>
+              </li>
+            ))}
+          </Panel>
+        </div>
+      </Group>
+
+      {/* การจอง — ห้องประชุม / รถ ที่กำลังจะถึง + อุปกรณ์ที่ยืม / VPN */}
+      <Group title={t("dashboard.sectionBooking")} icon={CalendarIcon}>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Panel title={t("dashboard.loans")} icon={BoxIcon} href="/loans/mine" more={t("dashboard.viewAll")} empty={t("dashboard.noLoans")} color="accent">
             {[
               ...d.loans.map((l) => (
@@ -187,12 +264,6 @@ export default async function DashboardPage() {
               )),
             ]}
           </Panel>
-        </div>
-      </Group>
-
-      {/* การจอง — ห้องประชุม / รถ ที่กำลังจะถึง */}
-      <Group title={t("dashboard.sectionBooking")} icon={CalendarIcon}>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel title={t("dashboard.meetings")} icon={MeetingRoomIcon} href="/meeting-rooms/mine" more={t("dashboard.viewAll")} empty={t("dashboard.noMeetings")} color="success">
             {d.meetings.map((m) => (
               <li key={m.id} className={row}>
@@ -225,64 +296,6 @@ export default async function DashboardPage() {
         </div>
       </Group>
 
-      {/* สรุปข้อมูลส่วนบุคคล — วันลาคงเหลือปีนี้ + วันลาที่กำลังจะถึง */}
-      <Group title={t("dashboard.sectionPersonal")} icon={UserIcon}>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <section className={`p-4 sm:p-5 ${card}`}>
-            <h3 className="mb-3 flex items-center gap-2 font-semibold">
-              <span className={`grid h-7 w-7 place-items-center rounded-lg ${PASTEL.accent.chip}`}>
-                <ChartIcon width={15} height={15} />
-              </span>
-              {t("dashboard.leaveBalance")}
-            </h3>
-            {/* แถวละประเภท: ชื่อ + แถบใช้ไป/โควตา · ใช้ไป · คงเหลือ (ไม่จำกัด = ไม่มีแถบ) */}
-            <ul className="space-y-3">
-              {d.leave_balance.map((b) => {
-                const used = b.approved + b.pending;
-                const pct = b.quota ? Math.min(100, Math.round((used / b.quota) * 100)) : 0;
-                const low = b.remaining !== null && b.quota !== null && b.remaining <= Math.max(1, b.quota * 0.2);
-                return (
-                  <li key={b.type} className="rounded-xl bg-subtle/60 px-3 py-2.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-medium">{t(`leave.types.${b.type}` as MessageKey)}</span>
-                      <span className="flex items-center gap-1.5 text-xs tabular-nums">
-                        <span className="rounded-full bg-surface px-2 py-0.5 text-muted ring-1 ring-line">
-                          {t("dashboard.leaveUsed", { used: fmt.number(used) })}
-                          {b.quota !== null && ` / ${fmt.number(b.quota)}`}
-                        </span>
-                        <span className={`rounded-full px-2 py-0.5 font-medium ${b.remaining === null ? tone.idle.badge : low ? tone.warning.badge : tone.success.badge}`}>
-                          {b.remaining === null ? t("dashboard.unlimited") : t("dashboard.leaveLeft", { days: fmt.number(b.remaining) })}
-                        </span>
-                      </span>
-                    </div>
-                    {b.quota !== null && (
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-                        <div className={`h-full rounded-full ${low ? "bg-warning-400" : "bg-accent-400"}`} style={{ width: `${pct}%` }} />
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-
-          <Panel title={t("dashboard.leaves")} icon={CalendarIcon} href="/leave" more={t("dashboard.viewAll")} empty={t("dashboard.noLeaves")} color="danger">
-            {d.leaves.map((l) => (
-              <li key={l.id} className={row}>
-                <span className="min-w-0">
-                  <span className="block font-medium">{t(`leave.types.${l.leave_type}` as MessageKey)}</span>
-                  <span className="block text-xs text-muted">
-                    {range(l.start_on, l.end_on)} · {t("dashboard.leaveDays", { days: fmt.number(l.days) })}
-                  </span>
-                </span>
-                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${l.status === "approved" ? tone.success.badge : tone.warning.badge}`}>
-                  {t(`leave.statuses.${l.status}` as MessageKey)}
-                </span>
-              </li>
-            ))}
-          </Panel>
-        </div>
-      </Group>
     </div>
   );
 }

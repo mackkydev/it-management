@@ -2,11 +2,11 @@ import { exec, first, insert, isUuid, select, update } from "../db.js";
 import { ValidationError } from "../lib/errors.js";
 import { trans, type Locale } from "../lib/i18n.js";
 import { localToday, nowDb } from "../lib/time.js";
-import { activeCount, LICENSE_CATEGORY } from "./asset-licenses.js";
+import { activeCount } from "./licenses.js";
 
 /**
  * ซอฟต์แวร์ที่ติดตั้งบนเครื่อง (ฟอร์มสินทรัพย์หมวดคอมพิวเตอร์)
- * - OS / Office / Anti Virus / Software อื่นๆ เลือกจากสินทรัพย์หมวด Software ที่มีข้อมูล license
+ * - OS / Office / Anti Virus / Software อื่นๆ เลือกจาก License (ตาราง licenses)
  * - เก็บเป็น license_installations ของเครื่องนี้ (slot = os / office / antivirus, NULL = อื่นๆ) → นับ seat ใช้ไป/คงเหลือ
  * - ช่องข้อความ assets.os / office / antivirus = ชื่อ license ที่ผูก (ใช้ในรายการ/Excel) — ค่าจาก Excel ที่ยังไม่ผูกคงไว้ได้
  */
@@ -15,53 +15,65 @@ export type SoftwareSlot = (typeof SOFTWARE_SLOTS)[number];
 
 export interface SoftwareRef {
   id: string;
-  asset_tag: string;
+  license_no: string | null;
   name: string;
+  software_type?: string;
 }
 export type SoftwareSet = Record<SoftwareSlot, SoftwareRef | null> & { others: SoftwareRef[] };
 
 interface InstalledRow {
   id: number;
-  license_asset_id: number;
+  license_id: number;
   slot: string | null;
   uuid: string;
-  asset_tag: string;
+  license_no: string | null;
   name: string;
+  software_type: string | null;
 }
 
 const installedOn = (assetId: number) =>
   select<InstalledRow>(
-    `SELECT i.id, i.license_asset_id, i.slot, a.uuid, a.asset_tag, a.name
-       FROM license_installations i JOIN assets a ON a.id = i.license_asset_id AND a.deleted_at IS NULL
+    `SELECT i.id, i.license_id, i.slot, li.uuid, li.license_no, li.name, li.software_type
+       FROM license_installations i JOIN licenses li ON li.id = i.license_id AND li.deleted_at IS NULL
       WHERE i.device_asset_id = ? AND i.uninstalled_at IS NULL
       ORDER BY i.installed_at, i.id`,
     [assetId],
   );
 
-/** ซอฟต์แวร์ที่ติดตั้งอยู่บนเครื่อง (ใช้งานอยู่) แยกตามช่อง */
+/**
+ * ซอฟต์แวร์ที่ติดตั้งอยู่บนเครื่อง (ใช้งานอยู่) แยกตามช่อง — ช่องที่บันทึกไว้ก่อน แล้วรายการที่ไม่มีช่อง (เช่น นำเข้า Excel / เลือกใน "อื่นๆ")
+ * ลงช่องตามประเภทของ License (software_type os / office / antivirus) ถ้าช่องนั้นยังว่าง — ที่เหลือ = Software อื่นๆ
+ */
 export async function loadSoftware(assetId: number): Promise<SoftwareSet> {
   const out: SoftwareSet = { os: null, office: null, antivirus: null, others: [] };
-  for (const r of await installedOn(assetId)) {
-    const ref = { id: r.uuid, asset_tag: r.asset_tag, name: r.name };
-    if ((SOFTWARE_SLOTS as readonly string[]).includes(r.slot ?? "") && !out[r.slot as SoftwareSlot]) out[r.slot as SoftwareSlot] = ref;
-    else out.others.push(ref);
+  const rows = await installedOn(assetId);
+  const isSlot = (v: string | null): v is SoftwareSlot => (SOFTWARE_SLOTS as readonly string[]).includes(v ?? "");
+  const ref = (r: InstalledRow): SoftwareRef => ({ id: r.uuid, license_no: r.license_no, name: r.name, software_type: r.software_type ?? "other" });
+  const rest: InstalledRow[] = [];
+  for (const r of rows) {
+    if (isSlot(r.slot) && !out[r.slot]) out[r.slot] = ref(r);
+    else rest.push(r);
+  }
+  for (const r of rest) {
+    if (isSlot(r.software_type) && !out[r.software_type]) out[r.software_type] = ref(r);
+    else out.others.push(ref(r));
   }
   return out;
 }
 
 /** license ทั้งหมด (Software ที่มีข้อมูล license) + จำนวนที่ใช้/คงเหลือ — ตัวเลือกในฟอร์ม */
 export async function softwareOptions() {
-  const rows = await select<{ uuid: string; asset_tag: string; name: string; model: string | null; seats: number | null; used: number; software_type: string }>(
-    `SELECT a.uuid, a.asset_tag, a.name, a.model, li.seats, li.software_type,
-            (SELECT COUNT(*) FROM license_installations i WHERE i.license_asset_id = a.id AND i.uninstalled_at IS NULL) AS used
-       FROM assets a JOIN asset_licenses li ON li.asset_id = a.id
-      WHERE a.category = ? AND a.deleted_at IS NULL
-      ORDER BY a.name, a.id`,
-    [LICENSE_CATEGORY],
+  const rows = await select<{ uuid: string; license_no: string | null; serial_number: string | null; name: string; model: string | null; seats: number | null; used: number; software_type: string }>(
+    `SELECT li.uuid, li.license_no, li.serial_number, li.name, li.model, li.seats, li.software_type,
+            (SELECT COUNT(*) FROM license_installations i WHERE i.license_id = li.id AND i.uninstalled_at IS NULL) AS used
+       FROM licenses li
+      WHERE li.deleted_at IS NULL
+      ORDER BY li.name, li.id`,
   );
   return rows.map((r) => ({
     id: r.uuid,
-    asset_tag: r.asset_tag,
+    license_no: r.license_no,
+    serial_number: r.serial_number,
     name: r.name,
     model: r.model,
     software_type: r.software_type,
@@ -90,8 +102,8 @@ export async function softwareErrors(input: unknown, locale: Locale): Promise<Re
   if (!ids.length) return {};
   const found = new Set(
     (await select<{ uuid: string }>(
-      "SELECT a.uuid FROM assets a JOIN asset_licenses li ON li.asset_id = a.id WHERE a.uuid IN (?) AND a.category = ? AND a.deleted_at IS NULL",
-      [ids, LICENSE_CATEGORY],
+      "SELECT uuid FROM licenses WHERE uuid IN (?) AND deleted_at IS NULL",
+      [ids],
     )).map((r) => r.uuid),
   );
   const errors: Record<string, string> = {};
@@ -128,7 +140,7 @@ export async function applyInstallations(
   const today = localToday();
 
   for (const w of wanted) {
-    const existing = current.find((c) => !kept.has(c.id) && c.license_asset_id === w.id && slotOf(c.slot) === w.slot) ?? current.find((c) => !kept.has(c.id) && c.license_asset_id === w.id);
+    const existing = current.find((c) => !kept.has(c.id) && c.license_id === w.id && slotOf(c.slot) === w.slot) ?? current.find((c) => !kept.has(c.id) && c.license_id === w.id);
     if (existing) {
       kept.add(existing.id);
       applied.add(w);
@@ -136,7 +148,7 @@ export async function applyInstallations(
       continue;
     }
     // ล็อกแถว license กันติดตั้งพร้อมกันจนเกินจำนวน seat
-    const locked = await first<{ seats: number | null }>("SELECT seats FROM asset_licenses WHERE asset_id = ? FOR UPDATE", [w.id]);
+    const locked = await first<{ seats: number | null }>("SELECT seats FROM licenses WHERE id = ? FOR UPDATE", [w.id]);
     const seats = locked?.seats ?? null;
     if (seats !== null && (await activeCount(w.id)) >= seats) {
       onFull(w, seats);
@@ -144,7 +156,7 @@ export async function applyInstallations(
     }
     const now = nowDb();
     const id = await insert("license_installations", {
-      license_asset_id: w.id,
+      license_id: w.id,
       device_asset_id: device.id,
       user_id: device.custodian_id,
       branch_id: device.branch_id,
@@ -181,7 +193,7 @@ export async function syncSoftware(
   for (const uuid of want.others) if (!desired.some((d) => d.uuid === uuid)) desired.push({ slot: null, uuid });
 
   const licenses = desired.length
-    ? await select<{ id: number; uuid: string; name: string }>("SELECT id, uuid, name FROM assets WHERE uuid IN (?)", [desired.map((d) => d.uuid)])
+    ? await select<{ id: number; uuid: string; name: string }>("SELECT id, uuid, name FROM licenses WHERE uuid IN (?)", [desired.map((d) => d.uuid)])
     : [];
   const byUuid = new Map(licenses.map((l) => [l.uuid, l]));
   const wanted: WantedInstall[] = desired.flatMap((d) => {
@@ -199,19 +211,15 @@ export async function syncSoftware(
 
 /** license ทั้งหมด (สำหรับจับคู่ชื่อจาก Excel) */
 export const licenseCatalog = () =>
-  select<{ id: number; asset_tag: string; name: string }>(
-    `SELECT a.id, a.asset_tag, a.name FROM assets a JOIN asset_licenses li ON li.asset_id = a.id
-      WHERE a.category = ? AND a.deleted_at IS NULL ORDER BY a.id`,
-    [LICENSE_CATEGORY],
-  );
+  select<{ id: number; license_no: string | null; name: string }>("SELECT id, license_no, name FROM licenses WHERE deleted_at IS NULL ORDER BY id");
 
 /** ชื่อ license ที่ติดตั้งอยู่ของหลายเครื่อง (ส่งออก Excel) — device id → ช่อง → ชื่อ */
 export async function softwareNamesOf(deviceIds: number[]): Promise<Map<number, Record<SoftwareSlot, string | null> & { others: string[] }>> {
   const out = new Map<number, Record<SoftwareSlot, string | null> & { others: string[] }>();
   if (!deviceIds.length) return out;
   const rows = await select<{ device_asset_id: number; slot: string | null; name: string }>(
-    `SELECT i.device_asset_id, i.slot, a.name
-       FROM license_installations i JOIN assets a ON a.id = i.license_asset_id AND a.deleted_at IS NULL
+    `SELECT i.device_asset_id, i.slot, li.name
+       FROM license_installations i JOIN licenses li ON li.id = i.license_id AND li.deleted_at IS NULL
       WHERE i.device_asset_id IN (?) AND i.uninstalled_at IS NULL
       ORDER BY i.installed_at, i.id`,
     [deviceIds],

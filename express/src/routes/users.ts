@@ -9,8 +9,8 @@ import { bool, exists, int, makeHash, notIn, password, unique, validate, regex }
 import { me, pageParam, paginated, simplePaginated } from "../http.js";
 import { can, findUser, hasHistory, isSuperAdmin, ROLES, type UserRow } from "../models/user.js";
 import { deactivateSignature } from "../services/signatures.js";
-import { disableTwoFactor } from "../services/two-factor.js";
-import { lastLocalSuperAdmin, notifyAccessChange, roleChangeError } from "../services/access-control.js";
+import { disableTwoFactor, twoFactorRequiredFor } from "../services/two-factor.js";
+import { grantError, groupKeys, lastLocalSuperAdmin, notifyAccessChange, roleChangeError } from "../services/access-control.js";
 import { audit } from "../services/audit.js";
 import { canFor, scopeOf, scopeWhere } from "../services/manage-scope.js";
 import { loginLockedMinutes, passwordChangedNow, passwordSetByAdmin } from "../services/password-policy.js";
@@ -38,7 +38,7 @@ async function assertInScope(actor: UserRow, target: UserRow, key: (typeof USER_
 /** แก้บัญชีผู้ดูแลระบบ (super_admin) ได้เฉพาะผู้ดูแลระบบ */
 const superAdminTarget = (actor: UserRow, target: UserRow) => target.id !== actor.id && target.role === "super_admin" && !isSuperAdmin(actor);
 
-const ORG_FIELDS = ["branch_id", "department", "division", "supervisor_id", "is_it_staff", "is_it_head", "approval_route_id"] as const;
+const ORG_FIELDS = ["job_title", "branch_id", "department", "division", "supervisor_id", "is_it_staff", "is_it_head", "approval_route_id"] as const;
 
 /** branch + supervisor + จำนวนสินทรัพย์ที่ถือครอง (ไม่นับที่ถูกลบ) */
 const MANAGED_SELECT = `u.*, b.id AS b_id, b.name AS b_name, s.id AS s_id, s.name AS s_name,
@@ -145,7 +145,7 @@ userRoutes.get("/users/:id", async (req, res) => {
     const inScope = await Promise.all(USER_KEYS.map((k) => canFor(u, k, target.branch_id)));
     if (!inScope.some(Boolean)) throw notFound();
   }
-  res.json({ data: managed(await loadManaged(target.id), u.id), meta: { can_delete: !(await hasHistory(target.id)) } });
+  res.json({ data: managed(await loadManaged(target.id), u.id), meta: { can_delete: !(await hasHistory(target.id)), two_factor_required: await twoFactorRequiredFor(target) } });
 });
 
 /**
@@ -175,6 +175,7 @@ async function validatedUser(req: Request, target: UserRow | null) {
       // ต้องกรอกยืนยันรหัสผ่าน (password_confirmation) ให้ตรงกัน
       password: [target ? "nullable" : "required", "string", "confirmed", password(8, { letters: true, numbers: true })],
       branch_id: ["sometimes", "nullable", "integer", exists("branches", "id", "deleted_at IS NULL")],
+      job_title: ["sometimes", "nullable", "string", "max:100"],
       department: ["sometimes", "nullable", "string", "max:100"],
       division: ["sometimes", "nullable", "string", "max:100"],
       supervisor_id: ["sometimes", "nullable", "integer", exists("users", "id", "is_active = true"), notIn(target ? [target.id] : [])],
@@ -197,10 +198,28 @@ async function validatedUser(req: Request, target: UserRow | null) {
           const e = await roleChangeError(actor, target, input.role, req.locale);
           if (e) errors.add("role", e);
         }
+        // กลุ่มงานเพิ่มเติมตอนสร้างผู้ใช้ (กลุ่มที่สร้างเอง) — กติกาเดียวกับหน้าสิทธิ์รายคน
+        const groups = target ? [] : newUserGroups(input);
+        if (groups.length) {
+          if (!can(actor, "access.assign")) errors.add("groups", trans(req.locale, "eam.access.role_needs_assign"));
+          else {
+            const found = await select<{ key: string }>('SELECT "key" FROM permission_groups WHERE "key" IN (?) AND is_system = false', [groups]);
+            if (found.length !== groups.length) errors.add("groups", trans(req.locale, "eam.access.invalid_group"));
+            else {
+              const e = grantError(actor, (await Promise.all(groups.map(groupKeys))).flat(), req.locale);
+              if (e) errors.add("groups", e);
+            }
+          }
+        }
         if (target && "is_active" in input && !bool(input.is_active) && (await lastLocalSuperAdmin(target))) errors.add("is_active", trans(req.locale, "eam.access.last_super_admin"));
       },
     },
   );
+}
+
+/** input.groups ตอนสร้างผู้ใช้ → key กลุ่มที่ไม่ซ้ำ */
+function newUserGroups(input: Record<string, unknown>): string[] {
+  return Array.isArray(input.groups) ? [...new Set(input.groups.filter((g): g is string => typeof g === "string" && g !== ""))] : [];
 }
 
 function orgColumns(data: Record<string, unknown>) {
@@ -231,7 +250,12 @@ userRoutes.post("/users", async (req, res) => {
     created_at: now,
     updated_at: now,
   });
-  if (data.role !== "viewer") {
+  const groups = newUserGroups(req.input);
+  for (const key of groups) {
+    await exec("INSERT INTO user_groups (user_id, group_key, expires_on, created_by, created_at) VALUES (?, ?, NULL, ?, ?)", [id, key, me(req).id, now]);
+  }
+  if (groups.length) await audit(req, { action: "user.permissions_updated", subjectType: "user", subjectId: id, after: { role: data.role, groups } });
+  if (data.role !== "viewer" || groups.length) {
     await audit(req, { action: "user.access_updated", subjectType: "user", subjectId: id, after: { role: data.role } });
     await notifyAccessChange(req, "user", { id, name: String(data.name) }, { role: data.role });
   }

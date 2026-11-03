@@ -428,6 +428,8 @@ export async function importRows(rows: ImportRow[], userId: number, locale: Loca
             ...(branchId !== null ? { branch_id: branchId } : {}),
             ...(locationId !== undefined ? { location_id: locationId } : {}),
             ...(custodianId !== undefined ? { custodian_id: custodianId } : {}),
+            // มีผู้ถือครอง / ชื่อผู้ใช้งานใหม่จากไฟล์ = เลิกเป็นส่วนกลาง
+            ...(custodianId || ("user_name" in v && v.user_name !== current.user_name) ? { is_shared: false } : {}),
             updated_by: userId,
             updated_at: now,
           },
@@ -494,7 +496,7 @@ const SLOT_HEADER: Record<SoftwareSlot | "others", string> = Object.fromEntries(
 async function importSoftware(
   deviceId: number,
   r: ImportRow,
-  catalog: { id: number; asset_tag: string; name: string }[],
+  catalog: { id: number; license_no: string | null; name: string }[],
   userId: number,
   locale: Locale,
 ): Promise<{ texts: Record<string, string | null>; warnings: string[] }> {
@@ -506,13 +508,13 @@ async function importSoftware(
 
   const device = (await first<{ id: number; custodian_id: number | null; branch_id: number | null }>("SELECT id, custodian_id, branch_id FROM assets WHERE id = ?", [deviceId]))!;
   const installedIds = new Set(
-    (await select<{ license_asset_id: number }>("SELECT license_asset_id FROM license_installations WHERE device_asset_id = ? AND uninstalled_at IS NULL", [deviceId])).map((x) => Number(x.license_asset_id)),
+    (await select<{ license_id: number }>("SELECT license_id FROM license_installations WHERE device_asset_id = ? AND uninstalled_at IS NULL", [deviceId])).map((x) => Number(x.license_id)),
   );
   // ชื่อซ้ำกันหลาย License → ใช้ตัวที่ติดตั้งบนเครื่องนี้อยู่แล้วก่อน
   const match = (text: string) => {
     const k = key(text);
     const found = catalog.filter((l) => key(l.name) === k);
-    const list = found.length ? found : catalog.filter((l) => key(l.asset_tag) === k);
+    const list = found.length ? found : catalog.filter((l) => key(l.license_no ?? "") === k);
     return list.find((l) => installedIds.has(Number(l.id))) ?? list[0];
   };
 

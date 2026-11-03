@@ -5,8 +5,9 @@ import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans, type Locale } from "../lib/i18n.js";
 import { decryptVaultNullable, encryptVaultNullable } from "../services/vault-crypto.js";
 import { limits } from "../lib/rate-limit.js";
-import { dateOnly, diffInDays, fromDbDate, iso, nowDb } from "../lib/time.js";
+import { dateOnly, diffInDays, fromDbDate, iso, localToday, nowDb } from "../lib/time.js";
 import { bool, custom, exists, int, makeHash, regex, unique, validate } from "../lib/validator.js";
+import { twoFactorGroups } from "../services/two-factor.js";
 import { audit } from "../services/audit.js";
 import { passwordPolicy } from "../services/password-policy.js";
 import { BUILTIN_CATEGORIES } from "../services/categories.js";
@@ -128,6 +129,7 @@ const settingsJson = async () => {
     secret_guard: guard,
     // ค่าที่ใช้งานจริง (รวมค่าเริ่มต้น)
     password_policy: await passwordPolicy(),
+    two_factor_groups: await twoFactorGroups(),
     secret_pin_status: await centralPinStatus(),
     // ตัวเลือกผู้รับแจ้งเตือนเมื่อมีคนเปิดดูข้อมูลลับ (ผู้ใช้ที่ใช้งานอยู่) + ผู้รับจริงตอนนี้ (ไม่ได้เลือก = หัวหน้า IT)
     secret_notify_options: (await select<{ id: number; name: string; department: string | null }>("SELECT id, name, department FROM users WHERE is_active = true ORDER BY name LIMIT 2000")).map((x) => ({
@@ -256,8 +258,8 @@ itDataRoutes.put("/settings", async (req, res) => {
   settings(req);
   // การมองเห็นเมนู/ปุ่ม และชื่อเมนู = ส่วนหนึ่งของหน้าสิทธิ์การใช้งาน (สงวนไว้ให้ผู้ดูแลระบบ)
   if ("ui_permissions" in req.input || "menu_labels" in req.input) authorize(can(me(req), "access.manage"));
-  // บังคับ 2FA ผู้ดูแลระบบ = นโยบายความปลอดภัยของการเข้าสู่ระบบ (สงวนไว้ให้ผู้ดูแลระบบสูงสุด)
-  if ("two_factor_required" in req.input) authorize(can(me(req), "access.manage"));
+  // บังคับ 2FA ตามกลุ่ม = นโยบายความปลอดภัยของการเข้าสู่ระบบ (access.manage)
+  if ("two_factor_groups" in req.input) authorize(can(me(req), "access.manage"));
   // นโยบายรหัสผ่าน (ล็อกบัญชี / บังคับเปลี่ยนรหัสผ่าน) — services/password-policy.ts
   if ("password_policy" in req.input) authorize(can(me(req), "access.manage"));
   const groupKeys = new Set((await select<{ key: string }>('SELECT "key" FROM permission_groups')).map((g) => g.key));
@@ -280,6 +282,7 @@ itDataRoutes.put("/settings", async (req, res) => {
       "secret_guard.reauth_method": ["sometimes", "in:password,pin"],
       // 0 = ยืนยันทุกครั้งที่เปิดดู
       "secret_guard.reauth_minutes": ["sometimes", "integer", "min:0", "max:60"],
+      "secret_guard.clipboard_clear_seconds": ["sometimes", "integer", "min:5", "max:600"],
       "secret_guard.ip_restrict": ["sometimes", "boolean"],
       "secret_guard.allowed_ips": ["sometimes", "array", "max:50"],
       "secret_guard.allowed_ips.*": ["string", "max:50", custom((v) => typeof v === "string" && isValidIpEntry(v), trans(req.locale, "eam.secret_guard.invalid_ip"))],
@@ -287,7 +290,8 @@ itDataRoutes.put("/settings", async (req, res) => {
       // ผู้รับแจ้งเตือนเมื่อมีคนเปิดดู ([] = หัวหน้า IT ทุกคน)
       "secret_guard.notify_user_ids": ["sometimes", "array", "max:50"],
       "secret_guard.notify_user_ids.*": ["integer"],
-      two_factor_required: ["sometimes", "boolean"],
+      two_factor_groups: ["sometimes", "array", "max:100"],
+      "two_factor_groups.*": [custom((v) => typeof v === "string" && groupKeys.has(v), trans(req.locale, "eam.access.invalid_group"))],
       // บังคับให้มีลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (settings.manage)
       require_signature: ["sometimes", "boolean"],
       password_policy: ["sometimes", "array"],
@@ -347,9 +351,11 @@ itDataRoutes.put("/settings", async (req, res) => {
       allowed_ips: Array.isArray(g.allowed_ips) ? [...new Set((g.allowed_ips as string[]).map((s) => s.trim()))] : current.allowed_ips,
       notify_heads: "notify_heads" in g ? bool(g.notify_heads) : current.notify_heads,
       notify_user_ids: Array.isArray(g.notify_user_ids) ? [...new Set((g.notify_user_ids as unknown[]).map(Number))] : current.notify_user_ids,
+      clipboard_clear_seconds: "clipboard_clear_seconds" in g ? int(g.clipboard_clear_seconds)! : current.clipboard_clear_seconds,
     };
   }
-  if ("two_factor_required" in data) values.two_factor_required = bool(data.two_factor_required);
+  const twoFactorBefore = "two_factor_groups" in data ? await twoFactorGroups() : [];
+  if ("two_factor_groups" in data) values.two_factor_groups = [...new Set(data.two_factor_groups as string[])];
   if ("require_signature" in data) values.require_signature = bool(data.require_signature);
   if ("password_policy" in data && data.password_policy && typeof data.password_policy === "object") {
     const p = data.password_policy as Record<string, unknown>;
@@ -369,7 +375,7 @@ itDataRoutes.put("/settings", async (req, res) => {
   }
   for (const [key, value] of Object.entries(values)) await putSetting(key, value, u.id);
   if ("require_signature" in values) await audit(req, { action: "settings.require_signature", subjectType: "settings", subjectId: "require_signature", after: { required: values.require_signature } });
-  if ("two_factor_required" in values) await audit(req, { action: "settings.two_factor_required", subjectType: "settings", subjectId: "two_factor_required", after: { required: values.two_factor_required } });
+  if ("two_factor_groups" in values) await audit(req, { action: "settings.two_factor_groups", subjectType: "settings", subjectId: "two_factor_groups", before: { groups: twoFactorBefore }, after: { groups: values.two_factor_groups } });
   if ("menu_labels" in values) await audit(req, { action: "settings.menu_labels_updated", subjectType: "settings", subjectId: "menu_labels", after: { labels: values.menu_labels } });
   if ("password_policy" in values) await audit(req, { action: "settings.password_policy_updated", subjectType: "settings", subjectId: "password_policy", after: values.password_policy as Record<string, unknown> });
   if ("secret_guard" in values) await audit(req, { action: "settings.secret_guard_updated", subjectType: "settings", subjectId: "secret_guard", after: values.secret_guard as Record<string, unknown> });
@@ -383,12 +389,13 @@ itDataRoutes.get("/ui-config", async (_req, res) => {
   // role_permissions: สิทธิ์ของแต่ละกลุ่ม — หน้าตั้งค่าการมองเห็นใช้จำลองว่าแต่ละกลุ่มเข้าเมนูใดได้
   // logo_version: เปลี่ยนเมื่ออัปโหลดโลโก้ใหม่ (ใช้ต่อท้าย URL ให้ browser โหลดใหม่) — null = ไม่มีโลโก้
   res.json({
-    data: { ui_permissions: s.ui_permissions, menu_order: s.menu_order, menu_labels: s.menu_labels, role_permissions: await audiencePermissions(), logo_version: s.logo_version ?? null },
+    data: { ui_permissions: s.ui_permissions, menu_order: s.menu_order, menu_labels: s.menu_labels, menu_branches: s.menu_branches, role_permissions: await audiencePermissions(), logo_version: s.logo_version ?? null },
   });
 });
 
 /**
- * PUT /ui-config { ui_permissions?, menu_order?, menu_labels? } — หน้า สิทธิ์การใช้งาน (/permissions)
+ * PUT /ui-config { ui_permissions?, menu_order?, menu_labels?, menu_branches? } — หน้า สิทธิ์การใช้งาน (/permissions)
+ * menu_branches { "/href": [branchId, ...] } = เมนูเฉพาะสาขา (ไม่มี key = ทุกสาขา) — แก้ได้เฉพาะ access.manage
  * access.manage = ทุกกลุ่ม · access.groups (admin) = ซ่อน/แสดงได้เฉพาะกลุ่มที่ต่ำกว่า (กลุ่มอื่นคงตามเดิม) + ลำดับ/ชื่อเมนู
  * เป็นการซ่อนเพิ่มจากสิทธิ์จริงเท่านั้น (สิทธิ์ตรวจที่ API เสมอ) — audit ทุกครั้ง
  */
@@ -396,8 +403,21 @@ itDataRoutes.put("/ui-config", async (req, res) => {
   const u = me(req);
   authorize(can(u, "access.manage") || can(u, "access.groups"));
   const groupKeys = new Set((await select<{ key: string }>('SELECT "key" FROM permission_groups')).map((g) => g.key));
-  const data = await validate(req.input, uiRules(groupKeys, req.locale), { locale: req.locale });
+  const data = await validate(
+    req.input,
+    { ...uiRules(groupKeys, req.locale), menu_branches: ["sometimes", "array", "max:200"], "menu_branches.*": ["array", "max:200"], "menu_branches.*.*": ["integer", exists("branches", "id", "deleted_at IS NULL")] },
+    { locale: req.locale },
+  );
   const values = uiValues(data);
+  if ("menu_branches" in data) {
+    authorize(can(u, "access.manage"));
+    const clean: Record<string, number[]> = {};
+    for (const [href, ids] of Object.entries((data.menu_branches ?? {}) as Record<string, unknown[]>)) {
+      const list = [...new Set((ids ?? []).map(Number))];
+      if (list.length && /^\/[a-z0-9\-/]{1,99}$/.test(href)) clean[href] = list;
+    }
+    values.menu_branches = emptyToList(clean);
+  }
   const s = await allSettings();
   const asMap = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, string[]>) : {});
   if ("ui_permissions" in values) {
@@ -415,7 +435,7 @@ itDataRoutes.put("/ui-config", async (req, res) => {
     });
   }
   const fresh = await allSettings();
-  res.json({ data: { ui_permissions: fresh.ui_permissions, menu_order: fresh.menu_order, menu_labels: fresh.menu_labels } });
+  res.json({ data: { ui_permissions: fresh.ui_permissions, menu_order: fresh.menu_order, menu_labels: fresh.menu_labels, menu_branches: fresh.menu_branches } });
 });
 
 /* ================================================================ แจ้งเตือนในระบบ (กระดิ่ง) */
@@ -821,6 +841,22 @@ interface ContractRow {
 }
 
 /** จำนวนวันที่เหลือ / สถานะ — เหมือน Contract::daysLeft() / status() */
+/**
+ * ตัวเลขเมนู /contracts + แท็บ "ใกล้หมดอายุ" = สัญญาที่ถึงช่วงแจ้งเตือนแล้วแต่ยังไม่หมด (เงื่อนไขเดียวกับ status expiring / summary.expiring)
+ * — ผู้แก้ไขสัญญาได้ (contracts.update) เท่านั้น; ต่ออายุ (แก้วันสิ้นสุด) แล้วหายเอง
+ */
+export async function expiringContractCount(u: UserRow): Promise<number> {
+  if (!can(u, "contracts.update")) return 0;
+  const today = localToday();
+  return Number(
+    await scalar(
+      `SELECT COUNT(*) FROM contracts c WHERE c.deleted_at IS NULL AND c.end_date >= CAST(? AS DATE)
+         AND c.end_date <= DATE_ADD(CAST(? AS DATE), INTERVAL COALESCE(c.notify_days_before, ?) DAY)`,
+      [today, today, Number(await getSetting("contract_notify_days"))],
+    ),
+  );
+}
+
 export function contractStatus(c: Pick<ContractRow, "end_date" | "notify_days_before">, defaultDays: number, today = new Date()) {
   const daysLeft = diffInDays(today, fromDbDate(c.end_date));
   const notifyDays = c.notify_days_before ?? defaultDays;

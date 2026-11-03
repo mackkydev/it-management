@@ -21,27 +21,12 @@ export async function saveUserPermissions(
   if (!validId(userId)) return { message: t("common.saveFailed") };
   try {
     const res = await apiFetch<{ data: UserPermissionView }>(`/users/${userId}/permissions`, { method: "PUT", body: JSON.stringify(payload) });
-    revalidatePath("/api-users");
     revalidatePath("/users");
     revalidatePath(`/users/${userId}/permissions`);
     return { ok: true, message: t("access.saved"), data: res.data };
   } catch (e) {
     return toActionResult(e);
   }
-}
-
-/** ผูก API User กับบัญชี LOCAL เดิม (กรณีอีเมลซ้ำ) */
-export async function linkApiUser(apiUserId: number, localUserId: number): Promise<ActionResult> {
-  const { t } = await getI18n();
-  if (!validId(apiUserId) || !validId(localUserId)) return { message: t("common.saveFailed") };
-  try {
-    await apiFetch(`/api-users/${apiUserId}/link`, { method: "POST", body: JSON.stringify({ local_user_id: localUserId }) });
-  } catch (e) {
-    const r = await toActionResult(e);
-    return { ...r, message: Object.values(r.errors ?? {})[0] ?? r.message };
-  }
-  revalidatePath("/api-users");
-  return { ok: true, message: t("access.linked") };
 }
 
 /* ---------------------------------------------------------------- การเชื่อมต่อ API */
@@ -175,7 +160,6 @@ export async function syncNow(id: number): Promise<ActionResult & { data?: SyncR
   try {
     const res = await apiFetch<{ data: SyncResult }>(`/api-connections/${id}/sync`, { method: "POST" });
     revalidatePath(`/api-connections/${id}`);
-    revalidatePath("/api-users");
     return { ok: res.data.ok, data: res.data };
   } catch (e) {
     const r = await toActionResult(e);

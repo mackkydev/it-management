@@ -126,14 +126,14 @@ export function InstallForm({ licenses, branches, defaultLicense }: { licenses: 
           </label>
           {licenses.length === 1 ? (
             <p id="license_id" className="font-medium">
-              {licenses[0].name} <span className="font-mono text-xs text-muted">({licenses[0].asset_tag})</span>
+              {licenses[0].name} {licenses[0].license_no && <span className="font-mono text-xs text-muted">({licenses[0].license_no})</span>}
             </p>
           ) : (
           <AppSelect id="license_id" value={v.license_id} onChange={(e) => set("license_id", e.target.value)} className={cls("license_id")}>
             <option value="">{t("installations.chooseLicense")}</option>
             {licenses.map((l) => (
               <option key={l.id} value={l.id}>
-                {l.name} ({l.asset_tag}) —{" "}
+                {l.name} {l.license_no ? `(${l.license_no}) ` : ""}—{" "}
                 {l.seats === null ? t("installations.unlimited") : t("installations.availableOf", { available: fmt.number(l.available ?? 0), seats: fmt.number(l.seats) })}
               </option>
             ))}

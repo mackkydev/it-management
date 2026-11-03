@@ -3,7 +3,7 @@ import { select } from "../db.js";
 import { trans, type Locale } from "../lib/i18n.js";
 import { me } from "../http.js";
 import { LOCKED_KEYS, PERMISSIONS, SELF_SCOPED_KEYS } from "../models/permission.js";
-import { can, isSuperAdmin, otherLocalSuperAdmins, ROLES, roleRank, type UserRow } from "../models/user.js";
+import { AUDITOR_ROLE, can, isSuperAdmin, otherLocalSuperAdmins, ROLES, roleRank, type UserRow } from "../models/user.js";
 import { audit } from "./audit.js";
 import { notifyUsers } from "./notifications.js";
 import { adminRecipients, groupsOf, listGroups, SUPER_ADMIN_GROUP } from "./permissions.js";
@@ -45,6 +45,8 @@ export function grantError(actor: UserRow, keys: Iterable<string>, locale: Local
  * กลุ่มที่ตัวเองอยู่ (ตำแหน่ง / มอบเพิ่ม) แก้ไม่ได้ — สิทธิ์ที่เปลี่ยนยังต้องผ่าน grantError (เฉพาะที่ตัวเองมี ไม่ใช่สิทธิ์ที่สงวนไว้)
  */
 export async function groupEditError(actor: UserRow, group: { key: string; is_system: boolean }, locale: Locale): Promise<string | null> {
+  // ผู้ตรวจสอบ: สิทธิ์ตายตัว (อ่านอย่างเดียว) แก้ตารางสิทธิ์ไม่ได้
+  if (group.key === AUDITOR_ROLE) return trans(locale, "eam.access.group_read_only");
   if (can(actor, "access.manage")) return null;
   if (!can(actor, "access.groups")) return trans(locale, "eam.access.group_forbidden");
   const isRole = (ROLES as readonly string[]).includes(group.key);
@@ -108,6 +110,8 @@ export async function roleChangeError(
     if (t) return t;
   }
   if (role === SUPER_ADMIN_GROUP && !isSuperAdmin(actor)) return trans(locale, "eam.access.super_admin_only");
+  // ผู้ตรวจสอบเห็นข้อมูลทุกระบบ — ตั้ง/ถอดได้เฉพาะ super_admin
+  if ((role === AUDITOR_ROLE || target?.role === AUDITOR_ROLE) && !isSuperAdmin(actor)) return trans(locale, "eam.access.auditor_only");
   // ลดตำแหน่ง super_admin บัญชี LOCAL คนสุดท้ายไม่ได้
   if (target && (await lastLocalSuperAdmin(target))) return trans(locale, "eam.access.last_super_admin");
   // สิทธิ์ที่มีผลกับงานของผู้ได้รับเองเท่านั้น (SELF_SCOPED_KEYS เช่น อนุมัติใบของตัวเอง) ไม่ต้องถือไว้เองตอนตั้งตำแหน่ง

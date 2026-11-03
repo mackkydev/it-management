@@ -130,6 +130,27 @@ export function SecurityForm({
           <p className="mt-1 text-xs text-muted">{t("secretGuard.reauthMinutesHint")}</p>
         </Toggle>
 
+        {/* ล้าง clipboard หลังคัดลอก — เปิดเสมอ ตั้งได้แค่เวลา */}
+        <div className="rounded-xl p-4 ring-1 ring-line">
+          <label htmlFor="sg-clipboard" className="block text-sm font-medium">
+            {t("secretGuard.clipboardTitle")}
+          </label>
+          <p className="mb-2 mt-0.5 text-xs text-muted">{t("secretGuard.clipboardHint")}</p>
+          <div className="flex items-center gap-2">
+            <input
+              id="sg-clipboard"
+              type="number"
+              min={5}
+              max={600}
+              value={v.clipboard_clear_seconds}
+              onChange={(e) => set("clipboard_clear_seconds", Number(e.target.value) || 0)}
+              onBlur={(e) => set("clipboard_clear_seconds", Math.min(600, Math.max(5, Number(e.target.value) || 30)))}
+              className={`${input} max-w-32`}
+            />
+            <span className="text-sm text-muted">{t("secretGuard.clipboardUnit")}</span>
+          </div>
+        </div>
+
         <Toggle id="sg-ip" checked={v.ip_restrict} onChange={(x) => set("ip_restrict", x)} title={t("secretGuard.ipTitle")} hint={t("secretGuard.ipHint")}>
           <ChipList
             items={v.allowed_ips}

@@ -37,9 +37,11 @@ export interface SecretGuard {
   notify_heads: boolean;
   /** ผู้รับแจ้งเตือนเมื่อมีคนเปิดดู — [] = หัวหน้า IT ทุกคน (ค่าเดิม) */
   notify_user_ids: number[];
+  /** ล้าง clipboard หลังคัดลอกรหัสผ่าน / License key ภายในกี่วินาที (5–600) */
+  clipboard_clear_seconds: number;
 }
 
-export const SECRET_GUARD_DEFAULTS: SecretGuard = { reauth: true, reauth_method: "password", reauth_minutes: 5, ip_restrict: false, allowed_ips: [], notify_heads: true, notify_user_ids: [] };
+export const SECRET_GUARD_DEFAULTS: SecretGuard = { reauth: true, reauth_method: "password", reauth_minutes: 5, ip_restrict: false, allowed_ips: [], notify_heads: true, notify_user_ids: [], clipboard_clear_seconds: 30 };
 
 export async function secretGuard(): Promise<SecretGuard> {
   const stored = (await getSetting("secret_guard")) as Partial<SecretGuard> | null;

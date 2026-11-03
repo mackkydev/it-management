@@ -1,15 +1,13 @@
 import type { Metadata } from "next";
 import { ClipboardIcon, HistoryIcon, MonitorIcon, PrinterIcon } from "@/components/icons";
 import { alert } from "@/components/ui";
-import { LiveRefresh } from "@/components/live-refresh";
 import { getI18n } from "@/i18n/server";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import type { LoginState } from "@/app/actions/auth";
 import { apiFetch, TOKEN_COOKIE } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
-import type { LoginConnection, PublicAnnouncement } from "@/lib/types";
-import { AnnouncementTicker } from "./announcement-ticker";
+import type { LoginConnection } from "@/lib/types";
 import { LoginForm } from "./login-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -21,15 +19,6 @@ export async function generateMetadata(): Promise<Metadata> {
  * หน้าเข้าสู่ระบบ — ฉากโทนเทคโนโลยี (มืดเสมอ) + motion, กล่อง login แบบกระจกลอยอยู่ทางขวา
  * class "dark" บนฉาก: ช่องกรอก/ปุ่มใช้ token ของโหมดมืดเฉพาะหน้านี้ ไม่เปลี่ยนค่าที่ผู้ใช้ตั้งไว้
  */
-/** ประกาศจากฝ่าย IT (API ไม่ต้อง login) — ดึงไม่ได้ก็แสดงหน้า login ตามปกติ */
-async function getAnnouncements(): Promise<PublicAnnouncement[]> {
-  try {
-    return (await apiFetch<{ data: PublicAnnouncement[] }>("/announcements/public")).data;
-  } catch {
-    return [];
-  }
-}
-
 /** ช่องทาง login ผ่านระบบต้นทาง (ดึงไม่ได้ = แสดงเฉพาะบัญชีในระบบ) */
 async function getConnections(): Promise<LoginConnection[]> {
   try {
@@ -37,11 +26,6 @@ async function getConnections(): Promise<LoginConnection[]> {
   } catch {
     return [];
   }
-}
-
-/** key ตามชุดประกาศ — ประกาศเปลี่ยน (LiveRefresh) แล้วตัวเลื่อนเริ่มนับใหม่จากแถวแรก */
-function Announcements({ items, title }: { items: PublicAnnouncement[]; title: string }) {
-  return <AnnouncementTicker key={items.map((a) => a.id).join(",")} items={items} title={title} />;
 }
 
 /**
@@ -58,7 +42,7 @@ async function resumeChange(): Promise<LoginState | undefined> {
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { expired, change } = await searchParams;
   const initial = change ? await resumeChange() : undefined;
-  const [{ t }, announcements, connections] = await Promise.all([getI18n(), getAnnouncements(), getConnections()]);
+  const [{ t }, connections] = await Promise.all([getI18n(), getConnections()]);
   // ยังไม่รู้ว่าใครเข้าระบบ — แสดงเฉพาะความสามารถที่ผู้ใช้ทุกคน (รวมพนักงานนอกฝ่าย IT) ใช้ได้
   const features = [
     { icon: ClipboardIcon, title: t("auth.feature1") },
@@ -68,8 +52,6 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
 
   return (
     <main className="login-scene dark flex min-h-screen items-center px-4 py-10 sm:px-8 lg:px-16">
-      {/* ประกาศใหม่/แก้ไข/ลบ → หน้านี้อัปเดตเองโดยไม่ต้องกดรีเฟรช */}
-      <LiveRefresh scope="public" intervalMs={30_000} />
       <span className="login-orb login-orb-1" aria-hidden="true" />
       <span className="login-orb login-orb-2" aria-hidden="true" />
       <span className="login-orb login-orb-3" aria-hidden="true" />
@@ -99,9 +81,6 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
               </li>
             ))}
           </ul>
-          <div className="mt-10 max-w-xl">
-            <Announcements items={announcements} title={t("auth.announcements")} />
-          </div>
         </section>
 
         {/* ฝั่งขวา: กล่อง login แบบกระจก */}
@@ -116,12 +95,6 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           {/* <p className="login-muted mt-8 text-center text-xs">{t("auth.sessionNote")}</p> */}
         </section>
 
-        {/* จอเล็ก: ฝั่งซ้ายซ่อนอยู่ — แสดงประกาศด้านบนเหนือกล่อง login (กดอ่านเต็มในป๊อปอัป) */}
-        {announcements.length > 0 && (
-          <section className="login-fade-up order-first lg:hidden">
-            <Announcements items={announcements} title={t("auth.announcements")} />
-          </section>
-        )}
       </div>
     </main>
   );

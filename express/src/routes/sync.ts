@@ -17,7 +17,7 @@ const USER_TYPE = "App\\Models\\User";
 
 /** ตารางที่หน้าจอแสดงผล (ไม่รวม personal_access_tokens ที่เปลี่ยนทุกครั้งที่เรียก API) */
 export const SYNC_TABLES = [
-  "announcements", "app_settings", "approval_route_steps", "approval_routes", "asset_files", "asset_licenses", "assets",
+  "announcements", "app_settings", "approval_route_steps", "approval_routes", "asset_files", "assets", "license_files", "licenses",
   "branches", "contracts", "credentials", "it_ticket_approval_steps", "it_ticket_attachments", "it_ticket_parts", "it_tickets",
   "kpi_entries", "license_installations", "locations", "users",
   // ปฏิทิน/ลา + ผู้ร่วมดำเนินการ — ตัวเลขเมนู (รออนุมัติลา) และหน้าปฏิทินอัปเดตทันที

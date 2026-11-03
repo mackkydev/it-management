@@ -6,7 +6,7 @@ import { apiFile } from "@/lib/api";
  *   <img src="/files/auth/me/signature?v=...">   (ลายเซ็นในโปรไฟล์ของตัวเอง — ?v= ใช้แค่ให้ cache ใหม่)
  *   <img src="/files/branding/logo?v=...">   (โลโก้ระบบในเมนู — ?v= ใช้แค่ให้ cache ใหม่)
  *   <a href="/files/assets/{uuid}/files/3?download=1">   (ไฟล์ license ของสินทรัพย์ — ?download=1 บังคับดาวน์โหลด)
- *   <img src="/files/assets/{uuid}/icon?v={icon_id}">   (ไอคอน License ซอฟต์แวร์ — ?v= ใช้แค่ให้ cache ใหม่)
+ *   <img src="/files/licenses/{uuid}/icon?v={icon_id}">   (ไอคอน License ซอฟต์แวร์ — ?v= ใช้แค่ให้ cache ใหม่)
  *   <a href="/files/assets/import-template">   (template Excel สำหรับนำเข้าทะเบียนคอมพิวเตอร์)
  *   <a href="/files/assets/export?status=active&branch_id=2">   (ทะเบียนคอมพิวเตอร์เป็น Excel ตามตัวกรองหน้าสินทรัพย์)
  *   <a href="/files/kpi/export?from=2025-10&to=2025-12&user_id=3">   (KPI ฝ่าย IT เป็น Excel — ส่งต่อเฉพาะ from/to/user_id ที่ผ่านรูปแบบ)
@@ -16,7 +16,7 @@ import { apiFile } from "@/lib/api";
  * อนุญาตเฉพาะ path ของไฟล์ — กันไม่ให้ใช้เป็น proxy เรียก API อื่น
  */
 const ALLOWED =
-  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/export|kpi\/export|assets\/[0-9a-f-]{36}\/files\/\d+|assets\/[0-9a-f-]{36}\/icon|leave\/export|leave\/[0-9a-f-]{36}\/files\/\d+|leave\/[0-9a-f-]{36}\/signature\/(requester|approver)|holidays\/import-template|org-units\/import-template|meeting-rooms\/\d+\/images\/\d+|vehicles\/\d+\/images\/\d+)$/i;
+  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/export|kpi\/export|assets\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/icon|leave\/export|leave\/[0-9a-f-]{36}\/files\/\d+|leave\/[0-9a-f-]{36}\/signature\/(requester|approver)|holidays\/import-template|org-units\/import-template|meeting-rooms\/\d+\/images\/\d+|vehicles\/\d+\/images\/\d+)$/i;
 
 export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
   const { path } = await ctx.params;

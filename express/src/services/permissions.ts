@@ -1,7 +1,7 @@
 import { exec, first, insert, select } from "../db.js";
 import { localToday, nowDb } from "../lib/time.js";
 import { PERMISSION_KEYS, PERMISSIONS } from "../models/permission.js";
-import { isSuperAdmin, ROLES, type UserRow } from "../models/user.js";
+import { isSuperAdmin, ROLES, type UserRow, AUDITOR_ROLE, isReadOnly } from "../models/user.js";
 import { allSettings, getSetting, putSetting } from "./settings.js";
 
 /**
@@ -17,10 +17,16 @@ export const SUPER_ADMIN_GROUP = "super_admin";
 const SYSTEM_GROUPS: { key: string; name_th: string; name_en: string }[] = [
   { key: "super_admin", name_th: "ผู้ดูแลระบบสูงสุด", name_en: "Super admin" },
   { key: "admin", name_th: "ผู้ดูแลระบบ", name_en: "Admin" },
+  { key: "executive", name_th: "ผู้บริหาร", name_en: "Executive" },
   { key: "division_manager", name_th: "ผู้จัดการฝ่าย", name_en: "Division manager" },
-  { key: "manager", name_th: "ผู้จัดการ", name_en: "Manager" },
+  { key: "manager", name_th: "ผู้จัดการแผนก", name_en: "Department manager" },
   { key: "viewer", name_th: "พนักงาน", name_en: "Staff" },
+  { key: "auditor", name_th: "ผู้ตรวจสอบ (อ่านอย่างเดียว)", name_en: "Auditor (read-only)" },
 ];
+
+/** สิทธิ์ที่ผู้ตรวจสอบไม่ได้ (เปิด License key / จัดการ PIN กลาง / ใช้ลายเซ็นคนอื่น) — ที่เหลือใช้เปิดหน้าดู การแก้ไขถูกกันที่ middleware auth */
+const READ_ONLY_EXCLUDED = new Set(["assets.license_key", "secrets.pin_manage", "signature.use"]);
+const readOnlyKeys = () => PERMISSION_KEYS.filter((k) => !READ_ONLY_EXCLUDED.has(k));
 async function ensureGroups(): Promise<void> {
   const now = nowDb();
   for (const [i, g] of SYSTEM_GROUPS.entries()) {
@@ -166,6 +172,7 @@ export async function groupsOf(u: Pick<UserRow, "id" | "role">): Promise<string[
 /** สิทธิ์จริง = สิทธิ์ของทุกกลุ่ม + allow รายคน − deny รายคน (super_admin = ทุกสิทธิ์) */
 export async function permissionsOf(u: UserRow): Promise<Set<string>> {
   if (isSuperAdmin(u)) return new Set(PERMISSION_KEYS);
+  if (isReadOnly(u)) return new Set(readOnlyKeys());
   const groups = await groupsOf(u);
   const active = await activeClause("up");
   const rows = await select<{ key: string }>(
@@ -211,6 +218,7 @@ export async function audiencePermissions(): Promise<Record<string, string[]>> {
   );
   for (const r of rows) if (r.role in out && PERMISSION_KEYS.includes(r.key)) out[r.role].push(r.key);
   if (SUPER_ADMIN_GROUP in out) out[SUPER_ADMIN_GROUP] = [...PERMISSION_KEYS];
+  if (AUDITOR_ROLE in out) out[AUDITOR_ROLE] = readOnlyKeys();
   return out;
 }
 

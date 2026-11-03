@@ -40,6 +40,8 @@ export function proxy(request: NextRequest) {
   const next = () => {
     const headers = new Headers(request.headers);
     headers.set("x-nonce", nonce);
+    // ให้ (app)/layout.tsx ตรวจสิทธิ์เปิดหน้า (เขียนทับค่าที่ผู้ใช้ส่งมาเสมอ)
+    headers.set("x-pathname", request.nextUrl.pathname);
     headers.set("Content-Security-Policy", csp);
     return withCsp(NextResponse.next({ request: { headers } }));
   };

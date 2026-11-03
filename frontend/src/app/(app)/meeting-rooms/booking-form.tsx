@@ -1,16 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { loadBookings, saveBooking, type BookingValues } from "@/app/actions/meeting";
+import { loadZoomBookings, type ZoomBookingValues } from "@/app/actions/zoom";
 import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
 import { useConfirm } from "@/components/dialog-provider";
-import { AlertIcon, CheckCircleIcon, MapPinIcon, MeetingRoomIcon, SaveIcon, SpinnerIcon, UsersIcon } from "@/components/icons";
+import { AlertIcon, CheckCircleIcon, MapPinIcon, MeetingRoomIcon, SaveIcon, SpinnerIcon, UsersIcon, VideoIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
-import type { MeetingBooking, MeetingRoom } from "@/lib/types";
+import type { MeetingBooking, MeetingRoom, ZoomBooking } from "@/lib/types";
+import { ZoomModalFrame } from "../zoom/book-zoom-modal";
+import { ZoomForm } from "../zoom/zoom-form";
 import { endAt, imageUrl, overlaps, primaryImage, slotOn, startAt, TIME_OPTIONS, timelineHours, toMin, toneOf } from "./meeting-utils";
 
 type Field = keyof BookingValues;
@@ -27,6 +31,7 @@ export function BookingForm({
   purposes,
   equipment,
   booker,
+  linkedZoom = null,
 }: {
   /** แก้ไข = uuid ของการจอง */
   id: string | null;
@@ -37,6 +42,8 @@ export function BookingForm({
   purposes: string[];
   equipment: string[];
   booker: { name: string; department: string | null };
+  /** แก้ไข: การจอง ZOOM ที่จองพร้อมห้องนี้อยู่แล้ว */
+  linkedZoom?: { id: string; status: string } | null;
 }) {
   const { t, fmt } = useI18n();
   const router = useRouter();
@@ -45,6 +52,8 @@ export function BookingForm({
   const [day, setDay] = useState(initialDay);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [message, setMessage] = useState("");
+  // อุปกรณ์ที่มีคำว่า Zoom → เปิด modal กรอกข้อมูลการจอง ZOOM (บันทึกพร้อมการจองห้อง) — values = ค่าตั้งต้นในกล่อง, option = อุปกรณ์ที่กำลังเลือก
+  const [zoomDraft, setZoomDraft] = useState<{ option: string; values: ZoomBookingValues; range: ZoomBooking[] } | null>(null);
   const [checking, startCheck] = useTransition();
   const [pending, start] = useTransition();
   const today = localToday();
@@ -111,6 +120,40 @@ export function BookingForm({
     });
   };
 
+  const isZoomOption = (name: string) => /zoom/i.test(name);
+  // เปิดครั้งแรก = วันเวลาตามห้อง (แก้ได้) — โหลดการจอง ZOOM ในช่วงนั้นไว้แสดงเหมือนหน้าจอง ZOOM
+  const openZoomDraft = async (option: string) => {
+    const values = {
+      title: v.zoom_title || v.title,
+      details: v.zoom_details,
+      start_on: v.zoom_start_on || v.date,
+      start_time: v.zoom_start_time || v.start_time,
+      end_on: v.zoom_end_on || v.end_date || v.date,
+      end_time: v.zoom_end_time || v.end_time,
+    };
+    setZoomDraft({ option, values, range: values.start_on && values.end_on ? await loadZoomBookings(values.start_on, values.end_on) : [] });
+  };
+  const confirmZoomDraft = (option: string, d: ZoomBookingValues) => {
+    setV((p) => ({ ...p, add_zoom: true, zoom_title: d.title, zoom_details: d.details, zoom_start_on: d.start_on, zoom_start_time: d.start_time, zoom_end_on: d.end_on, zoom_end_time: d.end_time, equipment: p.equipment.includes(option) ? p.equipment : [...p.equipment, option] }));
+    setZoomDraft(null);
+  };
+  /** เลือก/เอาอุปกรณ์ออก: Zoom ยังไม่จอง = เปิด modal, จองไว้แล้วเอาออก = ถามยืนยันแล้วยกเลิก ZOOM ตอนบันทึก */
+  const toggleEquipment = async (name: string, on: boolean) => {
+    if (isZoomOption(name) && !on) {
+      if (linkedZoom) {
+        setV((p) => ({ ...p, zoom_cancel: false, equipment: [...p.equipment, name] }));
+        return;
+      }
+      return void (await openZoomDraft(name));
+    }
+    if (isZoomOption(name) && on && linkedZoom && !v.zoom_cancel) {
+      if (!(await confirm(t("meeting.form.zoomCancelConfirm")))) return;
+      setV((p) => ({ ...p, zoom_cancel: true, equipment: p.equipment.filter((x) => x !== name) }));
+      return;
+    }
+    setV((p) => ({ ...p, add_zoom: isZoomOption(name) ? false : p.add_zoom, equipment: on ? p.equipment.filter((x) => x !== name) : [...p.equipment, name] }));
+  };
+
   const label = (htmlFor: string, text: string, required = false) => (
     <label htmlFor={htmlFor} className="mb-1 block text-sm font-medium">
       {text} {required && <span className="text-red-500">*</span>}
@@ -126,6 +169,7 @@ export function BookingForm({
   const width = (s: string, e: string) => ((toMin(e) - toMin(s)) / span) * 100;
 
   return (
+    <>
     <form action={submit} className="space-y-5">
       {message && (
         <p role="alert" className={alert.error}>
@@ -296,7 +340,7 @@ export function BookingForm({
                         <input
                           type="checkbox"
                           checked={on}
-                          onChange={() => set("equipment", on ? v.equipment.filter((x) => x !== e) : [...v.equipment, e])}
+                          onChange={() => toggleEquipment(e, on)}
                           className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
                         />
                         {e}
@@ -306,6 +350,26 @@ export function BookingForm({
                 </div>
               )}
               {err("equipment")}
+              {/* ZOOM ที่จองพร้อมห้องนี้ / ข้อมูลที่กรอกใน modal */}
+              {linkedZoom && !v.zoom_cancel && (
+                <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                  <VideoIcon width={14} height={14} className="text-accent-500" />
+                  {t("meeting.form.zoomLinked")}
+                  <Link href={`/zoom/bookings/${linkedZoom.id}`} className="cursor-pointer font-medium text-accent-600 hover:underline dark:text-accent-300">
+                    {t("meeting.form.zoomOpen")}
+                  </Link>
+                </p>
+              )}
+              {linkedZoom && v.zoom_cancel && <p className="mt-2 text-xs font-medium text-danger-700 dark:text-danger-300">{t("meeting.form.zoomWillCancel")}</p>}
+              {v.add_zoom && !linkedZoom && (
+                <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                  <VideoIcon width={14} height={14} className="text-accent-500" />
+                  {t("meeting.form.zoomDraft", { title: v.zoom_title, period: `${fmt.date(v.zoom_start_on)} ${v.zoom_start_time} – ${v.zoom_end_on !== v.zoom_start_on ? `${fmt.date(v.zoom_end_on)} ` : ""}${v.zoom_end_time}` })}
+                  <button type="button" onClick={() => openZoomDraft(v.equipment.find(isZoomOption) ?? "")} className="cursor-pointer font-medium text-accent-600 hover:underline dark:text-accent-300">
+                    {t("meeting.form.zoomEdit")}
+                  </button>
+                </p>
+              )}
             </fieldset>
             <div className="sm:col-span-2">
               {label("note", t("meeting.form.note"))}
@@ -362,5 +426,12 @@ export function BookingForm({
         </button>
       </div>
     </form>
+    {/* นอก <form> ของการจองห้อง — กรอบและฟอร์มเดียวกับหน้าจอง ZOOM */}
+    {zoomDraft && (
+      <ZoomModalFrame title={t("meeting.form.zoomModalTitle")} subtitle={t("meeting.form.zoomModalHint")} onClose={() => setZoomDraft(null)}>
+        <ZoomForm id={null} idPrefix="zoom_" embedded initial={zoomDraft.values} initialRange={zoomDraft.range} onCancel={() => setZoomDraft(null)} onDraft={(d) => confirmZoomDraft(zoomDraft.option, d)} />
+      </ZoomModalFrame>
+    )}
+    </>
   );
 }

@@ -34,7 +34,7 @@ export interface ZoomBookingValues {
   end_time: string;
 }
 
-/** จองใหม่ (id = null) / แก้ไข (ก่อนฝ่าย IT รับงาน) */
+/** จองใหม่ (id = null) / แก้ไข (ก่อนฝ่าย IT รับงาน หรือเมื่อฝ่าย IT ส่งกลับให้แก้วันเวลา) */
 export async function saveZoomBooking(id: string | null, v: ZoomBookingValues): Promise<ActionResult<keyof ZoomBookingValues | "status"> & { id?: string }> {
   const { t } = await getI18n();
   if (id !== null && !UUID_RE.test(id)) return { message: t("common.saveFailed") };
@@ -50,7 +50,7 @@ export async function saveZoomBooking(id: string | null, v: ZoomBookingValues): 
   }
 }
 
-type Result = ActionResult<"status" | "meeting_link" | "meeting_topic" | "meeting_id" | "passcode" | "link_note" | "reason">;
+type Result = ActionResult<"status" | "zoom_account" | "meeting_link" | "meeting_topic" | "meeting_id" | "passcode" | "link_note" | "reason" | "signature">;
 
 async function post(id: string, path: string, body: Record<string, unknown> | null, done: string): Promise<Result> {
   const { t } = await getI18n();
@@ -77,6 +77,8 @@ export async function acceptZoomBooking(id: string): Promise<Result> {
 }
 
 export interface ZoomLinkValues {
+  /** บัญชี ZOOM จากข้อมูล Drop Down */
+  account: string;
   link: string;
   topic: string;
   meeting_id: string;
@@ -85,7 +87,19 @@ export interface ZoomLinkValues {
   invitation: string;
 }
 
-/** ฝ่าย IT ส่งลิงก์ประชุม + Topic / Meeting ID / Passcode (ครั้งแรก = เสร็จงาน + ขึ้น KPI / ครั้งถัดไป = แก้ลิงก์) */
+/** ผู้จองกดรับ = ปิดใบงาน */
+export async function acknowledgeZoomBooking(id: string): Promise<Result> {
+  const { t } = await getI18n();
+  return post(id, "acknowledge", null, t("zoom.done.acknowledged"));
+}
+
+/** ผู้จัดการ IT อนุมัติ = ประทับชื่อ + ลายเซ็นในโปรไฟล์ลงใบงาน */
+export async function approveZoomBooking(id: string): Promise<Result> {
+  const { t } = await getI18n();
+  return post(id, "approve", null, t("zoom.done.approved"));
+}
+
+/** ฝ่าย IT ส่งลิงก์ประชุม + Topic / Meeting ID / Passcode (ครั้งแรก = รอผู้จัดการ IT อนุมัติ / ครั้งถัดไป = แก้ลิงก์) */
 export async function sendZoomLink(id: string, v: ZoomLinkValues): Promise<Result> {
   const { t } = await getI18n();
   if (!/^https?:\/\/\S+$/i.test(v.link.trim())) return { errors: { meeting_link: t("zoom.validate.link") }, message: t("common.checkInput") };
@@ -93,12 +107,12 @@ export async function sendZoomLink(id: string, v: ZoomLinkValues): Promise<Resul
   return post(
     id,
     "link",
-    { meeting_link: v.link.trim(), meeting_topic: opt(v.topic), meeting_id: opt(v.meeting_id), passcode: opt(v.passcode), link_note: opt(v.invitation) },
+    { zoom_account: v.account, meeting_link: v.link.trim(), meeting_topic: opt(v.topic), meeting_id: opt(v.meeting_id), passcode: opt(v.passcode), link_note: opt(v.invitation) },
     t("zoom.done.linked"),
   );
 }
 
-/** ฝ่าย IT แจ้งกลับผู้จอง: ช่วงเวลานี้มีการใช้งาน ZOOM แล้ว (ไม่ระบุเหตุผล = ข้อความตั้งต้นของระบบ) */
+/** ฝ่าย IT แจ้งกลับผู้จองให้แก้วันเวลา: ช่วงเวลานี้มีการใช้งาน ZOOM แล้ว (ไม่ระบุเหตุผล = ข้อความตั้งต้นของระบบ) */
 export async function zoomBusy(id: string, reason: string): Promise<Result> {
   const { t } = await getI18n();
   return post(id, "busy", { reason: reason.trim() || null }, t("zoom.done.busy"));

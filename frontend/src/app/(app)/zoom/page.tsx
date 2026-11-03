@@ -23,7 +23,12 @@ export default async function ZoomPage({ searchParams }: PageProps<"/zoom">) {
   const params = await searchParams;
   const month = typeof params.month === "string" && MONTH_RE.test(params.month) ? params.month : localToday().slice(0, 7);
   const { from, to } = monthGrid(month);
-  const [{ t }, user, bookings] = await Promise.all([getI18n(), getCurrentUser(), apiFetch<{ data: ZoomBooking[] }>(`/zoom-bookings?${new URLSearchParams({ from, to })}`).then((r) => r.data)]);
+  const [{ t }, user, bookings, accounts] = await Promise.all([
+    getI18n(),
+    getCurrentUser(),
+    apiFetch<{ data: ZoomBooking[] }>(`/zoom-bookings?${new URLSearchParams({ from, to })}`).then((r) => r.data),
+    apiFetch<{ data: { name: string }[] }>("/dropdown-options/zoom_account").then((r) => r.data.map((o) => o.name)),
+  ]);
 
   return (
     <div className="space-y-5">
@@ -38,7 +43,7 @@ export default async function ZoomPage({ searchParams }: PageProps<"/zoom">) {
           </Link>
         }
       />
-      <ZoomCalendar month={month} initialBookings={bookings} showStatuses={has(user, "zoom.manage")} />
+      <ZoomCalendar month={month} initialBookings={bookings} accounts={accounts} showStatuses={has(user, "zoom.manage")} />
     </div>
   );
 }

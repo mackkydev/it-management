@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import type { ReactNode } from "react";
 import { ChevronRightIcon, HistoryIcon, UsersIcon, WrenchIcon } from "@/components/icons";
-import { card } from "@/components/ui";
+import { card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import type { AssetMovement, AssetRepair, AssetUserLog, Paginated } from "@/lib/types";
@@ -70,7 +70,7 @@ function Change({ from, to, none }: { from: string | null; to: string | null; no
   );
 }
 
-/** ประวัติการโอนย้าย (ย่อ) — วันที่ + ประเภท + ปลายทาง, คลิก = หน้าประวัติการโอนย้าย (รายงานรวม กรองตามรหัสสินทรัพย์) */
+/** ประวัติการโอนย้าย (ย่อ) — วันที่ + ประเภท + สาขา (เดิม → ใหม่) · ผู้ถือครอง, คลิก = หน้าประวัติการโอนย้าย (รายงานรวม กรองตามรหัสสินทรัพย์) */
 export async function MovementSummary({ id, href }: { id: string; href?: Route }) {
   const [res, { t, fmt }] = await Promise.all([apiFetch<Paginated<AssetMovement>>(`/assets/${id}/movements?per_page=50`), getI18n()]);
   return (
@@ -83,8 +83,12 @@ export async function MovementSummary({ id, href }: { id: string; href?: Route }
           {res.data.map((m, i) => (
             <Row key={m.id} no={res.data.length - i} date={<time dateTime={m.moved_at}>{fmt.date(m.moved_at)}</time>} href={href}>
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${MOVEMENT_STYLE[m.type].badge}`}>{m.type_label}</span>
+              {m.to_branch && m.from_branch?.id !== m.to_branch.id ? (
+                <Change from={m.type === "registered" ? null : (m.from_branch?.name ?? null)} to={m.to_branch.name} none={t("common.none")} />
+              ) : null}
               <span className="min-w-0 truncate text-ink">
-                {[m.to_location?.name, m.to_custodian?.name].filter(Boolean).join(" · ") || t("common.none")}
+                {[m.to_branch && m.from_branch?.id !== m.to_branch.id ? null : m.to_location?.name, m.to_custodian?.name].filter(Boolean).join(" · ") ||
+                  (m.to_branch ? "" : t("common.none"))}
               </span>
             </Row>
           ))}
@@ -117,7 +121,9 @@ export async function RepairHistory({ id, href }: { id: string; href?: Route }) 
   );
 }
 
-/** ประวัติผู้ใช้งาน — เรียงลำดับเหมือนการโอนย้าย: ชื่อ-สกุลผู้ใช้งานคนเดิมขีดฆ่า → คนใหม่ (+ Department ถ้าเปลี่ยน) */
+const SOURCE_TONE: Record<AssetUserLog["source"], string> = { create: tone.success.badge, edit: tone.info.badge, import: tone.warning.badge };
+
+/** ประวัติผู้ใช้งาน (ผู้ถือครอง/ผู้ใช้งาน) — แถวเหมือนประวัติการโอนย้าย: คนเดิมขีดฆ่า → คนใหม่ (+ Department ถ้าเปลี่ยน) */
 export async function UserHistory({ id }: { id: string }) {
   const [{ data }, { t, fmt }] = await Promise.all([apiFetch<{ data: AssetUserLog[] }>(`/assets/${id}/user-logs`), getI18n()]);
   return (
@@ -131,6 +137,7 @@ export async function UserHistory({ id }: { id: string }) {
             const created = l.source === "create";
             return (
               <Row key={l.id} no={data.length - i} date={<time dateTime={l.changed_at}>{fmt.date(l.changed_at)}</time>}>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${SOURCE_TONE[l.source]}`}>{t(`assets.userLogs.sources.${l.source}`)}</span>
                 <Change from={created ? null : l.from_user_name} to={l.to_user_name} none={t("common.none")} />
                 {l.from_department !== l.to_department && (
                   <span className="text-xs text-muted">

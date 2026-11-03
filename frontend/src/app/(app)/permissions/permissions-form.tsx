@@ -3,13 +3,15 @@
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { saveUiConfig } from "@/app/actions/it-data";
 import { AlertIcon, ArrowDownIcon, ArrowUpIcon, CheckCircleIcon, CheckIcon, PencilIcon, ResetIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
+import { ModalShell } from "@/components/modal-shell";
 import { NAV, type NavItem } from "@/components/shell/nav";
 import { Tooltip } from "@/components/tooltip";
 import { alert, btn, card, input } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import {
   ALWAYS_FOR_ADMIN, BUTTONS, sampleUser, sortByOrder,
-  type Audience, type MenuLabels, type MenuOrder, type UiConfig, type UiPermissions,
+  type Audience, type MenuBranches,
+  type MenuLabels, type MenuOrder, type UiConfig, type UiPermissions,
 } from "@/lib/permissions";
 import type { PermissionGroupRow, User } from "@/lib/types";
 import { useConfirm } from "@/components/dialog-provider";
@@ -35,6 +37,7 @@ export function PermissionsForm({
   groups,
   defaultNames,
   editable,
+  branches,
 }: {
   initial: UiConfig;
   groups: PermissionGroupRow[];
@@ -42,6 +45,8 @@ export function PermissionsForm({
   defaultNames: Record<string, { th: string; en: string }>;
   /** กลุ่มที่ติ๊กได้ (null = ทุกกลุ่ม — ผู้ดูแลระบบสูงสุด) — กลุ่มอื่นอ่านอย่างเดียว */
   editable: string[] | null;
+  /** สาขาทั้งหมด — null = ตั้งเมนูตามสาขาไม่ได้ (ไม่มี access.manage) */
+  branches: { id: number; name: string }[] | null;
 }) {
   const { t, locale } = useI18n();
   const AUDIENCES = useMemo(() => groups.map((g) => g.key), [groups]);
@@ -57,6 +62,9 @@ export function PermissionsForm({
   );
   // ชื่อเมนูที่แก้เอง (บันทึกพร้อมปุ่มบันทึกด้านล่าง)
   const [labels, setLabels] = useState<MenuLabels>(initial.menu_labels);
+  // เมนูเฉพาะสาขา (ไม่มี key = ทุกสาขา)
+  const [menuBranches, setMenuBranches] = useState<MenuBranches>(initial.menu_branches);
+  const [branchMenu, setBranchMenu] = useState<{ href: string; name: string } | null>(null);
   const [result, setResult] = useState<{ ok?: boolean; message?: string }>({});
   const [pending, start] = useTransition();
 
@@ -74,13 +82,14 @@ export function PermissionsForm({
 
   const save = () => {
     const menu_order: MenuOrder = { groups: groupOrder, items: itemOrder };
-    start(async () => setResult(await saveUiConfig({ ui_permissions: deny, menu_order, menu_labels: labels })));
+    start(async () => setResult(await saveUiConfig({ ui_permissions: deny, menu_order, menu_labels: labels, ...(branches ? { menu_branches: menuBranches } : {}) })));
   };
 
   const reset = async () => {
     if (!(await confirm(t("permissions.confirmReset")))) return;
     setDeny({});
     setLabels({});
+    setMenuBranches({});
     setGroupOrder(NAV.map((g) => g.id));
     setItemOrder(Object.fromEntries(NAV.map((g) => [g.id, g.items.map((i) => i.href)])));
     setResult({});
@@ -115,7 +124,7 @@ export function PermissionsForm({
     );
   };
 
-  const head = (first: string) => (
+  const head = (first: string, withBranches = false) => (
     <thead className="bg-subtle text-xs text-muted">
       <tr>
         <th className="min-w-[18rem] px-4 py-2.5 text-left font-medium">{first}</th>
@@ -124,6 +133,7 @@ export function PermissionsForm({
             {audienceName(a)}
           </th>
         ))}
+        {withBranches && branches && <th className="w-28 px-3 py-2.5 text-center font-medium">{t("permissions.branches")}</th>}
       </tr>
     </thead>
   );
@@ -163,7 +173,7 @@ export function PermissionsForm({
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[48rem] text-sm">
-            {head(t("permissions.menu"))}
+            {head(t("permissions.menu"), true)}
             {groupOrder.map((gid, gi) => {
               const group = groupsById[gid];
               if (!group) return null;
@@ -171,7 +181,7 @@ export function PermissionsForm({
               return (
                 <tbody key={gid} className="border-t border-line">
                   <tr className="bg-subtle/40">
-                    <td colSpan={AUDIENCES.length + 1} className="px-4 py-2">
+                    <td colSpan={AUDIENCES.length + (branches ? 2 : 1)} className="px-4 py-2">
                       {orderButtons(
                         () => setGroupOrder((o) => move(o, gi, -1)),
                         () => setGroupOrder((o) => move(o, gi, 1)),
@@ -200,6 +210,17 @@ export function PermissionsForm({
                         )}
                       </td>
                       {AUDIENCES.map((a) => cell(item.href, a, !item.visible || item.visible(samples[a])))}
+                      {branches && (
+                        <td className="px-3 py-1.5 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setBranchMenu({ href: item.href, name: labels[item.href]?.[locale === "en" ? "en" : "th"] || t(item.label) })}
+                            className={`cursor-pointer whitespace-nowrap rounded-lg px-2 py-1 text-xs font-medium ring-1 transition-colors hover:bg-subtle ${menuBranches[item.href]?.length ? "bg-accent-50 text-accent-700 ring-accent-300 dark:bg-accent-400/10 dark:text-accent-300 dark:ring-accent-400/40" : "text-muted ring-line"}`}
+                          >
+                            {menuBranches[item.href]?.length ? t("permissions.branchesCount", { count: menuBranches[item.href].length }) : t("permissions.branchesAll")}
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -208,6 +229,36 @@ export function PermissionsForm({
           </table>
         </div>
       </section>
+
+      {branchMenu && branches && (
+        <ModalShell id="menu-branches-title" title={t("permissions.branchesTitle", { name: branchMenu.name })} subtitle={t("permissions.branchesHint")} onClose={() => setBranchMenu(null)}>
+          <div className="grid gap-1 sm:grid-cols-2">
+            {branches.map((b) => {
+              const chosen = menuBranches[branchMenu.href] ?? [];
+              return (
+                <label key={b.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-subtle">
+                  <input
+                    type="checkbox"
+                    checked={chosen.includes(b.id)}
+                    onChange={() => {
+                      setResult({});
+                      setMenuBranches((m) => ({ ...m, [branchMenu.href]: chosen.includes(b.id) ? chosen.filter((x) => x !== b.id) : [...chosen, b.id] }));
+                    }}
+                    className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+                  />
+                  {b.name}
+                </label>
+              );
+            })}
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button type="button" onClick={() => setBranchMenu(null)} className={btn.primary}>
+              <CheckIcon />
+              {t("permissions.branchesDone")}
+            </button>
+          </div>
+        </ModalShell>
+      )}
 
       {/* ปุ่ม */}
       <section className={`overflow-hidden ${card}`}>

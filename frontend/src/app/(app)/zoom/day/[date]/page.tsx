@@ -22,7 +22,11 @@ export async function generateMetadata({ params }: PageProps<"/zoom/day/[date]">
 export default async function ZoomDayPage({ params, searchParams }: PageProps<"/zoom/day/[date]">) {
   const [{ date }, sp] = await Promise.all([params, searchParams]);
   if (!DATE_RE.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) notFound();
-  const [{ t, fmt }, bookings] = await Promise.all([getI18n(), apiFetch<{ data: ZoomBooking[] }>(`/zoom-bookings?${new URLSearchParams({ from: date, to: date })}`).then((r) => r.data)]);
+  const [{ t, fmt }, bookings, accounts] = await Promise.all([
+    getI18n(),
+    apiFetch<{ data: ZoomBooking[] }>(`/zoom-bookings?${new URLSearchParams({ from: date, to: date })}`).then((r) => r.data),
+    apiFetch<{ data: { name: string }[] }>("/dropdown-options/zoom_account").then((r) => r.data.map((o) => o.name)),
+  ]);
   const past = date < localToday();
 
   return (
@@ -64,7 +68,7 @@ export default async function ZoomDayPage({ params, searchParams }: PageProps<"/
           </Link>
         </div>
       </div>
-      <ZoomTimeline key={date} date={date} bookings={bookings} />
+      <ZoomTimeline key={date} date={date} bookings={bookings} accounts={accounts} />
     </div>
   );
 }

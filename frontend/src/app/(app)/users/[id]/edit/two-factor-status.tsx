@@ -9,7 +9,7 @@ import { btn, card, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 
 /** ผู้ดูแลระบบสูงสุด: สถานะ 2FA ของผู้ใช้ + รีเซ็ตเมื่อผู้ใช้ทำโทรศัพท์หาย (ตัด session ทั้งหมดของผู้ใช้นั้น + audit) */
-export function TwoFactorStatus({ userId, enabled }: { userId: number; enabled: boolean }) {
+export function TwoFactorStatus({ userId, enabled, required = false }: { userId: number; enabled: boolean; required?: boolean }) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const router = useRouter();
@@ -32,6 +32,7 @@ export function TwoFactorStatus({ userId, enabled }: { userId: number; enabled: 
         {t("users.twoFactor.title")}
       </h2>
       <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${enabled ? tone.success.badge : tone.idle.badge}`}>{enabled ? t("profile.twoFactor.on") : t("profile.twoFactor.off")}</span>
+      {required && <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.info.badge}`}>{t("users.twoFactor.requiredByGroup")}</span>}
       {message && (
         <span className="flex items-center gap-1 text-sm text-muted">
           <CheckCircleIcon width={14} height={14} />

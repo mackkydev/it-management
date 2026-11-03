@@ -48,7 +48,7 @@ describe("secret guard", () => {
     expect((await api.put("/api/v1/settings").send({ secret_guard: { reauth: false } })).status).toBe(403);
 
     const off = await admin.put("/api/v1/settings").send({ secret_guard: { reauth: false, notify_heads: false } });
-    expect(off.body.data.secret_guard).toEqual({ reauth: false, reauth_method: "password", reauth_minutes: 5, ip_restrict: false, allowed_ips: [], notify_heads: false, notify_user_ids: [] });
+    expect(off.body.data.secret_guard).toEqual({ reauth: false, reauth_method: "password", reauth_minutes: 5, ip_restrict: false, allowed_ips: [], notify_heads: false, notify_user_ids: [], clipboard_clear_seconds: 30 });
     expect((await api.post(`/api/v1/credentials/${id}/reveal`)).status).toBe(200);
     expect(await notifications(head.id)).toBe(0);
     expect(await first("SELECT 1 FROM audit_logs WHERE action = 'settings.secret_guard_updated'")).toBeTruthy();
@@ -70,14 +70,14 @@ describe("secret guard", () => {
     const head = await makeUser({ is_it_head: true, is_it_staff: true });
     const manager = await makeUser({ role: "manager" });
     const api = await as(manager);
-    const created = await api.post("/api/v1/assets").send({
-      asset_tag: "SW-1", name: "Office", category: "SOFTWARE",
+    const created = await api.post("/api/v1/licenses").send({
+      license_no: "SW-1", name: "Office",
       license: { billing: "yearly", start_date: day(0), expires_at: day(364), license_key: "AAAA-BBBB" },
     });
     const id = created.body.data.id;
-    expect((await api.post(`/api/v1/assets/${id}/license-key`)).status).toBe(428);
+    expect((await api.post(`/api/v1/licenses/${id}/license-key`)).status).toBe(428);
     await api.post("/api/v1/auth/reauth").send({ password: "password" });
-    expect((await api.post(`/api/v1/assets/${id}/license-key`)).body.data.license_key).toBe("AAAA-BBBB");
+    expect((await api.post(`/api/v1/licenses/${id}/license-key`)).body.data.license_key).toBe("AAAA-BBBB");
     expect(await first("SELECT 1 FROM audit_logs WHERE action = 'asset.license_key_revealed'")).toBeTruthy();
     expect(await notifications(head.id)).toBe(1);
   });
@@ -180,5 +180,16 @@ describe("per-credential confirmation switch", () => {
     expect(reset.body.data.secret_notify_effective.map((x: { id: number }) => x.id)).toEqual([head.id]);
     await api.post(`/api/v1/credentials/${id}/reveal`);
     expect(await notifications(head.id)).toBe(1);
+  });
+});
+
+describe("clipboard clear time", () => {
+  it("defaults to 30 seconds, is configurable (5–600) and reaches the page through /auth/me", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }));
+    expect((await admin.get("/api/v1/auth/me")).body.data.clipboard_clear_seconds).toBe(30);
+    for (const bad of [4, 601]) expect((await admin.put("/api/v1/settings").send({ secret_guard: { clipboard_clear_seconds: bad } })).status).toBe(422);
+    const ok = await admin.put("/api/v1/settings").send({ secret_guard: { clipboard_clear_seconds: 120 } });
+    expect(ok.body.data.secret_guard.clipboard_clear_seconds).toBe(120);
+    expect((await (await as(await makeUser())).get("/api/v1/auth/me")).body.data.clipboard_clear_seconds).toBe(120);
   });
 });

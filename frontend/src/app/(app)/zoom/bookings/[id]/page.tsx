@@ -15,7 +15,7 @@ import { CopyShare } from "../../copy-share";
 import { CopyLink } from "./copy-link";
 import { ZoomActions } from "./zoom-actions";
 
-const DONE = ["created", "updated", "accepted", "linked", "link_updated", "busy", "cancelled"] as const;
+const DONE = ["created", "updated", "resubmitted", "accepted", "linked", "link_updated", "busy", "acknowledged", "cancelled"] as const;
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -42,7 +42,11 @@ export default async function ZoomBookingPage({ params, searchParams }: PageProp
     if (e instanceof ApiError && e.status === 404) notFound();
     throw e;
   }
-  const { t, fmt } = await getI18n();
+  const [{ t, fmt }, accounts] = await Promise.all([
+    getI18n(),
+    // ตัวเลือกบัญชี ZOOM (ข้อมูล Drop Down) — โหลดเมื่อส่งลิงก์ได้
+    z.can_link ? apiFetch<{ data: { name: string }[] }>("/dropdown-options/zoom_account").then((r) => r.data.map((o) => o.name)) : Promise.resolve([] as string[]),
+  ]);
   const done = DONE.find((d) => d === sp.done);
 
   return (
@@ -95,6 +99,13 @@ export default async function ZoomBookingPage({ params, searchParams }: PageProp
         </p>
       )}
 
+      {z.status === "needs_change" && (
+        <p role="alert" className={alert.warning}>
+          <AlertIcon className="shrink-0" />
+          {t(z.can_edit ? "zoom.detail.needsChange" : "zoom.detail.needsChangeIt", { reason: z.reject_reason ?? "-" })}
+        </p>
+      )}
+
       <section className={`p-4 sm:p-5 ${card}`}>
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Item label={t("zoom.detail.when")}>
@@ -109,6 +120,7 @@ export default async function ZoomBookingPage({ params, searchParams }: PageProp
           </Item>
           <Item label={t("zoom.detail.createdAt")}>{z.created_at ? fmt.dateTime(z.created_at) : "-"}</Item>
           <Item label={t("zoom.detail.assignee")}>{z.assignee ? `${z.assignee.name}${z.accepted_at ? ` (${fmt.dateTime(z.accepted_at)})` : ""}` : t("zoom.detail.waiting")}</Item>
+          {z.zoom_account && <Item label={t("zoom.actions.account")}>{z.zoom_account}</Item>}
           {z.confirmed_at && <Item label={t("zoom.detail.confirmedAt")}>{`${fmt.dateTime(z.confirmed_at)}${z.confirmed_by ? ` · ${z.confirmed_by}` : ""}`}</Item>}
           {z.rejected_at && <Item label={t("zoom.detail.rejectedAt")}>{`${fmt.dateTime(z.rejected_at)}${z.rejected_by ? ` · ${z.rejected_by}` : ""}`}</Item>}
           {z.cancelled_at && <Item label={t("zoom.detail.cancelledAt")}>{fmt.dateTime(z.cancelled_at)}</Item>}
@@ -117,12 +129,22 @@ export default async function ZoomBookingPage({ params, searchParams }: PageProp
               <Link href={`/tickets/${z.ticket.id}`} className="cursor-pointer text-accent-600 hover:underline dark:text-accent-300">
                 {z.ticket.ticket_no}
               </Link>
+              <span className="ml-2 text-xs font-normal text-muted">{t(`zoom.ticketStatus.${z.ticket.status}` as MessageKey)}</span>
+            </Item>
+          )}
+          {z.head_approval && (
+            <Item label={t("zoom.detail.headApproved")}>
+              <span className="block">{`${z.head_approval.name}${z.head_approval.at ? ` · ${fmt.dateTime(z.head_approval.at)}` : ""}`}</span>
+              {z.head_approval.signature_url && (
+                // eslint-disable-next-line @next/next/no-img-element -- ลายเซ็นส่วนตัวผ่าน /files (ต้องมี cookie) ใช้ next/image ไม่ได้
+                <img src={z.head_approval.signature_url} alt={z.head_approval.name} className="mt-1 h-12 w-auto rounded bg-white p-1 ring-1 ring-line" />
+              )}
             </Item>
           )}
         </dl>
       </section>
 
-      <ZoomActions key={`${z.status}-${z.updated_at}`} booking={z} />
+      <ZoomActions key={`${z.status}-${z.updated_at}`} booking={z} accounts={accounts} />
     </div>
   );
 }

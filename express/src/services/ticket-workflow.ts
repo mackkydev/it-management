@@ -66,7 +66,12 @@ export interface TicketRow {
    * false = ไม่มีคนอื่นเลย ผู้รับงาน/ผู้ร่วมที่มีสิทธิ์อนุมัติผลงานตัวเองได้ (audit ticket.self_closed); ไม่ได้ตั้ง = ถือว่ามี (ห้ามอนุมัติงานตัวเอง)
    */
   independent_closer?: boolean;
+  /** 'zoom' = เดินสถานะจากหน้าจอง ZOOM เท่านั้น */
+  source?: string | null;
 }
+
+/** ใบงานของการจอง ZOOM: ผู้จอง / IT ทำจากหน้า ZOOM (routes/zoom.ts) — ในหน้าใบงานมีแค่ปุ่มผู้จัดการ IT อนุมัติ (detail.can_zoom_approve) */
+export const isZoomTicket = (t: Pick<TicketRow, "source">) => t.source === "zoom";
 
 /** คอลัมน์เพิ่มเติมของ it_tickets t สำหรับกติกาสายอนุมัติ — ใส่ใน SELECT ทุกที่ที่โหลด TicketRow */
 export const TICKET_APPROVAL_COLUMNS = `(SELECT s.approver_ids FROM it_ticket_approval_steps s WHERE s.it_ticket_id = t.id AND s.step_no = t.current_step) AS step_approver_ids,
@@ -98,6 +103,7 @@ export const canView = (u: UserRow, t: TicketRow) =>
  *   และไม่นับในรายการ/ตัวเลข "รอฉันอนุมัติ" (approvalsWhere)
  */
 export const canApprove = (u: UserRow, t: TicketRow) =>
+  !isZoomTicket(t) &&
   t.status === "pending_supervisor" &&
   (t.requester_id === u.id
     ? can(u, "tickets.approve_own")
@@ -108,6 +114,7 @@ export const canApprove = (u: UserRow, t: TicketRow) =>
  * it_tickets.take_over = รับงานที่เลือกคนอื่นไว้จากคิวงาน IT (เช่น คนนั้นลา) → ผู้รับเดิมหลุดจากใบนี้ (ตัวเลขเมนู / KPI ตาม assignee_id)
  */
 export const canAccept = (u: UserRow, t: TicketRow) =>
+  !isZoomTicket(t) &&
   t.status === "approved" &&
   (can(u, "it_tickets.manage_all") ||
     t.assignee_id === u.id ||
@@ -121,6 +128,7 @@ export const isTakeOver = (u: UserRow, t: TicketRow) => t.assignee_id !== null &
 export const canForward = canAccept;
 
 export const canRecordResult = (u: UserRow, t: TicketRow) =>
+  !isZoomTicket(t) &&
   t.status === "in_progress" && (u.id === t.assignee_id || can(u, "it_tickets.manage_all"));
 
 /** บันทึกความคืบหน้า — คนเดียวกับที่บันทึกผลได้ */
@@ -133,14 +141,17 @@ export const worksOn = (userId: number, t: TicketRow) => userId === t.assignee_i
  * อนุมัติผล / ส่งกลับแก้ไข — ผู้มีสิทธิ์ it_tickets.close ที่ไม่ได้ทำงานใบนี้ (กันอนุมัติงานตัวเองเข้า KPI)
  * ยกเว้นไม่มีผู้อนุมัติผลคนอื่นเลย (independent_closer = false) → ผู้ที่ทำงานใบนี้อนุมัติได้ และบันทึก ticket.self_closed
  */
-export const canClose = (u: UserRow, t: TicketRow) =>
+export const canCloseResult = (u: UserRow, t: TicketRow) =>
   t.status === "pending_it_head" && can(u, "it_tickets.close") && (!worksOn(u.id, t) || t.independent_closer === false);
+
+/** อนุมัติผลแบบใบงานปกติ (ลงลายเซ็นในฟอร์ม / ส่งกลับแก้ไข) — ใบงานของการจอง ZOOM ใช้ detail.can_zoom_approve (ประทับชื่อ + ลายเซ็นในโปรไฟล์, กติกาเดียวกัน canCloseResult) */
+export const canClose = (u: UserRow, t: TicketRow) => !isZoomTicket(t) && canCloseResult(u, t);
 
 /** อนุมัติผลงานที่ตัวเองทำ (ใช้บันทึก audit / ไทม์ไลน์) */
 export const isSelfClose = (u: UserRow, t: TicketRow) => worksOn(u.id, t);
 
 /** หัวหน้า IT อนุมัติผลแล้ว (รอปิดงาน) → ผู้แจ้งกดรับงานเพื่อปิดงาน */
-export const canConfirmClose = (u: UserRow, t: TicketRow) => t.status === "pending_requester" && u.id === t.requester_id;
+export const canConfirmClose = (u: UserRow, t: TicketRow) => !isZoomTicket(t) && t.status === "pending_requester" && u.id === t.requester_id;
 
 /**
  * ส่งถึงฝ่าย IT ทันทีโดยไม่ผ่านการอนุมัติ (ขั้นตอน it_first — ตั้งค่าระบบ ticket_flow) และยังไม่มีใครรับงาน
@@ -153,6 +164,7 @@ export const isDirectToIt = (t: TicketRow) => t.status === "approved" && !t.appr
  * / IT ขอให้หัวหน้าอนุมัติ (approval_requested — เลือกผู้อนุมัติแล้วบันทึก = ส่งให้หัวหน้าอนุมัติ)
  */
 export const canEdit = (u: UserRow, t: TicketRow) =>
+  !isZoomTicket(t) &&
   u.id === t.requester_id &&
   ((t.status === "pending_supervisor" && Number(t.approved_steps ?? 0) === 0) || t.status === "approval_requested" || isDirectToIt(t));
 
@@ -161,16 +173,18 @@ export const canEdit = (u: UserRow, t: TicketRow) =>
  * ก่อนรับงาน = ผู้ที่รับงานใบนี้ได้, ระหว่างทำ = ผู้รับงาน (หรือ it_tickets.manage_all)
  */
 export const canRequestApproval = (u: UserRow, t: TicketRow) =>
+  !isZoomTicket(t) &&
   !t.approved_at && (isDirectToIt(t) ? canAccept(u, t) : t.status === "in_progress" && (u.id === t.assignee_id || can(u, "it_tickets.manage_all")));
 
 /** ผู้แจ้งลบได้ก่อนมีผู้อนุมัติ หรือเมื่อถูกไม่อนุมัติ */
-export const canDelete = (u: UserRow, t: TicketRow) => canEdit(u, t) || (u.id === t.requester_id && t.status === "rejected");
+export const canDelete = (u: UserRow, t: TicketRow) => !isZoomTicket(t) && (canEdit(u, t) || (u.id === t.requester_id && t.status === "rejected"));
 
 /** อนุมัติแล้ว → ผู้แจ้งกดขอยกเลิก (รอเจ้าหน้าที่ IT ยืนยัน) */
-export const canRequestCancel = (u: UserRow, t: TicketRow) => u.id === t.requester_id && CANCELLABLE.includes(t.status);
+export const canRequestCancel = (u: UserRow, t: TicketRow) => !isZoomTicket(t) && u.id === t.requester_id && CANCELLABLE.includes(t.status);
 
 /** เจ้าหน้าที่ IT ผู้รับงาน (ยังไม่มีผู้รับ = ผู้มีสิทธิ์รับงาน) หรือหัวหน้า IT/admin ยืนยันหรือปฏิเสธการยกเลิก */
 export const canDecideCancel = (u: UserRow, t: TicketRow) =>
+  !isZoomTicket(t) &&
   t.status === "pending_cancel" && (u.id === t.assignee_id || can(u, "it_tickets.manage_all") || (t.assignee_id === null && can(u, "it_tickets.accept")));
 
 /** ผู้แจ้งถอนคำขอยกเลิก */

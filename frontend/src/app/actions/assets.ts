@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { toActionResult } from "@/lib/action-result";
-import { ApiError, apiFetch, reauthChallenge } from "@/lib/api";
-import { CATEGORY_FORM, COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, type AssetFormValues, type AssetTagOption, type FieldErrors, type SoftwareOption, type UserOption } from "@/lib/types";
+import { ApiError, apiFetch } from "@/lib/api";
+import type { SuggestItem } from "@/components/suggest-input";
+import { CATEGORY_FORM, COMPUTER_DATE_FIELDS, COMPUTER_TEXT_FIELDS, type AssetFormValues, type AssetTagOption, type FieldErrors, type SoftwareOption, type UserOption, type Asset } from "@/lib/types";
 
 export interface SaveResult {
   errors?: FieldErrors;
@@ -18,41 +19,28 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 function toPayload(v: AssetFormValues) {
   const text = (s: string) => (s.trim() === "" ? null : s.trim());
   const form = CATEGORY_FORM[v.category];
-  const l = v.license;
   return {
-    ...(form?.license
-      ? {
-          license: {
-            billing: l.billing,
-            start_date: text(l.start_date),
-            expires_at: l.billing === "perpetual" ? null : text(l.expires_at),
-            seats: l.seats ? Number(l.seats) : null,
-            vendor: text(l.vendor),
-            license_key: text(l.license_key), // ว่าง = คงค่าเดิม
-            clear_license_key: l.clear_license_key,
-            notify_days_before: l.notify_days_before ? Number(l.notify_days_before) : null,
-            software_type: l.software_type,
-          },
-        }
-      : {}),
     asset_tag: v.asset_tag.trim(),
     name: v.name.trim(),
     category: v.category,
     brand: text(v.brand),
     model: text(v.model),
-    // ช่องที่หมวดนี้ซ่อน ส่งเป็น null (ไม่เก็บค่าค้างจากหมวดเดิม)
-    serial_number: form?.hide?.includes("serial_number") ? null : text(v.serial_number),
+    serial_number: text(v.serial_number),
     status: v.status,
     location_id: v.location_id ? Number(v.location_id) : null,
     custodian_id: v.custodian_id ? Number(v.custodian_id) : null,
     purchase_date: text(v.purchase_date),
     purchase_cost: text(v.purchase_cost),
-    warranty_expires_at: form?.hide?.includes("warranty_expires_at") ? null : text(v.warranty_expires_at),
+    warranty_expires_at: text(v.warranty_expires_at),
     notes: text(v.notes),
     is_loanable: v.is_loanable,
+    is_shared: v.is_shared,
     branch_id: v.branch_id ? Number(v.branch_id) : null,
     // ข้อมูลเครื่องคอมพิวเตอร์: หมวดอื่นส่งเป็น null (ไม่เก็บค่าค้างจากหมวดเดิม)
     ...Object.fromEntries([...COMPUTER_TEXT_FIELDS, ...COMPUTER_DATE_FIELDS].map((k) => [k, form?.computer ? text(v[k]) : null])),
+    // แผนกใช้ทุกหมวด
+    department: text(v.department),
+    ...(v.source_asset_no ? { source_asset_no: v.source_asset_no } : {}),
     // ซอฟต์แวร์บนเครื่อง → API บันทึกเป็นการติดตั้ง license (ช่องที่ผูกแล้ว API เขียนชื่อ license ลง os / office / antivirus เอง)
     ...(form?.computer
       ? {
@@ -131,63 +119,26 @@ export async function suggestAssetTags(q: string): Promise<AssetTagOption[]> {
   }
 }
 
-/** ดู license key (ถอดรหัส) — API ตรวจสิทธิ์ (ผู้จัดการ/IT) และจำกัดจำนวนครั้ง */
-/** reauth = ต้องยืนยันรหัสผ่านซ้ำก่อน (API ตอบ 428) */
-export async function revealLicenseKey(id: string): Promise<{ key?: string | null; message?: string; reauth?: import("@/lib/types").ReauthChallenge }> {
-  if (!UUID_RE.test(id)) return invalidId();
+/** ค้นสินทรัพย์ทุกหมวด ยกเว้น License — เลือกผูกกับเลขในใบแจ้งซ่อม */
+export async function suggestAssetsToLink(q: string): Promise<SuggestItem[]> {
+  const query = new URLSearchParams({ search: q.slice(0, 100), per_page: "10" });
   try {
-    return { key: (await apiFetch<{ data: { license_key: string | null } }>(`/assets/${id}/license-key`, { method: "POST" })).data.license_key };
+    const { data } = await apiFetch<{ data: Asset[] }>(`/assets?${query}`);
+    return data.map((a) => ({ value: a.asset_tag, hint: [a.name, a.brand, a.model].filter(Boolean).join(" · ") }));
   } catch (e) {
-    if (e instanceof ApiError && e.status === 428) return { message: e.message, reauth: reauthChallenge(e) };
-    return toResult(e);
+    if (e instanceof ApiError) return [];
+    throw e;
   }
 }
 
-/** อัปโหลดไฟล์ license (multipart files[]) */
-export async function uploadAssetFiles(id: string, form: FormData): Promise<SaveResult & { ok?: boolean }> {
-  if (!UUID_RE.test(id)) return invalidId();
+/** ผูกใบแจ้งซ่อมที่พิมพ์เลขนี้เข้ากับสินทรัพย์ที่มีอยู่แล้ว */
+export async function linkMissingAsset(assetNo: string, assetTag: string): Promise<SaveResult & { ok?: boolean }> {
   try {
-    await apiFetch(`/assets/${id}/files`, { method: "POST", body: form });
+    await apiFetch("/assets/missing/link", { method: "POST", body: JSON.stringify({ asset_no: assetNo, asset_tag: assetTag }) });
   } catch (e) {
     return toResult(e);
   }
-  revalidatePath(`/assets/${id}`);
-  return { ok: true };
-}
-
-/** ไอคอน License ซอฟต์แวร์ (multipart icon — แทนอันเดิม) */
-export async function uploadAssetIcon(id: string, form: FormData): Promise<SaveResult & { ok?: boolean; errors?: Record<string, string> }> {
-  if (!UUID_RE.test(id)) return invalidId();
-  try {
-    await apiFetch(`/assets/${id}/icon`, { method: "PUT", body: form });
-  } catch (e) {
-    return toResult(e);
-  }
-  revalidatePath("/licenses");
-  revalidatePath(`/assets/${id}`);
-  return { ok: true };
-}
-
-export async function deleteAssetIcon(id: string): Promise<SaveResult & { ok?: boolean }> {
-  if (!UUID_RE.test(id)) return invalidId();
-  try {
-    await apiFetch(`/assets/${id}/icon`, { method: "DELETE" });
-  } catch (e) {
-    return toResult(e);
-  }
-  revalidatePath("/licenses");
-  revalidatePath(`/assets/${id}`);
-  return { ok: true };
-}
-
-export async function deleteAssetFile(id: string, fileId: number): Promise<SaveResult & { ok?: boolean }> {
-  if (!UUID_RE.test(id) || !Number.isInteger(fileId) || fileId <= 0) return invalidId();
-  try {
-    await apiFetch(`/assets/${id}/files/${fileId}`, { method: "DELETE" });
-  } catch (e) {
-    return toResult(e);
-  }
-  revalidatePath(`/assets/${id}`);
+  revalidatePath("/assets");
   return { ok: true };
 }
 
@@ -213,11 +164,6 @@ export async function createAsset(values: AssetFormValues): Promise<SaveResult> 
   } catch (e) {
     return toResult(e);
   }
-  // License ซอฟต์แวร์ (หมวด SOFTWARE) กลับไปเมนู /licenses
-  if (values.category === "SOFTWARE") {
-    revalidatePath("/licenses");
-    redirect("/licenses?saved=created");
-  }
   revalidatePath("/assets");
   redirect("/assets?saved=created");
 }
@@ -235,24 +181,29 @@ export async function updateAsset(id: string, values: AssetFormValues): Promise<
   }
   revalidatePath("/assets");
   revalidatePath(`/assets/${id}/edit`);
-  if (values.category === "SOFTWARE") {
-    revalidatePath("/licenses");
-    redirect("/licenses?saved=updated");
-  }
   redirect("/assets?saved=updated");
 }
 
-export async function deleteAsset(id: string, software = false): Promise<SaveResult> {
+export async function deleteAsset(id: string): Promise<SaveResult> {
   if (!UUID_RE.test(id)) return invalidId();
   try {
     await apiFetch(`/assets/${id}`, { method: "DELETE" });
   } catch (e) {
     return toResult(e);
   }
-  if (software) {
-    revalidatePath("/licenses");
-    redirect("/licenses?saved=deleted");
-  }
   revalidatePath("/assets");
   redirect("/assets?saved=deleted");
 }
+
+/** โอนย้าย: เปลี่ยนสาขา + ผู้ถือครอง/ผู้ใช้งาน → ประวัติการโอนย้าย (POST /assets/{uuid}/movements) */
+export async function transferAsset(id: string, v: { branch_id: number | null; custodian_id: number | null; reason: string }): Promise<SaveResult & { ok?: boolean }> {
+  if (!UUID_RE.test(id)) return invalidId();
+  try {
+    await apiFetch(`/assets/${id}/movements`, { method: "POST", body: JSON.stringify({ branch_id: v.branch_id, custodian_id: v.custodian_id, reason: v.reason || null }) });
+  } catch (e) {
+    return toResult(e);
+  }
+  revalidatePath(`/assets/${id}`);
+  return { ok: true };
+}
+

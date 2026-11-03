@@ -8,7 +8,7 @@ import { me } from "../http.js";
 import { can } from "../models/user.js";
 
 /**
- * ประกาศจากฝ่าย IT บนหน้า login — เหมือน AnnouncementController ของ Laravel
+ * ประกาศข่าวสาร (แสดงที่หน้าภาพรวม) — เหมือน AnnouncementController ของ Laravel
  *   GET    /announcements/public       (ไม่ต้อง login) ประกาศที่เปิดอยู่และอยู่ในช่วงวันที่ ≤ 5 รายการ
  *   GET    /announcements              ทั้งหมด (admin / ฝ่าย IT)
  *   POST   /announcements              { title, body, level, is_active, starts_on, ends_on, sort_order }
@@ -46,7 +46,7 @@ const json = (r: Row) => ({
   updated_at: iso(r.updated_at),
 });
 
-/** ไม่ต้อง login — หน้า login ดึงไปแสดง */
+/** ประกาศที่แสดงอยู่ — หน้าภาพรวมดึงไปแสดง */
 publicAnnouncementRoutes.get("/announcements/public", async (_req, res) => {
   const today = localToday();
   const rows = await select<Row>(

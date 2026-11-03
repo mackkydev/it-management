@@ -69,6 +69,7 @@ export const statusStyle: Record<string, [string, string]> = {
   in_repair: [tone.warning.badge, tone.warning.dot],
   lost: [tone.danger.badge, tone.danger.dot],
   disposed: [tone.idle.badge, tone.idle.dot],
+  inactive: [tone.idle.badge, tone.idle.dot],
 };
 
 /** แถบแจ้งเตือน */

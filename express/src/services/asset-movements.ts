@@ -4,30 +4,35 @@ import { nowDb, toDbDateTime } from "../lib/time.js";
 /**
  * จุดเดียวที่สร้างประวัติการโอนย้าย (เหมือน AssetMovementService) — เรียกภายใน transaction เดียวกับการบันทึก asset
  */
-export async function recordRegistration(assetId: number, locationId: number | null, custodianId: number | null, by: number): Promise<number | null> {
-  if (locationId === null && custodianId === null) return null;
+export async function recordRegistration(assetId: number, locationId: number | null, custodianId: number | null, by: number, branchId: number | null = null): Promise<number | null> {
+  if (locationId === null && custodianId === null && branchId === null) return null;
   const now = nowDb();
   return insert("asset_movements", {
     asset_id: assetId,
     type: "registered",
     to_location_id: locationId,
     to_custodian_id: custodianId,
+    to_branch_id: branchId,
     moved_at: now,
     performed_by: by,
     created_at: now,
   });
 }
 
-/** บันทึกเมื่อสถานที่หรือผู้ถือครองเปลี่ยน — คืน null ถ้าไม่เปลี่ยน */
+/** ตำแหน่งของสินทรัพย์ — branch ไม่ระบุ = ไม่ติดตาม (เช่น นำเข้า Excel เดิม) */
+export type Placement = { location: number | null; custodian: number | null; branch?: number | null };
+
+/** บันทึกเมื่อสาขา สถานที่ หรือผู้ถือครองเปลี่ยน — คืน null ถ้าไม่เปลี่ยน */
 export async function recordIfMoved(
   assetId: number,
-  from: { location: number | null; custodian: number | null },
-  to: { location: number | null; custodian: number | null },
+  from: Placement,
+  to: Placement,
   by: number,
   reason: string | null = null,
   movedAt: Date | null = null,
 ): Promise<number | null> {
-  if (from.location === to.location && from.custodian === to.custodian) return null;
+  const branchMoved = to.branch !== undefined && (from.branch ?? null) !== (to.branch ?? null);
+  if (from.location === to.location && from.custodian === to.custodian && !branchMoved) return null;
   const now = nowDb();
   return insert("asset_movements", {
     asset_id: assetId,
@@ -36,6 +41,7 @@ export async function recordIfMoved(
     to_location_id: to.location,
     from_custodian_id: from.custodian,
     to_custodian_id: to.custodian,
+    ...(to.branch !== undefined ? { from_branch_id: from.branch ?? null, to_branch_id: to.branch ?? null } : {}),
     moved_at: movedAt ? toDbDateTime(movedAt) : now,
     reason,
     performed_by: by,

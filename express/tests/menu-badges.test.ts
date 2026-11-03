@@ -31,7 +31,7 @@ describe("menu badges", () => {
     await insert("kpi_entries", { ticket_id: mine, user_id: staff.id, work_date: "2026-01-01", details: "", complexity: 2, created_at: nowDb() });
 
     const badges = async (u: typeof staff) => (await (await as(u)).get("/api/v1/menu-badges")).body.data;
-    expect(await badges(requester)).toEqual({ "/tickets": 1, "/tickets/approvals": 0, "/leave/approvals": 0, "/loans/mine": 0 });
+    expect(await badges(requester)).toEqual({ "/tickets": 1, "/tickets/approvals": 0, "/leave/approvals": 0, "/loans/mine": 0, "/zoom/mine": 0 });
     expect((await badges(approver))["/tickets/approvals"]).toBe(1);
     // คิวงานของฉัน = ใบที่ฉันเป็นผู้รับงาน / คิวงาน IT = ใบรอรับที่ไม่มีผู้รับ + ใบที่เลือกคนอื่นไว้แต่ยังไม่รับ (ผู้ที่รับงานแทนได้) + รออนุมัติผล (หัวหน้า IT)
     // staff: งานของฉันกำลังทำ 1 / คิวงาน IT: ไม่มีผู้รับ 1 + เลือก otherStaff ไว้ 1 / KPI: เฉพาะที่ผู้จัดการ IT อนุมัติผลแล้ว (pending_requester, completed) และยังไม่กรอก = 2

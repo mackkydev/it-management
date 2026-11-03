@@ -99,6 +99,15 @@ export async function makeAsset(attrs: Record<string, unknown> = {}): Promise<{ 
   return { id, uuid };
 }
 
+/** License ตรงในตาราง licenses */
+export async function makeLicenseRow(attrs: Record<string, unknown> = {}): Promise<{ id: number; uuid: string }> {
+  const n = next();
+  const now = nowDb();
+  const uuid = randomUUID();
+  const id = await insert("licenses", { uuid, name: `License ${n}`, billing: "perpetual", start_date: "2026-01-01", status: "active", created_at: now, updated_at: now, ...attrs });
+  return { id, uuid };
+}
+
 export async function makeBranch(attrs: Record<string, unknown> = {}): Promise<number> {
   const n = next();
   const now = nowDb();

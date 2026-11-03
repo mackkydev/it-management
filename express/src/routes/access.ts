@@ -9,7 +9,7 @@ import { deleteUserTokens } from "../lib/tokens.js";
 import { bool, int, validate, type ErrorBag } from "../lib/validator.js";
 import { me, pageParam, paginated } from "../http.js";
 import { LOCKED_KEYS, MODULES, PERMISSION_KEYS, PERMISSIONS } from "../models/permission.js";
-import { can, findUser, hasHistory, isSuperAdmin, ROLES, type UserRow } from "../models/user.js";
+import { AUDITOR_ROLE, can, findUser, hasHistory, isSuperAdmin, ROLES, type UserRow } from "../models/user.js";
 import { editableGroupKeys, grantError, groupEditError, groupKeys, lastLocalSuperAdmin, notifyAccessChange, roleChangeError, targetError } from "../services/access-control.js";
 import { ADMIN_ROLES, loadConnection } from "../services/api-auth.js";
 import { audit } from "../services/audit.js";
@@ -114,7 +114,7 @@ accessRoutes.get("/permissions", async (req, res) => {
   const groups = await listGroups();
   // กลุ่มที่ผู้ดูแก้ตารางสิทธิ์ / ตั้งค่ารายกลุ่มได้ (super_admin แก้ไม่ได้ — ทุกสิทธิ์เสมอ)
   const allowed = await editableGroupKeys(u, req.locale);
-  const editable = groups.map((g) => g.key).filter((k) => k !== SUPER_ADMIN_GROUP && (!allowed || allowed.has(k)));
+  const editable = groups.map((g) => g.key).filter((k) => k !== SUPER_ADMIN_GROUP && k !== AUDITOR_ROLE && (!allowed || allowed.has(k)));
   res.json({
     data: PERMISSIONS.map(({ key, group, module, action, name_th, name_en, locked }) => ({ key, group, module, action, name_th, name_en, locked: Boolean(locked) })),
     modules: MODULES,
@@ -186,7 +186,8 @@ accessRoutes.put("/permission-groups/:key", async (req, res) => {
   const u = groupGuard(req);
   const current = await first<{ key: string; name_th: string; name_en: string; is_system: boolean }>('SELECT "key", name_th, name_en, is_system FROM permission_groups WHERE "key" = ?', [String(req.params.key)]);
   if (!current) throw notFound();
-  const blocked = await groupEditError(u, { key: current.key, is_system: Boolean(current.is_system) }, req.locale);
+  // ผู้ตรวจสอบ: ตารางสิทธิ์ตายตัว แต่เปลี่ยนชื่อได้ (access.manage)
+  const blocked = current.key === AUDITOR_ROLE && can(u, "access.manage") ? null : await groupEditError(u, { key: current.key, is_system: Boolean(current.is_system) }, req.locale);
   if (blocked) throw ValidationError.withMessages({ name_th: blocked });
   const data = await validate(req.input, groupRules, { locale: req.locale, after: ({ errors }) => nameTaken(errors, req.input, req.locale, current.key) });
   const after = { name_th: String(data.name_th).trim(), name_en: String(data.name_en).trim() };
@@ -286,7 +287,7 @@ accessRoutes.put("/users/:id/permissions", async (req, res) => {
         if ("groups" in input && input.groups !== null && !Array.isArray(input.groups)) errors.add("groups", tr("invalid_group"));
         for (const [i, g] of (wantGroups ?? []).entries()) {
           const def = allGroups.get(g.key);
-          if (!def || g.key === SUPER_ADMIN_GROUP) errors.add(`groups.${i}.key`, tr("invalid_group"));
+          if (!def || g.key === SUPER_ADMIN_GROUP || g.key === AUDITOR_ROLE) errors.add(`groups.${i}.key`, tr("invalid_group"));
           else if (g.expires_on !== null && (!ISO_DATE.test(g.expires_on) || Number.isNaN(Date.parse(g.expires_on)))) errors.add(`groups.${i}.expires_on`, tr("invalid_date"));
           else if (g.expires_on !== null && g.expires_on < today && currentGroups.find((c) => c.key === g.key)?.expires_on !== g.expires_on) errors.add(`groups.${i}.expires_on`, tr("expires_past"));
         }
@@ -385,7 +386,7 @@ type MemberRow = {
 
 async function findGroup(key: string) {
   const g = (await listGroups()).find((x) => x.key === key);
-  if (!g || g.key === SUPER_ADMIN_GROUP) throw notFound();
+  if (!g || g.key === SUPER_ADMIN_GROUP || g.key === AUDITOR_ROLE) throw notFound();
   return g;
 }
 

@@ -4,6 +4,7 @@ import { LinkPendingIcon } from "@/components/pending";
 import { btn, card, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { MissingAsset } from "@/lib/types";
+import { LinkMissingAsset } from "./link-missing-asset";
 
 /** ปุ่มเพิ่มเข้าระบบ — เติมเลขที่ทรัพย์สิน + ชื่อเครื่องจากใบแจ้งซ่อมให้ */
 function addHref(m: MissingAsset) {
@@ -16,7 +17,7 @@ function addHref(m: MissingAsset) {
  * แท็บ "สินทรัพย์ที่ต้องเพิ่ม" — เลขทรัพย์สินที่ผู้แจ้งพิมพ์ในใบแจ้งซ่อมแต่ไม่พบในระบบ (ไม่ตรงรหัส / เลขที่ทรัพย์สิน / เลขที่ทรัพย์สิน (เดิม))
  * เพิ่มสินทรัพย์ที่มีเลขนั้นแล้ว = หายจากรายการเอง
  */
-export async function MissingAssets({ items }: { items: MissingAsset[] }) {
+export async function MissingAssets({ items, canAdd, canLink }: { items: MissingAsset[]; canAdd: boolean; canLink: boolean }) {
   const { t, fmt } = await getI18n();
   if (items.length === 0) return <div className={`p-10 text-center text-muted ${card}`}>{t("assets.missing.empty")}</div>;
 
@@ -63,7 +64,12 @@ export async function MissingAssets({ items }: { items: MissingAsset[] }) {
                   {m.last_ticket.requester ?? "-"}
                   {m.last_ticket.branch && <div className="text-xs text-muted">{m.last_ticket.branch}</div>}
                 </td>
-                <td className={`${table.td} whitespace-nowrap text-right`}>{add(m)}</td>
+                <td className={`${table.td} whitespace-nowrap text-right`}>
+                  <div className="flex justify-end gap-2">
+                    {canLink && <LinkMissingAsset assetNo={m.asset_no} />}
+                    {canAdd && add(m)}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -77,7 +83,8 @@ export async function MissingAssets({ items }: { items: MissingAsset[] }) {
             {m.last_ticket.symptom && <p className="line-clamp-2 text-xs text-muted">{m.last_ticket.symptom}</p>}
             <p className="mt-2">{ticket(m)}</p>
             <p className="text-xs text-muted">{[m.last_ticket.requester, m.last_ticket.branch].filter(Boolean).join(" · ")}</p>
-            {add(m, true)}
+            {canAdd && add(m, true)}
+            {canLink && <LinkMissingAsset assetNo={m.asset_no} full />}
           </li>
         ))}
       </ul>

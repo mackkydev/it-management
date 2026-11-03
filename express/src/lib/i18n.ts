@@ -24,6 +24,7 @@ const eamTh = {
     has_history: "ลบไม่ได้ เพราะผู้ใช้นี้มีประวัติในระบบ (ถือครอง/บันทึกสินทรัพย์ หรือการโอนย้าย) — ให้ปิดใช้งานแทน",
   },
   auth: {
+    read_only: "บัญชีผู้ตรวจสอบดูได้อย่างเดียว ไม่สามารถแก้ไขข้อมูลได้",
     failed: "อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง",
     locked: "บัญชีถูกล็อกชั่วคราวเพราะเข้าสู่ระบบผิดหลายครั้ง — ลองใหม่ในอีก :minutes นาที หรือติดต่อผู้ดูแลระบบ",
     password_expired: "รหัสผ่านหมดอายุ — กรุณาเปลี่ยนรหัสผ่านก่อนใช้งานต่อ",
@@ -95,6 +96,8 @@ const eamTh = {
     api_no_password: "API User ไม่มีรหัสผ่านในระบบนี้ — เปลี่ยนรหัสผ่านที่ระบบต้นทาง",
     self_change: "แก้ตำแหน่ง/กลุ่ม/สิทธิ์ของตัวเองไม่ได้",
     target_super_admin: "แก้ไขบัญชีผู้ดูแลระบบสูงสุด (super_admin) ได้เฉพาะผู้ดูแลระบบสูงสุด",
+    auditor_only: "ตั้งหรือถอดตำแหน่งผู้ตรวจสอบได้เฉพาะผู้ดูแลระบบสูงสุด",
+    group_read_only: "กลุ่มผู้ตรวจสอบมีสิทธิ์ตายตัว (อ่านอย่างเดียว) แก้ไม่ได้",
     super_admin_only: "ตั้งตำแหน่งผู้ดูแลระบบสูงสุด (super_admin) ได้เฉพาะผู้ดูแลระบบสูงสุด",
     role_needs_assign: "เปลี่ยนตำแหน่งได้เฉพาะผู้มีสิทธิ์ \"มอบตำแหน่ง/กลุ่ม/สิทธิ์ให้ผู้ใช้\"",
     not_held: "มอบหรือถอดได้เฉพาะสิทธิ์ที่คุณมี — คุณไม่มีสิทธิ์: :items",
@@ -162,7 +165,9 @@ const eamTh = {
   announcement: { ends_before_starts: "วันสิ้นสุดต้องไม่ก่อนวันเริ่มแสดง" },
   license: {
     expires_before_start: "วันหมดอายุต้องไม่ก่อนวันเริ่มใช้งาน",
-    not_license: "กรุณาเลือก license (สินทรัพย์หมวด Software ที่มีข้อมูล license)",
+    renew_after_old: "วันหมดอายุใหม่ต้องหลังวันหมดอายุเดิม",
+    not_license: "กรุณาเลือก License",
+    software_moved: "License ซอฟต์แวร์เพิ่มได้ที่เมนู ซอฟต์แวร์ License",
     device_required: "ระบุเครื่องที่ติดตั้ง — เลือกจากสินทรัพย์ หรือพิมพ์ชื่อเครื่อง",
     device_invalid: "ไม่พบเครื่องที่เลือกในทะเบียนสินทรัพย์",
     seats_full: "license นี้ติดตั้งครบ :seats เครื่องแล้ว — ถอนการติดตั้งเดิม หรือเพิ่มจำนวน seat ก่อน",
@@ -195,7 +200,15 @@ const eamTh = {
     busy_default: "ช่วงวันเวลานี้มีการใช้งาน ZOOM แล้ว กรุณาเลือกช่วงเวลาอื่น",
     ticket_period: "ช่วงเวลา: :period",
     ticket_solution: "ส่งลิงก์ ZOOM: :link",
-    ticket_comment: "สร้างจากการจอง ZOOM — ส่งลิงก์ประชุมให้ผู้จองแล้ว",
+    ticket_comment: "ส่งลิงก์ประชุมให้ผู้จองแล้ว",
+    time_unchanged: "กรุณาเปลี่ยนวันหรือเวลาก่อนส่งกลับให้ฝ่าย IT",
+    account_required: "กรุณาเลือกบัญชี ZOOM",
+    account_invalid: "บัญชี ZOOM นี้ไม่มีในรายการหรือถูกปิดใช้งาน",
+    busy_log: "แจ้งผู้จองให้แก้วันเวลา: :reason",
+    resubmit_log: "ผู้จองแก้วันเวลาเป็น :period แล้วส่งกลับฝ่าย IT",
+    time_log: "เวลาเปลี่ยนตามการจองห้องประชุมเป็น :period",
+    expired_log: "เลยเวลาที่จองโดยยังไม่ได้ส่งลิงก์ — ยกเลิกอัตโนมัติ",
+    signature_required: "กรุณาเพิ่มลายเซ็นในโปรไฟล์ก่อนอนุมัติ (ระบบประทับชื่อและลายเซ็นของคุณลงใบงาน)",
   },
   vehicle: {
     name_duplicate: "มีรถชื่อนี้แล้ว",
@@ -254,7 +267,7 @@ const eamTh = {
     challenge_expired: "หมดเวลายืนยันตัวตน — กรุณาเข้าสู่ระบบใหม่",
     already_enabled: "เปิดใช้การยืนยันตัวตน 2 ขั้นอยู่แล้ว",
     not_enabled: "ยังไม่ได้เปิดใช้การยืนยันตัวตน 2 ขั้น",
-    required: "ระบบบังคับให้ผู้ดูแลระบบใช้การยืนยันตัวตน 2 ขั้น — ปิดไม่ได้",
+    required: "ระบบบังคับให้กลุ่มของคุณใช้การยืนยันตัวตน 2 ขั้น — ปิดไม่ได้",
     local_only: "บัญชีที่เข้าสู่ระบบผ่านระบบต้นทาง ตั้งการยืนยันตัวตนที่ระบบต้นทาง",
   },
   meeting: {
@@ -333,7 +346,7 @@ const eamTh = {
       "ผู้ถือครอง|ชื่อ-สกุลหรืออีเมลของผู้ใช้ในระบบ — ไม่พบ/ชื่อซ้ำหลายคน = คงเดิมและแจ้งเตือน; เปลี่ยนสถานที่/ผู้ถือครอง = บันทึกประวัติการโอนย้ายให้\n" +
       "วันที่ซื้อ / มูลค่า / วันหมดประกัน|วันที่ซื้อต้องไม่เกินวันนี้ — มูลค่าเป็นตัวเลข (ใส่ , ได้)\n" +
       "Email 365|เอาออกจากฟอร์มแล้ว — ไฟล์เดิมที่มีคอลัมน์นี้ยังนำเข้าได้\n" +
-      "OS / Office / Anti Virus|ชื่อตรงกับ License ในระบบ (ชื่อหรือเลขครุภัณฑ์ของสินทรัพย์ Software ไม่สนตัวพิมพ์) = ผูกเป็นการติดตั้งและนับ seat — ไม่ตรง หรือ seat เต็ม = เก็บเป็นข้อความและแจ้งเตือน\n" +
+      "OS / Office / Anti Virus|ชื่อตรงกับ License ในระบบ (ชื่อหรือเลขที่ทรัพย์สินของสินทรัพย์ Software ไม่สนตัวพิมพ์) = ผูกเป็นการติดตั้งและนับ seat — ไม่ตรง หรือ seat เต็ม = เก็บเป็นข้อความและแจ้งเตือน\n" +
       "Software อื่นๆ|ใส่ได้หลายรายการ คั่นด้วยขึ้นบรรทัดใหม่ (Alt+Enter) หรือ , — จับคู่กับ License แบบเดียวกับ OS (เว้นว่าง = ถอน Software อื่นๆ ที่ผูกไว้ออก)\n" +
       "ไฟล์เดิม|ไฟล์ที่ไม่มีบางคอลัมน์ (เช่น Software อื่นๆ) นำเข้าได้ — คอลัมน์ที่ไม่มีในไฟล์จะไม่แก้ข้อมูลเดิม\n" +
       "ส่งออก Excel|ไฟล์ที่ส่งออกจากหน้าสินทรัพย์ใช้คอลัมน์เดียวกัน แก้แล้วนำกลับเข้ามาได้ทันที\n" +
@@ -371,8 +384,13 @@ const eamTh = {
     open: "เปิดดูในระบบ",
   },
   validation: {
-    asset_tag_regex: "เลขครุภัณฑ์ใช้ได้เฉพาะ A-Z, 0-9, - _ /",
-    asset_tag_unique: "เลขครุภัณฑ์นี้มีอยู่ในระบบแล้ว",
+    asset_tag_regex: "เลขที่ทรัพย์สินใช้ได้เฉพาะ A-Z, 0-9, - _ /",
+    asset_tag_unique: "เลขที่ทรัพย์สินนี้มีอยู่ในระบบแล้ว",
+    asset_shared_branch: "สินทรัพย์ส่วนกลางต้องเลือกสาขา",
+    asset_no_no_tickets: "ไม่พบใบแจ้งซ่อมของเลขนี้ที่ยังไม่ได้ผูกสินทรัพย์",
+    asset_no_duplicate: "เลขที่ทรัพย์สินนี้มีอยู่ในระบบแล้ว",
+    asset_host_regex: "Host Name ใช้ได้เฉพาะ A-Z, 0-9, - _ /",
+    asset_host_unique: "Host Name นี้มีอยู่ในระบบแล้ว",
     purchase_date_future: "วันที่ซื้อต้องไม่เกินวันนี้",
   },
 };
@@ -400,6 +418,7 @@ const eamEn: Eam = {
     has_history: "Cannot delete: this user has history (assets held/created or transfers). Deactivate the account instead.",
   },
   auth: {
+    read_only: "Auditor accounts are read-only and cannot change data.",
     failed: "Invalid e-mail/username or password.",
     locked: "This account is temporarily locked after too many failed sign-ins — try again in :minutes minute(s) or contact an administrator.",
     password_expired: "Your password has expired — please change it to continue.",
@@ -471,6 +490,8 @@ const eamEn: Eam = {
     self_change: "You cannot change your own role, groups or permissions.",
     target_super_admin: "Only super admins can change a super admin account.",
     super_admin_only: "Only super admins can assign the super admin role.",
+    auditor_only: "Only super admins can set or remove the auditor role.",
+    group_read_only: "The auditor group has fixed read-only access and cannot be edited.",
     role_needs_assign: "Changing roles requires the \"Assign roles / groups / permissions\" permission.",
     not_held: "You can only grant or remove permissions you hold — missing: :items",
     locked: ":items is reserved: only super admins can grant or remove it.",
@@ -537,7 +558,9 @@ const eamEn: Eam = {
   announcement: { ends_before_starts: "The end date cannot be before the start date." },
   license: {
     expires_before_start: "The expiry date cannot be before the start date.",
-    not_license: "Please choose a license (a Software asset with license details).",
+    renew_after_old: "The new expiry date must be after the current one.",
+    not_license: "Please choose a license.",
+    software_moved: "Software licenses are added from the Software License menu.",
     device_required: "Specify the machine — pick an asset or type the machine name.",
     device_invalid: "The selected machine was not found in the asset register.",
     seats_full: "All :seats seats of this license are in use. Uninstall one or add seats first.",
@@ -570,7 +593,15 @@ const eamEn: Eam = {
     busy_default: "ZOOM is already in use at this time — please choose another time.",
     ticket_period: "Time: :period",
     ticket_solution: "Sent the ZOOM link: :link",
-    ticket_comment: "Created from a ZOOM booking — the meeting link was sent to the requester.",
+    ticket_comment: "The meeting link was sent to the booker.",
+    time_unchanged: "Please change the date or time before sending it back to IT.",
+    account_required: "Please choose a ZOOM account.",
+    account_invalid: "This ZOOM account is not in the list or has been disabled.",
+    busy_log: "Asked the booker to change the time: :reason",
+    resubmit_log: "The booker changed the time to :period and sent it back to IT",
+    time_log: "The time followed the meeting room booking: :period",
+    expired_log: "The booked time passed without a link — cancelled automatically",
+    signature_required: "Please add a signature to your profile before approving (your name and signature are stamped on the ticket).",
   },
   vehicle: {
     name_duplicate: "A vehicle with this name already exists.",
@@ -629,7 +660,7 @@ const eamEn: Eam = {
     challenge_expired: "The verification step has expired — please sign in again.",
     already_enabled: "Two-step verification is already on.",
     not_enabled: "Two-step verification is not on.",
-    required: "Two-step verification is required for administrators and cannot be turned off.",
+    required: "Two-step verification is required for your group and cannot be turned off.",
     local_only: "Accounts that sign in through the upstream system manage verification there.",
   },
   meeting: {
@@ -746,8 +777,13 @@ const eamEn: Eam = {
     open: "Open in IT-SYSTEM",
   },
   validation: {
-    asset_tag_regex: "Asset tag may only contain A-Z, 0-9, - _ /",
-    asset_tag_unique: "This asset tag already exists.",
+    asset_tag_regex: "Asset no. may only contain A-Z, 0-9, - _ /",
+    asset_tag_unique: "This asset no. already exists.",
+    asset_shared_branch: "A shared asset needs a branch.",
+    asset_no_no_tickets: "No repair tickets with this number are waiting to be linked.",
+    asset_no_duplicate: "This asset no. already exists.",
+    asset_host_regex: "Host Name may only contain A-Z, 0-9, - _ /",
+    asset_host_unique: "This Host Name already exists.",
     purchase_date_future: "The purchase date cannot be in the future.",
   },
 };
@@ -843,7 +879,7 @@ const validationEn: ValidationMessages = {
 
 /** ชื่อฟิลด์ภาษาไทย (lang/th/validation.php → attributes) — ภาษาอังกฤษใช้ชื่อ key แทน _ ด้วยช่องว่าง */
 const attributesTh: Record<string, string> = {
-  asset_tag: "เลขครุภัณฑ์", name: "ชื่อ", category: "หมวดหมู่", brand: "ยี่ห้อ", model: "รุ่น",
+  asset_tag: "เลขที่ทรัพย์สิน", name: "ชื่อ", category: "หมวดหมู่", brand: "ยี่ห้อ", model: "รุ่น",
   serial_number: "Serial Number", status: "สถานะ", location_id: "สถานที่", custodian_id: "ผู้ถือครอง",
   purchase_date: "วันที่ซื้อ", purchase_cost: "มูลค่า", warranty_expires_at: "วันหมดประกัน", notes: "หมายเหตุ",
   movement_reason: "เหตุผลการโอนย้าย", moved_at: "วันที่โอนย้าย", reason: "เหตุผล", email: "อีเมล",

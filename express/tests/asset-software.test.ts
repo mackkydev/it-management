@@ -1,18 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { insert, scalar, select } from "../src/db.js";
+import { exec, insert, scalar, select } from "../src/db.js";
 import { nowDb } from "../src/lib/time.js";
-import { as, makeAsset, makeUser } from "./helpers.js";
+import { as, makeAsset, makeLicenseRow, makeUser } from "./helpers.js";
 
 async function makeLicense(name: string, seats: number | null) {
-  const a = await makeAsset({ name, category: "SOFTWARE" });
-  const now = nowDb();
-  await insert("asset_licenses", { asset_id: a.id, billing: "perpetual", start_date: "2026-01-01", seats, created_at: now, updated_at: now });
-  return a;
+  return makeLicenseRow({ name, seats });
 }
 
 const active = (deviceId: number) =>
-  select<{ license_asset_id: number; slot: string | null }>(
-    "SELECT license_asset_id, slot FROM license_installations WHERE device_asset_id = ? AND uninstalled_at IS NULL ORDER BY id",
+  select<{ license_id: number; slot: string | null }>(
+    "SELECT license_id, slot FROM license_installations WHERE device_asset_id = ? AND uninstalled_at IS NULL ORDER BY id",
     [deviceId],
   );
 
@@ -72,5 +69,20 @@ describe("computer software from licenses", () => {
 
   it("software options need asset management permission", async () => {
     expect((await (await as(await makeUser())).get("/api/v1/assets/software-options")).status).toBe(403);
+  });
+});
+
+describe("software shown by license type", () => {
+  it("a license installed without a slot lands in the slot of its type when that slot is empty", async () => {
+    const api = await as(await makeUser({ role: "admin" }));
+    const office = await makeLicense("Microsoft Office", 10);
+    await exec("UPDATE licenses SET software_type = 'office' WHERE id = ?", [office.id]);
+    const tool = await makeLicense("7-Zip", null);
+    const pc = await makeAsset({ asset_tag: "PC-TYPE", category: "COMPUTER" });
+    for (const l of [office, tool]) await insert("license_installations", { license_id: l.id, device_asset_id: pc.id, slot: null, installed_at: "2026-01-01", created_at: nowDb(), updated_at: nowDb() });
+    const sw = (await api.get(`/api/v1/assets/${pc.uuid}`)).body.data.software;
+    expect(sw.office).toMatchObject({ name: "Microsoft Office", software_type: "office" });
+    expect(sw.others.map((o: { name: string }) => o.name)).toEqual(["7-Zip"]);
+    expect(Number(await scalar("SELECT COUNT(*) FROM license_installations WHERE device_asset_id = ?", [pc.id]))).toBe(2);
   });
 });

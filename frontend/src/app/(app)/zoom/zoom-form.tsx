@@ -27,6 +27,9 @@ export function ZoomForm({
   initialRange,
   onCancel,
   embedded = false,
+  resubmit = false,
+  onDraft,
+  idPrefix = "",
 }: {
   id: string | null;
   initial: ZoomBookingValues;
@@ -35,6 +38,12 @@ export function ZoomForm({
   onCancel?: () => void;
   /** อยู่ใน modal = ไม่มีกรอบการ์ด */
   embedded?: boolean;
+  /** ฝ่าย IT ส่งกลับให้แก้วันเวลา — บันทึก = ส่งกลับฝ่าย IT */
+  resubmit?: boolean;
+  /** เก็บค่าไว้ก่อน ไม่บันทึกทันที (จองพร้อมห้องประชุม — บันทึกตอนบันทึกการจองห้อง) */
+  onDraft?: (v: ZoomBookingValues) => void;
+  /** นำหน้า id ของช่อง เมื่ออยู่ในหน้าที่มีฟอร์มอื่น */
+  idPrefix?: string;
 }) {
   const { t, fmt } = useI18n();
   const router = useRouter();
@@ -73,9 +82,10 @@ export function ZoomForm({
     setErrors(e);
     setMessage("");
     if (Object.keys(e).length) return;
+    if (onDraft) return onDraft(v);
     start(async () => {
       const res = await saveZoomBooking(id, v);
-      if (res.ok && res.id) return router.push(`/zoom/bookings/${res.id}?done=${id ? "updated" : "created"}`);
+      if (res.ok && res.id) return router.push(`/zoom/bookings/${res.id}?done=${resubmit ? "resubmitted" : id ? "updated" : "created"}`);
       setErrors(res.errors ?? {});
       setMessage(res.message ?? "");
     });
@@ -88,7 +98,7 @@ export function ZoomForm({
   );
   const err = (k: Field) => (errors[k] ? <p className="mt-1 text-xs font-medium text-red-500">{errors[k]}</p> : null);
   const cls = (k: Field) => `${input} ${errors[k] ? inputError : ""}`;
-  const timeSelect = (k: "start_time" | "end_time") => <AppSelect id={k} value={v[k]} onValueChange={(x) => set(k, x)} className={cls(k)} options={timeOptions.map((o) => ({ value: o, label: o }))} />;
+  const timeSelect = (k: "start_time" | "end_time") => <AppSelect id={`${idPrefix}${k}`} value={v[k]} onValueChange={(x) => set(k, x)} className={cls(k)} options={timeOptions.map((o) => ({ value: o, label: o }))} />;
 
   return (
     <form action={submit} className="space-y-5">
@@ -100,28 +110,28 @@ export function ZoomForm({
       )}
       <fieldset disabled={pending} className={`space-y-4 disabled:opacity-60 ${embedded ? "" : `max-w-3xl p-5 ${card}`}`}>
         <div>
-          {label("title", t("zoom.form.title"), true)}
-          <input id="title" maxLength={255} value={v.title} onChange={(e) => set("title", e.target.value)} placeholder={t("zoom.form.titlePlaceholder")} className={cls("title")} />
+          {label(`${idPrefix}title`, t("zoom.form.title"), true)}
+          <input id={`${idPrefix}title`} maxLength={255} value={v.title} onChange={(e) => set("title", e.target.value)} placeholder={t("zoom.form.titlePlaceholder")} className={cls("title")} />
           {err("title")}
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            {label("start_on", t("zoom.form.startOn"), true)}
-            <DateInput id="start_on" value={v.start_on} min={id ? undefined : today} onChange={(d) => setDates({ start_on: d })} className={cls("start_on")} />
+            {label(`${idPrefix}start_on`, t("zoom.form.startOn"), true)}
+            <DateInput id={`${idPrefix}start_on`} value={v.start_on} min={id ? undefined : today} onChange={(d) => setDates({ start_on: d })} className={cls("start_on")} />
             {err("start_on")}
           </div>
           <div>
-            {label("start_time", t("zoom.form.startTime"), true)}
+            {label(`${idPrefix}start_time`, t("zoom.form.startTime"), true)}
             {timeSelect("start_time")}
           </div>
           <div>
-            {label("end_on", t("zoom.form.endOn"), true)}
-            <DateInput id="end_on" value={v.end_on} min={v.start_on || undefined} onChange={(d) => setDates({ end_on: d })} className={cls("end_on")} />
+            {label(`${idPrefix}end_on`, t("zoom.form.endOn"), true)}
+            <DateInput id={`${idPrefix}end_on`} value={v.end_on} min={v.start_on || undefined} onChange={(d) => setDates({ end_on: d })} className={cls("end_on")} />
             {err("end_on")}
           </div>
           <div>
-            {label("end_time", t("zoom.form.endTime"), true)}
+            {label(`${idPrefix}end_time`, t("zoom.form.endTime"), true)}
             {timeSelect("end_time")}
             {err("end_time")}
           </div>
@@ -159,11 +169,11 @@ export function ZoomForm({
         )}
 
         <div>
-          {label("details", t("zoom.form.details"))}
-          <textarea id="details" rows={4} maxLength={5000} value={v.details} onChange={(e) => set("details", e.target.value)} placeholder={t("zoom.form.detailsPlaceholder")} className={cls("details")} />
+          {label(`${idPrefix}details`, t("zoom.form.details"))}
+          <textarea id={`${idPrefix}details`} rows={4} maxLength={5000} value={v.details} onChange={(e) => set("details", e.target.value)} placeholder={t("zoom.form.detailsPlaceholder")} className={cls("details")} />
           {err("details")}
         </div>
-        <p className="text-xs text-muted">{t("zoom.form.hint")}</p>
+        <p className="text-xs text-muted">{t(resubmit ? "zoom.form.resubmitHint" : "zoom.form.hint")}</p>
       </fieldset>
 
       <div className={`flex justify-end gap-2 ${embedded ? "" : "max-w-3xl"}`}>
@@ -171,8 +181,8 @@ export function ZoomForm({
           {t("common.cancel")}
         </button>
         <button type="submit" disabled={pending} className={btn.primary}>
-          {pending ? <SpinnerIcon /> : <SaveIcon />}
-          {id ? t("zoom.form.saveEdit") : t("zoom.form.save")}
+          {pending ? <SpinnerIcon /> : onDraft ? <CheckCircleIcon /> : <SaveIcon />}
+          {onDraft ? t("meeting.form.zoomConfirm") : resubmit ? t("zoom.form.resubmit") : id ? t("zoom.form.saveEdit") : t("zoom.form.save")}
         </button>
       </div>
     </form>

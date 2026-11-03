@@ -8,7 +8,7 @@ import type { SoftwareOption, SoftwareRef, SoftwareType } from "@/lib/types";
 
 const MAX_SHOWN = 50;
 /** เพิ่ม Software / License ใหม่ในแท็บใหม่ — กลับมาที่ฟอร์มแล้วรายการโหลดใหม่ให้อัตโนมัติ */
-const NEW_LICENSE_HREF = "/assets/new?category=SOFTWARE";
+const NEW_LICENSE_HREF = "/licenses/new";
 
 interface SearchProps {
   id: string;
@@ -36,13 +36,13 @@ function SoftwareSearch({ id, options, exclude, installed, onPick, placeholder, 
   const q = query.trim().toLowerCase();
   const list = (options ?? [])
     .filter((o) => !exclude.includes(o.id))
-    .filter((o) => !q || [o.name, o.model ?? "", o.asset_tag].some((s) => s.toLowerCase().includes(q)))
+    .filter((o) => !q || [o.name, o.model ?? "", o.license_no ?? "", o.serial_number ?? ""].some((s) => s.toLowerCase().includes(q)))
     .slice(0, MAX_SHOWN);
   const full = (o: SoftwareOption) => o.available === 0 && !installed.includes(o.id);
 
   const pick = (o: SoftwareOption) => {
     if (full(o)) return;
-    onPick({ id: o.id, asset_tag: o.asset_tag, name: o.name });
+    onPick({ id: o.id, license_no: o.license_no, name: o.name });
     setQuery("");
     setOpen(false);
   };
@@ -103,7 +103,7 @@ function SoftwareSearch({ id, options, exclude, installed, onPick, placeholder, 
               >
                 <span className="min-w-0">
                   <span className="block truncate font-medium text-ink">{o.name}</span>
-                  <span className="block truncate text-xs text-muted">{[o.model, o.asset_tag].filter(Boolean).join(" · ")}</span>
+                  <span className="block truncate text-xs text-muted">{[o.model, o.license_no ?? o.serial_number].filter(Boolean).join(" · ")}</span>
                 </span>
                 <span
                   className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
@@ -120,7 +120,7 @@ function SoftwareSearch({ id, options, exclude, installed, onPick, placeholder, 
           )}
           <li className="border-t border-line">
             <a
-              href={`${NEW_LICENSE_HREF}&type=${softwareType}`}
+              href={`${NEW_LICENSE_HREF}?type=${softwareType}`}
               target="_blank"
               rel="noopener"
               onMouseDown={(e) => e.preventDefault()}
@@ -140,7 +140,7 @@ function SoftwareSearch({ id, options, exclude, installed, onPick, placeholder, 
 const Chip = ({ item, onRemove, removeLabel }: { item: SoftwareRef; onRemove: () => void; removeLabel: string }) => (
   <span className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-accent-50 py-1 pl-2.5 pr-1 text-sm ring-1 ring-inset ring-accent-200 dark:bg-accent-400/10 dark:ring-accent-400/30">
     <span className="truncate font-medium">{item.name}</span>
-    <span className="shrink-0 font-mono text-[11px] text-muted">{item.asset_tag}</span>
+    <span className="shrink-0 font-mono text-[11px] text-muted">{item.license_no}</span>
     <button type="button" onClick={onRemove} aria-label={removeLabel} className="shrink-0 cursor-pointer rounded-md p-0.5 text-muted hover:bg-danger-100 hover:text-danger-700 dark:hover:bg-danger-400/15">
       <XIcon width={12} height={12} />
     </button>
@@ -175,7 +175,7 @@ export function SoftwareSlotPicker({ id, options, value, legacy, exclude, instal
       <div className={`${className} flex items-center justify-between gap-2`}>
         <span className="flex min-w-0 items-baseline gap-1.5">
           <span className="truncate">{value.name}</span>
-          <span className="shrink-0 font-mono text-[11px] text-muted">{value.asset_tag}</span>
+          <span className="shrink-0 font-mono text-[11px] text-muted">{value.license_no}</span>
         </span>
         <button type="button" onClick={() => onChange(null)} className={`${btn.danger} -my-1 h-6! shrink-0 gap-1! px-2! py-0! text-xs!`} aria-label={t("common.clear")}>
           <XIcon width={12} height={12} />

@@ -195,7 +195,8 @@ export function RoleMatrix({ catalog, canManage, superAdmin, held }: { catalog: 
           </div>
         )}
 
-        {current && canEditCurrent && !editing && (
+        {/* ผู้ตรวจสอบ: ตารางสิทธิ์ตายตัว แต่เปลี่ยนชื่อได้ */}
+        {current && (canEditCurrent || (canManage && current.key === "auditor")) && !editing && (
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setEditing({ key: current.key, name_th: current.name_th, name_en: current.name_en, errors: {} })} className={`${btn.secondary} ${btn.sm}`}>
               <PencilIcon width={13} height={13} className="text-faint" />

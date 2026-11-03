@@ -6,12 +6,11 @@ import { dateOnly, iso, localToday, nowDb } from "../lib/time.js";
 import { exists, int, validate } from "../lib/validator.js";
 import { me, pageParam, shortMeta } from "../http.js";
 import { can, type UserRow } from "../models/user.js";
-import { activeCount, daysLeft, ICON_KIND, LICENSE_CATEGORY } from "../services/asset-licenses.js";
+import { activeCount } from "../services/licenses.js";
 
 /**
  * การติดตั้ง software license — เหมือน LicenseInstallationController ของ Laravel
  *   GET    /license-installations?license_id=&status=active|removed|all&branch_id=&search=&per_page=
- *   GET    /license-installations/licenses          license ทั้งหมด + จำนวนที่ใช้/คงเหลือ + จำนวนไฟล์แนบ (เมนู License ซอฟต์แวร์)
  *   POST   /license-installations                   { license_id, device_asset_id | device_name, user_id, branch_id, installed_at, notes }
  *   POST   /license-installations/{id}/uninstall    { uninstalled_at } — คืน seat (เก็บเป็นประวัติ)
  *   DELETE /license-installations/{id}              ลบรายการที่บันทึกผิด
@@ -20,8 +19,6 @@ import { activeCount, daysLeft, ICON_KIND, LICENSE_CATEGORY } from "../services/
 export const licenseInstallationRoutes = Router();
 
 const allowed = (u: UserRow) => can(u, "licenses.install");
-/** ดูรายการ License ซอฟต์แวร์ (เมนู /licenses) — ผู้บันทึกการติดตั้ง หรือผู้ดูสินทรัพย์ทั้งหมด / เพิ่ม-แก้สินทรัพย์ */
-const viewsLicenses = (u: UserRow) => allowed(u) || can(u, "assets.view_all") || can(u, "assets.create") || can(u, "assets.update");
 
 interface Row {
   id: number;
@@ -30,7 +27,7 @@ interface Row {
   notes: string | null;
   device_name: string | null;
   created_at: string | null;
-  la_uuid: string; la_tag: string; la_name: string;
+  la_uuid: string; la_tag: string | null; la_name: string;
   da_uuid: string | null; da_tag: string | null; da_name: string | null;
   u_id: number | null; u_name: string | null;
   b_id: number | null; b_name: string | null;
@@ -38,11 +35,11 @@ interface Row {
 }
 
 const SELECT = `i.id, i.installed_at, i.uninstalled_at, i.notes, i.device_name, i.created_at,
-    la.uuid AS la_uuid, la.asset_tag AS la_tag, la.name AS la_name,
+    la.uuid AS la_uuid, la.license_no AS la_tag, la.name AS la_name,
     da.uuid AS da_uuid, da.asset_tag AS da_tag, da.name AS da_name,
     u.id AS u_id, u.name AS u_name, b.id AS b_id, b.name AS b_name, cb.id AS cb_id, cb.name AS cb_name
   FROM license_installations i
-  JOIN assets la ON la.id = i.license_asset_id
+  JOIN licenses la ON la.id = i.license_id
   LEFT JOIN assets da ON da.id = i.device_asset_id
   LEFT JOIN users u ON u.id = i.user_id
   LEFT JOIN branches b ON b.id = i.branch_id
@@ -50,7 +47,7 @@ const SELECT = `i.id, i.installed_at, i.uninstalled_at, i.notes, i.device_name, 
 
 const json = (r: Row) => ({
   id: r.id,
-  license: { id: r.la_uuid, asset_tag: r.la_tag, name: r.la_name },
+  license: { id: r.la_uuid, license_no: r.la_tag, name: r.la_name },
   device: r.da_uuid ? { id: r.da_uuid, asset_tag: r.da_tag, name: r.da_name } : null,
   device_name: r.device_name,
   user: r.u_id ? { id: r.u_id, name: r.u_name } : null,
@@ -64,48 +61,14 @@ const json = (r: Row) => ({
 
 const usage = (seats: number | null, used: number) => ({ seats, used, available: seats === null ? null : Math.max(0, seats - used) });
 
-/** สินทรัพย์ SOFTWARE ที่มีข้อมูล license (ไม่นับที่ถูกลบ) */
+/** License ที่ยังไม่ถูกลบ */
 const findLicense = (uuid: unknown) =>
   typeof uuid === "string" && isUuid(uuid)
     ? first<{ id: number; uuid: string; seats: number | null }>(
-        `SELECT a.id, a.uuid, li.seats FROM assets a JOIN asset_licenses li ON li.asset_id = a.id
-          WHERE a.uuid = ? AND a.category = ? AND a.deleted_at IS NULL`,
-        [uuid, LICENSE_CATEGORY],
+        "SELECT id, uuid, seats FROM licenses WHERE uuid = ? AND deleted_at IS NULL",
+        [uuid],
       )
     : Promise.resolve(null);
-
-licenseInstallationRoutes.get("/license-installations/licenses", async (req, res) => {
-  authorize(viewsLicenses(me(req)));
-  const rows = await select<{
-    id: number; uuid: string; asset_tag: string; name: string; seats: number | null; expires_at: string | null; used: number;
-    billing: string; vendor: string | null; status: string; files: number; icon_id: number | null; software_type: string;
-  }>(
-    `SELECT a.id, a.uuid, a.asset_tag, a.name, a.status, li.seats, li.expires_at, li.billing, li.vendor, li.software_type,
-            (SELECT COUNT(*) FROM license_installations i WHERE i.license_asset_id = a.id AND i.uninstalled_at IS NULL) AS used,
-            (SELECT COUNT(*) FROM asset_files f WHERE f.asset_id = a.id AND f.kind <> ?) AS files,
-            (SELECT MAX(f.id) FROM asset_files f WHERE f.asset_id = a.id AND f.kind = ?) AS icon_id
-       FROM assets a JOIN asset_licenses li ON li.asset_id = a.id
-      WHERE a.category = ? AND a.deleted_at IS NULL
-      ORDER BY a.name, a.id`,
-    [ICON_KIND, ICON_KIND, LICENSE_CATEGORY],
-  );
-  res.json({
-    data: rows.map((r) => ({
-      id: r.uuid,
-      asset_tag: r.asset_tag,
-      name: r.name,
-      ...usage(r.seats, Number(r.used)),
-      billing: r.billing,
-      software_type: r.software_type,
-      vendor: r.vendor,
-      status: r.status,
-      files_count: Number(r.files),
-      icon_id: r.icon_id === null ? null : Number(r.icon_id),
-      expires_at: dateOnly(r.expires_at),
-      days_left: daysLeft(dateOnly(r.expires_at)),
-    })),
-  });
-});
 
 licenseInstallationRoutes.get("/license-installations", async (req, res) => {
   authorize(allowed(me(req)));
@@ -126,7 +89,7 @@ licenseInstallationRoutes.get("/license-installations", async (req, res) => {
   if (f.license_id) {
     license = await findLicense(f.license_id);
     if (!license) throw notFound();
-    where.push("i.license_asset_id = ?");
+    where.push("i.license_id = ?");
     params.push(license.id);
   }
   const status = (f.status as string | null) ?? "active";
@@ -186,7 +149,7 @@ licenseInstallationRoutes.post("/license-installations", async (req, res) => {
   const license = (await findLicense(data.license_id))!;
   const id = await transaction(async () => {
     // ล็อกแถว license กันบันทึกพร้อมกันจนเกินจำนวน seat
-    const locked = await first<{ seats: number | null }>("SELECT seats FROM asset_licenses WHERE asset_id = ? FOR UPDATE", [license.id]);
+    const locked = await first<{ seats: number | null }>("SELECT seats FROM licenses WHERE id = ? FOR UPDATE", [license.id]);
     const seats = locked?.seats ?? null;
     if (seats !== null && (await activeCount(license.id)) >= seats) {
       throw ValidationError.withMessages({ license_id: trans(req.locale, "eam.license.seats_full", { seats }) });
@@ -194,7 +157,7 @@ licenseInstallationRoutes.post("/license-installations", async (req, res) => {
     const now = nowDb();
     const device = typeof data.device_asset_id === "string" && data.device_asset_id !== "" ? await deviceId(data.device_asset_id) : null;
     return insert("license_installations", {
-      license_asset_id: license.id,
+      license_id: license.id,
       device_asset_id: device,
       device_name: device ? null : String(data.device_name).trim(),
       user_id: int(data.user_id),

@@ -42,6 +42,7 @@ export interface UserRow {
   two_factor_confirmed_at?: string | null;
   two_factor_recovery_codes?: string | null;
   two_factor_last_step?: number | string | null;
+  job_title?: string | null;
   is_it_staff: boolean;
   is_it_head: boolean;
   /** hash รหัสผ่าน — เฉพาะ LOCAL; API User = null เสมอ (ระบบต้นทางเป็นเจ้าของ credential) */
@@ -56,11 +57,11 @@ export interface UserRow {
   perms?: ReadonlySet<string>;
 }
 
-export const ROLES = ["super_admin", "admin", "division_manager", "manager", "viewer"] as const;
+export const ROLES = ["super_admin", "admin", "executive", "division_manager", "manager", "viewer", "auditor"] as const;
 export type Role = (typeof ROLES)[number];
 
-/** ลำดับตำแหน่ง (มาก = สูงกว่า): ผู้ดูแลระบบสูงสุด > ผู้ดูแลระบบ > ผู้จัดการ > ผู้จัดการฝ่าย > พนักงาน — ใช้กรองผู้อนุมัติที่ผู้แจ้งเลือกได้ */
-export const ROLE_RANK: Record<Role, number> = { super_admin: 5, admin: 4, manager: 3, division_manager: 2, viewer: 1 };
+/** ลำดับตำแหน่ง (มาก = สูงกว่า): ผู้ดูแลระบบสูงสุด > ผู้ดูแลระบบ > ผู้บริหาร > ผู้จัดการฝ่าย > ผู้จัดการแผนก (manager) > พนักงาน — ใช้กรองผู้อนุมัติที่ผู้แจ้งเลือกได้ */
+export const ROLE_RANK: Record<Role, number> = { super_admin: 6, admin: 5, executive: 4, division_manager: 3, manager: 2, viewer: 1, auditor: 0 };
 export const roleRank = (role: string): number => ROLE_RANK[role as Role] ?? 1;
 /** บทบาทที่สูงกว่าบทบาทนี้ */
 export const rolesAbove = (role: string): Role[] => ROLES.filter((r) => ROLE_RANK[r] > roleRank(role));
@@ -73,6 +74,12 @@ export const isLocal = (u: UserRow): u is UserRow & { email: string; password: s
 
 /** ผู้ดูแลระบบ (super_admin — ผู้ใช้ LOCAL หรือ API) = ผ่านทุกสิทธิ์ และเป็นผู้เดียวที่มอบ/ถอดสิทธิ์ที่สงวนไว้ (locked) และตั้ง super_admin ได้ */
 export const isSuperAdmin = (u: Pick<UserRow, "role">) => u.role === "super_admin";
+/**
+ * ผู้ตรวจสอบ (audit / ผู้ตรวจสอบภายนอก) = ดูได้ทุกหน้า แก้ไขอะไรไม่ได้ — middleware auth ปฏิเสธทุกคำขอที่ไม่ใช่ GET
+ * (ยกเว้นบัญชีของตัวเอง) จึงเปิดรหัสผ่าน / License key ไม่ได้ด้วย (เป็น POST) — สิทธิ์คำนวณใน permissionsOf ไม่อยู่ใน role_permissions
+ */
+export const AUDITOR_ROLE = "auditor";
+export const isReadOnly = (u: Pick<UserRow, "role">) => u.role === AUDITOR_ROLE;
 /**
  * ผู้ดูแลระบบที่เป็นบัญชี LOCAL — ทางสำรองเข้าระบบเมื่อระบบต้นทางล่ม (ต้องเหลืออย่างน้อย 1 คนที่ใช้งานอยู่เสมอ)
  * และเป็นผู้เดียวที่แก้การเชื่อมต่อ API ได้ (กันบัญชีต้นทางที่ถูกยึด เปลี่ยนหน้า login ไปดักรหัสผ่าน)

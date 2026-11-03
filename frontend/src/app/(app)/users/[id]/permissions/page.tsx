@@ -17,12 +17,11 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /** สิทธิ์การใช้งานของผู้ใช้ (LOCAL / API): ตำแหน่ง + กลุ่มที่มอบเพิ่ม + สิทธิ์รายข้อ — ผู้มีสิทธิ์ access.assign (API ตรวจกติกาการมอบซ้ำ) */
-export default async function UserPermissionsPage({ params, searchParams }: PageProps<"/users/[id]/permissions">) {
+export default async function UserPermissionsPage({ params }: PageProps<"/users/[id]/permissions">) {
   const me = await getCurrentUser();
   if (!has(me, "access.assign")) redirect("/tickets");
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
-  const from = (await searchParams).from === "api-users" ? "/api-users" : "/users";
 
   const [{ t }, view, catalog] = await Promise.all([
     getI18n(),
@@ -43,7 +42,7 @@ export default async function UserPermissionsPage({ params, searchParams }: Page
         title={view.user.name}
         subtitle={view.user.email ?? t("access.noEmail")}
         actions={
-          <Link href={from} className={btn.secondary}>
+          <Link href="/users" className={btn.secondary}>
             <LinkPendingIcon icon={<ChevronLeftIcon />} />
             {t("access.back")}
           </Link>

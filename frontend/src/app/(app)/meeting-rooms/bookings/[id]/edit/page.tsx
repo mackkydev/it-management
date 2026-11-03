@@ -40,6 +40,7 @@ export default async function EditMeetingBookingPage({ params }: PageProps<"/mee
       <PageHeader icon={MeetingRoomIcon} title={t("meeting.form.editTitle")} subtitle={t("meeting.form.subtitle")} />
       <BookingForm
         id={booking.id}
+        linkedZoom={booking.zoom}
         initial={{
           room_id: String(booking.room.id),
           title: booking.title,
@@ -49,6 +50,14 @@ export default async function EditMeetingBookingPage({ params }: PageProps<"/mee
           note: booking.note ?? "",
           date: booking.date,
           end_date: booking.end_date,
+          add_zoom: false,
+          zoom_cancel: false,
+          zoom_title: "",
+          zoom_details: "",
+          zoom_start_on: "",
+          zoom_start_time: "",
+          zoom_end_on: "",
+          zoom_end_time: "",
           start_time: booking.start_time,
           end_time: booking.end_time,
         }}

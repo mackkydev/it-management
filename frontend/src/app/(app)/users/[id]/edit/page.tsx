@@ -8,7 +8,7 @@ import { btn } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
 import { getCurrentUser, has, isSuperAdmin } from "@/lib/auth";
-import type { ApprovalRoute, Branch, ManagedUser, OrgUnit } from "@/lib/types";
+import type { ApprovalRoute, Branch, ManagedUser, OrgUnit, PermissionCatalog } from "@/lib/types";
 import { UserForm } from "../../user-form";
 import { SignatureStatus } from "./signature-status";
 import { LoginLockStatus } from "./login-lock-status";
@@ -21,7 +21,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 async function getUser(id: string) {
   try {
-    return await apiFetch<{ data: ManagedUser; meta: { can_delete: boolean } }>(`/users/${id}`);
+    return await apiFetch<{ data: ManagedUser; meta: { can_delete: boolean; two_factor_required: boolean } }>(`/users/${id}`);
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) notFound();
     throw e;
@@ -35,13 +35,14 @@ export default async function EditUserPage({ params }: PageProps<"/users/[id]/ed
   const me = await getCurrentUser();
   if (!has(me, "users.update")) redirect("/users");
 
-  const [{ data: user, meta }, { t }, { data: branches }, { data: routes }, { data: departments }, { data: divisions }] = await Promise.all([
+  const [{ data: user, meta }, { t }, { data: branches }, { data: routes }, { data: departments }, { data: divisions }, catalog] = await Promise.all([
     getUser(id),
     getI18n(),
     apiFetch<{ data: Branch[] }>("/branches"),
     apiFetch<{ data: ApprovalRoute[] }>("/approval-routes"),
     apiFetch<{ data: OrgUnit[] }>("/departments"),
     apiFetch<{ data: OrgUnit[] }>("/divisions"),
+    has(me, "access.assign") ? apiFetch<PermissionCatalog>("/permissions") : null,
   ]);
 
   return (
@@ -59,9 +60,7 @@ export default async function EditUserPage({ params }: PageProps<"/users/[id]/ed
           )
         }
       />
-      {has(me, "users.update") && <SignatureStatus userId={user.id} hasSignature={Boolean(user.has_signature)} />}
       {has(me, "users.update") && user.login_locked_until && <LoginLockStatus userId={user.id} until={user.login_locked_until} />}
-      {has(me, "access.manage") && user.type === "LOCAL" && <TwoFactorStatus userId={user.id} enabled={Boolean(user.two_factor_enabled)} />}
       <UserForm
         user={user}
         isSelf={user.id === me.id}
@@ -72,6 +71,13 @@ export default async function EditUserPage({ params }: PageProps<"/users/[id]/ed
         divisions={divisions}
         canAssign={has(me, "access.assign")}
         superAdmin={isSuperAdmin(me)}
+        roleNames={Object.fromEntries((catalog?.groups ?? []).map((g) => [g.key, { th: g.name_th, en: g.name_en }]))}
+        statusCards={
+          <>
+            <SignatureStatus userId={user.id} hasSignature={Boolean(user.has_signature)} />
+            {has(me, "access.manage") && user.type === "LOCAL" && <TwoFactorStatus userId={user.id} enabled={Boolean(user.two_factor_enabled)} required={meta.two_factor_required} />}
+          </>
+        }
       />
     </div>
   );

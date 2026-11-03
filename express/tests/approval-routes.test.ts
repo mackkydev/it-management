@@ -188,7 +188,7 @@ describe("approver chosen by the requester", () => {
 
   it("form options list only higher positions; the branch filter is checked on submit", async () => {
     const head = await makeUser({ name: "KKN Head", role: "division_manager", branch_id: kkn });
-    const boss = await makeUser({ name: "KKN Manager", role: "manager", branch_id: kkn });
+    const boss = await makeUser({ name: "KKN Manager", role: "executive", branch_id: kkn });
     const bkkHead = await makeUser({ name: "BKK Head", role: "division_manager", branch_id: bkk });
     await makeUser({ name: "KKN Peer", branch_id: kkn });
     await makeUser({ name: "Off", role: "manager", branch_id: kkn, is_active: false });

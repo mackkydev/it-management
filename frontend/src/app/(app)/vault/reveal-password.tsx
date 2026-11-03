@@ -20,6 +20,7 @@ export function RevealPassword({ id }: { id: number }) {
   const [value, setValue] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [clearIn, setClearIn] = useState(0);
   const [pending, start] = useTransition();
   // ต้องยืนยันรหัสผ่านซ้ำก่อน (ตั้งค่าความปลอดภัย) → แสดงช่องยืนยัน แล้วเปิดดูอีกครั้งอัตโนมัติ
   const [reauth, setReauth] = useState<ReauthChallenge | null>(null);
@@ -42,7 +43,7 @@ export function RevealPassword({ id }: { id: number }) {
   const copy = async () => {
     if (value === null) return;
     // ล้าง clipboard อัตโนมัติใน 30 วินาที (lib/clipboard.ts)
-    await copySecret(value);
+    setClearIn(await copySecret(value));
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
@@ -65,7 +66,7 @@ export function RevealPassword({ id }: { id: number }) {
         </button>
       </Tooltip>
       {value !== null && (
-        <Tooltip label={copied ? t("vault.copied") : t("vault.copy")} side="top">
+        <Tooltip label={copied ? t("vault.copied", { seconds: clearIn }) : t("vault.copy")} side="top">
           <button
             type="button"
             onClick={copy}

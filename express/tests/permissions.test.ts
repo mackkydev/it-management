@@ -117,7 +117,7 @@ describe("permissions", () => {
     expect(res.body.data.role_permissions.admin).toEqual(expect.arrayContaining(["it_tickets.close", "kpi.use"]));
     expect(res.body.data.role_permissions.admin).not.toContain("kpi.view_all");
     expect(res.body.data.role_permissions.viewer).toEqual(["locations.view", "signature.manage_own"]); // หน้าสถานที่ + ลายเซ็นของตัวเอง = ทุกกลุ่ม
-    expect(Object.keys(res.body.data.role_permissions).sort()).toEqual(["admin", "division_manager", "manager", "super_admin", "viewer"]);
+    expect(Object.keys(res.body.data.role_permissions).sort()).toEqual(["admin", "auditor", "division_manager", "executive", "manager", "super_admin", "viewer"]);
     expect(res.body.data.role_permissions.super_admin).toHaveLength(PERMISSIONS.length);
   });
 

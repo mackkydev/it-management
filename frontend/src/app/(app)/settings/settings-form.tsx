@@ -72,7 +72,7 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
         <section className={`p-4 sm:p-6 ${card}`}>
           <h2 className="mb-4 font-semibold">{t("settingsPage.ticketSection")}</h2>
           {/* ขั้นตอนใบแจ้งงาน: หัวหน้าอนุมัติก่อน (แบบเดิม) / ส่งถึงฝ่าย IT ทันที (IT ขอให้หัวหน้าอนุมัติเมื่อจำเป็น) */}
-          <fieldset className="mb-5 space-y-2">
+          <fieldset className="mb-5 grid gap-x-6 gap-y-2 sm:grid-cols-2">
             <legend className="mb-1 text-sm font-medium">{t("settingsPage.ticketFlow")}</legend>
             {(["it_first", "approval_first"] as const).map((f) => (
               <label key={f} className="flex cursor-pointer items-start gap-2 text-sm">
@@ -115,6 +115,7 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
             placeholder={t("settingsPage.emailPlaceholder")}
             addLabel={t("settingsPage.addEmail")}
             emptyText={t("settingsPage.noEmails")}
+            grid
             validate={(e) =>
               !EMAIL_RE.test(e)
                 ? t("settingsPage.invalidEmail")

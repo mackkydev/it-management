@@ -1,6 +1,7 @@
 import type { TFunction } from "@/i18n/types";
 import type { ZoomBooking } from "@/lib/types";
 
+import { IDLE_TONE, toneAt, type Tone } from "@/lib/booking";
 import { periodText } from "../vehicles/vehicle-utils";
 
 export { daysOf, periodText, segmentOf, shiftDay, TIME_OPTIONS } from "../vehicles/vehicle-utils";
@@ -10,9 +11,19 @@ export const ZOOM_BAR: Record<ZoomBooking["status"], string> = {
   pending: "bg-warning-100 text-warning-800 ring-warning-300 outline-1 outline-dashed outline-warning-400 dark:bg-warning-400/20 dark:text-warning-200 dark:ring-warning-400/40",
   accepted: "bg-info-100 text-info-800 ring-info-300 dark:bg-info-400/20 dark:text-info-200 dark:ring-info-400/40",
   confirmed: "bg-success-100 text-success-800 ring-success-300 dark:bg-success-400/20 dark:text-success-200 dark:ring-success-400/40",
+  needs_change: "bg-danger-100 text-danger-800 ring-danger-300 dark:bg-danger-400/20 dark:text-danger-200 dark:ring-danger-400/40",
   rejected: "bg-idle-100 text-idle-700 ring-idle-300 dark:bg-idle-400/20 dark:text-idle-200 dark:ring-idle-400/40",
   cancelled: "bg-idle-100 text-idle-700 ring-idle-300 dark:bg-idle-400/20 dark:text-idle-200 dark:ring-idle-400/40",
 };
+
+/** สีประจำบัญชี ZOOM ตามลำดับในข้อมูล Drop Down — เลี่ยงสีฟ้า/เหลืองของสถานะรับงานแล้ว/รอรับงาน ไว้ท้ายสุด */
+const ACCOUNT_TONE_ORDER = [3, 1, 4, 0, 2] as const;
+export function accountTone(accounts: string[], account: string): Tone {
+  const i = accounts.findIndex((a) => a.toLowerCase() === account.toLowerCase());
+  return i < 0 ? IDLE_TONE : toneAt(i, ACCOUNT_TONE_ORDER);
+}
+/** สีแถบในปฏิทิน / ไทม์ไลน์: มีบัญชี ZOOM แล้ว = สีตามบัญชี, ยังไม่มี = สีตามสถานะ */
+export const zoomBarOf = (b: ZoomBooking, accounts: string[]) => (b.zoom_account ? accountTone(accounts, b.zoom_account).bar : ZOOM_BAR[b.status]);
 
 /** จุดสีในคำอธิบาย (legend) */
 export const ZOOM_DOT: Record<"pending" | "accepted" | "confirmed", string> = {
@@ -22,7 +33,7 @@ export const ZOOM_DOT: Record<"pending" | "accepted" | "confirmed", string> = {
 };
 
 /** ป้ายสถานะ (badge) — จบเวลาแล้ว = "ใช้งานแล้ว" */
-export function statusKey(z: ZoomBooking): "pending" | "accepted" | "confirmed" | "rejected" | "cancelled" | "over" {
+export function statusKey(z: ZoomBooking): ZoomBooking["status"] | "over" {
   return z.is_over && z.status === "confirmed" ? "over" : z.status;
 }
 

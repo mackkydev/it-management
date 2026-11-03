@@ -62,17 +62,17 @@ export async function notifyExpiring(opts: { dryRun?: boolean; today?: Date } = 
 
   // software license: เหลือ ≤ N วัน (N ของ license หรือค่าเริ่มต้นในหน้าตั้งค่า) — ไม่นับสินทรัพย์ที่ถูกลบ
   const licenseDays = Number(await getSetting("license_notify_days"));
-  const licenses = await select<{ id: number; expires_at: string; notify_days_before: number | null; notified_for_expires_at: string | null; asset_tag: string; name: string }>(
-    `SELECT li.id, li.expires_at, li.notify_days_before, li.notified_for_expires_at, a.asset_tag, a.name
-       FROM asset_licenses li JOIN assets a ON a.id = li.asset_id
-      WHERE a.deleted_at IS NULL AND li.expires_at IS NOT NULL AND li.expires_at >= ?`,
+  const licenses = await select<{ id: number; expires_at: string; notify_days_before: number | null; notified_for_expires_at: string | null; license_no: string | null; serial_number: string | null; name: string }>(
+    `SELECT li.id, li.expires_at, li.notify_days_before, li.notified_for_expires_at, li.license_no, li.serial_number, li.name
+       FROM licenses li
+      WHERE li.deleted_at IS NULL AND li.expires_at IS NOT NULL AND li.cancelled_at IS NULL AND li.expires_at >= ?`,
     [yesterday],
   );
   for (const l of licenses) {
     const left = diffInDays(today, fromDbDate(l.expires_at));
     const already = l.notified_for_expires_at !== null && dateOnly(l.notified_for_expires_at) === dateOnly(l.expires_at);
     if (left <= (l.notify_days_before ?? licenseDays) && !already) {
-      items.push({ type: "license", title: l.name, sub: l.asset_tag, date: dateOnly(l.expires_at)!, days_left: left });
+      items.push({ type: "license", title: l.name, sub: l.license_no ?? l.serial_number ?? "", date: dateOnly(l.expires_at)!, days_left: left });
       licenseIds.push({ id: l.id, expires_at: dateOnly(l.expires_at)! });
     }
   }
@@ -92,7 +92,7 @@ export async function notifyExpiring(opts: { dryRun?: boolean; today?: Date } = 
 
   for (const c of contractIds) await update("contracts", { notified_for_end_date: c.end_date, notified_at: nowDb() }, "id = ?", [c.id]);
   for (const c of credentialIds) await update("credentials", { notified_for_expires_at: c.expires_at }, "id = ?", [c.id]);
-  for (const l of licenseIds) await update("asset_licenses", { notified_for_expires_at: l.expires_at }, "id = ?", [l.id]);
+  for (const l of licenseIds) await update("licenses", { notified_for_expires_at: l.expires_at }, "id = ?", [l.id]);
 
   return { items, sent: true };
 }

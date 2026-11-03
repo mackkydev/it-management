@@ -22,7 +22,7 @@ dashboardRoutes.get("/dashboard", async (req, res) => {
   const count = async (sql: string, params: unknown[]) => Number(await scalar(sql, params));
 
   // ใบแจ้งงานที่ฉันแจ้ง
-  const byStatus = await select<{ status: string; n: number }>("SELECT status, COUNT(*) AS n FROM it_tickets WHERE requester_id = ? GROUP BY status", [u.id]);
+  const byStatus = await select<{ status: string; n: number }>("SELECT status, COUNT(*) AS n FROM it_tickets WHERE requester_id = ? AND source IS NULL GROUP BY status", [u.id]);
   const statusCount = Object.fromEntries(byStatus.map((r) => [r.status, Number(r.n)]));
   // ใบแจ้งงานล่าสุด: ฝ่าย IT (it_tickets.queue) = ทุกใบของฝ่าย (หลังอนุมัติ — it_tickets.manage_all = ทุกใบ) / คนอื่น = ใบที่ฉันแจ้ง
   const allRecent = can(u, "it_tickets.queue");
@@ -49,9 +49,9 @@ dashboardRoutes.get("/dashboard", async (req, res) => {
     const mine = (cond: string, condParams: unknown[] = []) =>
       count(
         `SELECT COUNT(*) FROM (
-           SELECT t.id FROM it_tickets t WHERE t.assignee_id = ? AND ${cond}
+           SELECT t.id FROM it_tickets t WHERE t.assignee_id = ? AND t.source IS NULL AND ${cond}
            UNION
-           SELECT t.id FROM it_ticket_helpers h JOIN it_tickets t ON t.id = h.it_ticket_id WHERE h.user_id = ? AND ${cond}
+           SELECT t.id FROM it_ticket_helpers h JOIN it_tickets t ON t.id = h.it_ticket_id WHERE h.user_id = ? AND t.source IS NULL AND ${cond}
          ) x`,
         [u.id, ...condParams, u.id, ...condParams],
       );
@@ -60,7 +60,7 @@ dashboardRoutes.get("/dashboard", async (req, res) => {
     const next = new Date(`${monthStart}T00:00:00Z`);
     next.setUTCMonth(next.getUTCMonth() + 1);
     it = {
-      waiting: await count("SELECT COUNT(*) FROM it_tickets t WHERE t.status = 'approved' AND t.assignee_id = ?", [u.id]),
+      waiting: await count("SELECT COUNT(*) FROM it_tickets t WHERE t.status = 'approved' AND t.assignee_id = ? AND t.source IS NULL", [u.id]),
       in_progress: await mine("t.status = 'in_progress'"),
       review: await mine("t.status = 'pending_it_head'"),
       done_month: await mine("t.status IN ('pending_requester', 'completed') AND t.completed_on >= ? AND t.completed_on < ?", [monthStart, next.toISOString().slice(0, 10)]),

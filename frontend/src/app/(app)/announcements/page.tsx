@@ -13,7 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("announcements.title") };
 }
 
-/** ตั้งค่าระบบ → ประกาศหน้า login (admin / ฝ่าย IT) */
+/** เมนูหลัก → ประกาศข่าวสาร (แสดงที่หน้าภาพรวม) (admin / ฝ่าย IT) */
 export default async function AnnouncementsPage() {
   if (!has(await getCurrentUser(), "announcements.manage")) redirect("/tickets");
   const [{ data }, { t }] = await Promise.all([apiFetch<{ data: Announcement[] }>("/announcements"), getI18n()]);

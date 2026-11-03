@@ -32,9 +32,11 @@ interface SimplePage<T> {
 const ROLE_STYLE: Record<User["role"], string> = {
   super_admin: "bg-accent-500 text-white dark:bg-accent-400/60 dark:text-white",
   admin: "bg-accent-300 text-accent-900 dark:bg-accent-400/35 dark:text-accent-100",
+  executive: "bg-accent-200 text-accent-900 dark:bg-accent-400/30 dark:text-accent-100",
   division_manager: "bg-accent-200 text-accent-900 dark:bg-accent-400/25 dark:text-accent-100",
   manager: "bg-accent-100 text-accent-800 dark:bg-accent-400/15 dark:text-accent-200",
   viewer: "bg-surface text-muted ring-1 ring-inset ring-line",
+  auditor: "bg-subtle text-muted ring-1 ring-inset ring-line",
 };
 
 const SAVED = ["created", "updated", "deleted"] as const;

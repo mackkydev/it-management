@@ -3,6 +3,7 @@ import { syncDueConnections } from "../services/directory-sync.js";
 import { notifyExpiring } from "./notify-expiring.js";
 import { notifyOverdueLoans } from "../routes/loans.js";
 import { autoCloseTickets } from "../routes/tickets.js";
+import { expireZoomBookings } from "../routes/zoom.js";
 import { notifyVpnExpiry } from "../services/vpn-loans.js";
 
 /**
@@ -66,6 +67,9 @@ export function startScheduler(): void {
       // ใบแจ้งงานที่ผู้แจ้งไม่กดรับงานเกินจำนวนวันที่ตั้งไว้ → ปิดงานอัตโนมัติ
       const c = await autoCloseTickets();
       if (c) console.info(`[scheduler] tickets auto-closed: ${c}`);
+      // จอง ZOOM ที่เลยเวลาโดยยังไม่ได้ส่งลิงก์ → ยกเลิก (ใบงานไม่นับ KPI)
+      const z = await expireZoomBookings();
+      if (z) console.info(`[scheduler] zoom bookings expired: ${z}`);
     } catch (e) {
       console.error("[scheduler] overdue equipment loans failed", e);
     } finally {

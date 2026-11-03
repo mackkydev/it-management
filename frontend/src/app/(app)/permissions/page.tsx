@@ -28,12 +28,18 @@ export default async function PermissionsPage() {
   const user = await getCurrentUser();
   const canManage = has(user, "access.manage");
   if (!canManage && !has(user, "access.groups")) redirect("/tickets");
-  const [config, { t }, catalog] = await Promise.all([getUiConfig(), getI18n(), apiFetch<PermissionCatalog>("/permissions")]);
+  const [config, { t }, catalog, branches] = await Promise.all([
+    getUiConfig(),
+    getI18n(),
+    apiFetch<PermissionCatalog>("/permissions"),
+    // ตั้งเมนูตามสาขาได้เฉพาะ access.manage
+    canManage ? apiFetch<{ data: { id: number; name: string }[] }>("/branches").then((r) => r.data) : null,
+  ]);
 
   return (
     <div className="space-y-5">
       <PageHeader icon={ShieldIcon} title={t("permissions.title")} subtitle={t("permissions.subtitle")} />
-      <PermissionsForm initial={config} groups={catalog.groups} defaultNames={defaultNames()} editable={canManage ? null : catalog.editable_groups} />
+      <PermissionsForm initial={config} groups={catalog.groups} defaultNames={defaultNames()} editable={canManage ? null : catalog.editable_groups} branches={branches} />
     </div>
   );
 }

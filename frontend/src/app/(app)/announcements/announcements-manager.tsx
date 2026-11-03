@@ -28,7 +28,7 @@ type Tab = "current" | "past";
 const TAB_CLS = (active: boolean) =>
   `flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
 
-/** จัดการประกาศหน้า login — ฟอร์มเพิ่ม/แก้ไขด้านบน รายการด้านล่าง */
+/** จัดการประกาศข่าวสาร (แสดงที่หน้าภาพรวม) — ฟอร์มเพิ่ม/แก้ไขด้านบน รายการด้านล่าง */
 export function AnnouncementsManager({ items }: { items: Announcement[] }) {
   const { t, fmt } = useI18n();
   const confirm = useConfirm();

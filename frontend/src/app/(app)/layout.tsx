@@ -1,4 +1,6 @@
-import { cookies } from "next/headers";
+import type { Route } from "next";
+import { cookies, headers } from "next/headers";
+import { deniedTarget, routeAllowed } from "@/components/shell/nav";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertIcon } from "@/components/icons";
@@ -38,6 +40,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   if (user.password_expired) redirect("/login?change=1");
   // ยังไม่ยอมรับนโยบายการใช้งานระบบ (เวอร์ชันปัจจุบัน) — เข้าใช้งานไม่ได้จนกว่าจะยอมรับ
   if (user.policy_required) redirect("/policy-accept");
+  // เปิดลิงก์ตรงหน้าที่เมนูไม่ขึ้นให้คนนี้ (ไม่มีสิทธิ์ / ถูกซ่อนตามกลุ่ม / สาขา) = เปิดไม่ได้ — เปลี่ยนหน้าภายในแอปกันที่ RouteGuard
+  const pathname = (await headers()).get("x-pathname");
+  if (pathname && !routeAllowed(user, uiConfig, pathname)) redirect(deniedTarget(user, uiConfig) as Route);
 
   return (
     <AppShell layout={prefs.layout} user={user} uiConfig={uiConfig}>

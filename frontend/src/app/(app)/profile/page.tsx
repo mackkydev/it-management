@@ -19,7 +19,6 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function ProfilePage() {
   // getCurrentUser = GET /auth/me (ข้อมูลผู้ใช้ทั้งหมดจาก API รวมสังกัด/หัวหน้า/สิทธิ์ IT/ลายเซ็น)
   const [user, { t, fmt }, twoFactor] = await Promise.all([getCurrentUser(), getI18n(), apiFetch<{ data: TwoFactorStatus }>("/auth/2fa").then((r) => r.data)]);
-  const yes = (v?: boolean) => (v ? t("profile.yes") : t("profile.no"));
 
   const rows: { label: string; value: ReactNode }[] = [
     { label: t("profile.name"), value: user.name },
@@ -29,8 +28,7 @@ export default async function ProfilePage() {
     { label: t("profile.department"), value: user.department },
     { label: t("profile.division"), value: user.division },
     { label: t("profile.supervisor"), value: user.supervisor?.name },
-    { label: t("profile.itStaff"), value: yes(user.is_it_staff) },
-    { label: t("profile.itHead"), value: yes(user.is_it_head) },
+    { label: t("users.form.jobTitle"), value: user.job_title },
     { label: t("profile.memberSince"), value: user.created_at ? fmt.date(user.created_at) : null },
   ];
 

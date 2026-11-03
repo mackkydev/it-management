@@ -41,12 +41,19 @@ interface Props {
   divisions: { id: number; name: string }[];
   /** ผู้ทำมีสิทธิ์มอบตำแหน่ง (access.assign) — ไม่มี = เปลี่ยนตำแหน่งไม่ได้ (ผู้ใช้ใหม่ = พนักงาน) */
   canAssign?: boolean;
+  /** ชื่อกลุ่มตามตำแหน่งที่แก้ไว้ (หน้าสิทธิ์ตามกลุ่ม) — ไม่มี = ชื่อตั้งต้น */
+  roleNames?: Record<string, { th: string; en: string }>;
+  /** การ์ดลายเซ็น / 2FA — แสดงแถวเดียวกับเปิดใช้งานบัญชี */
+  statusCards?: ReactNode;
+  /** กลุ่มงานที่เลือกได้ตอนสร้างผู้ใช้ (กลุ่มที่สร้างเอง — ผู้มี access.assign) */
+  groupOptions?: { key: string; name_th: string; name_en: string }[];
   /** ผู้ทำเป็นผู้ดูแลระบบ — ตั้งตำแหน่งผู้ดูแลระบบได้ */
   superAdmin?: boolean;
 }
 
-export function UserForm({ user, isSelf = false, canDelete = false, branches, routes, departments, divisions, canAssign = false, superAdmin = false }: Props) {
-  const { t } = useI18n();
+export function UserForm({ user, isSelf = false, canDelete = false, branches, routes, departments, divisions, canAssign = false, groupOptions = [], roleNames, statusCards, superAdmin = false }: Props) {
+  const { t, locale } = useI18n();
+  const [groups, setGroups] = useState<string[]>([]);
   const confirm = useConfirm();
   const isCreate = !user;
   const [values, setValues] = useState<UserFormValues>({
@@ -54,6 +61,8 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
     email: user?.email ?? "",
     username: user?.username ?? "",
     role: user?.role ?? "viewer",
+    job_title: user?.job_title ?? "",
+    is_it_head: user?.is_it_head ?? false,
     is_active: user?.is_active ?? true,
     password: "",
     password_confirmation: "",
@@ -61,8 +70,6 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
     department: user?.department ?? "",
     division: user?.division ?? "",
     supervisor_id: user?.supervisor_id ? String(user.supervisor_id) : "",
-    is_it_staff: user?.is_it_staff ?? false,
-    is_it_head: user?.is_it_head ?? false,
     approval_route_id: user?.approval_route_id ? String(user.approval_route_id) : "",
   });
   const [supervisor, setSupervisor] = useState(user?.supervisor ?? null);
@@ -95,7 +102,7 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
     }
     setMessage("");
     setPendingAction("save");
-    startTransition(async () => handle(user ? await updateUser(user.id, values) : await createUser(values)));
+    startTransition(async () => handle(user ? await updateUser(user.id, values) : await createUser({ ...values, groups })));
   };
 
   const onDelete = async () => {
@@ -139,6 +146,7 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
             {field("name", t("users.form.name"), <input id="name" name="name" value={values.name} onChange={onChange} maxLength={255} autoComplete="off" className={cls("name")} />, true)}
             {field("email", t("users.form.email"), <input id="email" name="email" type="email" value={values.email} onChange={onChange} maxLength={255} autoComplete="off" className={cls("email")} />, true)}
             {field("username", t("users.form.username"), <input id="username" name="username" value={values.username} onChange={onChange} maxLength={50} autoComplete="off" autoCapitalize="none" placeholder={t("users.form.usernameHint")} className={cls("username")} />)}
+            {field("job_title", t("users.form.jobTitle"), <input id="job_title" name="job_title" value={values.job_title} onChange={onChange} maxLength={100} placeholder={t("users.form.jobTitlePlaceholder")} className={cls("job_title")} />)}
 
             {/* บทบาท: การ์ดตัวเลือกพร้อมคำอธิบายสิทธิ์ */}
             <fieldset className="sm:col-span-2" disabled={isSelf}>
@@ -149,7 +157,7 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
                 {ROLES.map((r) => {
                   // เปลี่ยนตำแหน่ง = มอบสิทธิ์: ต้องมี access.assign · ตำแหน่งผู้ดูแลระบบตั้ง/ถอดได้เฉพาะผู้ดูแลระบบ (API ตรวจซ้ำ)
                   const current = user?.role ?? "viewer";
-                  const blocked = r !== current && (!canAssign || ((r === "super_admin" || current === "super_admin") && !superAdmin));
+                  const blocked = r !== current && (!canAssign || ((r === "super_admin" || current === "super_admin" || r === "auditor" || current === "auditor") && !superAdmin));
                   return (
                   <label
                     key={r}
@@ -161,7 +169,7 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
                   >
                     <input type="radio" name="role" value={r} checked={values.role === r} disabled={blocked} onChange={onChange} className="mt-1 cursor-pointer accent-[var(--accent-500)] disabled:cursor-not-allowed" />
                     <span>
-                      <span className="block text-sm font-medium">{t(`roles.${r}`)}</span>
+                      <span className="block text-sm font-medium">{roleNames?.[r]?.[locale === "en" ? "en" : "th"] || t(`roles.${r}`)}</span>
                       <span className="block text-xs text-muted">{t(`users.form.roleHints.${r}`)}</span>
                     </span>
                   </label>
@@ -170,21 +178,71 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
               </div>
               {errors.role && <p className="mt-1 text-xs font-medium text-red-500">{errors.role}</p>}
             </fieldset>
+            {/* กลุ่มงานเพิ่มเติม (ตอนสร้างเท่านั้น — ภายหลังแก้ที่หน้าสิทธิ์รายคน) */}
+            {!user && groupOptions.length > 0 && (
+              <fieldset className="sm:col-span-2">
+                <legend className="mb-1 text-sm font-medium">{t("users.form.groups")}</legend>
+                <p className="mb-2 text-xs text-muted">{t("users.form.groupsHint")}</p>
+                <div className="flex flex-wrap gap-2">
+                  {groupOptions.map((g) => (
+                    <label key={g.key} className="flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 ring-line transition-colors hover:bg-subtle">
+                      <input
+                        type="checkbox"
+                        checked={groups.includes(g.key)}
+                        onChange={(e) => {
+                          setGroups((x) => (e.target.checked ? [...x, g.key] : x.filter((k) => k !== g.key)));
+                          setErrors((prev) => ({ ...prev, groups: undefined }));
+                        }}
+                        className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+                      />
+                      {locale === "en" ? g.name_en : g.name_th}
+                    </label>
+                  ))}
+                </div>
+                {errors.groups && <p className="mt-1 text-xs font-medium text-red-500">{errors.groups}</p>}
+              </fieldset>
+            )}
 
-            <label className={`flex items-start gap-3 rounded-xl bg-subtle p-3 sm:col-span-2 ${isSelf ? "opacity-60" : "cursor-pointer"}`}>
-              <input
-                type="checkbox"
-                name="is_active"
-                checked={values.is_active}
-                onChange={onChange}
-                disabled={isSelf}
-                className="mt-0.5 h-4 w-4 accent-[var(--accent-500)]"
-              />
-              <span>
-                <span className="block text-sm font-medium">{t("users.form.active")}</span>
-                <span className="block text-xs text-muted">{t("users.form.activeHint")}</span>
-              </span>
+          </div>
+        </section>
+
+        {/* ลายเซ็น / ยืนยันตัวตน 2 ขั้น + เปิดใช้งานบัญชี แถวเดียว */}
+        <div className="grid items-stretch gap-4 md:grid-cols-3">
+          {statusCards}
+          <div className={`flex items-center justify-between gap-4 p-4 sm:px-6 ${card}`}>
+            <label htmlFor="is_active" className={isSelf ? "opacity-60" : "cursor-pointer"}>
+              <span className="block font-semibold">{t("users.form.active")}</span>
+              <span className="block text-xs text-muted">{t("users.form.activeHint")}</span>
             </label>
+            <button
+              id="is_active"
+              type="button"
+              role="switch"
+              aria-checked={values.is_active}
+              disabled={isSelf}
+              onClick={() => {
+                setValues((v) => ({ ...v, is_active: !v.is_active }));
+                setErrors((e) => ({ ...e, is_active: "" }));
+              }}
+              className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${values.is_active ? "bg-accent-500" : "bg-line"}`}
+            >
+              <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${values.is_active ? "translate-x-5" : "translate-x-0"}`} />
+            </button>
+          </div>
+        </div>
+        {errors.is_active && <p className="text-xs font-medium text-red-500">{errors.is_active}</p>}
+
+        <section className={`p-4 sm:p-6 ${card}`}>
+          <h2 className="mb-1 font-semibold">{t("users.form.passwordSection")}</h2>
+          <p className="mb-4 text-sm text-muted">{isCreate ? t("users.form.passwordNewHint") : t("users.form.passwordResetHint")}</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {field("password", t("users.form.password"), <PasswordInput id="password" name="password" value={values.password} onChange={onChange} autoComplete="new-password" className={cls("password")} />, isCreate)}
+            {field(
+              "password_confirmation",
+              t("users.form.passwordConfirm"),
+              <PasswordInput id="password_confirmation" name="password_confirmation" value={values.password_confirmation} onChange={onChange} autoComplete="new-password" className={cls("password_confirmation")} />,
+              isCreate,
+            )}
           </div>
         </section>
 
@@ -241,33 +299,24 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
             </div>
           </div>
 
-          <h3 className="mb-2 mt-5 text-sm font-semibold">{t("users.form.itSection")}</h3>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {(["is_it_staff", "is_it_head"] as const).map((key) => (
-              <label key={key} className="flex cursor-pointer items-start gap-3 rounded-xl bg-subtle p-3">
-                <input type="checkbox" name={key} checked={values[key]} onChange={onChange} className="mt-0.5 h-4 w-4 accent-[var(--accent-500)]" />
-                <span>
-                  <span className="block text-sm font-medium">{key === "is_it_staff" ? t("users.form.itStaff") : t("users.form.itHead")}</span>
-                  <span className="block text-xs text-muted">{key === "is_it_staff" ? t("users.form.itStaffHint") : t("users.form.itHeadHint")}</span>
-                </span>
-              </label>
-            ))}
-          </div>
+          {/* เจ้าหน้าที่ IT ดูจากแผนก/ฝ่าย — ผู้จัดการฝ่าย IT เป็นหน้าที่เฉพาะคน จึงกำหนดที่นี่ (ไม่ให้สิทธิ์เพิ่ม) */}
+          <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl bg-subtle p-3">
+            <input
+              type="checkbox"
+              checked={values.is_it_head}
+              onChange={(e) => {
+                setValues((v) => ({ ...v, is_it_head: e.target.checked }));
+                setErrors((prev) => ({ ...prev, is_it_head: "" }));
+              }}
+              className="mt-0.5 h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+            />
+            <span>
+              <span className="block text-sm font-medium">{t("users.form.itHead")}</span>
+              <span className="block text-xs text-muted">{t("users.form.itHeadHint")}</span>
+            </span>
+          </label>
         </section>
 
-        <section className={`p-4 sm:p-6 ${card}`}>
-          <h2 className="mb-1 font-semibold">{t("users.form.passwordSection")}</h2>
-          <p className="mb-4 text-sm text-muted">{isCreate ? t("users.form.passwordNewHint") : t("users.form.passwordResetHint")}</p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {field("password", t("users.form.password"), <PasswordInput id="password" name="password" value={values.password} onChange={onChange} autoComplete="new-password" className={cls("password")} />, isCreate)}
-            {field(
-              "password_confirmation",
-              t("users.form.passwordConfirm"),
-              <PasswordInput id="password_confirmation" name="password_confirmation" value={values.password_confirmation} onChange={onChange} autoComplete="new-password" className={cls("password_confirmation")} />,
-              isCreate,
-            )}
-          </div>
-        </section>
       </fieldset>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">

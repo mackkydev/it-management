@@ -21,10 +21,14 @@ export interface MenuOrder {
 /** ชื่อเมนูที่แก้เอง { "<group id | /href>": { th, en } } — ไม่มี = ชื่อตั้งต้นจากไฟล์แปล */
 export type MenuLabels = Record<string, { th: string; en: string }>;
 
+/** เมนูเฉพาะสาขา { "/href": [branchId, ...] } — ไม่มี key = ทุกสาขา */
+export type MenuBranches = Record<string, number[]>;
+
 export interface UiConfig {
   ui_permissions: UiPermissions;
   menu_order: MenuOrder;
   menu_labels: MenuLabels;
+  menu_branches: MenuBranches;
   /** สิทธิ์ (permission key) ของแต่ละกลุ่มจาก API — ใช้จำลองว่าแต่ละกลุ่มเข้าเมนู/ปุ่มใดได้ */
   role_permissions: Record<Audience, string[]>;
   /** เวอร์ชันโลโก้ระบบ (null = ไม่มีโลโก้ → แสดง icon เดิม) */
@@ -33,19 +37,20 @@ export interface UiConfig {
 
 /** PHP ส่ง object ว่างเป็น [] — แปลงให้เป็น object เสมอ */
 export function normalizeUiConfig(
-  raw: { ui_permissions?: unknown; menu_order?: unknown; menu_labels?: unknown; role_permissions?: unknown; logo_version?: unknown } | null | undefined,
+  raw: { ui_permissions?: unknown; menu_order?: unknown; menu_labels?: unknown; menu_branches?: unknown; role_permissions?: unknown; logo_version?: unknown } | null | undefined,
 ): UiConfig {
   const obj = <T,>(v: unknown): T => (v && typeof v === "object" && !Array.isArray(v) ? (v as T) : ({} as T));
   return {
     ui_permissions: obj<UiPermissions>(raw?.ui_permissions),
     menu_order: obj<MenuOrder>(raw?.menu_order),
     menu_labels: obj<MenuLabels>(raw?.menu_labels),
+    menu_branches: obj<MenuBranches>(raw?.menu_branches),
     role_permissions: obj<Record<Audience, string[]>>(raw?.role_permissions),
     logo_version: typeof raw?.logo_version === "string" && raw.logo_version ? raw.logo_version : null,
   };
 }
 
-export const EMPTY_UI_CONFIG: UiConfig = { ui_permissions: {}, menu_order: {}, menu_labels: {}, role_permissions: {}, logo_version: null };
+export const EMPTY_UI_CONFIG: UiConfig = { ui_permissions: {}, menu_order: {}, menu_labels: {}, menu_branches: {}, role_permissions: {}, logo_version: null };
 
 /**
  * ผู้ใช้มีสิทธิ์ (permission key) นี้ไหม — ค่าจาก GET /auth/me (permissions) ซึ่ง API คำนวณจาก
@@ -63,6 +68,11 @@ export function has(user: User, key: string): boolean {
 
 /** ผู้ดูแลระบบ (super_admin — ผู้ใช้ LOCAL หรือ API) */
 export const isSuperAdmin = (user: Pick<User, "role">) => user.role === "super_admin";
+/** ผู้ตรวจสอบ (อ่านอย่างเดียว) — API ปฏิเสธการแก้ไขทั้งหมด หน้าเว็บซ่อนปุ่ม/หน้าเพิ่ม-แก้ไข */
+export const isReadOnly = (user: Pick<User, "role">) => user.role === "auditor";
+/** เมนู/หน้าที่มีไว้เพิ่ม-แก้ไขอย่างเดียว ผู้ตรวจสอบเปิดไม่ได้ */
+export const READ_ONLY_HIDDEN = /\/(new|edit)$|^\/(meeting-rooms|vehicles|zoom)\/book$|^\/loans\/vpn\/request$/;
+
 /** ผู้ดูแลระบบบัญชี LOCAL — ผู้เดียวที่ตั้งค่าการเชื่อมต่อ API ได้ */
 export const isLocalSuperAdmin = (user: User) => isSuperAdmin(user) && user.type !== "API";
 
@@ -74,9 +84,13 @@ export function audiencesOf(user: User): Audience[] {
   return user.groups?.length ? user.groups : [user.role];
 }
 
-/** เห็นถ้าผู้ใช้อยู่ในกลุ่มที่ไม่ถูกซ่อนอย่างน้อย 1 กลุ่ม */
+/** เห็นถ้าผู้ใช้อยู่ในกลุ่มที่ไม่ถูกซ่อนอย่างน้อย 1 กลุ่ม และสาขาตรงกับที่ตั้งไว้ (ไม่มีสาขา = เห็นเฉพาะเมนูทุกสาขา, super_admin = ทุกสาขา) */
 export function isAllowed(config: UiConfig, user: User, key: string): boolean {
+  // ผู้ตรวจสอบ: ปุ่มเหลือแค่ส่งออก / พิมพ์
+  if (isReadOnly(user) && (key.startsWith("btn:") ? !/:(export|print)$/.test(key) : READ_ONLY_HIDDEN.test(key))) return false;
   if (has(user, "access.manage") && ALWAYS_FOR_ADMIN.has(key)) return true;
+  const branches = config.menu_branches?.[key];
+  if (branches?.length && !isSuperAdmin(user) && !(user.branch_id && branches.includes(Number(user.branch_id)))) return false;
   const denied = config.ui_permissions[key];
   if (!denied || denied.length === 0) return true;
   return audiencesOf(user).some((a) => !denied.includes(a));
@@ -106,9 +120,16 @@ export const BUTTONS: { key: string; page: MessageKey; label: MessageKey; system
   { key: "btn:vault:create", page: "nav.vault", label: "permissions.buttons.vaultCreate", system: perm("vault.create") },
   { key: "btn:vault:reveal", page: "nav.vault", label: "permissions.buttons.vaultReveal", system: perm("vault.view") },
   { key: "btn:contracts:create", page: "nav.contracts", label: "permissions.buttons.contractCreate", system: perm("contracts.create") },
+  { key: "btn:licenses:create", page: "nav.licenses", label: "permissions.buttons.licenseCreate", system: perm("assets.create") },
+  { key: "btn:licenses:contract", page: "nav.licenses", label: "permissions.buttons.licenseContract", system: perm("assets.update") },
+  { key: "btn:zoom:book", page: "nav.zoomGroup", label: "permissions.buttons.zoomBook" },
+  { key: "btn:drivers:create", page: "nav.vehicleDrivers", label: "permissions.buttons.driverCreate", system: (u) => has(u, "vehicle.manage") || has(u, "vehicle.dispatch") },
   { key: "btn:assets:create", page: "nav.assets", label: "permissions.buttons.assetCreate", system: perm("assets.create") },
   { key: "btn:assets:import", page: "nav.assets", label: "permissions.buttons.assetImport", system: perm("assets.create") },
   { key: "btn:assets:edit", page: "nav.assets", label: "permissions.buttons.assetEdit", system: perm("assets.update") },
+  { key: "btn:assets:transfer", page: "nav.assets", label: "permissions.buttons.assetTransfer", system: perm("assets.update") },
+  { key: "btn:assets:add-missing", page: "nav.assets", label: "permissions.buttons.assetAddMissing", system: perm("assets.create") },
+  { key: "btn:assets:link-missing", page: "nav.assets", label: "permissions.buttons.assetLinkMissing", system: perm("assets.update") },
   { key: "btn:assets:export", page: "nav.assets", label: "permissions.buttons.assetExport", system: (u) => has(u, "assets.view_all") || has(u, "assets.create") || has(u, "assets.update") },
   { key: "btn:locations:create", page: "nav.locations", label: "permissions.buttons.locationCreate", system: perm("locations.manage") },
   { key: "btn:users:create", page: "nav.users", label: "permissions.buttons.userCreate", system: perm("users.create") },

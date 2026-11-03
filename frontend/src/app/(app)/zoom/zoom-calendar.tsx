@@ -11,17 +11,17 @@ import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { ZoomBooking } from "@/lib/types";
 import { monthGrid, shiftMonth } from "../calendar/calendar-grid";
-import { daysOf, periodText, ZOOM_BAR, ZOOM_DOT } from "./zoom-utils";
+import { accountTone, daysOf, periodText, ZOOM_DOT, zoomBarOf } from "./zoom-utils";
 
 /** แถบสูงสุดต่อช่องวัน — เกินแสดง "+n รายการ" */
 const MAX_BARS = 3;
 
 /**
- * ปฏิทินเดือนของการใช้ ZOOM — ช่องวันแสดงเป็นแถบ (เวลาเริ่ม + หัวข้อ) แทนจุดสี สีตามสถานะ, การจองหลายวันขึ้นทุกวันในช่วง
- * ผู้ใช้ทั่วไปเห็นเฉพาะที่ส่งลิงก์แล้ว (API กรองให้) — คำอธิบายสีสถานะแสดงเฉพาะฝ่าย IT (showStatuses)
+ * ปฏิทินเดือนของการใช้ ZOOM — ช่องวันแสดงเป็นแถบ (เวลาเริ่ม + หัวข้อ) สีตามบัญชี ZOOM (ยังไม่เลือกบัญชี = สีตามสถานะ), การจองหลายวันขึ้นทุกวันในช่วง
+ * ผู้ใช้ทั่วไปเห็นเฉพาะที่ส่งลิงก์แล้ว (API กรองให้) — คำอธิบายสี: บัญชี ZOOM ทุกคน + สถานะก่อนส่งลิงก์เฉพาะฝ่าย IT (showStatuses)
  * คลิกวัน = ไทม์ไลน์ของวัน (แถบคลิกแยกไม่ได้ — ชี้ที่วัน = ทูลทิปรายการหลายบรรทัด), + / คลิกขวา = จองวันนั้น
  */
-export function ZoomCalendar({ month: initialMonth, initialBookings, canBook = true, showStatuses = false }: { month: string; initialBookings: ZoomBooking[]; canBook?: boolean; showStatuses?: boolean }) {
+export function ZoomCalendar({ month: initialMonth, initialBookings, accounts = [], canBook = true, showStatuses = false }: { month: string; initialBookings: ZoomBooking[]; accounts?: string[]; canBook?: boolean; showStatuses?: boolean }) {
   const { t, fmt, locale } = useI18n();
   const router = useRouter();
   const [month, setMonth] = useState(initialMonth);
@@ -51,7 +51,7 @@ export function ZoomCalendar({ month: initialMonth, initialBookings, canBook = t
   /** เวลาของแถบในวันนั้น: วันต่อเนื่อง = "…" */
   const timeOn = (b: ZoomBooking, d: string) => (b.start_on === d ? b.start_time : "…");
   // ผู้ใช้ทั่วไปเห็นเฉพาะที่ส่งลิงก์แล้ว = ไม่ต้องบอกสถานะ
-  const line = (b: ZoomBooking) => `${periodText(b, fmt.date)} · ${b.title} (${b.user.name})${showStatuses ? ` — ${t(`zoom.statuses.${b.status}`)}` : ""}`;
+  const line = (b: ZoomBooking) => `${periodText(b, fmt.date)} · ${b.title} (${b.user.name})${b.zoom_account ? ` · ${b.zoom_account}` : ""}${showStatuses ? ` — ${t(`zoom.statuses.${b.status}`)}` : ""}`;
 
   return (
     <div className="space-y-4">
@@ -71,14 +71,21 @@ export function ZoomCalendar({ month: initialMonth, initialBookings, canBook = t
           {monthTitle}
           {loading && <SpinnerIcon width={16} height={16} className="text-accent-400" />}
         </h2>
-        {showStatuses && (
+        {(accounts.length > 0 || showStatuses) && (
           <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-            {(["pending", "accepted", "confirmed"] as const).map((s) => (
-              <span key={s} className="flex items-center gap-1.5">
-                <span className={`h-2 w-4 rounded-sm ${ZOOM_DOT[s]}`} aria-hidden="true" />
-                {t(`zoom.statuses.${s}`)}
+            {accounts.map((a) => (
+              <span key={a} className="flex items-center gap-1.5">
+                <span className={`h-2 w-4 rounded-sm ${accountTone(accounts, a).dot}`} aria-hidden="true" />
+                {a}
               </span>
             ))}
+            {showStatuses &&
+              (["pending", "accepted"] as const).map((s) => (
+                <span key={s} className="flex items-center gap-1.5">
+                  <span className={`h-2 w-4 rounded-sm ${ZOOM_DOT[s]}`} aria-hidden="true" />
+                  {t(`zoom.statuses.${s}`)}
+                </span>
+              ))}
           </div>
         )}
         {canBook && (
@@ -148,7 +155,7 @@ export function ZoomCalendar({ month: initialMonth, initialBookings, canBook = t
                   >
                     <span className="flex min-w-0 flex-col gap-1">
                       {list.slice(0, MAX_BARS).map((b) => (
-                        <span key={b.id} className={`block w-full truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium leading-4 ring-1 ring-inset ${ZOOM_BAR[b.status]}`}>
+                        <span key={b.id} className={`block w-full truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium leading-4 ring-1 ring-inset ${zoomBarOf(b, accounts)}`}>
                           <span className="tabular-nums">{timeOn(b, d)}</span> {b.title}
                         </span>
                       ))}
@@ -175,7 +182,7 @@ export function ZoomCalendar({ month: initialMonth, initialBookings, canBook = t
               </Link>
               <div className="space-y-1.5">
                 {byDay.get(d)!.map((b) => (
-                  <Link key={b.id} href={`/zoom/day/${d}`} className={`block w-full cursor-pointer truncate rounded-lg px-2 py-1 text-left text-xs font-medium ring-1 ring-inset ${ZOOM_BAR[b.status]}`}>
+                  <Link key={b.id} href={`/zoom/day/${d}`} className={`block w-full cursor-pointer truncate rounded-lg px-2 py-1 text-left text-xs font-medium ring-1 ring-inset ${zoomBarOf(b, accounts)}`}>
                     {timeOn(b, d)} · {b.title} ({b.user.name})
                   </Link>
                 ))}

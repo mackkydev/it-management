@@ -1,5 +1,5 @@
 import { select } from "../db.js";
-import { isSuperAdmin, type UserRow } from "../models/user.js";
+import { isReadOnly, isSuperAdmin, type UserRow } from "../models/user.js";
 import { groupsOf } from "./permissions.js";
 import { getSetting } from "./settings.js";
 
@@ -27,7 +27,7 @@ export async function bookingScopeSettings(): Promise<BookingScopeSettings> {
 
 /** ขอบเขตของผู้ใช้ (กว้างสุดของทุกกลุ่ม) */
 export async function bookingScope(u: UserRow, kind: BookingKind): Promise<BookingScope> {
-  if (isSuperAdmin(u)) return "all";
+  if (isSuperAdmin(u) || isReadOnly(u)) return "all";
   const map = (await bookingScopeSettings())[kind];
   const groups = await groupsOf(u);
   return groups.some((g) => (map[g] ?? "all") === "all") ? "all" : "branch";
