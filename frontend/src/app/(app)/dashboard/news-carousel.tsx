@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertIcon, BellIcon, ChevronLeftIcon, ChevronRightIcon, FileTextIcon, SparklesIcon } from "@/components/icons";
-import { ModalShell } from "@/components/modal-shell";
-import { plainText, RichText } from "@/components/rich-text";
+import { AlertIcon, BellIcon, ChevronLeftIcon, ChevronRightIcon, SparklesIcon } from "@/components/icons";
+import { NewsReader } from "@/components/news-reader";
+import { plainText } from "@/components/rich-text";
 import { btn, card, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { AnnouncementLevel, NewsAnnouncement } from "@/lib/types";
@@ -128,33 +128,7 @@ export function NewsCarousel({ items }: { items: NewsAnnouncement[] }) {
       </div>
 
       {reading && (
-        <ModalShell id="news-read" size="xl" title={reading.title} onClose={() => setReading(null)}>
-          <div className="space-y-4">
-            {reading.cover && (
-              <>
-                {/* eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน /files */}
-                <img src={`/files${reading.cover}`} alt="" className="aspect-[21/9] w-full rounded-xl object-cover" />
-              </>
-            )}
-            {reading.body && <RichText text={reading.body} className="text-sm leading-relaxed text-ink" />}
-            {reading.files.length > 0 && (
-              <div>
-                <p className="mb-2 text-sm font-medium">{t("dashboard.news.documents")}</p>
-                <ul className="space-y-1.5">
-                  {reading.files.map((f) => (
-                    <li key={f.id}>
-                      <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
-                        <FileTextIcon width={16} height={16} className="shrink-0 text-accent-500" />
-                        <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                        <span className="text-xs text-muted">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        </ModalShell>
+        <NewsReader title={reading.title} body={reading.body} cover={reading.cover} files={reading.files} onClose={() => setReading(null)} />
       )}
     </section>
   );

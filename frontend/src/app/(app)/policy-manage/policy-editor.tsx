@@ -8,20 +8,23 @@ import { useConfirm } from "@/components/dialog-provider";
 import { ArrowDownIcon, ArrowUpIcon, CheckCircleIcon, ExternalLinkIcon, FileTextIcon, PlusIcon, PrinterIcon, SaveIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
 import { Tooltip } from "@/components/tooltip";
 import { ResultToast } from "@/components/toast";
-import { btn, card, input, inputError } from "@/components/ui";
+import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/types";
 import type { PolicyAcceptance, PolicySection, SystemPolicy } from "@/lib/types";
 
 type Filter = "all" | "accepted" | "pending";
 
-const SAMPLE_COUNT = 8;
+const SAMPLE_COUNT = 10;
 
 /** ข้อมูลหลัก → นโยบายการใช้งาน: แก้หัวข้อ/เนื้อหา, ให้ทุกคนยอมรับใหม่ (ฉบับใหม่), พิมพ์เอกสาร, รายชื่อผู้ยอมรับ — เปิด-ปิด / ที่แสดง อยู่ที่หน้าตั้งค่าระบบ */
 export function PolicyEditor({ initial, acceptances }: { initial: SystemPolicy; acceptances: { data: PolicyAcceptance[]; accepted: number; total: number } }) {
   const { t, fmt } = useI18n();
   const confirm = useConfirm();
-  const [sections, setSections] = useState<PolicySection[]>(initial.sections);
+  const samples = (): PolicySection[] => Array.from({ length: SAMPLE_COUNT }, (_, i) => ({ title: t(`policySamples.s${i + 1}Title` as MessageKey), body: t(`policySamples.s${i + 1}Body` as MessageKey) }));
+  // ยังไม่เคยบันทึกนโยบาย = เติมร่างตัวอย่างให้ (มีผลเมื่อกดบันทึกเท่านั้น)
+  const neverSaved = initial.version === 0 && initial.sections.length === 0;
+  const [sections, setSections] = useState<PolicySection[]>(neverSaved ? samples : initial.sections);
   const [reaccept, setReaccept] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [result, setResult] = useState<{ ok?: boolean; message?: string }>({});
@@ -58,10 +61,7 @@ export function PolicyEditor({ initial, acceptances }: { initial: SystemPolicy; 
 
   const addSamples = async () => {
     if (sections.length && !(await confirm(t("settingsPage.policy.addSamplesConfirm"), { danger: false }))) return;
-    setSections((s) => [
-      ...s,
-      ...Array.from({ length: SAMPLE_COUNT }, (_, i) => ({ title: t(`policySamples.s${i + 1}Title` as MessageKey), body: t(`policySamples.s${i + 1}Body` as MessageKey) })),
-    ]);
+    setSections((s) => [...s, ...samples()]);
     clearErr("sections");
     setResult({ ok: true, message: t("settingsPage.policy.samplesAdded") });
   };
@@ -105,6 +105,8 @@ export function PolicyEditor({ initial, acceptances }: { initial: SystemPolicy; 
           {t("settingsPage.policy.printDoc")}
         </a>
       </div>
+
+      {neverSaved && <p className={alert.warning}>{t("settingsPage.policy.samplesDraft")}</p>}
 
       {/* หัวข้อนโยบาย */}
       <fieldset disabled={pending} className="space-y-3 disabled:opacity-60">

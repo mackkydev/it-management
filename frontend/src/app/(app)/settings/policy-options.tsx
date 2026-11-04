@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 import { savePolicyOptions } from "@/app/actions/policy";
 import { FileTextIcon, PencilIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
 import { ResultToast } from "@/components/toast";
-import { btn, card } from "@/components/ui";
+import { alert, btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { PolicyDisplay, SystemPolicy } from "@/lib/types";
 
@@ -53,6 +53,8 @@ export function PolicyOptions({ initial }: { initial: SystemPolicy }) {
           {t("settingsPage.policy.enabled")}
         </label>
       </div>
+
+      {noContent && <p className={alert.warning}>{t("settingsPage.policy.needContent")}</p>}
 
       <div>
         <p className="mb-1 text-sm font-medium">{t("settingsPage.policy.display")}</p>

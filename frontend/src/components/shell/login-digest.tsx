@@ -6,9 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import { markNotificationRead } from "@/app/actions/tickets";
 import { AlertIcon, BellIcon, CheckCircleIcon, ChevronRightIcon, ClipboardIcon, FileTextIcon, XIcon } from "@/components/icons";
 import { btn, tone } from "@/components/ui";
-import { RichText } from "@/components/rich-text";
+import { NewsReader } from "@/components/news-reader";
 import { useI18n } from "@/i18n/client";
-import type { AppNotification, PublicAnnouncement } from "@/lib/types";
+import type { AppNotification, NewsAnnouncement } from "@/lib/types";
 import { WELCOME_COOKIE } from "@/lib/welcome";
 import { notificationHref, notificationText } from "./notification-text";
 
@@ -17,7 +17,7 @@ const LEVEL_TONE = { info: tone.info, warning: tone.warning, danger: tone.danger
 
 /**
  * หน้าต่างสรุปหลัง login — แสดงครั้งเดียวต่อการ login
- *   กล่องซ้าย: งานที่รอฉันอนุมัติ + การแจ้งเตือนที่ยังไม่อ่าน   กล่องขวา: ประกาศจากฝ่าย IT (ถ้ามี)
+ *   กล่องซ้าย: งานที่รอฉันอนุมัติ + การแจ้งเตือนที่ยังไม่อ่าน   กล่องขวา: หัวข้อประกาศจากฝ่าย IT (ถ้ามี) — กดเพื่ออ่านในกล่องอ่านข่าว
  * (layout ส่งข้อมูลมาเมื่อมี cookie eam_welcome; หน้าต่างลบ cookie ทันทีที่แสดง)
  */
 export function LoginDigest({
@@ -29,11 +29,12 @@ export function LoginDigest({
   items: AppNotification[];
   unread: number;
   approvals: number;
-  announcements: PublicAnnouncement[];
+  announcements: NewsAnnouncement[];
 }) {
   const { t, fmt } = useI18n();
   const router = useRouter();
   const [open, setOpen] = useState(true);
+  const [reading, setReading] = useState<NewsAnnouncement | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const list = items.filter((n) => !n.read_at).slice(0, MAX_ITEMS);
   const pending = approvals > 0 || list.length > 0;
@@ -42,10 +43,15 @@ export function LoginDigest({
   useEffect(() => {
     document.cookie = `${WELCOME_COOKIE}=; Max-Age=0; path=/`; // รีเฟรชหน้าแล้วไม่เด้งซ้ำ
     closeRef.current?.focus();
+  }, []);
+
+  // Esc ระหว่างอ่านข่าว = ปิดเฉพาะกล่องอ่าน (ModalShell จัดการเอง)
+  useEffect(() => {
+    if (reading) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [reading]);
 
   if (!open) return null;
 
@@ -56,6 +62,7 @@ export function LoginDigest({
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay p-4 backdrop-blur-sm" onClick={() => setOpen(false)}>
       <div
         role="dialog"
@@ -135,10 +142,12 @@ export function LoginDigest({
               </p>
               <ul className="space-y-2">
                 {announcements.map((a) => (
-                  <li key={a.id} className="relative overflow-hidden rounded-lg bg-subtle py-2.5 pl-4 pr-3">
-                    <span className={`absolute inset-y-0 left-0 w-1 ${LEVEL_TONE[a.level]?.dot ?? tone.info.dot}`} aria-hidden="true" />
-                    <p className="text-sm font-medium text-ink">{a.title}</p>
-                    {a.body && <RichText text={a.body} className="mt-0.5 text-xs text-muted" />}
+                  <li key={a.id}>
+                    <button type="button" onClick={() => setReading(a)} className="relative flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-lg bg-subtle py-2.5 pl-4 pr-3 text-left transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
+                      <span className={`absolute inset-y-0 left-0 w-1 ${LEVEL_TONE[a.level]?.dot ?? tone.info.dot}`} aria-hidden="true" />
+                      <span className="min-w-0 flex-1 text-sm font-medium text-ink">{a.title}</span>
+                      <ChevronRightIcon width={16} height={16} className="shrink-0 text-muted" />
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -153,5 +162,7 @@ export function LoginDigest({
         </div>
       </div>
     </div>
+    {reading && <NewsReader title={reading.title} body={reading.body} cover={reading.cover_url} files={reading.files} onClose={() => setReading(null)} />}
+    </>
   );
 }
