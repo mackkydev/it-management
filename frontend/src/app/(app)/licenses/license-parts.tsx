@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { deleteLicenseFile, revealLicenseKey, uploadLicenseFiles } from "@/app/actions/licenses";
-import { AlertIcon, CheckIcon, CopyIcon, DownloadIcon, EyeIcon, EyeOffIcon, FileTextIcon, SpinnerIcon, TrashIcon, UploadIcon } from "@/components/icons";
+import { CheckIcon, CopyIcon, DownloadIcon, EyeIcon, EyeOffIcon, FileTextIcon, SpinnerIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import { ReauthPrompt } from "@/components/reauth-prompt";
 import type { ReauthChallenge } from "@/lib/types";
 import { Tooltip } from "@/components/tooltip";
-import { alert, btn } from "@/components/ui";
+import { ResultToast } from "@/components/toast";
+import { btn } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { AssetFile } from "@/lib/types";
 import { copySecret } from "@/lib/clipboard";
@@ -126,12 +127,7 @@ export function LicenseFiles({ licenseId, files, canManage }: { licenseId: strin
 
   return (
     <div className="space-y-3">
-      {message && (
-        <p role={message.ok ? "status" : "alert"} className={message.ok ? alert.success : alert.error}>
-          {message.ok ? <CheckIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {message.text}
-        </p>
-      )}
+      {message && <ResultToast result={message} />}
       {files.length === 0 ? (
         <p className="text-sm text-muted">{t("assets.files.empty")}</p>
       ) : (

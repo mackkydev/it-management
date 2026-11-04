@@ -3,9 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { deleteBranch, saveBranch } from "@/app/actions/it-data";
-import { AlertIcon, CheckCircleIcon, PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { Tooltip } from "@/components/tooltip";
-import { alert, btn, input, inputError, table, tone } from "@/components/ui";
+import { ResultToast } from "@/components/toast";
+import { btn, input, inputError, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { Branch } from "@/lib/types";
 import { useConfirm } from "@/components/dialog-provider";
@@ -112,12 +113,7 @@ export function BranchManager({ branches }: { branches: Branch[] }) {
 
   return (
     <div className="space-y-3">
-      {feedback?.text && (
-        <div role={feedback.ok ? "status" : "alert"} className={feedback.ok ? alert.success : alert.error}>
-          {feedback.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {feedback.text}
-        </div>
-      )}
+      {feedback?.text && <ResultToast result={feedback} />}
       <div className="flex justify-end">
         <button type="button" onClick={() => startEdit(null)} disabled={editing !== null} className={btn.primary}>
           <PlusIcon />

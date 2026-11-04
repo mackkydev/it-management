@@ -13,11 +13,11 @@ import { apiFile } from "@/lib/api";
  *   <a href="/files/leave/export?scope=all&year=2026">   (รายงานการลา Excel), /files/leave/{uuid}/files/{id} (ใบรับรองแพทย์), /files/leave/{uuid}/signature/requester|approver
  *   <a href="/files/holidays/import-template">   (template วันหยุดบริษัท)
  *   <img src="/files/meeting-rooms/{id}/images/{imageId}">   (รูปห้องประชุม), /files/vehicles/{id}/images/{imageId} (รูปรถ)
- *   <a href="/files/repair-orders/{uuid}/files/{id}">   (เอกสาร/รูปของรายการส่งซ่อม — เฉพาะ repair_orders.view)
+ *   <a href="/files/repair-orders/{uuid}/files/{id}">   (เอกสาร/รูปของรายการส่งซ่อม — เฉพาะ repair_orders.view), /files/vendors/{id}/files/{fileId} (เอกสารบริษัท — เฉพาะ vendors.manage), /files/announcements/{id}/files/{fileId} (รูปหน้าปก / เอกสารแนบของประกาศ)
  * อนุญาตเฉพาะ path ของไฟล์ — กันไม่ให้ใช้เป็น proxy เรียก API อื่น
  */
 const ALLOWED =
-  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/export|kpi\/export|assets\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/icon|leave\/export|leave\/[0-9a-f-]{36}\/files\/\d+|leave\/[0-9a-f-]{36}\/signature\/(requester|approver)|holidays\/import-template|org-units\/import-template|meeting-rooms\/\d+\/images\/\d+|vehicles\/\d+\/images\/\d+|repair-orders\/[0-9a-f-]{36}\/files\/\d+)$/i;
+  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/export|kpi\/export|assets\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/icon|leave\/export|leave\/[0-9a-f-]{36}\/files\/\d+|leave\/[0-9a-f-]{36}\/signature\/(requester|approver)|holidays\/import-template|org-units\/import-template|meeting-rooms\/\d+\/images\/\d+|vehicles\/\d+\/images\/\d+|repair-orders\/[0-9a-f-]{36}\/files\/\d+|vendors\/\d+\/files\/\d+|announcements\/\d+\/files\/\d+|policy\/documents\/\d+\/signature|policy\/files\/\d+|policy\/public\/files\/\d+)$/i;
 
 export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
   const { path } = await ctx.params;
@@ -60,7 +60,7 @@ export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
   const headers = new Headers({
     "Content-Type": upstream.headers.get("Content-Type") ?? "application/octet-stream",
     // KPI / ทะเบียนคอมพิวเตอร์ สร้างจากข้อมูลล่าสุดทุกครั้ง — ห้าม cache
-    "Cache-Control": ["kpi/export", "assets/export", "leave/export"].includes(joined) || joined.includes("/signature/") ? "no-store" : "private, max-age=3600",
+    "Cache-Control": ["kpi/export", "assets/export", "leave/export"].includes(joined) || joined.includes("/signature") ? "no-store" : "private, max-age=3600",
     "X-Content-Type-Options": "nosniff",
   });
   const disposition = upstream.headers.get("Content-Disposition");

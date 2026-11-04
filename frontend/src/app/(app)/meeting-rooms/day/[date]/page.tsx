@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, MeetingRoomIcon, PlusIcon } from "@/components/icons";
+import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, MeetingRoomIcon, PlusIcon } from "@/components/icons";
 import { BranchFilter } from "@/components/branch-filter";
 import { PageHeader } from "@/components/page-header";
-import { alert, btn, card } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { branchQuery, getBookingScope, selectedBranch } from "@/lib/booking-scope";
@@ -59,12 +60,7 @@ export default async function MeetingDayPage({ params, searchParams }: PageProps
           </div>
         }
       />
-      {done && (
-        <p role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0" />
-          {t(done === "created" ? "meeting.booking.created" : "meeting.booking.updated")}
-        </p>
-      )}
+      {done && <FlashToast param="done" message={t(done === "created" ? "meeting.booking.created" : "meeting.booking.updated")} />}
       <div className={`flex flex-wrap items-center gap-2 p-3 ${card}`}>
         <Link href={`/meeting-rooms?month=${date.slice(0, 7)}`} className={`${btn.secondary} ${btn.sm}`}>
           <CalendarIcon width={14} height={14} />

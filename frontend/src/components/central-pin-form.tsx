@@ -2,9 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { setCentralPin } from "@/app/actions/it-data";
-import { AlertIcon, CheckCircleIcon, KeyIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
+import { KeyIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { PasswordInput } from "@/components/password-input";
-import { alert, btn, input, inputError } from "@/components/ui";
+import { ResultToast } from "@/components/toast";
+import { btn, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { SecretPinStatus } from "@/lib/types";
 
@@ -74,12 +75,7 @@ export function CentralPinForm({ initial, canManage }: { initial: SecretPinStatu
       </div>
       {!canManage && <p className="text-xs text-muted">{t("secretGuard.pinManageNote")}</p>}
 
-      {feedback?.text && (
-        <p role={feedback.ok ? "status" : "alert"} className={feedback.ok ? alert.success : alert.error}>
-          {feedback.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {feedback.text}
-        </p>
-      )}
+      {feedback?.text && <ResultToast result={feedback} />}
 
       {canManage && open && (
         <fieldset disabled={pending} className="space-y-3 rounded-xl p-4 ring-1 ring-line disabled:opacity-60">

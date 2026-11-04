@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CarIcon, CheckCircleIcon, GaugeIcon, ListIcon, MapPinIcon, PencilIcon, PlusIcon, UsersIcon } from "@/components/icons";
+import { CarIcon, GaugeIcon, ListIcon, MapPinIcon, PencilIcon, PlusIcon, UsersIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
-import { alert, btn, card, tone } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
@@ -43,12 +44,7 @@ export default async function VehicleManagePage({ searchParams }: PageProps<"/ve
           </div>
         }
       />
-      {sp.done && (
-        <p role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0" />
-          {t("vehicle.manage.saved")}
-        </p>
-      )}
+      {sp.done && <FlashToast param="done" message={t("vehicle.manage.saved")} />}
       {vehicles.length === 0 ? (
         <div className={`p-10 text-center text-muted ${card}`}>{t("vehicle.manage.empty")}</div>
       ) : (

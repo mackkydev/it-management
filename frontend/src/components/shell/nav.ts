@@ -197,6 +197,8 @@ export const NAV: NavGroup[] = [
       { label: "nav.dropdowns", href: "/dropdowns", icon: ListIcon, visible: (u) => has(u, "contracts.categories") || has(u, "dropdowns.manage") || has(u, "settings.manage") || has(u, "meeting.rooms") || has(u, "zoom.manage") || has(u, "vehicle.manage") || has(u, "vendors.manage") },
       { label: "nav.locations", href: "/locations", icon: MapPinIcon, visible: (u) => has(u, "locations.view") || has(u, "locations.manage") },
       { label: "nav.vendors", href: "/vendors", icon: BuildingIcon, visible: perm("vendors.manage") },
+      // เนื้อหานโยบาย + รายชื่อผู้ยอมรับ — เปิด-ปิด / ที่แสดง อยู่ที่หน้าตั้งค่าระบบ
+      { label: "nav.policyManage", href: "/policy-manage", icon: FileTextIcon, visible: perm("settings.manage") },
       { label: "nav.users", href: "/users", icon: UsersIcon, visible: perm("users.view") },
     ],
   },

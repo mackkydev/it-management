@@ -11,7 +11,7 @@ import { can, type UserRow } from "../models/user.js";
 import { assetIdByNumber } from "../services/asset-repairs.js";
 import { audit } from "../services/audit.js";
 import { deleteStored, readStored, storeUploadIn } from "../services/ticket-files.js";
-import { itStaff, notify, TICKET_APPROVAL_COLUMNS, type TicketRow } from "../services/ticket-workflow.js";
+import { itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow } from "../services/ticket-workflow.js";
 
 /**
  * งานฝ่าย IT → รายการส่งซ่อม (repair_orders.view ดู / repair_orders.manage บันทึก)
@@ -37,6 +37,9 @@ interface OrderRow {
   item_no: string | null;
   item_name: string;
   symptom: string;
+  item_details: string | null;
+  document_no: string | null;
+  item_serial: string | null;
   vendor_id: number;
   sent_on: string;
   sent_time: string;
@@ -95,9 +98,14 @@ function json(r: OrderRow, files: FileRow[], u: UserRow) {
     item_no: r.item_no,
     item_name: r.item_name,
     symptom: r.symptom,
+    item_details: r.item_details,
+    document_no: r.document_no,
     brand: r.brand,
     model: r.model,
-    serial_number: r.serial_number,
+    // S/N ของสินทรัพย์มาก่อน — ไม่มีจึงใช้ที่กรอกเอง
+    serial_number: r.serial_number || r.item_serial,
+    item_serial: r.item_serial,
+    serial_from_asset: Boolean(r.serial_number),
     holder: r.holder,
     asset_id: r.asset_uuid,
     ticket: r.ticket_uuid ? { id: r.ticket_uuid, ticket_no: r.ticket_no } : null,
@@ -164,8 +172,10 @@ interface TicketItem {
   symptom: string | null;
 }
 const TICKET_COLUMNS = "t.id, t.uuid, t.ticket_no, t.asset_id, t.asset_tag, t.device_name, t.symptom";
-/** ส่งซ่อมจากใบแจ้งงานได้เฉพาะเรื่องซ่อมที่กำลังดำเนินการ */
-const SENDABLE_TICKET = "t.type = 'repair' AND t.status = 'in_progress' AND t.source IS NULL";
+/** ส่งซ่อมจากใบแจ้งงานได้เฉพาะเรื่องซ่อมที่ฝ่าย IT เห็นแล้วและยังไม่ปิด (ก่อนอนุมัติ / ปิดงาน / ไม่อนุมัติ / ยกเลิก = ไม่ได้) */
+const SENDABLE_TICKET = `t.type = 'repair' AND t.source IS NULL AND t.status NOT IN (${[...PRE_APPROVAL, "completed", "rejected", "cancelled"].map((s) => `'${s}'`).join(", ")})`;
+/** ตัวเลือกในฟอร์มส่งซ่อม — ไม่เกินจำนวนนี้ (ใบเก่ากว่านี้ค้นจากเลขที่ใบแจ้งงานได้) */
+const OPEN_TICKETS_MAX = 200;
 
 /** สินทรัพย์ของใบแจ้งซ่อม: ที่ผูกไว้ หรือจับคู่จากเลขที่ผู้แจ้งพิมพ์ */
 const assetOfTicket = async (t: TicketItem) => {
@@ -219,14 +229,25 @@ const respond = async (req: Request, orderId: number) => {
   return json(row, await filesOf([orderId]), me(req));
 };
 
-/** ฟอร์มส่งซ่อม: vendor ที่เปิดใช้งาน + เจ้าหน้าที่ IT (ผู้ส่งซ่อม) */
+/** ฟอร์มส่งซ่อม: vendor ที่เปิดใช้งาน + เจ้าหน้าที่ IT (ผู้ส่งซ่อม) + ใบแจ้งซ่อมที่ยังไม่ปิดและยังไม่ได้ส่งซ่อมอยู่ */
 repairOrderRoutes.get("/repair-orders/form-options", async (req, res) => {
   authorize(can(me(req), "repair_orders.manage"));
-  const [vendors, staff] = await Promise.all([
+  const [vendors, staff, tickets] = await Promise.all([
     select<{ id: number; name: string; vendor_type: string }>("SELECT id, name, vendor_type FROM vendors WHERE is_active = true AND deleted_at IS NULL ORDER BY name"),
     itStaff(),
+    select<TicketItem>(
+      `SELECT ${TICKET_COLUMNS} FROM it_tickets t
+        WHERE ${SENDABLE_TICKET} AND NOT EXISTS (SELECT 1 FROM repair_orders r WHERE r.ticket_id = t.id AND r.status = 'sent')
+        ORDER BY t.id DESC LIMIT ${OPEN_TICKETS_MAX}`,
+    ),
   ]);
-  res.json({ data: { vendors: vendors.map((v) => ({ id: Number(v.id), name: v.name, vendor_type: v.vendor_type })), staff: staff.map((s) => ({ id: Number(s.id), name: s.name })) } });
+  res.json({
+    data: {
+      vendors: vendors.map((v) => ({ id: Number(v.id), name: v.name, vendor_type: v.vendor_type })),
+      staff: staff.map((s) => ({ id: Number(s.id), name: s.name })),
+      tickets: await Promise.all(tickets.map(ticketLookup)),
+    },
+  });
 });
 
 /** ค้นหาของที่จะส่งซ่อม — ตามเลข/ชื่อสินทรัพย์ หรือเลขที่ใบแจ้งงาน (ใบที่กำลังซ่อม) */
@@ -258,8 +279,8 @@ repairOrderRoutes.get("/repair-orders", async (req, res) => {
   const search = String(req.query.search ?? "").trim().slice(0, 100);
   if (search) {
     const like = `%${likeEscape(search)}%`;
-    where.push("(r.item_no LIKE ? OR r.item_name LIKE ? OR r.symptom LIKE ? OR v.name LIKE ? OR t.ticket_no LIKE ? OR a.serial_number LIKE ?)");
-    params.push(like, like, like, like, like, like);
+    where.push("(r.item_no LIKE ? OR r.item_name LIKE ? OR r.symptom LIKE ? OR r.item_details LIKE ? OR r.document_no LIKE ? OR r.item_serial LIKE ? OR v.name LIKE ? OR t.ticket_no LIKE ? OR a.serial_number LIKE ?)");
+    params.push(like, like, like, like, like, like, like, like, like);
   }
   const page = pageParam(req);
   const from = `FROM repair_orders r JOIN vendors v ON v.id = r.vendor_id LEFT JOIN assets a ON a.id = r.asset_id LEFT JOIN it_tickets t ON t.id = r.ticket_id WHERE ${where.join(" AND ")}`;
@@ -303,6 +324,9 @@ repairOrderRoutes.post("/repair-orders", async (req, res) => {
       ticket: ["nullable", "string", "max:36"],
       asset: ["nullable", "string", "max:36"],
       symptom: ["required", "string", "max:2000"],
+      item_details: ["nullable", "string", "max:2000"],
+      document_no: ["nullable", "string", "max:100"],
+      serial_number: ["nullable", "string", "max:100"],
       vendor_id: ["required", "integer", exists("vendors", "id", "is_active = true AND deleted_at IS NULL")],
       sent_on: ["required", regex(DATE)],
       sent_time: ["required", regex(TIME)],
@@ -347,6 +371,9 @@ repairOrderRoutes.post("/repair-orders", async (req, res) => {
       item_no: asset ? assetNo(asset) : ticket!.asset_tag,
       item_name: itemName,
       symptom: String(data.symptom).trim(),
+      item_details: String(data.item_details ?? "").trim() || null,
+      document_no: String(data.document_no ?? "").trim() || null,
+      item_serial: asset?.serial_number ? null : String(data.serial_number ?? "").trim() || null,
       vendor_id: int(data.vendor_id),
       sent_on: data.sent_on,
       sent_time: data.sent_time,
@@ -368,7 +395,7 @@ repairOrderRoutes.post("/repair-orders", async (req, res) => {
     return { id, ticketId: ticket?.id ?? null };
   });
 
-  await audit(req, { action: "repair_order.created", subjectType: "repair_order", subjectId: created.id, after: { ticket_id: created.ticketId, vendor_id: int(data.vendor_id), sent_on: data.sent_on, sent_time: data.sent_time, sent_by_id: int(data.sent_by_id) } });
+  await audit(req, { action: "repair_order.created", subjectType: "repair_order", subjectId: created.id, after: { ticket_id: created.ticketId, document_no: data.document_no ?? null, vendor_id: int(data.vendor_id), sent_on: data.sent_on, sent_time: data.sent_time, sent_by_id: int(data.sent_by_id) } });
   if (created.ticketId) await notify((await ticketForNotify(created.ticketId))!, "repair_sent", u);
   res.status(201).json({ data: await respond(req, created.id) });
 });
@@ -388,6 +415,9 @@ repairOrderRoutes.put("/repair-orders/:uuid", async (req, res) => {
     req.input,
     {
       symptom: ["required", "string", "max:2000"],
+      item_details: ["nullable", "string", "max:2000"],
+      document_no: ["nullable", "string", "max:100"],
+      serial_number: ["nullable", "string", "max:100"],
       vendor_id: ["required", "integer", exists("vendors", "id", "deleted_at IS NULL")],
       sent_on: ["required", regex(DATE)],
       sent_time: ["required", regex(TIME)],
@@ -408,8 +438,8 @@ repairOrderRoutes.put("/repair-orders/:uuid", async (req, res) => {
   if (sentById !== Number(order.sent_by_id) && (await scalar("SELECT 1 FROM users WHERE id = ? AND is_active = true", [sentById])) === null) {
     throw ValidationError.withMessages({ sent_by_id: trans(req.locale, "eam.repair_order.sender_inactive") });
   }
-  const before = { symptom: order.symptom, vendor_id: Number(order.vendor_id), sent_on: dateOnly(order.sent_on), sent_time: order.sent_time, sent_by_id: Number(order.sent_by_id) };
-  const after = { symptom: String(data.symptom).trim(), vendor_id: vendorId, sent_on: String(data.sent_on), sent_time: String(data.sent_time), sent_by_id: sentById };
+  const before = { symptom: order.symptom, item_details: order.item_details, document_no: order.document_no, item_serial: order.item_serial, vendor_id: Number(order.vendor_id), sent_on: dateOnly(order.sent_on), sent_time: order.sent_time, sent_by_id: Number(order.sent_by_id) };
+  const after = { symptom: String(data.symptom).trim(), item_details: String(data.item_details ?? "").trim() || null, document_no: String(data.document_no ?? "").trim() || null, item_serial: order.serial_number ? null : String(data.serial_number ?? "").trim() || null, vendor_id: vendorId, sent_on: String(data.sent_on), sent_time: String(data.sent_time), sent_by_id: sentById };
   const announced = before.vendor_id !== after.vendor_id || before.sent_on !== after.sent_on || before.sent_time !== after.sent_time;
   const removeIds = Object.values((data.remove_file_ids ?? {}) as Record<string, unknown>).map(Number).filter((n) => Number.isInteger(n) && n > 0);
   let removed: FileRow[] = [];

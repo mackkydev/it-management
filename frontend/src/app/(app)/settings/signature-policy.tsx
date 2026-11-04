@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import { saveSettings } from "@/app/actions/it-data";
 import { useConfirm } from "@/components/dialog-provider";
-import { AlertIcon, CheckCircleIcon, PencilIcon, SpinnerIcon } from "@/components/icons";
-import { alert, card } from "@/components/ui";
+import { PencilIcon, SpinnerIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
+import { card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 
 /**
@@ -51,12 +52,7 @@ export function SignaturePolicy({ initial }: { initial: boolean }) {
           {pending && <SpinnerIcon width={12} height={12} className="absolute -right-5 text-accent-400" />}
         </button>
       </div>
-      {result.message && (
-        <p role={result.ok ? "status" : "alert"} className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0" /> : <AlertIcon className="shrink-0" />}
-          {result.message}
-        </p>
-      )}
+      {result.message && <ResultToast result={result} />}
     </section>
   );
 }

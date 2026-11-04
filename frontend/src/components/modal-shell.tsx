@@ -6,7 +6,7 @@ import { XIcon } from "@/components/icons";
 import { useI18n } from "@/i18n/client";
 
 /** กล่อง popup กลางจอ (พื้นหลัง bg-overlay, Esc / คลิกนอกกล่อง = ปิด) — ใช้กับฟอร์มสั้นๆ เช่น โอนย้ายสินทรัพย์ / จัดการสัญญา */
-export function ModalShell({ id, title, subtitle, onClose, children, busy = false }: { id: string; title: string; subtitle?: string; onClose: () => void; children: ReactNode; busy?: boolean }) {
+export function ModalShell({ id, title, subtitle, onClose, children, busy = false, size = "md" }: { id: string; title: string; subtitle?: string; onClose: () => void; children: ReactNode; busy?: boolean; size?: "md" | "wide" | "xl" }) {
   const { t } = useI18n();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && !busy && onClose();
@@ -20,7 +20,7 @@ export function ModalShell({ id, title, subtitle, onClose, children, busy = fals
         aria-modal="true"
         aria-labelledby={id}
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl ring-1 ring-line"
+        className={`flex max-h-full w-full flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl ring-1 ring-line ${size === "xl" ? "max-w-5xl" : size === "wide" ? "max-w-3xl" : "max-w-lg"}`}
       >
         <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div>

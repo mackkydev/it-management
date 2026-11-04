@@ -6,6 +6,7 @@ import { checkHealth, deleteConnection, saveConnection, syncNow, testConnection,
 import { ConnectionGuide } from "./connection-guide";
 import { ChipList } from "@/components/chip-list";
 import { AlertIcon, CheckCircleIcon, FileTextIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/types";
@@ -259,12 +260,7 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
           {t("apiConnections.stecPreset")}
         </button>
       </div>
-      {presetApplied && (
-        <p role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {t("apiConnections.stecPresetDone")}
-        </p>
-      )}
+      {presetApplied && <ResultToast result={t("apiConnections.stecPresetDone")} />}
 
       <fieldset disabled={locked} className="min-w-0 space-y-5 disabled:opacity-80">
       {section(
@@ -461,12 +457,7 @@ export function ConnectionForm({ connection }: { connection: ApiConnection | nul
       )}
       </fieldset>
 
-      {result && (
-        <p role="status" className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {result.text}
-        </p>
-      )}
+      {result && <ResultToast result={result} />}
 
       <div className={`flex flex-wrap items-center justify-between gap-3 ${locked ? "hidden" : ""}`}>
         {connection && connection.users_count === 0 ? (
@@ -516,12 +507,7 @@ function HealthPanel({ id }: { id: number }) {
           {pending ? t("apiConnections.health.running") : t("apiConnections.health.run")}
         </button>
       </div>
-      {res && (
-        <p role="status" className={`mt-3 ${res.ok ? alert.success : alert.error}`}>
-          {res.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {res.text}
-        </p>
-      )}
+      {res && <ResultToast result={res} />}
     </section>
   );
 }

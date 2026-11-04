@@ -13,15 +13,20 @@ export interface PolicySection {
   title: string;
   body: string;
 }
+/** ให้ยอมรับที่ไหน: after_login = หน้ายอมรับหลังเข้าสู่ระบบ (ค่าเดิม) / login = ติ๊กยอมรับในหน้า login — ทั้งสองแบบ API ยังบังคับ policy_required เหมือนกัน */
+export type PolicyDisplay = "after_login" | "login";
+export const POLICY_DISPLAYS: PolicyDisplay[] = ["after_login", "login"];
+
 export interface SystemPolicy {
   enabled: boolean;
+  display: PolicyDisplay;
   /** 0 = ยังไม่เคยบันทึกเนื้อหา */
   version: number;
   sections: PolicySection[];
   updated_at: string | null;
 }
 
-export const POLICY_DEFAULTS: SystemPolicy = { enabled: false, version: 0, sections: [], updated_at: null };
+export const POLICY_DEFAULTS: SystemPolicy = { enabled: false, display: "after_login", version: 0, sections: [], updated_at: null };
 export const MAX_POLICY_SECTIONS = 30;
 
 /** endpoint ที่ใช้ได้ระหว่างยังไม่ยอมรับนโยบาย (path ใต้ /api/v1) */
@@ -32,6 +37,8 @@ export const POLICY_ALLOWED: { method: string; path: string }[] = [
   { method: "GET", path: "/policy" },
   { method: "POST", path: "/policy/accept" },
 ];
+/** ไฟล์แนบประกาศ เปิดอ่านได้ระหว่างยังไม่ยอมรับนโยบาย */
+export const POLICY_FILE_PATH = /^\/policy\/files\/\d+$/;
 
 export async function systemPolicy(): Promise<SystemPolicy> {
   const raw = ((await getSetting("system_policy")) ?? {}) as Partial<Record<keyof SystemPolicy, unknown>>;
@@ -42,6 +49,7 @@ export async function systemPolicy(): Promise<SystemPolicy> {
     : [];
   return {
     enabled: raw.enabled === true,
+    display: raw.display === "login" ? "login" : "after_login",
     version: Number.isInteger(Number(raw.version)) ? Number(raw.version) : 0,
     sections,
     updated_at: typeof raw.updated_at === "string" ? raw.updated_at : null,

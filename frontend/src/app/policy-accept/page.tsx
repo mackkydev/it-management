@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { CheckCircleIcon, FileTextIcon } from "@/components/icons";
+import { CheckCircleIcon, FileTextIcon, PrinterIcon } from "@/components/icons";
 import { alert, btn } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
+import { POLICY_CONSENT_COOKIE } from "@/lib/policy-consent";
 import type { SystemPolicy } from "@/lib/types";
 import { PolicyAcceptForm } from "./policy-accept-form";
 
@@ -27,6 +29,11 @@ export default async function PolicyAcceptPage() {
     getI18n(),
   ]);
   if (!active) redirect("/");
+  // ติ๊กยอมรับฉบับนี้มาจากหน้า login แล้ว = บันทึกให้เลย
+  if (!accepted_at && (await cookies()).get(POLICY_CONSENT_COOKIE)?.value === String(policy.version)) {
+    await apiFetch("/policy/accept", { method: "POST", body: JSON.stringify({ version: policy.version, user_agent: (await headers()).get("user-agent")?.slice(0, 255) ?? null }) });
+    redirect("/");
+  }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col justify-center gap-5 px-4 py-10">
@@ -47,10 +54,31 @@ export default async function PolicyAcceptPage() {
             <CheckCircleIcon className="shrink-0" />
             {t("policyAccept.acceptedOn", { date: fmt.dateTime(accepted_at) })}
           </p>
-          <Link href="/" className={btn.secondary}>
-            {t("policyAccept.back")}
-          </Link>
+          <span className="flex flex-wrap gap-2">
+            <a href={`/policy-print/${user.id}`} target="_blank" rel="noreferrer" className={btn.secondary}>
+              <PrinterIcon />
+              {t("policyAccept.myDocument")}
+            </a>
+            <Link href="/" className={btn.secondary}>
+              {t("policyAccept.back")}
+            </Link>
+          </span>
         </div>
+      )}
+      {policy.files.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-sm font-medium">{t("login_policy.files")}</h2>
+          <ul className="space-y-1.5">
+            {policy.files.map((f) => (
+              <li key={f.id}>
+                <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
+                  <FileTextIcon width={16} height={16} className="shrink-0 text-accent-500" />
+                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       <PolicyAcceptForm sections={policy.sections} version={policy.version} accepted={Boolean(accepted_at)} />
     </main>

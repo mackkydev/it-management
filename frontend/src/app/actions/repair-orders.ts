@@ -7,7 +7,7 @@ import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
 import type { RepairLookupItem } from "@/lib/types";
 
-export type RepairOrderResult = ActionResult<"item" | "symptom" | "vendor_id" | "sent_on" | "sent_time" | "sent_by_id" | "return_note" | "status" | "files" | "reason">;
+export type RepairOrderResult = ActionResult<"item" | "symptom" | "item_details" | "document_no" | "serial_number" | "vendor_id" | "sent_on" | "sent_time" | "sent_by_id" | "return_note" | "status" | "files" | "reason">;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

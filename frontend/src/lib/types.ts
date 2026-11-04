@@ -89,10 +89,12 @@ export interface Vendor {
   contact_name: string;
   contact_phone: string;
   vendor_type: string;
+  map_url: string | null;
   is_active: boolean;
   repairs_count: number;
+  files: { id: number; name: string; mime: string; size: number; url: string }[];
 }
-export type VendorFormValues = Pick<Vendor, "name" | "address" | "contact_name" | "contact_phone" | "vendor_type" | "is_active"> & { tax_id: string };
+export type VendorFormValues = Pick<Vendor, "name" | "address" | "contact_name" | "contact_phone" | "vendor_type" | "is_active"> & { tax_id: string; map_url: string };
 
 /** ผลค้นหาของที่จะส่งซ่อม (GET /repair-orders/lookup) */
 export interface RepairLookupItem {
@@ -116,6 +118,10 @@ export interface RepairOrder {
   item_no: string | null;
   item_name: string;
   symptom: string;
+  item_details: string | null;
+  document_no: string | null;
+  item_serial: string | null;
+  serial_from_asset: boolean;
   brand: string | null;
   model: string | null;
   serial_number: string | null;
@@ -656,6 +662,9 @@ export type Role = (typeof ROLES)[number];
 /** ผู้ใช้ในหน้าจัดการ (GET /users?manage=1, GET /users/{id}) — admin เท่านั้น */
 export interface ManagedUser extends User {
   is_active: boolean;
+  /** การยอมรับนโยบาย: accepted ฉบับปัจจุบัน / outdated ยอมรับฉบับเก่า / pending ยังไม่ยอมรับ / none ไม่ได้เปิดใช้ */
+  policy_status?: "accepted" | "outdated" | "pending" | "none";
+  policy_accepted_at?: string | null;
   custodian_assets_count?: number;
   /** มีลายเซ็นที่ใช้งานอยู่ไหม (หน้าจัดการผู้ใช้ — ไม่แสดงรูป) */
   has_signature?: boolean;
@@ -791,8 +800,23 @@ export interface PublicAnnouncement {
   ends_on: string | null;
 }
 
+/** GET /announcements/feed (หน้าภาพรวม — ต้อง login) */
+export interface NewsAnnouncement extends PublicAnnouncement {
+  cover_url: string | null;
+  files: { id: number; name: string; mime: string; size: number; url: string }[];
+}
+
+export const ANNOUNCEMENT_REPEATS = ["none", "daily", "weekly", "monthly", "yearly"] as const;
+export type AnnouncementRepeat = (typeof ANNOUNCEMENT_REPEATS)[number];
+
 /** GET /announcements (หน้าจัดการ) */
-export interface Announcement extends PublicAnnouncement {
+export interface Announcement extends NewsAnnouncement {
+  repeat_mode: AnnouncementRepeat;
+  repeat_weekday: number | null;
+  repeat_day: number | null;
+  repeat_month: number | null;
+  /** แสดงอยู่วันนี้ (เปิดอยู่ + ในช่วงวันที่ + ตรงวันทำซ้ำ) */
+  is_showing: boolean;
   is_active: boolean;
   sort_order: number;
   created_by: { id: number; name: string } | null;
@@ -1665,11 +1689,36 @@ export interface PolicySection {
   title: string;
   body: string;
 }
+export type PolicyDisplay = "after_login" | "login";
+export interface PolicyFile {
+  id: number;
+  name: string;
+  mime: string;
+  size: number;
+  url: string;
+}
 export interface SystemPolicy {
   enabled: boolean;
+  /** ให้ยอมรับที่ไหน: after_login = หน้ายอมรับหลังเข้าสู่ระบบ / login = ติ๊กยอมรับในหน้า login */
+  display: PolicyDisplay;
+  /** ไฟล์แนบประกาศ — เปิดดูได้ตอนอ่านนโยบาย */
+  files: PolicyFile[];
   version: number;
   sections: PolicySection[];
   updated_at: string | null;
+}
+/** GET /policy/documents/{user} — เอกสารการยอมรับนโยบายของผู้ใช้ */
+export interface PolicyDocument {
+  user: { id: number; name: string; email: string | null; job_title: string | null; department: string | null; branch: string | null };
+  version: number;
+  sections: PolicySection[];
+  /** null = ยังไม่เคยยอมรับ (แสดงฉบับปัจจุบัน ยังไม่มีตราชื่อ) */
+  accepted_at: string | null;
+  ip: string | null;
+  /** ชื่อ-สกุลที่ประทับตอนยอมรับ */
+  name_stamp: string | null;
+  /** สำเนาลายเซ็น — null = ผู้ใช้ยังไม่มีลายเซ็น (เติมให้เองเมื่ออัปโหลด) */
+  signature_url: string | null;
 }
 export interface PolicyAcceptance {
   user: { id: number; name: string; email: string | null; type: "LOCAL" | "API"; branch: string | null };

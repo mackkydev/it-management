@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CalendarIcon, CheckCircleIcon, DownloadIcon, PlusIcon } from "@/components/icons";
+import { CalendarIcon, DownloadIcon, PlusIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
-import { btn, card, alert } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
@@ -66,12 +67,7 @@ export default async function LeavePage({ searchParams }: PageProps<"/leave">) {
         }
       />
 
-      {params.done === "1" && (
-        <p role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {t("leave.submitted")}
-        </p>
-      )}
+      {params.done === "1" && <FlashToast param="done" message={t("leave.submitted")} />}
 
       {scope === "mine" && (
         <section className={`p-4 ${card}`}>

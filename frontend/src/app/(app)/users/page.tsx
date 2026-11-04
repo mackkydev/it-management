@@ -3,13 +3,14 @@ import Form from "next/form";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { CheckCircleIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon, UsersIcon } from "@/components/icons";
+import { PencilIcon, PlusIcon, ResetIcon, SearchIcon, UsersIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
 import { Tooltip } from "@/components/tooltip";
-import { alert, btn, card, input, table, tone } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
@@ -78,12 +79,7 @@ export default async function UsersPage({ searchParams }: PageProps<"/users">) {
         }
       />
 
-      {saved && (
-        <div role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {t(`users.saved.${saved}`)}
-        </div>
-      )}
+      {saved && <FlashToast param="saved" message={t(`users.saved.${saved}`)} />}
 
       <Form action="/users" className={`grid grid-cols-1 gap-3 p-4 ${canManageUsers ? "sm:grid-cols-2 lg:grid-cols-[1fr_12rem_12rem_auto]" : "sm:grid-cols-[1fr_auto]"} ${card}`}>
         <div className="relative">
@@ -121,7 +117,7 @@ export default async function UsersPage({ searchParams }: PageProps<"/users">) {
         </div>
       </Form>
 
-      <Suspense key={q.toString()} fallback={<TableSkeleton cols={canManageUsers ? 5 : 2} />}>
+      <Suspense key={q.toString()} fallback={<TableSkeleton cols={canManageUsers ? 6 : 2} />}>
         {canManageUsers ? <ManagedUsers query={q} selfId={user.id} /> : <UserResults query={q} />}
       </Suspense>
     </div>
@@ -152,6 +148,7 @@ async function ManagedUsers({ query, selfId }: { query: URLSearchParams; selfId:
               <th className={table.th}>{t("users.col.name")}</th>
               <th className={table.th}>{t("users.col.role")}</th>
               <th className={table.th}>{t("users.col.status")}</th>
+              <th className={table.th}>{t("users.col.policy")}</th>
               <th className={`${table.th} text-right`}>{t("users.col.assets")}</th>
               <th className={table.th} aria-label={t("common.manage")} />
             </tr>
@@ -185,6 +182,17 @@ async function ManagedUsers({ query, selfId }: { query: URLSearchParams; selfId:
                     <span className={`h-1.5 w-1.5 rounded-full ${u.is_active ? tone.success.dot : tone.idle.dot}`} aria-hidden="true" />
                     {u.is_active ? t("users.statuses.active") : t("users.statuses.inactive")}
                   </span>
+                </td>
+                <td className={`${table.td} whitespace-nowrap`}>
+                  {u.policy_status === "accepted" || u.policy_status === "outdated" ? (
+                    <a href={`/policy-print/${u.id}`} target="_blank" rel="noreferrer" className={`inline-flex cursor-pointer items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:underline ${u.policy_status === "accepted" ? tone.success.badge : tone.warning.badge}`}>
+                      {u.policy_accepted_at ? t(`users.policy.${u.policy_status}`, { date: fmt.date(u.policy_accepted_at) }) : t("users.policy.none")}
+                    </a>
+                  ) : u.policy_status === "pending" ? (
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.idle.badge}`}>{t("users.policy.pending")}</span>
+                  ) : (
+                    <span className="text-faint">—</span>
+                  )}
                 </td>
                 <td className={`${table.td} whitespace-nowrap text-right tabular-nums text-muted`}>
                   {t("users.assetsCount", { count: fmt.number(u.custodian_assets_count ?? 0) })}

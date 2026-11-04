@@ -3,9 +3,10 @@
 import { useMemo, useState, useTransition } from "react";
 import { saveUserPermissions } from "@/app/actions/access";
 import { DateInput } from "@/components/date-input";
-import { AlertIcon, CheckCircleIcon, CheckIcon, PlusIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
+import { AlertIcon, CheckIcon, PlusIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { PermissionMatrix } from "@/components/permission-matrix";
 import { Tooltip } from "@/components/tooltip";
+import { ResultToast } from "@/components/toast";
 import { alert, btn, card, input as inputBase, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
@@ -268,12 +269,7 @@ export function PermissionEditor({ initial, catalog, superAdmin }: { initial: Us
         )}
       </section>
 
-      {result && (
-        <p role="status" className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {result.text}
-        </p>
-      )}
+      {result && <ResultToast result={result} />}
 
       {!readOnly && (
         <div className="sticky bottom-4 flex items-center justify-end gap-3">

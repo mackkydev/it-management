@@ -10,7 +10,7 @@ import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
-import type { PublicAnnouncement, TicketStatus, TicketType } from "@/lib/types";
+import type { NewsAnnouncement, TicketStatus, TicketType } from "@/lib/types";
 import { TicketStatusBadge, ticketSubject } from "../tickets/ticket-ui";
 import { NewsCarousel } from "./news-carousel";
 
@@ -82,9 +82,9 @@ function Ring({ pct, className }: { pct: number; className: string }) {
 }
 
 /** กล่องรายการ (พื้นปกติ — สีพาสเทลเฉพาะไอคอน) ว่าง = ข้อความ พร้อมลิงก์ "ดูทั้งหมด" */
-function Panel({ title, icon: Icon, href, more, empty, color, children }: { title: string; icon: Icon; href: string; more: string; empty: string; color: Chip; children: ReactNode[] }) {
+function Panel({ title, icon: Icon, href, more, empty, color, className = "", listClassName = "", children }: { title: string; icon: Icon; href: string; more: string; empty: string; color: Chip; className?: string; listClassName?: string; children: ReactNode[] }) {
   return (
-    <section className={`flex flex-col p-4 sm:p-5 ${card}`}>
+    <section className={`flex flex-col p-4 sm:p-5 ${card} ${className}`}>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 font-semibold">
           <span className={`grid h-7 w-7 place-items-center rounded-lg ${CHIP[color]}`}>
@@ -96,7 +96,7 @@ function Panel({ title, icon: Icon, href, more, empty, color, children }: { titl
           {more}
         </Link>
       </div>
-      {children.length ? <ul className="divide-y divide-line">{children}</ul> : <p className="py-4 text-center text-sm text-muted">{empty}</p>}
+      {children.length ? <ul className={`divide-y divide-line ${listClassName}`}>{children}</ul> : <p className="py-4 text-center text-sm text-muted">{empty}</p>}
     </section>
   );
 }
@@ -115,7 +115,7 @@ function Group({ title, icon: Icon, className = "", children }: { title: string;
 }
 
 /** ประกาศข่าวสาร (เปิดใช้งาน + อยู่ในช่วงวันที่) — ดึงไม่ได้ก็ยังแสดงหน้าภาพรวมตามปกติ */
-const loadNews = () => apiFetch<{ data: PublicAnnouncement[] }>("/announcements/public").then((r) => r.data).catch(() => [] as PublicAnnouncement[]);
+const loadNews = () => apiFetch<{ data: NewsAnnouncement[] }>("/announcements/feed").then((r) => r.data).catch(() => [] as NewsAnnouncement[]);
 
 /**
  * ภาพรวม (GET /dashboard) = ศูนย์รวมข้อมูลและข่าวสาร:
@@ -138,7 +138,7 @@ export default async function DashboardPage() {
         <Group title={t("dashboard.news.title")} icon={BellIcon} className="flex flex-col">
           <NewsCarousel key={news.map((a) => a.id).join(",")} items={news} />
         </Group>
-        <Group title={t("dashboard.sectionIt")} icon={WrenchIcon}>
+        <Group title={t("dashboard.sectionIt")} icon={WrenchIcon} className="flex flex-col">
           <div className={`grid grid-cols-2 gap-3 ${isIt ? "sm:grid-cols-4" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
             {!isIt && <Stat href="/tickets?mine=1" label={t("dashboard.ticketsOpen")} value={d.tickets.open} icon={ClipboardIcon} color="info" />}
             <Stat href={waitingHref} label={t("dashboard.ticketsWaitingMe")} value={d.tickets.waiting_me} icon={InboxIcon} color="warning" />
@@ -161,9 +161,12 @@ export default async function DashboardPage() {
             more={t("dashboard.viewAll")}
             empty={t("dashboard.noTickets")}
             color="info"
+            className="flex-1"
+            listClassName="flex flex-1 flex-col"
           >
+            {/* แถวขยายเต็มความสูงกล่อง (ให้จบตรงกับกล่องข่าว) แต่ไม่สูงเกินไปเมื่อมีน้อยใบ */}
             {d.tickets.recent.map((tk) => (
-              <li key={tk.id} className={row}>
+              <li key={tk.id} className="flex max-h-24 min-h-16 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-1 py-3 text-sm">
                 <Link href={`/tickets/${tk.id}`} className="min-w-0 cursor-pointer hover:underline">
                   <span className="block truncate">{ticketSubject(tk.type, tk.type_other, t)}</span>
                   {d.tickets.recent_scope === "all" && (

@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { saveLoan, type LoanValues } from "@/app/actions/loans";
 import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
-import { AlertIcon, CheckCircleIcon, ChevronDownIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
+import { AlertIcon, ChevronDownIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
 import { btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
@@ -122,12 +123,7 @@ export function DeviceList({
   return (
     <section className={`p-3 sm:p-4 ${card}`}>
       <h2 className="mb-3 px-1 font-semibold">{t("loan.board.devices")}</h2>
-      {saved && (
-        <p role="status" className="mb-3 flex items-center gap-2 rounded-xl bg-success-50 px-3 py-2 text-sm text-success-800 dark:bg-success-400/10 dark:text-success-300">
-          <CheckCircleIcon width={15} height={15} className="shrink-0" />
-          {saved}
-        </p>
-      )}
+      {saved && <ResultToast result={saved} />}
       {devices.length === 0 ? (
         <p className="px-1 py-6 text-center text-sm text-muted">{t("loan.noDevices")}</p>
       ) : (

@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { CheckCircleIcon, ChevronRightIcon, GitBranchIcon, PencilIcon, PlusIcon, UsersIcon } from "@/components/icons";
+import { ChevronRightIcon, GitBranchIcon, PencilIcon, PlusIcon, UsersIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { LinkPendingIcon } from "@/components/pending";
 import { Bone } from "@/components/skeletons";
-import { alert, btn, card, tone } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, has, getCurrentUser } from "@/lib/auth";
@@ -41,12 +42,7 @@ export default async function ApprovalRoutesPage({ searchParams }: PageProps<"/a
           )
         }
       />
-      {saved && (
-        <div role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {t(`approvalRoutes.saved.${saved}`)}
-        </div>
-      )}
+      {saved && <FlashToast param="saved" message={t(`approvalRoutes.saved.${saved}`)} />}
       <div className={`p-4 text-sm text-muted sm:px-6 ${card}`}>
         <p className="font-medium text-ink">{t("approvalRoutes.howTitle")}</p>
         <ol className="mt-1 list-decimal space-y-0.5 pl-5">

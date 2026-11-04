@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch, TOKEN_COOKIE } from "@/lib/api";
 import type { User } from "@/lib/types";
+import { POLICY_CONSENT_COOKIE } from "@/lib/policy-consent";
 import { WELCOME_COOKIE } from "@/lib/welcome";
 
 export interface LoginState {
@@ -43,6 +44,17 @@ async function startSession(result: LoginResult) {
   jar.set(WELCOME_COOKIE, "1", { sameSite: "lax", path: "/", maxAge: 600, secure });
 }
 
+/**
+ * นโยบายแสดงที่หน้า login: ติ๊กยอมรับก่อนรู้ว่าเป็นผู้ใช้คนไหน — จำฉบับที่ติ๊กไว้ใน cookie สั้นๆ
+ * หลังเข้าสู่ระบบครบทุกขั้น (2FA / ตั้งรหัสผ่านใหม่) หน้า /policy-accept จึงบันทึกการยอมรับให้ — ไม่ติ๊ก = ล้างค่าเดิม (คนถัดไปใช้แทนกันไม่ได้)
+ */
+async function rememberPolicyConsent(formData: FormData) {
+  const version = String(formData.get("policy_version") ?? "");
+  const jar = await cookies();
+  if (/^\d+$/.test(version)) jar.set(POLICY_CONSENT_COOKIE, version, { httpOnly: true, secure: await secureCookie(), sameSite: "strict", path: "/", maxAge: 900 });
+  else if (!formData.get("change_password")) jar.delete(POLICY_CONSENT_COOKIE);
+}
+
 export async function login(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const { t } = await getI18n();
   // อีเมลหรือชื่อผู้ใช้ (ช่องเดียว)
@@ -52,6 +64,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   if (!email || !password) {
     return { error: t("auth.required"), email };
   }
+  await rememberPolicyConsent(formData);
   // ขั้นที่ 2: ตั้งรหัสผ่านใหม่ (session จากขั้นแรกเริ่มแล้ว) → บันทึกแล้วเข้าใช้งาน
   const stage = String(formData.get("change_password") ?? "");
   if (stage === "first" || stage === "expired") return saveNewPassword(stage, email, password, formData);
@@ -173,6 +186,7 @@ export async function loginWithConnection(_prev: LoginState, formData: FormData)
   if (!/^\d+$/.test(connectionId) || !username || !password) {
     return { error: t("auth.requiredUsername"), username, connectionId };
   }
+  await rememberPolicyConsent(formData);
 
   let result: LoginResult;
   try {

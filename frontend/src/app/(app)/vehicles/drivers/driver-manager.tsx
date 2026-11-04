@@ -6,7 +6,8 @@ import { deleteDriver, saveDriver, type DriverValues } from "@/app/actions/vehic
 import { AppSelect } from "@/components/app-select";
 import { useAlert, useConfirm } from "@/components/dialog-provider";
 import { PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
-import { alert, btn, card, input, inputError, table, tone } from "@/components/ui";
+import { ResultToast } from "@/components/toast";
+import { btn, card, input, inputError, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { BranchChoices, VehicleDriver } from "@/lib/types";
 
@@ -140,13 +141,8 @@ export function DriverManager({ drivers, choices, canCreate }: { drivers: Vehicl
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {saved ? (
-          <p role="status" className={alert.success}>
-            {t("vehicle.drivers.saved")}
-          </p>
-        ) : (
-          <span />
-        )}
+        {saved && <ResultToast result={t("vehicle.drivers.saved")} />}
+        <span />
         {editing === null && canCreate && (
           <button type="button" onClick={() => open(null)} className={btn.primary}>
             <PlusIcon />

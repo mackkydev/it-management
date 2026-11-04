@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
-import { exec, first, insert, transaction } from "../db.js";
+import { exec, first, insert, select, transaction } from "../db.js";
 import { ValidationError } from "../lib/errors.js";
 import { trans, type Locale } from "../lib/i18n.js";
 import { decryptBuffer, encryptBuffer } from "../lib/file-crypt.js";
@@ -126,7 +126,18 @@ export async function saveSignature(userId: number, input: Buffer, source: Signa
     before: previous ? { signature_id: previous.id } : undefined,
     after: { signature_id: id, source, size: png.length },
   });
-  return (await first<SignatureRow>("SELECT * FROM user_signatures WHERE id = ?", [id]))!;
+  const saved = (await first<SignatureRow>("SELECT * FROM user_signatures WHERE id = ?", [id]))!;
+  await signPolicyAcceptances(userId, actor);
+  return saved;
+}
+
+/** เติมสำเนาลายเซ็นลงเอกสารยอมรับนโยบายที่ยังไม่มี (ยอมรับก่อนมีลายเซ็น) — ที่มีแล้วไม่เปลี่ยน */
+export async function signPolicyAcceptances(userId: number, actor: AuditActor): Promise<void> {
+  const rows = await select<{ id: number; version: number }>("SELECT id, version FROM policy_acceptances WHERE user_id = ? AND signature_path IS NULL", [userId]);
+  for (const r of rows) {
+    const path = await copySignatureTo(userId, `policy/${userId}`, `v${r.version}`, actor, { policy_version: r.version });
+    if (path) await exec("UPDATE policy_acceptances SET signature_path = ?, signature_at = ? WHERE id = ?", [path, nowDb(), r.id]);
+  }
 }
 
 /**

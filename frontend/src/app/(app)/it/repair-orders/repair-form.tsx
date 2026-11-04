@@ -14,11 +14,13 @@ import type { RepairLookupItem, RepairOrder } from "@/lib/types";
 import { TIME_OPTIONS } from "../../vehicles/vehicle-utils";
 
 type Field = "item" | "symptom" | "vendor_id" | "sent_on" | "sent_time" | "sent_by_id";
-type Errors = Partial<Record<Field | "files", string>>;
+type Errors = Partial<Record<Field | "files" | "item_details" | "document_no" | "serial_number", string>>;
 
 interface Props {
   vendors: { id: number; name: string; vendor_type: string }[];
   staff: { id: number; name: string }[];
+  /** ใบแจ้งซ่อมที่ยังไม่ปิด — เลือกจาก dropdown ข้างช่องค้นหา */
+  tickets?: RepairLookupItem[];
   /** ค่าตั้งต้น: ผู้บันทึก + วันเวลาปัจจุบัน (เวลาไทย) */
   defaults: { sent_by_id: number; sent_on: string; sent_time: string };
   /** แก้ไขรายการเดิม — เปลี่ยนของที่ส่งไม่ได้ (ยกเลิกแล้วส่งใหม่) */
@@ -34,18 +36,23 @@ const orderItem = (r: RepairOrder): RepairLookupItem => ({
   item_name: r.item_name,
   brand: r.brand,
   model: r.model,
-  serial_number: r.serial_number,
+  // S/N ของสินทรัพย์แก้ไม่ได้ — ที่กรอกเองอยู่ในช่องกรอก
+  serial_number: r.serial_from_asset ? r.serial_number : null,
   holder: r.holder,
   symptom: r.symptom,
 });
 
 /** ฟอร์มส่งซ่อม: ค้นหาจากเลขสินทรัพย์ หรือเลขที่ใบแจ้งงาน → ดึงข้อมูลเครื่อง (ใบแจ้งงาน = เติมอาการเสียให้) → เลือก Vendor / วันเวลา / ผู้ส่ง + แนบใบส่งซ่อม */
-export function RepairForm({ vendors, staff, defaults, order }: Props) {
+export function RepairForm({ vendors, staff, tickets = [], defaults, order }: Props) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [item, setItem] = useState<RepairLookupItem | null>(order ? orderItem(order) : null);
   const [symptom, setSymptom] = useState(order?.symptom ?? "");
   const [vendorId, setVendorId] = useState(order ? String(order.vendor.id) : "");
+  const [filled, setFilled] = useState("");
+  const [itemDetails, setItemDetails] = useState(order?.item_details ?? "");
+  const [documentNo, setDocumentNo] = useState(order?.document_no ?? "");
+  const [serial, setSerial] = useState(order?.item_serial ?? "");
   const [removed, setRemoved] = useState<number[]>([]);
   const [sentOn, setSentOn] = useState(defaults.sent_on);
   const [sentTime, setSentTime] = useState(defaults.sent_time);
@@ -55,7 +62,7 @@ export function RepairForm({ vendors, staff, defaults, order }: Props) {
   const [message, setMessage] = useState("");
   const [pending, start] = useTransition();
 
-  const clear = (f: Field | "files") => setErrors((e) => ({ ...e, [f]: "" }));
+  const clear = (f: keyof Errors) => setErrors((e) => ({ ...e, [f]: "" }));
 
   const load = async (q: string): Promise<SuggestItem<RepairLookupItem>[]> =>
     (await lookupRepairItem(q)).map((x) => ({
@@ -64,16 +71,19 @@ export function RepairForm({ vendors, staff, defaults, order }: Props) {
       data: x,
     }));
 
-  const pick = (s: SuggestItem<RepairLookupItem>) => {
-    if (!s.data) return;
-    setItem(s.data);
+  const choose = (x: RepairLookupItem) => {
+    setItem(x);
     setQuery("");
     clear("item");
-    // ใบแจ้งงาน: เติมอาการจากใบ (แก้ได้) — ไม่ทับข้อความที่พิมพ์ไว้แล้ว
-    if (s.data.symptom && !symptom.trim()) {
-      setSymptom(s.data.symptom);
-      clear("symptom");
+    // ใบแจ้งงาน: เติมอาการจากใบ (แก้ได้) — ไม่ทับข้อความที่พิมพ์เอง แต่เปลี่ยนใบแล้วอาการที่เติมไว้เปลี่ยนตาม
+    if (!symptom.trim() || symptom === filled) {
+      setSymptom(x.symptom ?? "");
+      setFilled(x.symptom ?? "");
+      if (x.symptom) clear("symptom");
     }
+  };
+  const pick = (s: SuggestItem<RepairLookupItem>) => {
+    if (s.data) choose(s.data);
   };
 
   const onSubmit = (e: FormEvent) => {
@@ -97,6 +107,9 @@ export function RepairForm({ vendors, staff, defaults, order }: Props) {
     }
     removed.forEach((id) => fd.append("remove_file_ids[]", String(id)));
     fd.set("symptom", symptom.trim());
+    fd.set("item_details", itemDetails.trim());
+    fd.set("document_no", documentNo.trim());
+    if (!item!.serial_number) fd.set("serial_number", serial.trim());
     fd.set("vendor_id", vendorId);
     fd.set("sent_on", sentOn);
     fd.set("sent_time", sentTime);
@@ -152,33 +165,82 @@ export function RepairForm({ vendors, staff, defaults, order }: Props) {
                 </button>
               )}
             </div>
-            <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {info(t("repairOrders.col.ticket"), item.ticket_no)}
               {info(t("repairOrders.form.itemNo"), item.item_no)}
               {info(t("repairOrders.form.itemName"), item.item_name)}
-              {info(t("repairOrders.form.brandModel"), [item.brand, item.model].filter(Boolean).join(" ") || null)}
-              {info(t("repairOrders.form.serial"), item.serial_number)}
+              {info(t("repairOrders.form.brand"), item.brand)}
+              {info(t("repairOrders.form.model"), item.model ?? "—")}
+              {item.serial_number ? (
+                info(t("repairOrders.form.serial"), item.serial_number)
+              ) : (
+                <div>
+                  <dt>
+                    <label htmlFor="serial_number" className="text-xs text-muted">
+                      {t("repairOrders.form.serial")}
+                    </label>
+                  </dt>
+                  <dd className="mt-0.5">
+                    <input
+                      id="serial_number"
+                      maxLength={100}
+                      value={serial}
+                      onChange={(e) => {
+                        setSerial(e.target.value);
+                        clear("serial_number");
+                      }}
+                      placeholder={t("repairOrders.form.serialPlaceholder")}
+                      className={`${input} ${errors.serial_number ? inputError : ""}`}
+                    />
+                    {errors.serial_number && <p className="mt-1 text-xs font-medium text-red-500">{errors.serial_number}</p>}
+                  </dd>
+                </div>
+              )}
               {info(t("repairOrders.form.holder"), item.holder)}
             </dl>
           </div>
         ) : (
-          field(
-            "item",
-            t("repairOrders.form.search"),
-            <SuggestInput
-              id="item"
-              value={query}
-              onChange={(v) => {
-                setQuery(v);
-                clear("item");
-              }}
-              load={load}
-              onPick={pick}
-              allowNew={false}
-              placeholder={t("repairOrders.form.searchPlaceholder")}
-              className={cls("item")}
-            />,
-          )
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {field(
+              "item",
+              t("repairOrders.form.search"),
+              <SuggestInput
+                id="item"
+                value={query}
+                onChange={(v) => {
+                  setQuery(v);
+                  clear("item");
+                }}
+                load={load}
+                onPick={pick}
+                allowNew={false}
+                placeholder={t("repairOrders.form.searchPlaceholder")}
+                className={cls("item")}
+              />,
+            )}
+            <div>
+              <label htmlFor="open_ticket" className="mb-1 block text-sm font-medium">
+                {t("repairOrders.form.openTickets")}
+              </label>
+              <AppSelect
+                id="open_ticket"
+                value=""
+                disabled={tickets.length === 0}
+                onValueChange={(v) => {
+                  const x = tickets.find((tk) => tk.ticket_id === v);
+                  if (x) choose(x);
+                }}
+                className={input}
+              >
+                <option value="">{t(tickets.length ? "repairOrders.form.chooseTicket" : "repairOrders.form.noTickets")}</option>
+                {tickets.map((x) => (
+                  <option key={x.ticket_id} value={x.ticket_id ?? ""}>
+                    {[x.ticket_no, x.item_no, x.item_name].filter((v, i, all) => v && all.indexOf(v) === i).join(" · ")}
+                  </option>
+                ))}
+              </AppSelect>
+            </div>
+          </div>
         )}
         {field(
           "symptom",
@@ -200,7 +262,7 @@ export function RepairForm({ vendors, staff, defaults, order }: Props) {
 
       <fieldset disabled={pending} aria-busy={pending} className={`p-4 transition-opacity disabled:opacity-60 sm:p-6 ${card}`}>
         <h2 className="mb-4 font-semibold">{t("repairOrders.form.sendSection")}</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {field(
             "vendor_id",
             t("repairOrders.form.vendor"),
@@ -276,7 +338,41 @@ export function RepairForm({ vendors, staff, defaults, order }: Props) {
               ))}
             </AppSelect>,
           )}
-          <div className="sm:col-span-2">
+          <div>
+            <label htmlFor="document_no" className="mb-1 block text-sm font-medium">
+              {t("repairOrders.form.documentNo")}
+            </label>
+            <input
+              id="document_no"
+              maxLength={100}
+              value={documentNo}
+              onChange={(e) => {
+                setDocumentNo(e.target.value);
+                clear("document_no");
+              }}
+              className={`${input} ${errors.document_no ? inputError : ""}`}
+            />
+            {errors.document_no && <p className="mt-1 text-xs font-medium text-red-500">{errors.document_no}</p>}
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <label htmlFor="item_details" className="mb-1 block text-sm font-medium">
+              {t("repairOrders.form.itemDetails")}
+            </label>
+            <textarea
+              id="item_details"
+              rows={3}
+              maxLength={2000}
+              value={itemDetails}
+              onChange={(e) => {
+                setItemDetails(e.target.value);
+                clear("item_details");
+              }}
+              placeholder={t("repairOrders.form.itemDetailsPlaceholder")}
+              className={`${input} ${errors.item_details ? inputError : ""}`}
+            />
+            {errors.item_details && <p className="mt-1 text-xs font-medium text-red-500">{errors.item_details}</p>}
+          </div>
+          <div className="sm:col-span-2 lg:col-span-4">
             <p className="mb-1 text-sm font-medium">{t("repairOrders.form.files")}</p>
             {order && order.files.some((f) => f.kind === "send" && !removed.includes(f.id)) && (
               <ul className="mb-2 space-y-1.5">

@@ -30,7 +30,7 @@ export default async function EditRepairOrderPage({ params }: PageProps<"/it/rep
   const vendors = options.data.vendors.some((v) => v.id === r.vendor.id) ? options.data.vendors : [{ id: r.vendor.id, name: r.vendor.name, vendor_type: r.vendor.vendor_type }, ...options.data.vendors];
   const staff = options.data.staff.some((s) => s.id === r.sent_by.id) ? options.data.staff : [r.sent_by, ...options.data.staff];
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="space-y-5">
       <PageHeader icon={TruckIcon} title={t("repairOrders.editTitle")} subtitle={r.item_name} />
       <RepairForm vendors={vendors} staff={staff} defaults={{ sent_by_id: r.sent_by.id, sent_on: r.sent_on, sent_time: r.sent_time }} order={r} />
     </div>

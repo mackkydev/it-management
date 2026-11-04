@@ -3,8 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 import { removeLogo, uploadLogo } from "@/app/actions/branding";
-import { AlertIcon, CheckCircleIcon, MonitorIcon, SpinnerIcon, TrashIcon, UploadIcon } from "@/components/icons";
-import { alert, btn, card } from "@/components/ui";
+import { MonitorIcon, SpinnerIcon, TrashIcon, UploadIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
+import { btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { useConfirm } from "@/components/dialog-provider";
 
@@ -68,12 +69,7 @@ export function LogoCard({ version }: { version: string | null }) {
           </button>
         )}
       </div>
-      {result && (
-        <p role="status" className={`mt-3 ${result.ok ? alert.success : alert.error}`}>
-          {result.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {result.text}
-        </p>
-      )}
+      {result && <ResultToast result={result} />}
     </section>
   );
 }

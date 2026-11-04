@@ -441,6 +441,41 @@ body {
   }
 }
 
+/* Toast กลางจอบน (components/toast.tsx): เลื่อนลงมา ค้าง แล้วจางหาย รวม 3 วินาที — แอนิเมชันจบ = เอาออกจากหน้าจอ (onAnimationEnd) */
+@keyframes toast-flash {
+  0% {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  6%,
+  90% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes toast-flash-still {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  6%,
+  90% {
+    opacity: 1;
+  }
+}
+.toast-flash {
+  animation: toast-flash 3s ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-flash {
+    animation-name: toast-flash-still;
+  }
+}
+
 /* Tooltip: ค่อยๆ ปรากฏพร้อมเลื่อนเข้าหาจุดที่ชี้ */
 @keyframes tooltip-in-right {
   from {

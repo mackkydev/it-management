@@ -3,8 +3,9 @@
 import { useState, useTransition, type ReactNode } from "react";
 import { saveSettings } from "@/app/actions/it-data";
 import { ChipList } from "@/components/chip-list";
-import { AlertIcon, CheckCircleIcon, SaveIcon, ShieldIcon, SpinnerIcon } from "@/components/icons";
-import { alert, btn, card, input } from "@/components/ui";
+import { SaveIcon, ShieldIcon, SpinnerIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
+import { btn, card, input } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { SecretGuard, SecretPinStatus } from "@/lib/types";
 import { CentralPinForm } from "@/components/central-pin-form";
@@ -81,12 +82,7 @@ export function SecurityForm({
         <p className="mt-1 text-sm text-muted">{t("secretGuard.subtitle")}</p>
       </div>
 
-      {feedback?.text && (
-        <div role={feedback.ok ? "status" : "alert"} className={feedback.ok ? alert.success : alert.error}>
-          {feedback.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {feedback.text}
-        </div>
-      )}
+      {feedback?.text && <ResultToast result={feedback} />}
 
       <fieldset disabled={pending} className="space-y-3 disabled:opacity-60">
         <Toggle id="sg-reauth" checked={v.reauth} onChange={(x) => set("reauth", x)} title={t("secretGuard.reauthTitle")} hint={t("secretGuard.reauthHint")}>

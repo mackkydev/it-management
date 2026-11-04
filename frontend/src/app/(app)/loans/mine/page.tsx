@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CheckCircleIcon, InboxIcon, KeyIcon, PlusIcon } from "@/components/icons";
+import { InboxIcon, KeyIcon, PlusIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
+import { FlashToast } from "@/components/toast";
 import { alert, btn, card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
@@ -54,12 +55,7 @@ export default async function MyLoansPage({ searchParams }: PageProps<"/loans/mi
           )
         }
       />
-      {sp.done && (
-        <p role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0" />
-          {t("loan.form.saved")}
-        </p>
-      )}
+      {sp.done && <FlashToast param="done" message={t("loan.form.saved")} />}
       {overdue > 0 && <p className={alert.error}>{t("loan.mine.overdueAlert", { n: overdue })}</p>}
       <nav className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1">
         {TABS.map((s) => (

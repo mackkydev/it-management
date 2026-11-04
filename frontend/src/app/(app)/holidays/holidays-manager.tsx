@@ -17,6 +17,7 @@ import {
 import { DateInput } from "@/components/date-input";
 import { useConfirm } from "@/components/dialog-provider";
 import { AlertIcon, CheckCircleIcon, CopyIcon, DownloadIcon, PencilIcon, PlusIcon, SaveIcon, SettingsIcon, SpinnerIcon, TrashIcon, UploadIcon, XIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
 import { alert, btn, card, input, inputError, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
@@ -200,12 +201,7 @@ function HolidayList({
           )}
         </div>
       )}
-      {feedback && (
-        <p role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {feedback}
-        </p>
-      )}
+      {feedback && <ResultToast result={feedback} />}
       {editing && (
         <div className={`grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-[12rem_1fr_auto] ${card}`}>
           <div>
@@ -479,12 +475,7 @@ function LeaveSettingsForm({ initial, weekday }: { initial: LeaveSettings; weekd
     );
   return (
     <section className={`space-y-5 p-4 sm:p-6 ${card}`}>
-      {result.message && (
-        <p role={result.ok ? "status" : "alert"} className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {result.message}
-        </p>
-      )}
+      {result.message && <ResultToast result={result} />}
       <div>
         <h3 className="font-semibold">{t("holidays.quotaTitle")}</h3>
         <p className="mb-3 text-xs text-muted">{t("holidays.quotaHint")}</p>

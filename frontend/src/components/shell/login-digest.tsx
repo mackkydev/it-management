@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { markNotificationRead } from "@/app/actions/tickets";
 import { AlertIcon, BellIcon, CheckCircleIcon, ChevronRightIcon, ClipboardIcon, FileTextIcon, XIcon } from "@/components/icons";
 import { btn, tone } from "@/components/ui";
+import { RichText } from "@/components/rich-text";
 import { useI18n } from "@/i18n/client";
 import type { AppNotification, PublicAnnouncement } from "@/lib/types";
 import { WELCOME_COOKIE } from "@/lib/welcome";
@@ -137,7 +138,7 @@ export function LoginDigest({
                   <li key={a.id} className="relative overflow-hidden rounded-lg bg-subtle py-2.5 pl-4 pr-3">
                     <span className={`absolute inset-y-0 left-0 w-1 ${LEVEL_TONE[a.level]?.dot ?? tone.info.dot}`} aria-hidden="true" />
                     <p className="text-sm font-medium text-ink">{a.title}</p>
-                    {a.body && <p className="mt-0.5 whitespace-pre-line text-xs text-muted">{a.body}</p>}
+                    {a.body && <RichText text={a.body} className="mt-0.5 text-xs text-muted" />}
                   </li>
                 ))}
               </ul>

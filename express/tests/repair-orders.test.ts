@@ -74,6 +74,38 @@ describe("vendors", () => {
     expect((await staff.delete(`/api/v1/vendors/${v.id}`)).status).toBe(422);
   });
 
+  it("keeps a map link (http/https only) and company files, IT-only", async () => {
+    const staff = await as(await makeUser({ role: "admin", is_it_staff: true }));
+    const viewer = await as(await makeUser());
+
+    expect((await staff.post("/api/v1/vendors").send({ ...VENDOR, name: "Vendor Map X", map_url: "javascript:alert(1)" })).body.errors.map_url).toBeTruthy();
+
+    const field = (req: ReturnType<typeof staff.post>, fields: Record<string, string>) => {
+      for (const [k, val] of Object.entries(fields)) req = req.field(k, val);
+      return req;
+    };
+    const created = await field(staff.post("/api/v1/vendors"), { ...VENDOR, name: "Vendor Files", map_url: "https://maps.app.goo.gl/abc", is_active: "1" }).attach("files[]", await realImage(800, 300, "png"), "company.png");
+    expect(created.status).toBe(201);
+    expect(created.body.data.map_url).toBe("https://maps.app.goo.gl/abc");
+    expect(created.body.data.files.map((f: { name: string }) => f.name)).toEqual(["company.png"]);
+    const { id, files } = created.body.data as { id: number; files: { id: number; url: string }[] };
+
+    expect((await staff.get(`/api/v1${files[0].url}`)).status).toBe(200);
+    expect((await viewer.get(`/api/v1${files[0].url}`)).status).toBe(403);
+    expect((await staff.get(`/api/v1/vendors/${id}/files/999999`)).status).toBe(404);
+    expect((await staff.get("/api/v1/vendors")).body.data.find((v: { id: number }) => v.id === id).files).toHaveLength(1);
+
+    // เพิ่มไฟล์ใหม่ + เอาไฟล์เดิมออก / ล้างลิงก์
+    const updated = await field(staff.put(`/api/v1/vendors/${id}`), { ...VENDOR, name: "Vendor Files", map_url: "", "remove_file_ids[]": String(files[0].id) }).attach("files[]", await realImage(800, 300, "png"), "new.png");
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.map_url).toBeNull();
+    expect(updated.body.data.files.map((f: { name: string }) => f.name)).toEqual(["new.png"]);
+
+    // ไฟล์ของ Vendor อื่นเปิด/ลบผ่านรายการนี้ไม่ได้
+    const other = await makeVendor(staff, "Vendor Other");
+    expect((await staff.get(`/api/v1/vendors/${other.id}/files/${updated.body.data.files[0].id}`)).status).toBe(404);
+  });
+
   it("vendor types come from the dropdown list and renaming updates vendors", async () => {
     const staff = await as(await makeUser({ role: "admin", is_it_staff: true }));
     const custom = await staff.post("/api/v1/dropdown-options/vendor_type").send({ name: "ประเภททดสอบ" });
@@ -149,6 +181,91 @@ describe("repair orders", () => {
     expect(Number(await notices(requester.id, "repair_returned"))).toBe(1);
     expect(Number((await staff.get("/api/v1/menu-badges")).body.data["/it/repair-orders"])).toBe(pending - 1);
     expect((await first<{ status: string }>("SELECT status FROM it_tickets WHERE id = ?", [t.id]))?.status).toBe("in_progress");
+  });
+
+  it("item details and document number are optional, saved, editable and searchable", async () => {
+    const it1 = await makeUser({ role: "admin", is_it_staff: true });
+    const staff = await as(it1);
+    const v = await makeVendor(staff, "Vendor Doc");
+    const now = nowDb();
+    const uuid = crypto.randomUUID();
+    await insert("assets", { uuid, asset_tag: "HOST-DOC-1", name: "PC เอกสาร", category: "COMPUTER", status: "active", created_at: now, updated_at: now });
+    const base = { asset: uuid, symptom: "จอดับ", vendor_id: v.id, sent_on: day(0), sent_time: "08:00", sent_by_id: it1.id };
+
+    // ไม่กรอกได้
+    const bare = await send(staff, base);
+    expect(bare.status).toBe(201);
+    expect(bare.body.data).toMatchObject({ item_details: null, document_no: null });
+    expect((await staff.post(`/api/v1/repair-orders/${bare.body.data.id}/cancel`).send({ reason: "x" })).status).toBe(200);
+
+    expect((await send(staff, { ...base, document_no: "x".repeat(101) })).body.errors.document_no).toBeTruthy();
+    const res = await send(staff, { ...base, item_details: "พร้อมสายชาร์จและกระเป๋า", document_no: "RP-2569-001" });
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({ item_details: "พร้อมสายชาร์จและกระเป๋า", document_no: "RP-2569-001" });
+    const id = res.body.data.id as string;
+
+    expect((await staff.get("/api/v1/repair-orders?status=sent&search=RP-2569-001")).body.data.map((r: { id: string }) => r.id)).toEqual([id]);
+
+    // แก้เป็นค่าใหม่ / ส่งว่าง = ล้าง
+    const edit = (fields: Record<string, string | number>) => {
+      let req = staff.put(`/api/v1/repair-orders/${id}`);
+      for (const [k, val] of Object.entries({ symptom: "จอดับ", vendor_id: v.id, sent_on: day(0), sent_time: "08:00", sent_by_id: it1.id, ...fields })) req = req.field(k, String(val));
+      return req;
+    };
+    expect((await edit({ item_details: "สายชาร์จ", document_no: "RP-2" })).body.data).toMatchObject({ item_details: "สายชาร์จ", document_no: "RP-2" });
+    expect((await edit({ item_details: "", document_no: "" })).body.data).toMatchObject({ item_details: null, document_no: null });
+  });
+
+  it("serial number comes from the asset when it has one, otherwise it can be typed", async () => {
+    const it1 = await makeUser({ role: "admin", is_it_staff: true });
+    const staff = await as(it1);
+    const v = await makeVendor(staff, "Vendor Serial");
+    const now = nowDb();
+    const withSn = crypto.randomUUID();
+    const noSn = crypto.randomUUID();
+    await insert("assets", { uuid: withSn, asset_tag: "HOST-SN-1", name: "PC มี SN", model: "M1", serial_number: "SN-ASSET", category: "COMPUTER", status: "active", created_at: now, updated_at: now });
+    await insert("assets", { uuid: noSn, asset_tag: "HOST-SN-2", name: "PC ไม่มี SN", category: "COMPUTER", status: "active", created_at: now, updated_at: now });
+    const base = { symptom: "x", vendor_id: v.id, sent_on: day(0), sent_time: "08:00", sent_by_id: it1.id };
+
+    // มี S/N ที่สินทรัพย์ = ค่าที่ส่งมาไม่นับ
+    const a = await send(staff, { ...base, asset: withSn, serial_number: "TYPED" });
+    expect(a.body.data).toMatchObject({ serial_number: "SN-ASSET", item_serial: null, serial_from_asset: true, model: "M1", item_name: "PC มี SN" });
+
+    // ไม่มี = เก็บที่กรอกไว้กับรายการส่งซ่อม ไม่เขียนกลับสินทรัพย์
+    const b = await send(staff, { ...base, asset: noSn, serial_number: "SN-TYPED" });
+    expect(b.body.data).toMatchObject({ serial_number: "SN-TYPED", item_serial: "SN-TYPED", serial_from_asset: false });
+    expect(await scalar("SELECT serial_number FROM assets WHERE uuid = ?", [noSn])).toBeNull();
+    expect((await staff.get("/api/v1/repair-orders?status=sent&search=SN-TYPED")).body.data.map((r: { id: string }) => r.id)).toEqual([b.body.data.id]);
+
+    const edit = await staff.put(`/api/v1/repair-orders/${b.body.data.id}`).field("symptom", "x").field("vendor_id", String(v.id)).field("sent_on", day(0)).field("sent_time", "08:00").field("sent_by_id", String(it1.id)).field("serial_number", "SN-NEW");
+    expect(edit.body.data.serial_number).toBe("SN-NEW");
+  });
+
+  it("the form lists open repair tickets that are not already out for repair", async () => {
+    const requester = await makeUser();
+    const it1 = await makeUser({ role: "admin", is_it_staff: true });
+    const staff = await as(it1);
+    const v = await makeVendor(staff, "Vendor Open");
+    const accepted = await inProgressTicket(requester.id, it1.id);
+    const waiting = await inProgressTicket(requester.id, it1.id, { status: "approved" });
+    const review = await inProgressTicket(requester.id, it1.id, { status: "pending_it_head" });
+    const closed = await inProgressTicket(requester.id, it1.id, { status: "completed" });
+    const cancelled = await inProgressTicket(requester.id, it1.id, { status: "cancelled" });
+    const preApproval = await inProgressTicket(requester.id, it1.id, { status: "pending_supervisor" });
+    const otherType = await inProgressTicket(requester.id, it1.id, { type: "install" });
+    const options = async () => ((await staff.get("/api/v1/repair-orders/form-options")).body.data.tickets as { ticket_id: string }[]).map((x) => x.ticket_id);
+
+    const open = await options();
+    expect(open).toEqual(expect.arrayContaining([accepted.uuid, waiting.uuid, review.uuid]));
+    for (const x of [closed, cancelled, preApproval, otherType]) expect(open).not.toContain(x.uuid);
+
+    // ส่งได้ทุกใบที่ยังไม่ปิด / ใบที่ส่งซ่อมอยู่หลุดจากตัวเลือก และกลับมาเมื่อรับคืน
+    const sent = await send(staff, { ticket: waiting.uuid, symptom: "x", vendor_id: v.id, sent_on: day(0), sent_time: "08:00", sent_by_id: it1.id });
+    expect(sent.status).toBe(201);
+    expect(await options()).not.toContain(waiting.uuid);
+    await staff.post(`/api/v1/repair-orders/${sent.body.data.id}/return`);
+    expect(await options()).toContain(waiting.uuid);
+    expect((await send(staff, { ticket: preApproval.uuid, symptom: "x", vendor_id: v.id, sent_on: day(0), sent_time: "08:00", sent_by_id: it1.id })).body.errors.item).toBeTruthy();
   });
 
   it("sending marks the asset as in repair; receiving back and cancelling restore its previous status", async () => {

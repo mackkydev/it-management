@@ -5,6 +5,7 @@ import { useRef, useState, useTransition } from "react";
 import { deleteOrgUnit, importOrgUnits, saveOrgUnit, type OrgImportResult, type OrgTable } from "@/app/actions/org-units";
 import { AlertIcon, CheckCircleIcon, CheckIcon, DownloadIcon, PencilIcon, PlusIcon, SpinnerIcon, TrashIcon, UploadIcon, XIcon } from "@/components/icons";
 import { Tooltip } from "@/components/tooltip";
+import { ResultToast } from "@/components/toast";
 import { alert, btn, card, input, inputError, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { OrgUnit } from "@/lib/types";
@@ -164,12 +165,7 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
 
   return (
     <div className="space-y-4">
-      {feedback && (
-        <p role="status" className={feedback.ok ? alert.success : alert.error}>
-          {feedback.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {feedback.text}
-        </p>
-      )}
+      {feedback && <ResultToast result={feedback} />}
       <section className={`p-4 ${card}`}>
         {editing === "new" ? (
           editor

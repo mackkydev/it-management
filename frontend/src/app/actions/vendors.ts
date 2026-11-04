@@ -1,13 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { apiFetch } from "@/lib/api";
 import type { VendorFormValues } from "@/lib/types";
 
-export type VendorResult = ActionResult<keyof VendorFormValues | "vendor">;
+export type VendorResult = ActionResult<keyof VendorFormValues | "vendor" | "files">;
 
 /** id มาจาก client (server action รับค่าอะไรก็ได้) จึงต้องตรวจก่อนนำไปต่อ URL */
 const validId = (id: unknown): id is number => Number.isInteger(id) && (id as number) > 0;
@@ -17,40 +16,32 @@ async function invalidId(): Promise<VendorResult> {
   return { message: t("vendors.form.notFound") };
 }
 
-const toPayload = (v: VendorFormValues) => ({
-  name: v.name.trim(),
-  tax_id: v.tax_id.trim() || null,
-  address: v.address.trim(),
-  contact_name: v.contact_name.trim(),
-  contact_phone: v.contact_phone.trim(),
-  vendor_type: v.vendor_type,
-  is_active: v.is_active,
-});
+const toResult = (e: unknown) => toActionResult<keyof VendorFormValues | "vendor" | "files">(e, "vendors.form.notFound");
 
-const toResult = (e: unknown) => toActionResult<keyof VendorFormValues | "vendor">(e, "vendors.form.notFound");
-
-function done(saved: "created" | "updated" | "deleted"): never {
+function done(): VendorResult {
   revalidatePath("/vendors");
-  redirect(`/vendors?saved=${saved}`);
+  return { ok: true };
 }
 
-export async function createVendor(v: VendorFormValues): Promise<VendorResult> {
+/** เพิ่ม Vendor (multipart: ช่องในฟอร์ม + files[]) */
+export async function createVendor(form: FormData): Promise<VendorResult> {
   try {
-    await apiFetch("/vendors", { method: "POST", body: JSON.stringify(toPayload(v)) });
+    await apiFetch("/vendors", { method: "POST", body: form });
   } catch (e) {
     return toResult(e);
   }
-  done("created");
+  return done();
 }
 
-export async function updateVendor(id: number, v: VendorFormValues): Promise<VendorResult> {
+/** แก้ไข Vendor (multipart: ช่องในฟอร์ม + files[] + remove_file_ids[]) */
+export async function updateVendor(id: number, form: FormData): Promise<VendorResult> {
   if (!validId(id)) return invalidId();
   try {
-    await apiFetch(`/vendors/${id}`, { method: "PUT", body: JSON.stringify(toPayload(v)) });
+    await apiFetch(`/vendors/${id}`, { method: "PUT", body: form });
   } catch (e) {
     return toResult(e);
   }
-  done("updated");
+  return done();
 }
 
 export async function deleteVendor(id: number): Promise<VendorResult> {
@@ -60,5 +51,5 @@ export async function deleteVendor(id: number): Promise<VendorResult> {
   } catch (e) {
     return toResult(e);
   }
-  done("deleted");
+  return done();
 }

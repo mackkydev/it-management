@@ -3,13 +3,14 @@ import Form from "next/form";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { CheckCircleIcon, KeyIcon, LockIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon, ExternalLinkIcon } from "@/components/icons";
+import { KeyIcon, LockIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon, ExternalLinkIcon } from "@/components/icons";
 import { Tooltip } from "@/components/tooltip";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
-import { alert, btn, card, input, table, tone } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { CentralPinForm } from "@/components/central-pin-form";
@@ -68,12 +69,7 @@ export default async function VaultPage({ searchParams }: PageProps<"/vault">) {
           <CentralPinForm initial={pinStatus} canManage={canManagePin} />
         </section>
       )}
-      {saved && (
-        <div role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {t(`vault.saved.${saved}`)}
-        </div>
-      )}
+      {saved && <FlashToast param="saved" message={t(`vault.saved.${saved}`)} />}
       <Form action="/vault" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_14rem_auto] ${card}`}>
         <div className="relative">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />

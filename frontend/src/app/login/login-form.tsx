@@ -7,6 +7,7 @@ import { alert, btn, input, inputError, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { LoginConnection } from "@/lib/types";
 import { PasswordInput } from "@/components/password-input";
+import { PolicyConsent, type LoginPolicy } from "./policy-consent";
 import { TwoFactorStep } from "./two-factor-step";
 
 /** ตรวจสถานะการเชื่อมต่อต้นทางซ้ำทุก 1 นาทีขณะเปิดหน้า login (API cache ไว้ 1 นาทีอยู่แล้ว) */
@@ -25,7 +26,7 @@ const SERVER_DOT: Record<ServerStatus, string> = { online: tone.success.dot, off
  * ฟอร์มเข้าสู่ระบบ — "บัญชีในระบบ" (อีเมล + รหัสผ่านของระบบเรา) หรือ login ผ่านระบบต้นทางที่ Local Admin เปิดไว้
  * ไม่มีการเชื่อมต่อที่เปิดอยู่ = ฟอร์มเดิมทุกอย่าง
  */
-export function LoginForm({ connections = [], initial }: { connections?: LoginConnection[]; initial?: LoginState }) {
+export function LoginForm({ connections = [], initial, policy = null }: { connections?: LoginConnection[]; initial?: LoginState; policy?: LoginPolicy | null }) {
   const { t } = useI18n();
   const [mode, setMode] = useState<"local" | number>("local");
   const [localState, localAction, localPending] = useActionState<LoginState, FormData>(login, initial ?? {});
@@ -39,6 +40,7 @@ export function LoginForm({ connections = [], initial }: { connections?: LoginCo
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [cleared, setCleared] = useState<Record<string, LoginState>>({});
+  const [policyAgreed, setPolicyAgreed] = useState(false);
   const ids = connections.map((c) => c.id).join(",");
 
   // สถานะการเชื่อมต่อแต่ละช่องทาง (แถบสถานะด้านบนฟอร์ม + จุดสีบนแท็บ) — เห็นได้ก่อน login
@@ -207,7 +209,8 @@ export function LoginForm({ connections = [], initial }: { connections?: LoginCo
             {state.error}
           </p>
         )}
-        <button type="submit" disabled={pending} aria-busy={pending} className={`${btn.primary} w-full py-2.5`}>
+        {policy && !change && <PolicyConsent policy={policy} checked={policyAgreed} onChange={setPolicyAgreed} />}
+        <button type="submit" disabled={pending || Boolean(policy && !change && !policyAgreed)} aria-busy={pending} className={`${btn.primary} w-full py-2.5 disabled:cursor-not-allowed`}>
           {pending ? <SpinnerIcon /> : change ? <SaveIcon /> : <LoginIcon />}
           {change ? (pending ? t("auth.savingPassword") : t("auth.saveAndLogin")) : pending ? t("auth.loggingIn") : t("auth.login")}
         </button>

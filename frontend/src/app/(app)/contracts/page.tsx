@@ -3,11 +3,12 @@ import Form from "next/form";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { BellIcon, CheckCircleIcon, FileTextIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
+import { BellIcon, FileTextIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
-import { alert, btn, card, input, table, tone } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card, input, table, tone } from "@/components/ui";
 import { AppSelect } from "@/components/app-select";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
@@ -60,12 +61,7 @@ export default async function ContractsPage({ searchParams }: PageProps<"/contra
           )
         }
       />
-      {saved && (
-        <div role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {t(`contracts.saved.${saved}`)}
-        </div>
-      )}
+      {saved && <FlashToast param="saved" message={t(`contracts.saved.${saved}`)} />}
       <Form action="/contracts" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_13rem_13rem_auto] ${card}`}>
         {status && <input type="hidden" name="status" value={status} />}
         <div className="relative">

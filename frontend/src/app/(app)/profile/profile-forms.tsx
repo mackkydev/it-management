@@ -6,27 +6,18 @@ import {
   changePassword, deleteSignature, updateProfile, uploadSignature,
   type PasswordResult, type ProfileResult, type SignatureResult,
 } from "@/app/actions/profile";
-import { AlertIcon, CheckCircleIcon, PenIcon, SaveIcon, SpinnerIcon, TrashIcon, UploadIcon, XIcon } from "@/components/icons";
+import { PenIcon, SaveIcon, SpinnerIcon, TrashIcon, UploadIcon, XIcon } from "@/components/icons";
 import { SignaturePad } from "@/components/signature-pad";
-import { alert, btn, card, input, inputError } from "@/components/ui";
+import { btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { User } from "@/lib/types";
 import { useConfirm } from "@/components/dialog-provider";
 import { PasswordInput } from "@/components/password-input";
+import { ResultToast } from "@/components/toast";
 
 function Feedback({ result }: { result: { ok?: boolean; message?: string } }) {
   if (!result.message) return null;
-  return result.ok ? (
-    <p role="status" className={alert.success}>
-      <CheckCircleIcon className="shrink-0 text-success-500" />
-      {result.message}
-    </p>
-  ) : (
-    <p role="alert" className={alert.error}>
-      <AlertIcon className="shrink-0 text-danger-400" />
-      {result.message}
-    </p>
-  );
+  return <ResultToast result={result} />;
 }
 
 /** ช่องกรอกพร้อม error ใต้ช่อง — error หายทันทีเมื่อผู้ใช้แก้ช่องนั้น */

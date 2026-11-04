@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BoxIcon, CheckCircleIcon, MapPinIcon, PencilIcon, PlusIcon } from "@/components/icons";
+import { BoxIcon, MapPinIcon, PencilIcon, PlusIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { LinkPendingIcon } from "@/components/pending";
-import { alert, btn, table } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
@@ -72,12 +73,7 @@ export default async function LocationsPage({ searchParams }: PageProps<"/locati
         }
       />
 
-      {saved && (
-        <div role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {t(`locations.saved.${saved}`)}
-        </div>
-      )}
+      {saved && <FlashToast param="saved" message={t(`locations.saved.${saved}`)} />}
 
       <div className={table.wrap}>
         <table className={table.table}>

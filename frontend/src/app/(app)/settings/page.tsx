@@ -5,14 +5,14 @@ import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { has, getCurrentUser, getUiConfig } from "@/lib/auth";
-import type { AppSettings, PermissionCatalog, PolicyAcceptance, SystemPolicy } from "@/lib/types";
+import type { AppSettings, PermissionCatalog, SystemPolicy } from "@/lib/types";
 import { LogoCard } from "./logo-card";
 import { SecurityForm } from "./security-form";
 import { SettingsForm } from "./settings-form";
 import { PasswordPolicyForm } from "./password-policy-form";
 import { TwoFactorPolicy } from "./two-factor-policy";
 import { SignaturePolicy } from "./signature-policy";
-import { PolicySettings } from "./policy-settings";
+import { PolicyOptions } from "./policy-options";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -23,12 +23,11 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function SettingsPage() {
   const user = await getCurrentUser();
   if (!has(user, "settings.manage")) redirect("/tickets");
-  const [{ data }, { t }, ui, policy, acceptances] = await Promise.all([
+  const [{ data }, { t }, ui, policy] = await Promise.all([
     apiFetch<{ data: AppSettings }>("/settings"),
     getI18n(),
     getUiConfig(),
     apiFetch<{ data: SystemPolicy }>("/policy"),
-    apiFetch<{ data: PolicyAcceptance[]; accepted: number; total: number }>("/policy/acceptances"),
   ]);
 
   return (
@@ -46,7 +45,7 @@ export default async function SettingsPage() {
       {/* บังคับลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (หน้านี้ = settings.manage) */}
       <SignaturePolicy initial={Boolean(data.require_signature)} />
       {/* นโยบายการใช้งานระบบที่ต้องยอมรับก่อนใช้งาน + รายชื่อผู้ยอมรับ (settings.manage) */}
-      <PolicySettings initial={policy.data} acceptances={acceptances} />
+      <PolicyOptions initial={policy.data} />
       {/* บังคับ 2FA ตามกลุ่ม — นโยบายการเข้าสู่ระบบ (access.manage) */}
       {has(user, "access.manage") && <TwoFactorPolicy groups={(await apiFetch<PermissionCatalog>("/permissions")).groups} initial={data.two_factor_groups ?? []} />}
       {/* นโยบายรหัสผ่าน: ล็อกบัญชีเมื่อ login ผิด + บังคับเปลี่ยนรหัสผ่านทุก N วัน (access.manage) */}

@@ -4,8 +4,9 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { deleteGroup, savePermissionExpiry, saveGroup, saveRolePermissions } from "@/app/actions/access";
 import { useConfirm } from "@/components/dialog-provider";
-import { AlertIcon, CheckCircleIcon, LockIcon, PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { LockIcon, PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { PermissionMatrix } from "@/components/permission-matrix";
+import { ResultToast } from "@/components/toast";
 import { alert, btn, card, input as inputBase, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { PermissionCatalog, PermissionGroupRow } from "@/lib/types";
@@ -237,12 +238,7 @@ export function RoleMatrix({ catalog, canManage, superAdmin, held }: { catalog: 
         )}
       </section>
 
-      {result && (
-        <p role="status" className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {result.text}
-        </p>
-      )}
+      {result && <ResultToast result={result} />}
       {editable.size > 0 && (
         <div className="sticky bottom-4 flex items-center justify-end gap-3">
           {dirty.length > 0 && <span className="rounded-full bg-surface px-3 py-1 text-xs text-muted ring-1 ring-line">{t("rolePermissions.changed", { count: dirty.length })}</span>}

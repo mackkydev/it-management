@@ -2,10 +2,11 @@
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { saveUiConfig } from "@/app/actions/it-data";
-import { AlertIcon, ArrowDownIcon, ArrowUpIcon, CheckCircleIcon, CheckIcon, PencilIcon, ResetIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
+import { AlertIcon, ArrowDownIcon, ArrowUpIcon, CheckIcon, PencilIcon, ResetIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { ModalShell } from "@/components/modal-shell";
 import { NAV, type NavItem } from "@/components/shell/nav";
 import { Tooltip } from "@/components/tooltip";
+import { ResultToast } from "@/components/toast";
 import { alert, btn, card, input } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import {
@@ -158,12 +159,7 @@ export function PermissionsForm({
         <AlertIcon className="shrink-0 text-warning-500" />
         {t("permissions.note")}
       </p>
-      {result.message && (
-        <p role={result.ok ? "status" : "alert"} className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {result.message}
-        </p>
-      )}
+      {result.message && <ResultToast result={result} />}
 
       {/* เมนู + ลำดับ */}
       <section className={`overflow-hidden ${card}`}>

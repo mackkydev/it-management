@@ -28,6 +28,12 @@ model announcements {
   starts_on  DateTime? @db.Date
   ends_on    DateTime? @db.Date
   sort_order Int       @default(0) @db.SmallInt
+  /// การทำซ้ำ: none (ตามช่วงวันที่) / daily / weekly (repeat_weekday 0 = อาทิตย์) / monthly (repeat_day) / yearly (repeat_day + repeat_month)
+  repeat_mode    String  @default("none") @db.VarChar(10)
+  repeat_weekday Int?    @db.TinyInt
+  repeat_day     Int?    @db.TinyInt
+  repeat_month   Int?    @db.TinyInt
+  files      announcement_files[]
   created_by BigInt?
   created_at DateTime? @db.DateTime(0)
   updated_at DateTime? @db.DateTime(0)
@@ -838,6 +844,9 @@ model users {
   repair_orders_created                                    repair_orders[]            @relation("repair_orders_created_by")
   repair_orders_cancelled                                  repair_orders[]            @relation("repair_orders_cancelled_by")
   repair_order_files                                       repair_order_files[]
+  vendor_files                                             vendor_files[]
+  announcement_files                                       announcement_files[]
+  policy_files                                             policy_files[]
   licenses_cancelled                                      licenses[]                 @relation("licenses_cancelled_byTousers")
   licenses_created                                         licenses[]                 @relation("licenses_created_byTousers")
   licenses_updated                                         licenses[]                 @relation("licenses_updated_byTousers")
@@ -1623,6 +1632,11 @@ model policy_acceptances {
   accepted_at DateTime @db.DateTime(0)
   ip          String?  @db.VarChar(45)
   user_agent  String?  @db.VarChar(255)
+  /// ชื่อ-สกุลที่ประทับตอนยอมรับ
+  name_stamp  String?  @db.VarChar(255)
+  /// สำเนาลายเซ็นของเอกสาร — ยังไม่มีลายเซ็นตอนยอมรับ = เติมเมื่อผู้ใช้อัปโหลด (saveSignature)
+  signature_path String? @db.VarChar(255)
+  signature_at   DateTime? @db.DateTime(0)
   users       users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "policy_acceptances_user_id_foreign")
 
   @@unique([user_id, version], map: "policy_acceptances_user_version_unique")
@@ -1711,13 +1725,75 @@ model vendors {
   contact_name  String          @db.VarChar(255)
   contact_phone String          @db.VarChar(50)
   vendor_type   String          @db.VarChar(100)
+  /// ลิงก์ตำแหน่งจาก Google Maps (http/https เท่านั้น)
+  map_url       String?         @db.VarChar(1000)
   is_active     Boolean         @default(true)
   created_at    DateTime?       @db.DateTime(0)
   updated_at    DateTime?       @db.DateTime(0)
   deleted_at    DateTime?       @db.DateTime(0)
   repair_orders repair_orders[]
+  files         vendor_files[]
 
   @@index([name], map: "vendors_name_index")
+}
+
+/// ไฟล์ของประกาศข่าวสาร — kind: cover (รูปหน้าปก 1 รูป) / document (เอกสารแนบ)
+model announcement_files {
+  id              BigInt        @id @default(autoincrement())
+  announcement_id BigInt
+  kind            String        @db.VarChar(20)
+  original_name   String        @db.VarChar(255)
+  path            String        @db.VarChar(255)
+  mime            String        @db.VarChar(100)
+  size            Int
+  uploaded_by     BigInt?
+  created_at      DateTime?     @db.DateTime(0)
+  updated_at      DateTime?     @db.DateTime(0)
+  announcements   announcements @relation(fields: [announcement_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "announcement_files_announcement_id_foreign")
+  users           users?        @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "announcement_files_uploaded_by_foreign")
+
+  @@index([announcement_id], map: "announcement_files_announcement_id_index")
+  @@index([uploaded_by], map: "announcement_files_uploaded_by_index")
+}
+
+/// เนื้อหานโยบายของแต่ละฉบับ — เอกสารการยอมรับแสดงเนื้อหาของฉบับที่ผู้ใช้ยอมรับ
+model policy_versions {
+  version    Int       @id
+  sections   Json
+  created_at DateTime? @db.DateTime(0)
+}
+
+/// ไฟล์แนบประกาศของนโยบาย — เปิดดูได้ตอนอ่านนโยบาย
+model policy_files {
+  id            BigInt    @id @default(autoincrement())
+  original_name String    @db.VarChar(255)
+  path          String    @db.VarChar(255)
+  mime          String    @db.VarChar(100)
+  size          Int
+  uploaded_by   BigInt?
+  created_at    DateTime? @db.DateTime(0)
+  updated_at    DateTime? @db.DateTime(0)
+  users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "policy_files_uploaded_by_foreign")
+
+  @@index([uploaded_by], map: "policy_files_uploaded_by_index")
+}
+
+/// ไฟล์เอกสารบริษัทของ Vendor
+model vendor_files {
+  id            BigInt    @id @default(autoincrement())
+  vendor_id     BigInt
+  original_name String    @db.VarChar(255)
+  path          String    @db.VarChar(255)
+  mime          String    @db.VarChar(100)
+  size          Int
+  uploaded_by   BigInt?
+  created_at    DateTime? @db.DateTime(0)
+  updated_at    DateTime? @db.DateTime(0)
+  vendors       vendors   @relation(fields: [vendor_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "vendor_files_vendor_id_foreign")
+  users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "vendor_files_uploaded_by_foreign")
+
+  @@index([vendor_id], map: "vendor_files_vendor_id_index")
+  @@index([uploaded_by], map: "vendor_files_uploaded_by_index")
 }
 
 /// รายการส่งซ่อม: ส่งเครื่องให้ vendor (sent) → รับคืน (returned) — item_no / item_name = สำเนาตอนส่ง
@@ -1730,6 +1806,12 @@ model repair_orders {
   item_name      String               @db.VarChar(255)
   /// รายละเอียดอาการเสีย
   symptom        String               @db.Text
+  /// รายละเอียดอุปกรณ์เพิ่มเติม (ไม่บังคับ)
+  item_details   String?              @db.Text
+  /// เลขที่เอกสาร (ไม่บังคับ)
+  document_no    String?              @db.VarChar(100)
+  /// S/N ที่กรอกเองเมื่อสินทรัพย์ไม่มี S/N (หรือไม่ได้ผูกสินทรัพย์) — ไม่เขียนกลับไปที่สินทรัพย์
+  item_serial    String?              @db.VarChar(100)
   vendor_id      BigInt
   /// วันเวลาที่ส่งซ่อม เวลาไทย
   sent_on        DateTime             @db.Date

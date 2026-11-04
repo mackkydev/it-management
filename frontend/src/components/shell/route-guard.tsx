@@ -1,25 +1,18 @@
 "use client";
 
 import type { Route } from "next";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, type ReactNode } from "react";
-import { AlertIcon } from "@/components/icons";
-import { alert } from "@/components/ui";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, type ReactNode } from "react";
+import { FlashToast } from "@/components/toast";
 import { useI18n } from "@/i18n/client";
 import type { UiConfig } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 import { deniedTarget, routeAllowed } from "./nav";
 
-/** แถบแจ้งเมื่อถูกพามาจากหน้าที่ไม่มีสิทธิ์ (?denied=1) */
+/** Toast เมื่อถูกพามาจากหน้าที่ไม่มีสิทธิ์ (?denied=1) */
 function DeniedNotice() {
   const { t } = useI18n();
-  if (useSearchParams().get("denied") !== "1") return null;
-  return (
-    <p role="alert" className={`${alert.warning} mb-4`}>
-      <AlertIcon className="shrink-0" />
-      {t("common.accessDenied")}
-    </p>
-  );
+  return <FlashToast param="denied" kind="warning" message={t("common.accessDenied")} />;
 }
 
 /**
@@ -35,9 +28,7 @@ export function RouteGuard({ user, uiConfig, children }: { user: User; uiConfig:
   if (!allowed) return null;
   return (
     <>
-      <Suspense fallback={null}>
-        <DeniedNotice />
-      </Suspense>
+      <DeniedNotice />
       {children}
     </>
   );

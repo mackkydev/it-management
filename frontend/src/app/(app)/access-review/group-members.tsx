@@ -7,7 +7,8 @@ import { addGroupMembers, removeGroupMember, setMemberExpiry } from "@/app/actio
 import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
 import { useConfirm } from "@/components/dialog-provider";
-import { AlertIcon, CheckCircleIcon, PlusIcon, SaveIcon, ShieldIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
+import { AlertIcon, PlusIcon, SaveIcon, ShieldIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
 import { alert, btn, card, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/types";
@@ -60,12 +61,7 @@ export function GroupMembers({ groups, view }: { groups: Group[]; view: GroupMem
         <p className="text-xs text-muted">{t(view.group.is_system ? "accessReview.members.systemHint" : "accessReview.members.customHint")}</p>
       </div>
 
-      {result.message && (
-        <p role={result.ok ? "status" : "alert"} className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0" /> : <AlertIcon className="shrink-0" />}
-          {result.message}
-        </p>
-      )}
+      {result.message && <ResultToast result={result} />}
 
       {view.can_manage ? (
         <section className={`space-y-3 p-4 ${card}`}>

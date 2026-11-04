@@ -3,9 +3,10 @@
 import { useState, useTransition } from "react";
 import { createInstallation, searchDevices, type InstallPayload } from "@/app/actions/license-installations";
 import { DateInput } from "@/components/date-input";
-import { AlertIcon, CheckCircleIcon, PlusIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
+import { CheckCircleIcon, PlusIcon, SaveIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { SuggestInput } from "@/components/suggest-input";
-import { alert, btn, card, input, inputError } from "@/components/ui";
+import { ResultToast } from "@/components/toast";
+import { btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { Branch, LicenseSummary, UserOption } from "@/lib/types";
@@ -113,12 +114,7 @@ export function InstallForm({ licenses, branches, defaultLicense }: { licenses: 
           <XIcon width={16} height={16} />
         </button>
       </div>
-      {feedback && (
-        <p role={feedback.ok ? "status" : "alert"} className={feedback.ok ? alert.success : alert.error}>
-          {feedback.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {feedback.text}
-        </p>
-      )}
+      {feedback && <ResultToast result={feedback} />}
       <fieldset disabled={pending} className="grid grid-cols-1 gap-4 disabled:opacity-60 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label htmlFor="license_id" className="mb-1 block text-sm font-medium">

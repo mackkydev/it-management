@@ -71,10 +71,10 @@ const eamTh = {
   },
   contract_category: { in_use: "ลบไม่ได้ เพราะมีสัญญา :count รายการใช้หมวดหมู่นี้อยู่ — ให้ปิดใช้งานแทน", builtin: "หมวดตั้งต้นแก้ไขหรือลบไม่ได้" },
   dropdown: { in_use: "ลบไม่ได้ เพราะมีข้อมูล :count รายการใช้ค่านี้อยู่ — ให้ปิดใช้งานแทน" },
-  vendor: { in_use: "ลบไม่ได้ เพราะมีรายการส่งซ่อม :count รายการ — ให้ปิดใช้งานแทน" },
+  vendor: { in_use: "ลบไม่ได้ เพราะมีรายการส่งซ่อม :count รายการ — ให้ปิดใช้งานแทน", map_url_invalid: "ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https://" },
   repair_order: {
     item_required: "กรุณาเลือกสินทรัพย์หรือใบแจ้งงานที่จะส่งซ่อม",
-    ticket_not_sendable: "ส่งซ่อมจากใบแจ้งงานได้เฉพาะเรื่องซ่อมที่กำลังดำเนินการ",
+    ticket_not_sendable: "ส่งซ่อมจากใบแจ้งงานได้เฉพาะเรื่องซ่อมที่ยังไม่ปิด",
     already_sent: "รายการนี้ส่งซ่อมอยู่แล้ว — รับเครื่องคืนก่อนจึงส่งซ่อมใหม่ได้",
     already_returned: "รายการนี้รับเครื่องคืนแล้ว",
     sent_comment: "ส่งซ่อม :item ที่ :vendor เมื่อ :when น.",
@@ -178,7 +178,7 @@ const eamTh = {
     work_start_after: "วันเริ่มปฏิบัติงานต้องไม่หลังวันที่แล้วเสร็จ",
     work_span_too_long: "ช่วงวันปฏิบัติงานต้องไม่เกิน :days วัน",
   },
-  announcement: { ends_before_starts: "วันสิ้นสุดต้องไม่ก่อนวันเริ่มแสดง" },
+  announcement: { ends_before_starts: "วันสิ้นสุดต้องไม่ก่อนวันเริ่มแสดง", repeat_required: "กรุณาเลือกวันที่ทำซ้ำ", repeat_day_invalid: "เดือนนี้ไม่มีวันที่นี้" },
   license: {
     expires_before_start: "วันหมดอายุต้องไม่ก่อนวันเริ่มใช้งาน",
     renew_after_old: "วันหมดอายุใหม่ต้องหลังวันหมดอายุเดิม",
@@ -480,10 +480,10 @@ const eamEn: Eam = {
   },
   contract_category: { in_use: "Cannot delete: :count contract(s) still use this category. Deactivate it instead.", builtin: "Built-in categories cannot be changed or deleted." },
   dropdown: { in_use: "Cannot delete: :count record(s) still use this value. Deactivate it instead." },
-  vendor: { in_use: "Cannot delete: this vendor has :count repair order(s). Deactivate it instead." },
+  vendor: { in_use: "Cannot delete: this vendor has :count repair order(s). Deactivate it instead.", map_url_invalid: "The link must start with http:// or https://" },
   repair_order: {
     item_required: "Please choose the asset or ticket to send for repair",
-    ticket_not_sendable: "Only repair tickets in progress can be sent for repair",
+    ticket_not_sendable: "Only open repair tickets can be sent for repair",
     already_sent: "This item is already out for repair. Receive it back before sending it again.",
     already_returned: "This item has already been received back",
     sent_comment: "Sent :item to :vendor on :when",
@@ -587,7 +587,7 @@ const eamEn: Eam = {
     work_start_after: "The work start date cannot be after the completion date.",
     work_span_too_long: "The working period cannot be longer than :days days.",
   },
-  announcement: { ends_before_starts: "The end date cannot be before the start date." },
+  announcement: { ends_before_starts: "The end date cannot be before the start date.", repeat_required: "Please choose when it repeats.", repeat_day_invalid: "This month does not have that day." },
   license: {
     expires_before_start: "The expiry date cannot be before the start date.",
     renew_after_old: "The new expiry date must be after the current one.",

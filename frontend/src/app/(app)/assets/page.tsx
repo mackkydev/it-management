@@ -2,14 +2,15 @@ import type { Metadata } from "next";
 import Form from "next/form";
 import Link from "next/link";
 import { Suspense } from "react";
-import { BoxIcon, CheckCircleIcon, DownloadIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
+import { BoxIcon, DownloadIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Tooltip } from "@/components/tooltip";
-import { alert, btn, card, input, table } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card, input, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { assetCategoryNames } from "@/lib/asset-categories";
@@ -106,12 +107,7 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
         }
       />
 
-      {saved && (
-        <div role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {t(`assets.saved.${saved}`)}
-        </div>
-      )}
+      {saved && <FlashToast param="saved" message={t(`assets.saved.${saved}`)} />}
 
       {canSeeMissing && (
         <div role="tablist" className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1 sm:inline-flex">

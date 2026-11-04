@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertIcon, BellIcon, ChevronLeftIcon, ChevronRightIcon, SparklesIcon } from "@/components/icons";
+import { AlertIcon, BellIcon, ChevronLeftIcon, ChevronRightIcon, FileTextIcon, SparklesIcon } from "@/components/icons";
 import { ModalShell } from "@/components/modal-shell";
+import { plainText, RichText } from "@/components/rich-text";
 import { btn, card, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import type { AnnouncementLevel, PublicAnnouncement } from "@/lib/types";
+import type { AnnouncementLevel, NewsAnnouncement } from "@/lib/types";
 
 /** เวลาที่แสดงข่าวแต่ละชิ้นก่อนสลับ */
 const ROTATE_MS = 6000;
@@ -25,15 +26,17 @@ interface Slide {
   level: AnnouncementLevel;
   date: string | null;
   sample: boolean;
+  cover: string | null;
+  files: NewsAnnouncement["files"];
 }
 
-/** กล่องข่าวสารหน้าภาพรวม — สลับเองทุก ROTATE_MS (ชี้/โฟกัสที่กล่อง = หยุด), จุด + ลูกศรเลือกเอง, กด "อ่านต่อ" = เนื้อหาเต็มใน popup */
-export function NewsCarousel({ items }: { items: PublicAnnouncement[] }) {
+/** กล่องข่าวสารหน้าภาพรวม — สลับเองทุก ROTATE_MS (ชี้/โฟกัสที่กล่อง = หยุด), จุด + ลูกศรเลือกเอง, กด "อ่านต่อ" = เนื้อหาเต็มใน popup; รูปหน้าปกเต็มกรอบ ไม่เพี้ยน (ส่วนเกินถูกตัด) */
+export function NewsCarousel({ items }: { items: NewsAnnouncement[] }) {
   const { t, fmt } = useI18n();
-  const real: Slide[] = items.map((a) => ({ id: String(a.id), title: a.title, body: a.body, level: a.level, date: a.starts_on, sample: false }));
+  const real: Slide[] = items.map((a) => ({ id: String(a.id), title: a.title, body: a.body, level: a.level, date: a.starts_on, sample: false, cover: a.cover_url, files: a.files }));
   const samples: Slide[] = (["info", "warning", "danger"] as const).map((level, i) => {
     const n = (i + 1) as 1 | 2 | 3;
-    return { id: `sample-${n}`, title: t(`dashboard.news.sample${n}Title`), body: t(`dashboard.news.sample${n}Body`), level, date: null, sample: true };
+    return { id: `sample-${n}`, title: t(`dashboard.news.sample${n}Title`), body: t(`dashboard.news.sample${n}Body`), level, date: null, sample: true, cover: null, files: [] };
   });
   const slides = [...real, ...samples].slice(0, Math.max(MIN_SLIDES, real.length));
   const [index, setIndex] = useState(0);
@@ -63,17 +66,24 @@ export function NewsCarousel({ items }: { items: PublicAnnouncement[] }) {
         const Icon = look.icon;
         return (
           <article key={s.id} aria-hidden={i !== current} className={`absolute inset-0 flex flex-col transition-opacity duration-700 ${i === current ? "opacity-100" : "pointer-events-none opacity-0"}`}>
-            {/* กล่องรูป (ภาพประกอบตามระดับข่าว) */}
-            <div className={`relative min-h-40 flex-1 overflow-hidden bg-gradient-to-br ${look.art}`} aria-hidden="true">
-              <span className="absolute -right-12 -top-16 h-64 w-64 rounded-full bg-white/15" />
-              <span className="absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-white/10" />
-              <span className="absolute bottom-8 right-1/4 h-20 w-20 rounded-full bg-white/10" />
-              <span className="absolute inset-0 grid place-items-center">
-                <span className="grid h-24 w-24 place-items-center rounded-3xl bg-white/20 text-white shadow-lg ring-1 ring-white/30 backdrop-blur-sm">
-                  <Icon width={44} height={44} />
+            {s.cover ? (
+              <div className="relative min-h-40 flex-1 overflow-hidden bg-subtle">
+                {/* eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน /files */}
+                <img src={`/files${s.cover}`} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              </div>
+            ) : (
+              /* ไม่มีรูปหน้าปก = ภาพประกอบตามระดับข่าว */
+              <div className={`relative min-h-40 flex-1 overflow-hidden bg-gradient-to-br ${look.art}`} aria-hidden="true">
+                <span className="absolute -right-12 -top-16 h-64 w-64 rounded-full bg-white/15" />
+                <span className="absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-white/10" />
+                <span className="absolute bottom-8 right-1/4 h-20 w-20 rounded-full bg-white/10" />
+                <span className="absolute inset-0 grid place-items-center">
+                  <span className="grid h-24 w-24 place-items-center rounded-3xl bg-white/20 text-white shadow-lg ring-1 ring-white/30 backdrop-blur-sm">
+                    <Icon width={44} height={44} />
+                  </span>
                 </span>
-              </span>
-            </div>
+              </div>
+            )}
             {/* ข้อความ */}
             <div className="space-y-2 p-5 pb-14">
               <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -82,8 +92,8 @@ export function NewsCarousel({ items }: { items: PublicAnnouncement[] }) {
                 {s.date && <span className="text-muted">{fmt.date(s.date)}</span>}
               </div>
               <h3 className="line-clamp-2 text-lg font-semibold">{s.title}</h3>
-              {s.body && <p className="line-clamp-2 whitespace-pre-line text-sm text-muted">{s.body}</p>}
-              {s.body && (
+              {s.body && <p className="line-clamp-2 whitespace-pre-line text-sm text-muted">{plainText(s.body)}</p>}
+              {(s.body || s.files.length > 0) && (
                 <button type="button" tabIndex={i === current ? 0 : -1} onClick={() => setReading(s)} className="cursor-pointer text-xs font-medium text-accent-700 hover:underline dark:text-accent-300">
                   {t("dashboard.news.readMore")}
                 </button>
@@ -118,8 +128,32 @@ export function NewsCarousel({ items }: { items: PublicAnnouncement[] }) {
       </div>
 
       {reading && (
-        <ModalShell id="news-read" title={reading.title} onClose={() => setReading(null)}>
-          <p className="whitespace-pre-line text-sm leading-relaxed text-ink">{reading.body}</p>
+        <ModalShell id="news-read" size="xl" title={reading.title} onClose={() => setReading(null)}>
+          <div className="space-y-4">
+            {reading.cover && (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน /files */}
+                <img src={`/files${reading.cover}`} alt="" className="aspect-[21/9] w-full rounded-xl object-cover" />
+              </>
+            )}
+            {reading.body && <RichText text={reading.body} className="text-sm leading-relaxed text-ink" />}
+            {reading.files.length > 0 && (
+              <div>
+                <p className="mb-2 text-sm font-medium">{t("dashboard.news.documents")}</p>
+                <ul className="space-y-1.5">
+                  {reading.files.map((f) => (
+                    <li key={f.id}>
+                      <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
+                        <FileTextIcon width={16} height={16} className="shrink-0 text-accent-500" />
+                        <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                        <span className="text-xs text-muted">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         </ModalShell>
       )}
     </section>

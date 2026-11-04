@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { saveSettings } from "@/app/actions/it-data";
-import { AlertIcon, CheckCircleIcon, KeyIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
-import { alert, btn, card, input, inputError } from "@/components/ui";
+import { KeyIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
+import { btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { PasswordPolicy } from "@/lib/types";
 
@@ -138,12 +139,7 @@ export function PasswordPolicyForm({ initial }: { initial: PasswordPolicy }) {
         {toggle("pp-first", firstChange, setFirstChange, t("settingsPage.passwordPolicy.firstChangeTitle"), t("settingsPage.passwordPolicy.firstChangeHint"))}
       </div>
 
-      {result.message && (
-        <p role={result.ok ? "status" : "alert"} className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0" /> : <AlertIcon className="shrink-0" />}
-          {result.message}
-        </p>
-      )}
+      {result.message && <ResultToast result={result} />}
       <div className="flex justify-end">
         <button type="button" onClick={save} disabled={pending} className={`${btn.primary} disabled:cursor-not-allowed`}>
           {pending ? <SpinnerIcon width={16} height={16} /> : <SaveIcon width={16} height={16} />}

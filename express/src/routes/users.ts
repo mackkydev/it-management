@@ -3,7 +3,8 @@ import { config } from "../config.js";
 import { exec, first, insert, likeEscape, scalar, select, transaction, update } from "../db.js";
 import { authorize, forbidden, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
-import { nowDb } from "../lib/time.js";
+import { iso, nowDb } from "../lib/time.js";
+import { policyActive, systemPolicy } from "../services/system-policy.js";
 import { deleteUserTokens } from "../lib/tokens.js";
 import { bool, exists, int, makeHash, notIn, password, unique, validate, regex } from "../lib/validator.js";
 import { me, pageParam, paginated, simplePaginated } from "../http.js";
@@ -41,13 +42,14 @@ const superAdminTarget = (actor: UserRow, target: UserRow) => target.id !== acto
 const ORG_FIELDS = ["job_title", "branch_id", "department", "division", "supervisor_id", "is_it_staff", "is_it_head", "approval_route_id"] as const;
 
 /** branch + supervisor + จำนวนสินทรัพย์ที่ถือครอง (ไม่นับที่ถูกลบ) */
-const MANAGED_SELECT = `u.*, b.id AS b_id, b.name AS b_name, s.id AS s_id, s.name AS s_name,
+const MANAGED_SELECT = `u.*, (SELECT MAX(pa.version) FROM policy_acceptances pa WHERE pa.user_id = u.id) AS policy_version,
+  (SELECT pa.accepted_at FROM policy_acceptances pa WHERE pa.user_id = u.id ORDER BY pa.version DESC LIMIT 1) AS policy_accepted_at, b.id AS b_id, b.name AS b_name, s.id AS s_id, s.name AS s_name,
   (SELECT COUNT(*) FROM assets a WHERE a.custodian_id = u.id AND a.deleted_at IS NULL) AS custodian_assets_count,
   (SELECT us.id FROM user_signatures us WHERE us.user_id = u.id AND us.is_active = true LIMIT 1) AS active_signature_id`;
 const MANAGED_JOINS = `LEFT JOIN branches b ON b.id = u.branch_id AND b.deleted_at IS NULL
   LEFT JOIN users s ON s.id = u.supervisor_id`;
 
-type ManagedRow = UserRow & { b_id: number | null; b_name: string; s_id: number | null; s_name: string; custodian_assets_count: number; active_signature_id: number | null };
+type ManagedRow = UserRow & { b_id: number | null; b_name: string; s_id: number | null; s_name: string; custodian_assets_count: number; active_signature_id: number | null; policy_version: number | null; policy_accepted_at: string | null };
 
 const managed = (r: ManagedRow, viewerId?: number) =>
   userResource(r, {
@@ -114,7 +116,13 @@ userRoutes.get("/users", async (req, res) => {
       `SELECT ${MANAGED_SELECT} FROM users u ${MANAGED_JOINS} WHERE ${whereSql} ORDER BY u.name, u.id LIMIT ? OFFSET ?`,
       [...params, perPage, (page - 1) * perPage],
     );
-    return res.json(paginated(req, rows.map((r) => managed(r, u.id)), total, page, perPage));
+    // การยอมรับนโยบายของแต่ละคน (คอลัมน์หน้าผู้ใช้ — กดเปิดเอกสารได้)
+    const policy = await systemPolicy();
+    const policyStatus = (r: ManagedRow) => {
+      if (r.policy_version === null) return policyActive(policy) ? "pending" : "none";
+      return policyActive(policy) && Number(r.policy_version) !== policy.version ? "outdated" : "accepted";
+    };
+    return res.json(paginated(req, rows.map((r) => ({ ...managed(r, u.id), policy_status: policyStatus(r), policy_accepted_at: iso(r.policy_accepted_at) })), total, page, perPage));
   }
 
   // ผู้จัดการสินทรัพย์ (ผู้ถือครอง) และฝ่าย IT (ผู้ใช้ของการติดตั้ง license)

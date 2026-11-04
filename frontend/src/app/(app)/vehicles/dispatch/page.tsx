@@ -3,7 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CheckCircleIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
-import { alert, card } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getCurrentUser, has } from "@/lib/auth";
@@ -39,12 +40,7 @@ export default async function VehicleDispatchPage({ searchParams }: PageProps<"/
   return (
     <div className="space-y-5">
       <PageHeader icon={CheckCircleIcon} title={t("vehicle.dispatch.title")} subtitle={t("vehicle.dispatch.subtitle")} />
-      {(sp.done === "approved" || sp.done === "rejected" || sp.done === "cancelled") && (
-        <p role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0" />
-          {t(sp.done === "approved" ? "vehicle.approval.approvedDone" : sp.done === "cancelled" ? "vehicle.approval.cancelledDone" : "vehicle.approval.rejectedDone")}
-        </p>
-      )}
+      {(sp.done === "approved" || sp.done === "rejected" || sp.done === "cancelled") && <FlashToast param="done" message={t(sp.done === "approved" ? "vehicle.approval.approvedDone" : sp.done === "cancelled" ? "vehicle.approval.cancelledDone" : "vehicle.approval.rejectedDone")} />}
       <nav className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1">
         {TABS.map((s) => (
           <Link key={s} href={`/vehicles/dispatch?status=${s}`} aria-current={s === status ? "page" : undefined} className={`cursor-pointer ${TAB_CLS(s === status)}`}>

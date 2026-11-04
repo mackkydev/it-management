@@ -56,7 +56,7 @@ export default async function RepairOrderPage({ params }: PageProps<"/it/repair-
   const returned = r.status === "returned";
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="space-y-5">
       <PageHeader
         icon={TruckIcon}
         title={r.item_name}
@@ -122,6 +122,12 @@ export default async function RepairOrderPage({ params }: PageProps<"/it/repair-
             {fmt.date(r.sent_on)} {r.sent_time}
             <span className="block text-xs text-muted">{r.sent_by.name}</span>
           </Item>
+          {r.document_no && <Item label={t("repairOrders.form.documentNo")}>{r.document_no}</Item>}
+          {r.item_details && (
+            <Item label={t("repairOrders.form.itemDetails")} wide>
+              {r.item_details}
+            </Item>
+          )}
           <Files files={r.files.filter((f) => f.kind === "send")} label={t("repairOrders.form.files")} />
         </dl>
       </section>

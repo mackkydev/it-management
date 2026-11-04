@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import Form from "next/form";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CheckCircleIcon, KeyIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
+import { KeyIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { Tooltip } from "@/components/tooltip";
-import { alert, btn, card, input } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card, input } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { canCreateAssets, canEditAssets, canViewLicenses, getAccess, getCurrentUser, has } from "@/lib/auth";
@@ -67,12 +68,7 @@ export default async function LicensesPage({ searchParams }: PageProps<"/license
         }
       />
 
-      {saved && (
-        <div role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {t(`licenses.saved.${saved}`)}
-        </div>
-      )}
+      {saved && <FlashToast param="saved" message={t(`licenses.saved.${saved}`)} />}
 
       {/* แท็บประเภท (หมวดหมู่ของซอฟต์แวร์ License) + จำนวน */}
       <div role="tablist" className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1 sm:inline-flex">

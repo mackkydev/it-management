@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import { saveSettings } from "@/app/actions/it-data";
 import { useConfirm } from "@/components/dialog-provider";
-import { AlertIcon, CheckCircleIcon, ShieldIcon, SpinnerIcon } from "@/components/icons";
-import { alert, card } from "@/components/ui";
+import { ShieldIcon, SpinnerIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
+import { card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 
 /** บังคับใช้ 2FA ตามกลุ่ม (บัญชี LOCAL ทั้งกลุ่มตามตำแหน่งและกลุ่มที่สร้างเอง) — สวิตช์ต่อกลุ่ม ถามยืนยันก่อนบันทึก, แก้ได้เฉพาะผู้มีสิทธิ์ access.manage */
@@ -61,12 +62,7 @@ export function TwoFactorPolicy({ groups, initial }: { groups: { key: string; na
           );
         })}
       </div>
-      {result.message && (
-        <p role={result.ok ? "status" : "alert"} className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0" /> : <AlertIcon className="shrink-0" />}
-          {result.message}
-        </p>
-      )}
+      {result.message && <ResultToast result={result} />}
     </section>
   );
 }

@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import { saveManageScope } from "@/app/actions/booking-scope";
 import { AppSelect } from "@/components/app-select";
-import { AlertIcon, BuildingIcon, CheckCircleIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
-import { alert, btn, card, input } from "@/components/ui";
+import { BuildingIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
+import { btn, card, input } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { ManageScope, PermissionGroupRow } from "@/lib/types";
 
@@ -30,12 +31,7 @@ export function ManageScopeForm({ groups, initial, editable }: { groups: Permiss
         </h2>
         <p className="mt-1 text-sm text-muted">{t("manageScope.subtitle")}</p>
       </div>
-      {result.message && (
-        <p role={result.ok ? "status" : "alert"} className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0 text-success-500" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {result.message}
-        </p>
-      )}
+      {result.message && <ResultToast result={result} />}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]">
         {shown.map((g) => (
           <label key={g.key} className="text-sm">

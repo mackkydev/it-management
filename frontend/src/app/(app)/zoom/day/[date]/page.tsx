@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, VideoIcon } from "@/components/icons";
+import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, VideoIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
-import { alert, btn, card } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { localToday } from "@/lib/date";
@@ -44,12 +45,7 @@ export default async function ZoomDayPage({ params, searchParams }: PageProps<"/
           )
         }
       />
-      {sp.done === "created" && (
-        <p role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0" />
-          {t("zoom.done.created")}
-        </p>
-      )}
+      {sp.done === "created" && <FlashToast param="done" message={t("zoom.done.created")} />}
       <div className={`flex flex-wrap items-center gap-2 p-3 ${card}`}>
         <Link href={`/zoom?month=${date.slice(0, 7)}`} className={`${btn.secondary} ${btn.sm}`}>
           <CalendarIcon width={14} height={14} />

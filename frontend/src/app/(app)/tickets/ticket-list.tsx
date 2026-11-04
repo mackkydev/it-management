@@ -6,8 +6,8 @@ import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
-import { alert, btn, card, input, table } from "@/components/ui";
-import { CheckCircleIcon } from "@/components/icons";
+import { FlashToast } from "@/components/toast";
+import { btn, card, input, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
@@ -311,7 +311,7 @@ async function TicketResults({ scope, query }: { scope: TicketScope; query: URLS
   );
 }
 
-/** แถบแจ้งผลหลังทำรายการ (?done=...) */
+/** Toast แจ้งผลหลังทำรายการ (?done=...) */
 export async function DoneBanner({ done }: { done?: string }) {
   if (!done) return null;
   const { t } = await getI18n();
@@ -319,9 +319,6 @@ export async function DoneBanner({ done }: { done?: string }) {
   const known = ["created", "approve", "reject", "accept", "forward", "progress", "result", "close", "return", "confirm_close", "edited", "deleted", "cancel_request", "cancel_confirm", "cancel_reject", "cancel_withdraw"].includes(done);
   if (!known) return null;
   return (
-    <div role="status" className={alert.success}>
-      <CheckCircleIcon className="shrink-0 text-success-500" />
-      {t(key as Parameters<typeof t>[0])}
-    </div>
+    <FlashToast param="done" message={t(key as Parameters<typeof t>[0])} />
   );
 }

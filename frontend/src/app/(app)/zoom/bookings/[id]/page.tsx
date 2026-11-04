@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { AlertIcon, CalendarIcon, CheckCircleIcon, ChevronLeftIcon, ExternalLinkIcon, VideoIcon } from "@/components/icons";
+import { AlertIcon, CalendarIcon, ChevronLeftIcon, ExternalLinkIcon, VideoIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
+import { FlashToast } from "@/components/toast";
 import { alert, card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
@@ -56,12 +57,7 @@ export default async function ZoomBookingPage({ params, searchParams }: PageProp
         {t("zoom.detail.backToDay")}
       </Link>
       <PageHeader icon={VideoIcon} title={z.title} subtitle={periodText(z, fmt.date)} actions={<ZoomStatusBadge booking={z} />} />
-      {done && (
-        <p role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0" />
-          {t(`zoom.done.${done}` as MessageKey)}
-        </p>
-      )}
+      {done && <FlashToast param="done" message={t(`zoom.done.${done}` as MessageKey)} />}
 
       {/* ลิงก์ประชุม (ส่งแล้ว) / ฝ่าย IT แจ้งว่ามีการใช้งานแล้ว */}
       {z.status === "confirmed" && z.meeting_link && (

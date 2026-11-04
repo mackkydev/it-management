@@ -5,7 +5,8 @@ import { useState, useTransition } from "react";
 import { transferVehicle } from "@/app/actions/vehicles";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
-import { AlertIcon, ArrowRightIcon, BuildingIcon, CheckCircleIcon, HistoryIcon, SpinnerIcon } from "@/components/icons";
+import { AlertIcon, ArrowRightIcon, BuildingIcon, HistoryIcon, SpinnerIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { Vehicle, VehicleTransfer } from "@/lib/types";
@@ -80,12 +81,7 @@ export function VehicleTransferPanel({
         )}
       </div>
 
-      {message && (
-        <p role={message.ok ? "status" : "alert"} className={message.ok ? alert.success : alert.error}>
-          {message.ok ? <CheckCircleIcon className="shrink-0" /> : <AlertIcon className="shrink-0 text-danger-400" />}
-          {message.text}
-        </p>
-      )}
+      {message && <ResultToast result={message} />}
 
       {open && (
         <fieldset disabled={saving} className="grid grid-cols-1 gap-4 rounded-xl bg-subtle p-4 disabled:opacity-60 sm:grid-cols-2">

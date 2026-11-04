@@ -6,7 +6,8 @@ import { useState, useTransition } from "react";
 import { removeGroupMember, revokeOverride } from "@/app/actions/access-review";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
-import { AlertIcon, CheckCircleIcon, SearchIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
+import { AlertIcon, SearchIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
+import { ResultToast } from "@/components/toast";
 import { alert, btn, card, input, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/types";
@@ -130,12 +131,7 @@ export function ExceptionsTable({ items, expiryEnabled }: { items: AccessExcepti
       {noExpiry > 0 && (
         <p className="text-xs text-muted">{t("accessReview.exceptions.noExpiryCount", { count: noExpiry })}</p>
       )}
-      {result.message && (
-        <p role={result.ok ? "status" : "alert"} className={result.ok ? alert.success : alert.error}>
-          {result.ok ? <CheckCircleIcon className="shrink-0" /> : <AlertIcon className="shrink-0" />}
-          {result.message}
-        </p>
-      )}
+      {result.message && <ResultToast result={result} />}
 
       <p className="text-sm text-muted">{t("accessReview.exceptions.count", { count: shown.length })}</p>
       {shown.length === 0 ? (

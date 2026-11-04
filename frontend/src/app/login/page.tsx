@@ -9,6 +9,7 @@ import { apiFetch, TOKEN_COOKIE } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import type { LoginConnection } from "@/lib/types";
 import { LoginForm } from "./login-form";
+import type { LoginPolicy } from "./policy-consent";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -42,7 +43,12 @@ async function resumeChange(): Promise<LoginState | undefined> {
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { expired, change } = await searchParams;
   const initial = change ? await resumeChange() : undefined;
-  const [{ t }, connections] = await Promise.all([getI18n(), getConnections()]);
+  // นโยบายตั้งแสดงที่หน้า login — อ่านไม่ได้ก็ยังเข้าสู่ระบบได้ (ไปยอมรับที่หน้า /policy-accept แทน)
+  const [{ t }, connections, policy] = await Promise.all([
+    getI18n(),
+    getConnections(),
+    apiFetch<{ data: LoginPolicy | null }>("/policy/public").then((r) => r.data, () => null),
+  ]);
   // ยังไม่รู้ว่าใครเข้าระบบ — แสดงเฉพาะความสามารถที่ผู้ใช้ทุกคน (รวมพนักงานนอกฝ่าย IT) ใช้ได้
   const features = [
     { icon: ClipboardIcon, title: t("auth.feature1") },
@@ -91,7 +97,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           <h2 className="mt-6 text-2xl font-semibold">{t("auth.welcome")}</h2>
           <p className="login-muted mt-1 text-sm">{t("auth.welcomeText")}</p>
           {expired && <p className={`mt-5 ${alert.warning}`}>{t("auth.expired")}</p>}
-          <LoginForm connections={connections} initial={initial} />
+          <LoginForm connections={connections} initial={initial} policy={policy} />
           {/* <p className="login-muted mt-8 text-center text-xs">{t("auth.sessionNote")}</p> */}
         </section>
 

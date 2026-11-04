@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import Form from "next/form";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CheckCircleIcon, PaperclipIcon, PencilIcon, PlusIcon, SearchIcon, TruckIcon } from "@/components/icons";
+import { PaperclipIcon, PencilIcon, PlusIcon, SearchIcon, TruckIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
-import { alert, btn, card, input, table } from "@/components/ui";
+import { FlashToast } from "@/components/toast";
+import { btn, card, input, table } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
@@ -55,12 +56,7 @@ export default async function RepairOrdersPage({ searchParams }: PageProps<"/it/
         }
       />
 
-      {sp.saved === "sent" && (
-        <div role="status" className={alert.success}>
-          <CheckCircleIcon className="shrink-0 text-success-500" />
-          {t("repairOrders.saved")}
-        </div>
-      )}
+      {sp.saved === "sent" && <FlashToast param="saved" message={t("repairOrders.saved")} />}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <nav className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1">

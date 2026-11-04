@@ -14,7 +14,7 @@ import { assetRoutes } from "./routes/assets.js";
 import { authRoutes, loginRoutes } from "./routes/auth.js";
 import { itDataRoutes } from "./routes/it-data.js";
 import { kpiRoutes } from "./routes/kpi.js";
-import { policyRoutes } from "./routes/policy.js";
+import { policyRoutes, publicPolicyRoutes } from "./routes/policy.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { licenseInstallationRoutes } from "./routes/license-installations.js";
 import { licenseRoutes } from "./routes/licenses.js";
@@ -50,7 +50,7 @@ export function createApp() {
   v1.use(requestCache, securityHeaders, locale);
   v1.use(express.json({ limit: "1mb" }), express.urlencoded({ extended: false, limit: "1mb" }), parseInput);
 
-  v1.use(loginRoutes, publicAnnouncementRoutes, publicBrandingRoutes, publicCalendarRoutes);
+  v1.use(loginRoutes, publicAnnouncementRoutes, publicPolicyRoutes, publicBrandingRoutes, publicCalendarRoutes);
   // ทุก endpoint ต่อจากนี้ต้อง login (auth:sanctum) + จำกัด 120 ครั้ง/นาที
   v1.use(auth, limits.api);
   v1.use(authRoutes, assetRoutes, licenseRoutes, locationRoutes, userRoutes, itDataRoutes, ticketRoutes, kpiRoutes, approvalRouteRoutes, licenseInstallationRoutes, announcementRoutes, syncRoutes, apiConnectionRoutes, accessRoutes, orgUnitRoutes, contractCategoryRoutes, dropdownOptionRoutes, brandingRoutes, calendarRoutes, meetingRoutes, vehicleRoutes, zoomRoutes, vendorRoutes, repairOrderRoutes, bookingScopeRoutes, loanRoutes, vpnLoanRoutes, policyRoutes, dashboardRoutes);

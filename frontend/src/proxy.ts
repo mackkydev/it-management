@@ -52,6 +52,8 @@ export function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === "/sync") return next();
   // ลิงก์ iCal ส่วนตัว — Outlook / Google Calendar เรียกโดยไม่มี cookie (ใช้ token ใน URL แทน)
   if (request.nextUrl.pathname.startsWith("/ical/")) return next();
+  // ไฟล์แนบนโยบายที่เปิดจากหน้า login — API ตรวจว่าเปิดใช้และตั้งแสดงที่หน้า login อยู่จริง
+  if (request.nextUrl.pathname.startsWith("/files/policy/public/")) return next();
 
   if (!hasToken && !isLoginPage) {
     return withCsp(NextResponse.redirect(new URL("/login", request.url)));
