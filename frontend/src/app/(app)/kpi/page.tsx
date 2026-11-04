@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Form from "next/form";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AppSelect } from "@/components/app-select";
@@ -7,7 +8,7 @@ import { ChartIcon, SearchIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
-import { btn, card, input } from "@/components/ui";
+import { alert, btn, card, input } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
@@ -42,14 +43,17 @@ export default async function KpiPage({ searchParams }: PageProps<"/kpi">) {
   const str = (k: string) => (typeof params[k] === "string" ? (params[k] as string) : "");
 
   const thisMonth = localToday().slice(0, 7);
-  const month = MONTH_RE.test(str("month")) ? str("month") : thisMonth;
   const viewAll = has(user, "kpi.view_all");
   const userId = viewAll && /^\d+$/.test(str("user_id")) ? Number(str("user_id")) : (user?.id ?? 0);
+  // ตัวเลขเมนูนับทุกเดือน: ไม่ได้เลือกเดือน = เปิดเดือนเก่าสุดที่ยังมีรายการรอกรอก
+  const pending = (await apiFetch<{ data: { month: string; count: number }[] }>(`/kpi/pending-months?user_id=${userId}`)).data;
+  const month = MONTH_RE.test(str("month")) ? str("month") : (pending[0]?.month ?? thisMonth);
   const staff = viewAll ? (await apiFetch<{ data: { id: number; name: string }[] }>("/it-staff")).data : [];
   if (viewAll && user && !staff.some((s) => s.id === user.id)) staff.unshift({ id: user.id, name: user.name });
 
   const monthLabel = new Intl.DateTimeFormat(locale === "th" ? "th-TH" : "en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
   const months = monthOptions(thisMonth).map((m) => ({ value: m, label: monthLabel.format(new Date(`${m}-01T00:00:00Z`)) }));
+  const otherPending = pending.filter((p) => p.month !== month);
 
   return (
     <div className="space-y-5">
@@ -88,6 +92,17 @@ export default async function KpiPage({ searchParams }: PageProps<"/kpi">) {
         </Form>
         {can("btn:kpi:export") && <KpiExport months={months} defaultMonth={month} userId={userId} />}
       </div>
+
+      {otherPending.length > 0 && (
+        <div role="status" className={`${alert.warning} flex-wrap`}>
+          <span>{t("kpi.pendingOther")}</span>
+          {otherPending.map((p) => (
+            <Link key={p.month} href={`/kpi?month=${p.month}&user_id=${userId}`} className="cursor-pointer font-medium underline underline-offset-2">
+              {t("kpi.pendingMonth", { month: monthLabel.format(new Date(`${p.month}-01T00:00:00Z`)), count: p.count })}
+            </Link>
+          ))}
+        </div>
+      )}
 
       <Suspense key={`${month}-${userId}`} fallback={<TableSkeleton cols={10} />}>
         <Sheet month={month} userId={userId} monthText={months.find((m) => m.value === month)?.label ?? month} canCreate={can("btn:kpi:create")} />

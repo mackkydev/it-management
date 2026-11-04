@@ -32,7 +32,9 @@ export async function toActionResult<F extends string>(e: unknown, notFound: Mes
     for (const [field, messages] of Object.entries(e.body.errors)) {
       errors[field as F] = messages[0];
     }
-    return { errors, message: t("common.checkInput") };
+    // ลายเซ็นไม่มีช่องกรอกในหลายฟอร์ม (ใบลา / ปุ่มอนุมัติ) — ต้องบอกเหตุผลจริง ไม่ใช่ "ตรวจสอบข้อมูล"
+    const signature = (errors as Record<string, string | undefined>).signature;
+    return { errors, message: signature ?? t("common.checkInput") };
   }
   if (e.status === 409 && (e.body as { code?: string }).code === "swap_available") {
     return { swap: (e.body as { swap: SwapOffer }).swap, message: e.body.message };

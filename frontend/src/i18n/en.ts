@@ -1576,6 +1576,8 @@ const en: Dictionary = {
   },
   kpi: {
     title: "IT KPI",
+    pendingOther: "KPI items are waiting in other months:",
+    pendingMonth: "{month} ({count})",
     subtitle: "Monthly work log in the KPI form — tickets appear automatically once the IT manager approves the result; just add the service type and complexity",
     month: "Month",
     staff: "Staff",

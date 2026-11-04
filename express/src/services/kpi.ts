@@ -1,5 +1,5 @@
 import { config } from "../config.js";
-import { first, scalar, select } from "../db.js";
+import { first, select } from "../db.js";
 import { dateOnly, localToday } from "../lib/time.js";
 import { trans, type Locale } from "../lib/i18n.js";
 import { datesBetween, holidayCalendarFor, leaveSettings } from "./calendar.js";
@@ -90,14 +90,26 @@ export async function ticketWorkDays(t: WorkSpan, userId: number): Promise<strin
 
 /** ตัวเลขเมนู /kpi = แถวใบงานที่ยังไม่กรอก Complexity (เงื่อนไขเดียวกับชีต) — ใบงานวันเดียวนับ 1, ใบงานหลายวันนับตามวันที่ยังไม่กรอก */
 export async function kpiPendingCount(userId: number): Promise<number> {
+  return (await kpiPendingDates(userId)).length;
+}
+
+/** แถวที่ยังไม่กรอกแยกตามเดือน เรียงจากเดือนเก่าสุด — ตัวเลขเมนูนับทุกเดือน แต่หน้า KPI แสดงทีละเดือน */
+export async function kpiPendingMonths(userId: number): Promise<{ month: string; count: number }[]> {
+  const counts = new Map<string, number>();
+  for (const d of await kpiPendingDates(userId)) counts.set(d.slice(0, 7), (counts.get(d.slice(0, 7)) ?? 0) + 1);
+  return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, count]) => ({ month, count }));
+}
+
+/** วันที่ (เวลาไทย) ของแถวใบงานแต่ละแถวที่ยังไม่กรอก Complexity — วันเดียวกับที่แถวนั้นขึ้นในชีต */
+async function kpiPendingDates(userId: number): Promise<string[]> {
   const mine = "(t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?)) AND t.status IN (?)";
-  const single = Number(
-    await scalar(
-      `SELECT COUNT(*) FROM it_tickets t WHERE ${mine} AND NOT ${MULTI_DAY_SQL}
+  const single = (
+    await select<{ requested_at: string }>(
+      `SELECT t.requested_at FROM it_tickets t WHERE ${mine} AND NOT ${MULTI_DAY_SQL}
           AND NOT EXISTS (SELECT 1 FROM kpi_entries k WHERE k.ticket_id = t.id AND k.user_id = ? AND k.complexity > 0)`,
       [userId, userId, KPI_TICKET_STATUSES, userId],
-    ),
-  );
+    )
+  ).map((t) => localDateOf(t.requested_at));
   const multi = await select<WorkSpan & { id: number }>(
     `SELECT t.id, t.work_start_on, t.completed_on, t.work_skip_off_days FROM it_tickets t WHERE ${mine} AND ${MULTI_DAY_SQL}`,
     [userId, userId, KPI_TICKET_STATUSES],
@@ -111,7 +123,7 @@ export async function kpiPendingCount(userId: number): Promise<number> {
   const spans = multi.map((t) => spanOf(t)!);
   const range = spanRange(spans);
   const off = await offDayTest(userId, range.from, range.to);
-  return single + multi.reduce((n, t, i) => n + daysOf(t, spans[i], off).filter((d) => !done.has(`${t.id}:${d}`)).length, 0);
+  return [...single, ...multi.flatMap((t, i) => daysOf(t, spans[i], off).filter((d) => !done.has(`${t.id}:${d}`)))];
 }
 
 export type KpiRowKind = "ticket" | "work" | "holiday";

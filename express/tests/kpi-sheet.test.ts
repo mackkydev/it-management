@@ -130,6 +130,8 @@ describe("KPI multi-day tickets", () => {
     const badge = async (u: typeof staff) => (await (await as(u)).get("/api/v1/menu-badges")).body.data["/kpi"];
     expect(await badge(staff)).toBe(7);
     expect(await badge(helper)).toBe(3);
+    // แยกเดือนได้ และผลรวมตรงกับตัวเลขเมนู (เดือนละแถวตามที่ขึ้นในชีต)
+    expect((await api.get("/api/v1/kpi/pending-months")).body.data).toEqual([{ month: "2025-10", count: 6 }, { month: "2025-11", count: 1 }]);
 
     // บันทึกรายวัน: ต้องระบุวันของแถว และต้องเป็นวันปฏิบัติงาน (เสาร์ที่ไม่นับ = ไม่ได้)
     expect((await api.put(`/api/v1/kpi/tickets/${design.uuid}`).send({ complexity: 2 })).status).toBe(422);
@@ -146,6 +148,29 @@ describe("KPI multi-day tickets", () => {
     expect(await badge(staff)).toBe(5);
     // ผู้ร่วมดำเนินการกรอกแยกของตัวเอง
     expect(await badge(helper)).toBe(3);
+  });
+
+  it("pending months: the menu count spans months, and each pending ticket shows up on the month reported", async () => {
+    const staff = await makeUser({ is_it_staff: true });
+    const requester_id = (await makeUser()).id;
+    const api = await as(staff);
+    const empty = await api.get("/api/v1/kpi/pending-months");
+    expect(empty.body.data).toEqual([]);
+    // แจ้งเดือนก่อน ยังรอผู้แจ้งรับงาน + เดือนถัดไป (23:30 เวลาไทยของ 31 ต.ค. ยังนับเป็น ต.ค.)
+    const oct = await ticket({ requester_id, assignee_id: staff.id, status: "pending_requester", requested_at: "2025-10-31 16:30:00" });
+    const nov = await ticket({ requester_id, assignee_id: staff.id, status: "completed", requested_at: "2025-11-03 03:00:00" });
+    await ticket({ requester_id, assignee_id: staff.id, status: "in_progress", requested_at: "2025-09-03 03:00:00" }); // ยังไม่อนุมัติผล = ไม่นับ
+    expect((await api.get("/api/v1/kpi/pending-months")).body.data).toEqual([{ month: "2025-10", count: 1 }, { month: "2025-11", count: 1 }]);
+    expect((await api.get("/api/v1/menu-badges")).body.data["/kpi"]).toBe(2);
+    const rows = (await api.get("/api/v1/kpi/month?month=2025-10")).body.data as { ticket: { id: string } | null }[];
+    expect(rows.filter((r) => r.ticket).map((r) => r.ticket!.id)).toEqual([oct.uuid]);
+
+    // กรอกแล้วหายจากรายการเดือนนั้น
+    await api.put(`/api/v1/kpi/tickets/${oct.uuid}`).send({ complexity: 2 });
+    await api.put(`/api/v1/kpi/tickets/${nov.uuid}`).send({ complexity: 0 });
+    expect((await api.get("/api/v1/kpi/pending-months")).body.data).toEqual([{ month: "2025-11", count: 1 }]);
+    // ดูของคนอื่นต้องมีสิทธิ์เหมือนหน้าชีต
+    expect((await (await as(await makeUser())).get(`/api/v1/kpi/pending-months?user_id=${staff.id}`)).status).toBe(403);
   });
 
   it("records the working period with the result (start ≤ completion, ≤ 62 days, same day = single row)", async () => {

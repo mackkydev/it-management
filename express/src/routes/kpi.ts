@@ -8,8 +8,7 @@ import { me, pageParam, shortMeta } from "../http.js";
 import { can, findUser, type UserRow } from "../models/user.js";
 import { buildKpiWorkbook, fiscalYear, monthsBetween } from "../services/kpi-export.js";
 import {
-  COMPLEXITY_VALUES, KPI_TICKET_STATUSES, kpiMonthRows, kpiTotals, localDateOf, markOf, SERVICE_TYPE_NAMES, SERVICE_TYPES, SERVICE_TYPE_NOTE, ticketWorkDays,
-} from "../services/kpi.js";
+  COMPLEXITY_VALUES, KPI_TICKET_STATUSES, kpiMonthRows, kpiTotals, localDateOf, markOf, SERVICE_TYPE_NAMES, SERVICE_TYPES, SERVICE_TYPE_NOTE, ticketWorkDays, kpiPendingMonths } from "../services/kpi.js";
 
 /**
  * KPI ฝ่าย IT ตามไฟล์ Template-KPI-IT (Part2 Details) — เฉพาะฝ่าย IT (สิทธิ์ kpi.use)
@@ -138,6 +137,13 @@ function assertCompletedAfter(req: Request, workDate: string | null, completed: 
 /* ---------------------------------------------------------------- ตารางรายเดือน */
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** เดือนที่ยังมีแถวใบงานรอกรอก — หน้า KPI เปิดเดือนเก่าสุดให้ และแจ้งเดือนอื่น (ตัวเลขเมนูนับรวมทุกเดือน) */
+kpiRoutes.get("/kpi/pending-months", async (req, res) => {
+  const f = await validate(req.input, { user_id: ["nullable", "integer"] }, { locale: req.locale });
+  const owner = await ownerFor(req, f.user_id);
+  res.json({ data: await kpiPendingMonths(owner.id) });
+});
 
 kpiRoutes.get("/kpi/month", async (req, res) => {
   const f = await validate(req.input, { user_id: ["nullable", "integer"], month: ["required", "string", regex(MONTH)] }, { locale: req.locale });
