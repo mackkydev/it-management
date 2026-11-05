@@ -6,7 +6,8 @@ import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
 import { useConfirm } from "@/components/dialog-provider";
 import { DocumentPicker, PhotoPicker } from "@/components/file-pickers";
-import { ChevronDownIcon, FileTextIcon, PencilIcon, PlusIcon, ResetIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { ChevronDownIcon, EyeIcon, FileTextIcon, PencilIcon, PlusIcon, ResetIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { NewsReader } from "@/components/news-reader";
 import { RichText } from "@/components/rich-text";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { Tooltip } from "@/components/tooltip";
@@ -50,7 +51,7 @@ function repeatLabel(a: Announcement, t: TFunction): string | null {
   return null;
 }
 
-/** จัดการประกาศข่าวสาร (แสดงที่หน้าภาพรวม) — ฟอร์มเพิ่ม/แก้ไขด้านบน รายการแบบย่อด้านล่าง (กดหัวข้อเพื่อขยาย) */
+/** จัดการประกาศข่าวสาร (แสดงที่หน้าภาพรวม) — ฟอร์มเพิ่ม/แก้ไขด้านบน รายการแบบย่อด้านล่าง (กดหัวข้อเพื่อขยาย; แท็บผ่านไปแล้ว = เปิดกล่องอ่านฉบับเต็ม) */
 export function AnnouncementsManager({ items }: { items: Announcement[] }) {
   const { t, fmt } = useI18n();
   const confirm = useConfirm();
@@ -64,6 +65,7 @@ export function AnnouncementsManager({ items }: { items: Announcement[] }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [reading, setReading] = useState<Announcement | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [pending, start] = useTransition();
   const today = localToday();
@@ -164,10 +166,21 @@ export function AnnouncementsManager({ items }: { items: Announcement[] }) {
   );
   const existingCover = editing?.cover_url && !removeCover && cover.length === 0 ? editing.cover_url : null;
   const existingFiles = editing?.files.filter((f) => !removedFiles.includes(f.id)) ?? [];
+  /** ช่วงที่แสดง · การทำซ้ำ · ลำดับ · ผู้สร้าง */
+  const metaOf = (a: Announcement) =>
+    [
+      a.starts_on || a.ends_on ? t("announcements.period", { from: a.starts_on ? fmt.date(a.starts_on) : "–", to: a.ends_on ? fmt.date(a.ends_on) : "–" }) : t("announcements.noPeriod"),
+      repeatLabel(a, t),
+      t("announcements.order", { n: String(a.sort_order) }),
+      a.created_by?.name,
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
   return (
     <div className="space-y-5">
       {feedback?.text && <ResultToast result={feedback} />}
+      {reading && <NewsReader title={reading.title} body={reading.body} cover={reading.cover_url} files={reading.files} meta={metaOf(reading)} onClose={() => setReading(null)} />}
 
       {open ? (
         <section className={`space-y-4 p-4 sm:p-6 ${card}`}>
@@ -350,23 +363,35 @@ export function AnnouncementsManager({ items }: { items: Announcement[] }) {
         <ul className="space-y-2.5">
           {shown.map((a) => {
             const state = showState(a, today);
-            const isOpen = expanded === a.id;
-            const repeat = repeatLabel(a, t);
+            const ended = state === "ended";
+            const isOpen = !ended && expanded === a.id;
             return (
               <li key={a.id} className={`relative overflow-hidden ${card}`}>
                 <span className={`absolute inset-y-0 left-0 w-1 ${LEVEL_TONE[a.level].dot}`} aria-hidden="true" />
                 <div className="flex items-center gap-2 py-2 pl-4 pr-3">
-                  <button type="button" onClick={() => setExpanded(isOpen ? null : a.id)} aria-expanded={isOpen} className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg py-1.5 pl-1 text-left">
-                    <ChevronDownIcon width={16} height={16} className={`shrink-0 text-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                  <button
+                    type="button"
+                    onClick={() => (ended ? setReading(a) : setExpanded(isOpen ? null : a.id))}
+                    aria-expanded={ended ? undefined : isOpen}
+                    aria-haspopup={ended ? "dialog" : undefined}
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg py-1.5 pl-1 text-left"
+                  >
+                    {!ended && <ChevronDownIcon width={16} height={16} className={`shrink-0 text-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />}
                     <span className="min-w-0 truncate font-medium">{a.title}</span>
                     <span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${STATE_TONE[state].badge}`}>{t(`announcements.states.${state}`)}</span>
                   </button>
-                  <span className="flex shrink-0 items-center gap-0.5">
-                    {state === "ended" ? (
-                      <button type="button" onClick={() => openForm(a)} disabled={pending} className={`${btn.soft} ${btn.sm} disabled:cursor-not-allowed`}>
-                        <ResetIcon width={13} height={13} />
-                        {t("announcements.reuse")}
-                      </button>
+                  <span className="flex shrink-0 items-center gap-1">
+                    {ended ? (
+                      <>
+                        <button type="button" onClick={() => setReading(a)} aria-label={t("announcements.viewDetails")} aria-haspopup="dialog" className={`${btn.secondary} ${btn.sm}`}>
+                          <EyeIcon width={13} height={13} />
+                          <span className="hidden sm:inline">{t("announcements.viewDetails")}</span>
+                        </button>
+                        <button type="button" onClick={() => openForm(a)} disabled={pending} className={`${btn.soft} ${btn.sm} disabled:cursor-not-allowed`}>
+                          <ResetIcon width={13} height={13} />
+                          {t("announcements.reuse")}
+                        </button>
+                      </>
                     ) : (
                       <Tooltip label={t("common.edit")}>
                         <button type="button" onClick={() => openForm(a)} disabled={pending} aria-label={t("common.edit")} className={ICON_BTN}>
@@ -402,14 +427,7 @@ export function AnnouncementsManager({ items }: { items: Announcement[] }) {
                         ))}
                       </ul>
                     )}
-                    <p className="text-xs text-faint">
-                      {a.starts_on || a.ends_on
-                        ? t("announcements.period", { from: a.starts_on ? fmt.date(a.starts_on) : "–", to: a.ends_on ? fmt.date(a.ends_on) : "–" })
-                        : t("announcements.noPeriod")}
-                      {repeat && ` · ${repeat}`}
-                      {` · ${t("announcements.order", { n: String(a.sort_order) })}`}
-                      {a.created_by && ` · ${a.created_by.name}`}
-                    </p>
+                    <p className="text-xs text-faint">{metaOf(a)}</p>
                   </div>
                 )}
               </li>

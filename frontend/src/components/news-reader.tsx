@@ -6,8 +6,8 @@ import { RichText } from "@/components/rich-text";
 import { useI18n } from "@/i18n/client";
 import type { NewsAnnouncement } from "@/lib/types";
 
-/** กล่องอ่านข่าวฉบับเต็ม: รูปหน้าปก + รายละเอียด + เอกสารแนบ (หน้าภาพรวม / หน้าต่างสรุปหลัง login) */
-export function NewsReader({ title, body, cover, files, onClose }: { title: string; body: string | null; cover: string | null; files: NewsAnnouncement["files"]; onClose: () => void }) {
+/** กล่องอ่านข่าวฉบับเต็ม: รูปหน้าปก + รายละเอียด + เอกสารแนบ (หน้าภาพรวม / หน้าต่างสรุปหลัง login / แท็บผ่านไปแล้วของหน้าจัดการ — meta = ข้อมูลการแสดงท้ายกล่อง) */
+export function NewsReader({ title, body, cover, files, meta, onClose }: { title: string; body: string | null; cover: string | null; files: NewsAnnouncement["files"]; meta?: string; onClose: () => void }) {
   const { t } = useI18n();
   return (
     <ModalShell id="news-read" size="xl" title={title} onClose={onClose}>
@@ -35,6 +35,7 @@ export function NewsReader({ title, body, cover, files, onClose }: { title: stri
             </ul>
           </div>
         )}
+        {meta && <p className="text-xs text-faint">{meta}</p>}
       </div>
     </ModalShell>
   );

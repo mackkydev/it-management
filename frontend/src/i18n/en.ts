@@ -3120,6 +3120,7 @@ const en: Dictionary = {
     noPeriod: "Always shown",
     order: "Order {n}",
     reuse: "Use again",
+    viewDetails: "View details",
     repeatModes: { none: "No repeat (by date range)", daily: "Every day", weekly: "Every week", monthly: "Every month", yearly: "Every year" },
     repeatLabel: { daily: "Repeats every day", weekly: "Repeats every {day}", monthly: "Repeats on day {day} of each month", yearly: "Repeats every {month} {day}" },
     weekdays: { 0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday" },
