@@ -20,10 +20,15 @@ const eslintConfig = defineConfig([
           selector: "TemplateElement[value.raw=/@page/], Literal[value=/@page/]",
           message: "ตั้งหน้ากระดาษด้วย DOCUMENT_PRINT_CSS / SHEET_PRINT_CSS จาก lib/print-page.ts — ดูกฎใน CLAUDE.md",
         },
+        // ทุกเอกสารต้องใช้เทมเพลตกลาง หน้าตาจะได้เหมือนกันทั้งระบบ
+        {
+          selector: 'CallExpression[callee.object.name="window"][callee.property.name="print"]',
+          message: "สั่งพิมพ์ผ่าน PrintDocument / PrintToolbar (components/document-template.tsx) หรือ PrintModal — ดูกฎใน CLAUDE.md",
+        },
       ],
     },
   },
-  { files: ["src/lib/print-page.ts", "eslint.config.mjs"], rules: { "no-restricted-syntax": "off" } },
+  { files: ["src/lib/print-page.ts", "src/components/document-template.tsx", "eslint.config.mjs"], rules: { "no-restricted-syntax": "off" } },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

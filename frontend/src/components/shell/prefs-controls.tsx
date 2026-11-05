@@ -110,7 +110,7 @@ export function ThemePicker() {
       </div>
       <div role="radiogroup" aria-label={t("prefs.theme")} className="flex flex-wrap gap-2">
         {PRESET_THEMES.map((th) => (
-          <Tooltip key={th} label={t(`prefs.themes.${th}`)} side="top">
+          <Tooltip key={th} label={t(`prefs.themes.${th}`)}>
             <button
               type="button"
               role="radio"
@@ -125,7 +125,7 @@ export function ThemePicker() {
           </Tooltip>
         ))}
         {/* กำหนดเอง: วงล้อสีรุ้ง (หรือสีที่เลือกไว้) */}
-        <Tooltip label={t("prefs.themes.custom")} side="top">
+        <Tooltip label={t("prefs.themes.custom")}>
           <button
             type="button"
             role="radio"
@@ -158,7 +158,7 @@ function CustomColor({ accent, onChange }: { accent: string; onChange: (hex: str
   return (
     <div className="mt-2 space-y-2 rounded-xl bg-subtle p-2.5">
       <div className="flex items-center gap-2">
-        <Tooltip label={t("prefs.customPick")} side="top">
+        <Tooltip label={t("prefs.customPick")}>
           <label className="relative h-9 w-9 shrink-0 cursor-pointer overflow-hidden rounded-lg ring-1 ring-line">
             <span className="absolute inset-0" style={{ backgroundColor: accent }} />
             <input
@@ -191,7 +191,7 @@ function CustomColor({ accent, onChange }: { accent: string; onChange: (hex: str
       <div className="flex items-center gap-1.5">
         <span className="text-[11px] text-muted">{t("prefs.customSuggest")}</span>
         {CUSTOM_SUGGESTIONS.map((hex) => (
-          <Tooltip key={hex} label={<span className="font-mono">{hex.toUpperCase()}</span>} side="top">
+          <Tooltip key={hex} label={<span className="font-mono">{hex.toUpperCase()}</span>}>
             <button
               type="button"
               onClick={() => onChange(hex)}

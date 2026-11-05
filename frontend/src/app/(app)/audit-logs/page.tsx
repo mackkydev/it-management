@@ -64,7 +64,7 @@ export default async function AuditLogsPage({ searchParams }: PageProps<"/audit-
         <DateInput name="from" defaultValue={str("from")} aria-label={t("audit.from")} className={input} />
         <DateInput name="to" defaultValue={str("to")} aria-label={t("audit.to")} className={input} />
         <div className="flex gap-2">
-          <Tooltip label={t("common.clearFilters")} side="top">
+          <Tooltip label={t("common.clearFilters")}>
             <Link href="/audit-logs" className={`${btn.secondary} h-full`} aria-label={t("common.clearFilters")}>
               <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
             </Link>

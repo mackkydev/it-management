@@ -476,7 +476,7 @@ function MobileBar({ onOpen, user }: { onOpen: () => void; user: User }) {
       </button>
       <Logo />
       <div className="flex items-center gap-1">
-        <NotificationBell tooltipSide="bottom" />
+        <NotificationBell />
         <Link href="/profile" aria-label={t("nav.profile")} className="cursor-pointer">
           <Avatar user={user} size="sm" />
         </Link>
@@ -631,7 +631,7 @@ export function AppShell({ layout, user, uiConfig, children }: { layout: Layout;
               <Logo />
               <TopNav groups={groups} />
               <div className="ml-auto flex items-center gap-2">
-                <NotificationBell tooltipSide="bottom" />
+                <NotificationBell />
                 <AvatarMenu user={user} />
               </div>
             </div>

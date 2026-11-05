@@ -842,6 +842,8 @@ const en: Dictionary = {
     title: "Document",
     download: "Download",
     noPreview: "This file type cannot be opened here. Download it to view.",
+    downloadHint: "Save this file to your device with the download button.",
+    open: "Click to view document",
   },
   policyPage: {
     subtitle: "The latest policy and other company policy documents",
@@ -1138,12 +1140,6 @@ const en: Dictionary = {
     sigStaff: "IT staff",
     sigHead: "IT manager",
     sigRequester: "Requester",
-    toolbar: {
-      close: "Close",
-      print: "Print",
-      pdf: "Save as PDF",
-      pdfHint: "Save as PDF: choose “Save as PDF” as the destination in the print dialog",
-    },
   },
   tickets: {
     // Other → VPN access request (always offered — date range + a starter text in the purpose)

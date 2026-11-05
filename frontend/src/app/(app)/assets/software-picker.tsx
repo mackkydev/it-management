@@ -2,6 +2,7 @@
 
 import { useState, type KeyboardEvent } from "react";
 import { AlertIcon, ExternalLinkIcon, PlusIcon, SearchIcon, XIcon } from "@/components/icons";
+import { Tooltip } from "@/components/tooltip";
 import { btn } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { SoftwareOption, SoftwareRef, SoftwareType } from "@/lib/types";
@@ -187,17 +188,23 @@ export function SoftwareSlotPicker({ id, options, value, legacy, exclude, instal
   if (legacy && !searching) {
     return (
       <div className={`${className} flex items-center gap-1.5`}>
-        <span className="flex min-w-0 flex-1 items-center gap-1.5" title={t("assets.software.legacyHint")}>
-          <AlertIcon width={13} height={13} className="shrink-0 text-warning-500" />
-          <span className="truncate">{legacy}</span>
-        </span>
+        <Tooltip label={t("assets.software.legacyHint")} className="min-w-0 flex-1">
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+            <AlertIcon width={13} height={13} className="shrink-0 text-warning-500" />
+            <span className="truncate">{legacy}</span>
+          </span>
+        </Tooltip>
         {/* ปุ่มไอคอนเล็ก — ให้ข้อความเดิมมีที่แสดงแม้ช่องแคบ */}
-        <button type="button" onClick={() => setSearching(true)} title={t("assets.software.link")} aria-label={t("assets.software.link")} className={`${btn.soft} ${btn.sm} shrink-0 px-1.5 py-1`}>
-          <SearchIcon width={12} height={12} />
-        </button>
-        <button type="button" onClick={onClearLegacy} title={t("common.clear")} aria-label={t("common.clear")} className={`${btn.danger} ${btn.sm} shrink-0 px-1.5 py-1`}>
-          <XIcon width={12} height={12} />
-        </button>
+        <Tooltip label={t("assets.software.link")} className="shrink-0">
+          <button type="button" onClick={() => setSearching(true)} aria-label={t("assets.software.link")} className={`${btn.soft} ${btn.sm} shrink-0 px-1.5 py-1`}>
+            <SearchIcon width={12} height={12} />
+          </button>
+        </Tooltip>
+        <Tooltip label={t("common.clear")} className="shrink-0">
+          <button type="button" onClick={onClearLegacy} aria-label={t("common.clear")} className={`${btn.danger} ${btn.sm} shrink-0 px-1.5 py-1`}>
+            <XIcon width={12} height={12} />
+          </button>
+        </Tooltip>
       </div>
     );
   }

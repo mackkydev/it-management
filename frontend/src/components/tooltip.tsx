@@ -1,63 +1,71 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 
-type Side = "right" | "top" | "bottom";
+/** ระยะห่างจากปุ่ม / ระยะห่างขั้นต่ำจากขอบจอ */
+const GAP = 10;
+const EDGE = 6;
 
-interface Pos {
-  left: number;
+interface Anchor {
+  x: number;
   top: number;
+  bottom: number;
 }
 
 /**
- * Tooltip สวยๆ แบบ inverted (พื้นเข้ม/ตัวอักษรสว่าง ตามโหมดสว่าง–มืดอัตโนมัติ) พร้อมลูกศรและ animation
+ * Tooltip สวยๆ แบบ inverted (พื้นเข้ม/ตัวอักษรสว่าง ตามโหมดสว่าง–มืดอัตโนมัติ) พร้อมลูกศรและ animation — แสดงด้านบนเสมอ (กฎใน CLAUDE.md)
+ * - เลื่อนซ้าย-ขวาไม่ให้ล้นขอบจอ (ลูกศรยังชี้ที่ปุ่ม), ปุ่มชิดขอบบนจนไม่มีที่ = แสดงด้านล่างเฉพาะกรณีนั้น
  * - render ผ่าน portal ด้วย position: fixed จึงไม่ถูกตัดโดยกล่องที่ overflow (เช่น sidebar ที่ scroll ได้)
  * - แสดงทั้งตอน hover และตอนโฟกัสด้วยคีย์บอร์ด, ซ่อนเมื่อ scroll
  */
 export function Tooltip({
   label,
-  side = "right",
   disabled = false,
   className = "",
   children,
 }: {
   label: ReactNode;
-  side?: Side;
   disabled?: boolean;
   /** class เพิ่มของกล่องที่ครอบ (เช่น flex-1 ให้ครอบทั้งช่อง) */
   className?: string;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const [pos, setPos] = useState<Pos | null>(null);
+  const tipRef = useRef<HTMLSpanElement>(null);
+  const arrowRef = useRef<HTMLSpanElement>(null);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
   const id = useId();
 
-  const show = () => {
+  const show = (e: SyntheticEvent) => {
     const el = ref.current;
-    if (!el || disabled) return;
+    // เหตุการณ์จาก popup ที่เปิดจากปุ่มนี้ (portal) ส่งต่อมาตาม React tree — ไม่ใช่การชี้ที่ปุ่มจริง
+    if (!el || disabled || !el.contains(e.target as Node)) return;
     const r = el.getBoundingClientRect();
-    const gap = 10;
-    if (side === "right") setPos({ left: r.right + gap, top: r.top + r.height / 2 });
-    else if (side === "top") setPos({ left: r.left + r.width / 2, top: r.top - gap });
-    else setPos({ left: r.left + r.width / 2, top: r.bottom + gap });
+    setAnchor({ x: r.left + r.width / 2, top: r.top, bottom: r.bottom });
   };
-  const hide = () => setPos(null);
+  const hide = () => setAnchor(null);
 
   useEffect(() => {
-    if (!pos) return;
+    if (!anchor) return;
     window.addEventListener("scroll", hide, true);
     return () => window.removeEventListener("scroll", hide, true);
-  }, [pos]);
+  }, [anchor]);
 
-  const transform =
-    side === "right" ? "translateY(-50%)" : side === "top" ? "translate(-50%, -100%)" : "translate(-50%, 0)";
-  const arrow =
-    side === "right"
-      ? "left-0 top-1/2 -translate-x-1/2 -translate-y-1/2"
-      : side === "top"
-        ? "left-1/2 top-full -translate-x-1/2 -translate-y-1/2"
-        : "left-1/2 top-0 -translate-x-1/2 -translate-y-1/2";
+  // วัดขนาดจริงก่อนวาด แล้วขยับให้อยู่ในจอ
+  useLayoutEffect(() => {
+    const tip = tipRef.current;
+    const arrow = arrowRef.current;
+    if (!anchor || !tip || !arrow) return;
+    const half = tip.offsetWidth / 2;
+    const left = Math.max(EDGE + half, Math.min(anchor.x, window.innerWidth - EDGE - half));
+    const below = anchor.top - GAP - tip.offsetHeight < EDGE;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${below ? anchor.bottom + GAP : anchor.top - GAP}px`;
+    tip.style.transform = below ? "translate(-50%, 0)" : "translate(-50%, -100%)";
+    arrow.style.left = `${anchor.x - left + half}px`;
+    arrow.style.top = below ? "0" : "100%";
+  }, [anchor]);
 
   return (
     <span
@@ -68,17 +76,15 @@ export function Tooltip({
       onFocus={show}
       onBlur={hide}
       onPointerDown={hide} // คลิกแล้วซ่อน (เช่น ปุ่มที่เปิดเมนู ไม่ให้ tooltip ทับเมนู)
-      aria-describedby={pos && !disabled ? id : undefined}
+      aria-describedby={anchor && !disabled ? id : undefined}
     >
       {children}
-      {pos &&
+      {anchor &&
         !disabled &&
         createPortal(
-          <span role="tooltip" id={id} className="pointer-events-none fixed z-[100]" style={{ left: pos.left, top: pos.top, transform }}>
-            <span
-              className={`tooltip-in tooltip-${side} relative block whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 text-xs font-medium text-canvas shadow-lg shadow-black/15 ring-1 ring-white/10`}
-            >
-              <span className={`absolute h-2 w-2 rotate-45 bg-ink ${arrow}`} aria-hidden="true" />
+          <span ref={tipRef} role="tooltip" id={id} className="pointer-events-none fixed z-[100] w-max max-w-[min(24rem,calc(100vw-1rem))]" style={{ left: anchor.x, top: anchor.top - GAP, transform: "translate(-50%, -100%)" }}>
+            <span className="tooltip-in tooltip-top relative block rounded-lg bg-ink px-2.5 py-1.5 text-xs font-medium text-canvas shadow-lg shadow-black/15 ring-1 ring-white/10">
+              <span ref={arrowRef} className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-ink" aria-hidden="true" />
               <span className="relative">{label}</span>
             </span>
           </span>,

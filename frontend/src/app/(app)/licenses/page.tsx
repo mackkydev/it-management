@@ -97,7 +97,7 @@ export default async function LicensesPage({ searchParams }: PageProps<"/license
           <input name="search" defaultValue={search} placeholder={t("licenses.searchPlaceholder")} maxLength={100} className={`${input} pl-9`} />
         </div>
         <div className="flex gap-2">
-          <Tooltip label={t("common.clearFilters")} side="top">
+          <Tooltip label={t("common.clearFilters")}>
             <Link href={tabHref(type)} className={`${btn.secondary} h-full`} aria-label={t("common.clearFilters")}>
               <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
             </Link>

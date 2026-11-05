@@ -93,7 +93,7 @@ export default async function MovementsPage({ searchParams }: PageProps<"/moveme
         <DateInput name="from" defaultValue={str("from")} placeholder={t("movements.from")} aria-label={t("movements.from")} className={input} />
         <DateInput name="to" defaultValue={str("to")} placeholder={t("movements.to")} aria-label={t("movements.to")} className={input} />
         <div className="flex gap-2 sm:col-span-2 lg:col-span-1">
-          <Tooltip label={t("common.clearFilters")} side="top">
+          <Tooltip label={t("common.clearFilters")}>
             <Link href="/movements" className={`${btn.secondary} h-full`} aria-label={t("common.clearFilters")}>
               <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
             </Link>

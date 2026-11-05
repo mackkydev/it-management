@@ -74,7 +74,7 @@ export function LicenseIcon({
 
   return (
     <span className="relative shrink-0">
-      <Tooltip label={t(iconId ? "licenses.icon.change" : "licenses.icon.upload")} side="top">
+      <Tooltip label={t(iconId ? "licenses.icon.change" : "licenses.icon.upload")}>
         <button
           type="button"
           onClick={() => input.current?.click()}
@@ -92,7 +92,7 @@ export function LicenseIcon({
       </Tooltip>
       <input ref={input} type="file" accept={ACCEPT} className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
       {removable && iconId && (
-        <Tooltip label={t("licenses.icon.delete")} side="top">
+        <Tooltip label={t("licenses.icon.delete")}>
           <button
             type="button"
             onClick={remove}

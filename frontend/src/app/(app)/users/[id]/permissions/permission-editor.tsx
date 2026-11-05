@@ -150,7 +150,7 @@ export function PermissionEditor({ initial, catalog, superAdmin }: { initial: Us
               </label>
             );
             return blocked && role !== r ? (
-              <Tooltip key={r} label={blocked} side="top">
+              <Tooltip key={r} label={blocked}>
                 {option}
               </Tooltip>
             ) : (
@@ -256,7 +256,7 @@ export function PermissionEditor({ initial, catalog, superAdmin }: { initial: Us
                         />
                       </div>
                     )}
-                    <Tooltip label={t("access.inherit")} side="top">
+                    <Tooltip label={t("access.inherit")}>
                       <button type="button" onClick={() => setChoices((s) => ({ ...s, [p.key]: "inherit" }))} disabled={readOnly} aria-label={t("access.inherit")} className={`${btn.secondary} ${btn.sm} px-2`}>
                         <XIcon width={12} height={12} className="text-faint" />
                       </button>

@@ -203,7 +203,7 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
                 </div>
               ) : (
                 <div className="flex items-center gap-3">
-                  <Tooltip label={t("orgUnits.sortHint")} side="top">
+                  <Tooltip label={t("orgUnits.sortHint")}>
                     <span className="w-10 text-xs tabular-nums text-faint">{u.sort_order}</span>
                   </Tooltip>
                   <span className="flex flex-1 flex-wrap items-center gap-2 font-medium">

@@ -159,7 +159,7 @@ export function BranchManager({ branches }: { branches: Branch[] }) {
                         {t("common.edit")}
                       </button>
                       {(b.users_count ?? 0) + (b.tickets_count ?? 0) > 0 ? (
-                        <Tooltip label={t("branches.deleteBlocked")} side="top">
+                        <Tooltip label={t("branches.deleteBlocked")}>
                           <button type="button" disabled className={`${btn.danger} ${btn.sm}`} aria-label={t("common.delete")}>
                             <TrashIcon width={13} height={13} />
                           </button>

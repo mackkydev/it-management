@@ -137,7 +137,7 @@ export function MonthBarGrid({
                 className="absolute z-10"
                 style={{ top: HEAD_PX + s.lane * LANE_PX, left: `calc(${(s.col / 7) * 100}% + 3px)`, width: `calc(${(s.span / 7) * 100}% - 6px)` }}
               >
-                <Tooltip side="bottom" className="flex w-full" label={s.bar.detail}>
+                <Tooltip className="flex w-full" label={s.bar.detail}>
                   <button
                     type="button"
                     onClick={s.bar.onClick}

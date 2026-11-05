@@ -140,7 +140,6 @@ export function ZoomCalendar({ month: initialMonth, initialBookings, accounts = 
                 {/* แถบ 1 แถบต่อการจอง (เวลาเริ่ม + หัวข้อ) — คลิกได้ที่วันอย่างเดียว (เข้าไทม์ไลน์), ชี้ที่วัน = รายการทั้งหมดของวันนั้นทีละบรรทัด */}
                 {list.length > 0 && (
                   <Tooltip
-                    side="bottom"
                     className="block min-w-0"
                     label={
                       <span className="block space-y-0.5 text-left">

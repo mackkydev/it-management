@@ -81,13 +81,13 @@ function RevealVpn({ id }: { id: string }) {
   return (
     <div className="flex items-center gap-1">
       <code className="min-w-24 rounded-lg bg-subtle px-2 py-1 font-mono text-xs">{value === null ? "••••••••••" : value}</code>
-      <Tooltip label={value === null ? t("vault.reveal") : t("vault.hide")} side="top">
+      <Tooltip label={value === null ? t("vault.reveal") : t("vault.hide")}>
         <button type="button" onClick={() => (value === null ? reveal() : setValue(null))} disabled={pending} aria-label={value === null ? t("vault.reveal") : t("vault.hide")} className={iconBtn}>
           {pending ? <SpinnerIcon width={14} height={14} /> : value === null ? <EyeIcon width={15} height={15} /> : <EyeOffIcon width={15} height={15} />}
         </button>
       </Tooltip>
       {value !== null && (
-        <Tooltip label={copied ? t("vault.copied", { seconds: clearIn }) : t("vault.copy")} side="top">
+        <Tooltip label={copied ? t("vault.copied", { seconds: clearIn }) : t("vault.copy")}>
           <button type="button" onClick={copy} aria-label={t("vault.copy")} className={iconBtn}>
             {copied ? <CheckIcon width={15} height={15} className="text-success-500" /> : <CopyIcon width={15} height={15} />}
           </button>

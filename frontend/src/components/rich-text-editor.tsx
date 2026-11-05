@@ -10,7 +10,7 @@ const TOOL = "flex h-8 min-w-8 cursor-pointer items-center justify-center rounde
 
 function Tool({ label, disabled, onClick, children }: { label: string; disabled: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <Tooltip label={label} side="top">
+    <Tooltip label={label}>
       <button type="button" onClick={onClick} disabled={disabled} aria-label={label} className={TOOL}>
         {children}
       </button>

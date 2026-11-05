@@ -84,7 +84,7 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
           (canCreate || canExport) && (
             <div className="flex flex-wrap gap-2">
               {canExport && (
-                <Tooltip label={t("assets.import.exportHint")} side="bottom">
+                <Tooltip label={t("assets.import.exportHint")}>
                   {/* ดาวน์โหลดไฟล์จาก route handler (ไม่ใช่หน้าเว็บ) */}
                   <ConfirmDownload href={`/files/assets/export?${exportQuery}`} className={btn.secondary}>
                     <DownloadIcon className="text-accent-500" />
@@ -174,7 +174,7 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
           ))}
         </AppSelect>
         <div className="flex gap-2 sm:col-span-2 xl:col-span-1">
-          <Tooltip label={t("common.clearFilters")} side="top">
+          <Tooltip label={t("common.clearFilters")}>
             <Link href="/assets" className={`${btn.secondary} h-full`} aria-label={t("common.clearFilters")}>
               <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
             </Link>

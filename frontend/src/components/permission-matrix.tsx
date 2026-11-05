@@ -82,7 +82,7 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
   const rows = modules.map((m) => ({ module: m, items: catalog.filter((p) => p.module === m.key) })).filter((r) => r.items.length > 0);
   const lockBadge = (p: PermissionDef) =>
     p.locked && (
-      <Tooltip label={t("rolePermissions.locked")} side="top">
+      <Tooltip label={t("rolePermissions.locked")}>
         <LockIcon width={12} height={12} className="shrink-0 text-warning-500" aria-label={t("rolePermissions.locked")} />
       </Tooltip>
     );
@@ -92,7 +92,7 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
     const a = ALWAYS[moduleKey]?.[c];
     if (!a) return null;
     return (
-      <Tooltip label={t(a.label)} side="top">
+      <Tooltip label={t(a.label)}>
         <span className="inline-flex flex-col items-center gap-1">
           <span className="inline-flex items-center gap-1">
             <input type="checkbox" checked readOnly disabled aria-label={t(a.label)} className="h-4 w-4 cursor-not-allowed accent-[var(--accent-500)] opacity-60" />
@@ -104,7 +104,7 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
     );
   };
   const control = (p: PermissionDef) => (
-    <Tooltip label={name(p)} side="top">
+    <Tooltip label={name(p)}>
       <span className="inline-flex flex-col items-center gap-1">
         <span className="inline-flex items-center gap-1">
           {cell(p)}

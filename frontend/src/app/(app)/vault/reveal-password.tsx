@@ -54,7 +54,7 @@ export function RevealPassword({ id }: { id: number }) {
   return (
     <div className="flex items-center gap-1">
       <code className="min-w-24 rounded-lg bg-subtle px-2 py-1 font-mono text-xs">{value === null ? "••••••••••" : value}</code>
-      <Tooltip label={value === null ? t("vault.reveal") : t("vault.hide")} side="top">
+      <Tooltip label={value === null ? t("vault.reveal") : t("vault.hide")}>
         <button
           type="button"
           onClick={() => (value === null ? reveal() : setValue(null))}
@@ -66,7 +66,7 @@ export function RevealPassword({ id }: { id: number }) {
         </button>
       </Tooltip>
       {value !== null && (
-        <Tooltip label={copied ? t("vault.copied", { seconds: clearIn }) : t("vault.copy")} side="top">
+        <Tooltip label={copied ? t("vault.copied", { seconds: clearIn }) : t("vault.copy")}>
           <button
             type="button"
             onClick={copy}

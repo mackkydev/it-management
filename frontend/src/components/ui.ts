@@ -25,6 +25,8 @@ export const btn = {
     "dark:bg-danger-400/15 dark:text-danger-300 dark:hover:bg-danger-400/25",
   /** ปุ่มขนาดเล็ก (ใช้ต่อท้าย variant) */
   sm: "px-3 py-1.5 text-xs",
+  /** ปุ่มไอคอนอย่างเดียว (ใช้ต่อท้าย variant) — ต้องครอบด้วย Tooltip + ใส่ aria-label */
+  icon: "h-8 w-8 p-0!",
 };
 
 export const input =

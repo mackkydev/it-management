@@ -18,7 +18,7 @@ const POLL_MS = 60_000;
  * คลิกรายการ → ทำเครื่องหมายว่าอ่านแล้ว และไปยังหน้าที่เกี่ยวข้อง
  * เปลี่ยนหน้าแล้วโหลดใหม่ (เหมือนตัวเลขบนเมนู) — เปิดใบงาน/ใบลาจากเมนู API ทำเครื่องหมายอ่านแล้วให้ กระดิ่งจึงลดตามทันที
  */
-export function NotificationBell({ tooltipSide = "right", size = "md" }: { tooltipSide?: "right" | "bottom"; size?: "md" | "lg" }) {
+export function NotificationBell({ size = "md" }: { size?: "md" | "lg" }) {
   const { t, fmt } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
@@ -106,7 +106,7 @@ export function NotificationBell({ tooltipSide = "right", size = "md" }: { toolt
 
   return (
     <>
-      <Tooltip label={t("notifications.title")} side={tooltipSide} disabled={open}>
+      <Tooltip label={t("notifications.title")} disabled={open}>
         <button
           ref={btnRef}
           type="button"

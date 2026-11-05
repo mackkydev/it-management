@@ -128,39 +128,45 @@ export function PolicyManager({ versions, enabled, others, canEdit, canOpenSetti
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
                       {canEdit && !v.is_default && (
-                        <button type="button" onClick={() => setDefault(v)} disabled={pending} className={`${btn.soft} ${btn.sm} disabled:cursor-not-allowed`}>
-                          {busy === `default-${v.version}` ? <SpinnerIcon width={14} height={14} /> : <CheckCircleIcon width={14} height={14} />}
-                          {t("policyPage.setDefault")}
-                        </button>
+                        <Tooltip label={t("policyPage.setDefault")}>
+                          <button type="button" onClick={() => setDefault(v)} disabled={pending} aria-label={t("policyPage.setDefault")} className={`${btn.soft} ${btn.icon} disabled:cursor-not-allowed`}>
+                            {busy === `default-${v.version}` ? <SpinnerIcon width={15} height={15} /> : <CheckCircleIcon width={15} height={15} />}
+                          </button>
+                        </Tooltip>
                       )}
-                      <button type="button" onClick={() => setPreview(v)} aria-haspopup="dialog" className={`${btn.secondary} ${btn.sm}`}>
-                        <EyeIcon width={14} height={14} />
-                        {t("policyPage.preview")}
-                      </button>
+                      <Tooltip label={t("policyPage.preview")}>
+                        <button type="button" onClick={() => setPreview(v)} aria-haspopup="dialog" aria-label={t("policyPage.preview")} className={`${btn.secondary} ${btn.icon}`}>
+                          <EyeIcon width={15} height={15} />
+                        </button>
+                      </Tooltip>
                       {canEdit && (
                         <>
-                          <Link href={`/policy/versions/${v.version}/edit`} className={`${btn.secondary} ${btn.sm}`}>
-                            <PencilIcon width={14} height={14} />
-                            {t("common.edit")}
-                          </Link>
-                          <button type="button" onClick={() => run(`duplicate-${v.version}`, () => duplicatePolicyVersion(v.version))} disabled={pending} className={`${btn.secondary} ${btn.sm} disabled:cursor-not-allowed`}>
-                            {busy === `duplicate-${v.version}` ? <SpinnerIcon width={14} height={14} /> : <CopyIcon width={14} height={14} />}
-                            {t("policyPage.duplicate")}
-                          </button>
+                          <Tooltip label={t("common.edit")}>
+                            <Link href={`/policy/versions/${v.version}/edit`} aria-label={t("common.edit")} className={`${btn.secondary} ${btn.icon}`}>
+                              <PencilIcon width={15} height={15} />
+                            </Link>
+                          </Tooltip>
+                          <Tooltip label={t("policyPage.duplicate")}>
+                            <button type="button" onClick={() => run(`duplicate-${v.version}`, () => duplicatePolicyVersion(v.version))} disabled={pending} aria-label={t("policyPage.duplicate")} className={`${btn.secondary} ${btn.icon} disabled:cursor-not-allowed`}>
+                              {busy === `duplicate-${v.version}` ? <SpinnerIcon width={15} height={15} /> : <CopyIcon width={15} height={15} />}
+                            </button>
+                          </Tooltip>
                         </>
                       )}
-                      <Link href={`/policy/versions/${v.version}/acceptances`} className={`${btn.secondary} ${btn.sm}`}>
-                        <UsersIcon width={14} height={14} />
-                        {t("policyPage.acceptances")}
-                      </Link>
-                      <DocumentLink href={`/policy-print/acceptances/${v.version}`} kind="page" title={t("policyPage.printList")} className={`${btn.secondary} ${btn.sm}`}>
-                        <PrinterIcon width={14} height={14} />
-                        {t("policyPage.printList")}
-                      </DocumentLink>
+                      <Tooltip label={t("policyPage.acceptances")}>
+                        <Link href={`/policy/versions/${v.version}/acceptances`} aria-label={t("policyPage.acceptances")} className={`${btn.secondary} ${btn.icon}`}>
+                          <UsersIcon width={15} height={15} />
+                        </Link>
+                      </Tooltip>
+                      <Tooltip label={t("policyPage.printList")}>
+                        <DocumentLink href={`/policy-print/acceptances/${v.version}`} kind="page" title={t("policyPage.printList")} aria-label={t("policyPage.printList")} className={`${btn.secondary} ${btn.icon}`}>
+                          <PrinterIcon width={15} height={15} />
+                        </DocumentLink>
+                      </Tooltip>
                       {canEdit && (
                         <Tooltip label={blocked ?? t("common.delete")}>
-                          <button type="button" onClick={() => remove(v)} disabled={pending || Boolean(blocked)} aria-label={t("common.delete")} className={`${btn.danger} ${btn.sm} px-2 disabled:cursor-not-allowed disabled:opacity-50`}>
-                            {busy === `delete-${v.version}` ? <SpinnerIcon width={14} height={14} /> : <TrashIcon width={14} height={14} />}
+                          <button type="button" onClick={() => remove(v)} disabled={pending || Boolean(blocked)} aria-label={t("common.delete")} className={`${btn.danger} ${btn.icon} disabled:cursor-not-allowed disabled:opacity-50`}>
+                            {busy === `delete-${v.version}` ? <SpinnerIcon width={15} height={15} /> : <TrashIcon width={15} height={15} />}
                           </button>
                         </Tooltip>
                       )}

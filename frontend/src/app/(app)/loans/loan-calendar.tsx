@@ -166,7 +166,6 @@ export function LoanCalendar({
                 {list.slice(0, MAX_CHIPS).map((l) => chip(l, true))}
                 {list.length > MAX_CHIPS && (
                   <Tooltip
-                    side="bottom"
                     label={
                       <span className="block space-y-0.5 text-left">
                         {list.slice(MAX_CHIPS).map((l) => (

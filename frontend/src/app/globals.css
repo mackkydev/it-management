@@ -477,27 +477,13 @@ body {
 }
 
 /* Tooltip: ค่อยๆ ปรากฏพร้อมเลื่อนเข้าหาจุดที่ชี้ */
-@keyframes tooltip-in-right {
-  from {
-    opacity: 0;
-    transform: translateX(-4px) scale(0.96);
-  }
-}
 @keyframes tooltip-in-y {
   from {
     opacity: 0;
-    transform: translateY(var(--tt-dy, 4px)) scale(0.96);
+    transform: translateY(4px) scale(0.96);
   }
 }
-.tooltip-in.tooltip-right {
-  animation: tooltip-in-right 0.14s ease-out;
-}
 .tooltip-in.tooltip-top {
-  --tt-dy: 4px;
-  animation: tooltip-in-y 0.14s ease-out;
-}
-.tooltip-in.tooltip-bottom {
-  --tt-dy: -4px;
   animation: tooltip-in-y 0.14s ease-out;
 }
 @media (prefers-reduced-motion: reduce) {

@@ -21,9 +21,9 @@ const small = `${input} px-2 py-1.5 text-sm`;
 const clampCell = "max-w-64";
 const Clamped = ({ text }: { text: string | null }) =>
   text ? (
-    <p className="line-clamp-2 break-words" title={text}>
-      {text}
-    </p>
+    <Tooltip label={text}>
+      <span className="line-clamp-2 break-words">{text}</span>
+    </Tooltip>
   ) : (
     <>-</>
   );
@@ -255,13 +255,13 @@ function TicketRow({ row, sheet, own }: { row: KpiSheetRow; sheet: KpiMonth; own
         )}
       </td>
       <td className={`${cell} ${clampCell}`}>
-        <Tooltip label={t("kpi.ticketHint")} side="top">
+        <Tooltip label={t("kpi.ticketHint")}>
           <Link href={`/tickets/${row.ticket!.id}`} className={`mb-1 inline-flex whitespace-nowrap rounded-full px-2 py-0.5 font-mono text-xs font-medium ${tone.info.badge}`}>
             {row.ticket!.ticket_no}
           </Link>
         </Tooltip>
         {row.day && (
-          <Tooltip label={t("kpi.dayHint")} side="top">
+          <Tooltip label={t("kpi.dayHint")}>
             <span className={`mb-1 ml-1 inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${tone.warning.badge}`}>{t("kpi.dayOf", row.day)}</span>
           </Tooltip>
         )}
@@ -293,7 +293,7 @@ function TicketRow({ row, sheet, own }: { row: KpiSheetRow; sheet: KpiMonth; own
                   <XIcon width={14} height={14} />
                 </IconButton>
               )}
-              <Tooltip label={t("kpi.save")} side="top">
+              <Tooltip label={t("kpi.save")}>
                 <button type="button" onClick={save} disabled={pending} aria-label={t("kpi.save")} className={`${btn.primary} ${btn.sm} h-8 px-2.5`}>
                   {pending ? <SpinnerIcon width={14} height={14} /> : <SaveIcon width={14} height={14} />}
                 </button>
@@ -375,7 +375,7 @@ function EntryRow({ row, onEdit }: { row: KpiSheetRow; onEdit: () => void }) {
 
 function IconButton({ label, onClick, children, danger, disabled }: { label: string; onClick: () => void; children: ReactNode; danger?: boolean; disabled?: boolean }) {
   return (
-    <Tooltip label={label} side="top">
+    <Tooltip label={label}>
       <button
         type="button"
         onClick={onClick}
@@ -448,7 +448,7 @@ function EntryEditor({
       <IconButton label={t("common.cancel")} onClick={onDone} disabled={pending}>
         <XIcon width={14} height={14} />
       </IconButton>
-      <Tooltip label={t("kpi.save")} side="top">
+      <Tooltip label={t("kpi.save")}>
         <button type="button" onClick={submit} disabled={pending} aria-label={t("kpi.save")} className={`${btn.primary} ${btn.sm} h-8 px-2.5`}>
           {pending ? <SpinnerIcon width={14} height={14} /> : <SaveIcon width={14} height={14} />}
         </button>

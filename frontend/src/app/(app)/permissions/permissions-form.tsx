@@ -335,11 +335,11 @@ function MenuName({
       <span className="inline-flex items-center gap-1.5">
         <span className={custom ? "font-medium text-accent-700 dark:text-accent-300" : undefined}>{shown}</span>
         {custom && (
-          <Tooltip label={t("permissions.menuNameDefault", { name: fallback })} side="top">
+          <Tooltip label={t("permissions.menuNameDefault", { name: fallback })}>
             <span className="rounded-full bg-accent-50 px-1.5 py-0.5 text-[10px] text-accent-700 dark:bg-accent-400/15 dark:text-accent-300">{t("permissions.menuNameEdited")}</span>
           </Tooltip>
         )}
-        <Tooltip label={t("permissions.menuNameEdit")} side="top">
+        <Tooltip label={t("permissions.menuNameEdit")}>
           <button
             type="button"
             onClick={() => {
@@ -393,12 +393,12 @@ function MenuName({
         placeholder={t("permissions.menuNameEn")}
         className={`${input} h-8 w-44 py-1 text-sm`}
       />
-      <Tooltip label={t("common.save")} side="top">
+      <Tooltip label={t("common.save")}>
         <button type="button" onClick={apply} aria-label={t("common.save")} className={ICON_BTN}>
           <CheckIcon width={14} height={14} />
         </button>
       </Tooltip>
-      <Tooltip label={t("common.cancel")} side="top">
+      <Tooltip label={t("common.cancel")}>
         <button type="button" onClick={() => setDraft(null)} aria-label={t("common.cancel")} className={ICON_BTN}>
           <XIcon width={14} height={14} />
         </button>

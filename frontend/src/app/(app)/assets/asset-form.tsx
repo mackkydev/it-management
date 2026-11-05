@@ -548,7 +548,7 @@ export function AssetForm({
                       <span className="block text-xs text-muted">{t("assets.software.otherLegacy")}</span>
                       <span className="block break-words">{values.other_software.split(/\r?\n/).filter(Boolean).join(", ")}</span>
                     </span>
-                    <Tooltip label={t("common.clear")} side="top">
+                    <Tooltip label={t("common.clear")}>
                       <button
                         type="button"
                         onClick={() => setField("other_software", "")}

@@ -127,12 +127,12 @@ export function PolicyEditor({ initial, prefillSamples = false }: { initial: Pol
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-muted">{t("settingsPage.policy.sectionTitle", { n: i + 1 })}</span>
               <span className="flex-1" />
-              <Tooltip label={t("settingsPage.policy.moveUp")} side="top">
+              <Tooltip label={t("settingsPage.policy.moveUp")}>
                 <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={t("settingsPage.policy.moveUp")} className={`${btn.secondary} ${btn.sm} h-8 px-2`}>
                   <ArrowUpIcon width={14} height={14} />
                 </button>
               </Tooltip>
-              <Tooltip label={t("settingsPage.policy.moveDown")} side="top">
+              <Tooltip label={t("settingsPage.policy.moveDown")}>
                 <button
                   type="button"
                   onClick={() => move(i, 1)}
@@ -143,7 +143,7 @@ export function PolicyEditor({ initial, prefillSamples = false }: { initial: Pol
                   <ArrowDownIcon width={14} height={14} />
                 </button>
               </Tooltip>
-              <Tooltip label={t("settingsPage.policy.remove")} side="top">
+              <Tooltip label={t("settingsPage.policy.remove")}>
                 <button
                   type="button"
                   onClick={() => setSections((x) => x.filter((_, j) => j !== i))}

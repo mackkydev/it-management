@@ -6,13 +6,14 @@ import { Tooltip } from "@/components/tooltip";
 import { useI18n } from "@/i18n/client";
 import type { PolicyFile, PolicySection } from "@/lib/types";
 
-/** ไอคอนเอกสารสำหรับวางในบรรทัดเดียวกับหัวข้อ — ไม่แสดงชื่อไฟล์ (ชี้ค้างเห็นชื่อ), กดแล้วเปิดเอกสาร */
+/** ไอคอนเอกสารสำหรับวางในบรรทัดเดียวกับหัวข้อ — ไม่แสดงชื่อไฟล์, กดแล้วเปิดเอกสาร (ชื่อไฟล์อยู่ที่หัวกล่องและโปรแกรมอ่านหน้าจอ) */
 export function PolicyFileIcons({ files }: { files: Pick<PolicyFile, "id" | "name" | "url">[] }) {
+  const { t } = useI18n();
   return (
     <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
       {files.map((f) => (
-        <Tooltip key={f.id} label={f.name} side="top">
-          <DocumentLink href={`/files${f.url}`} name={f.name} aria-label={f.name} className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-accent-500 transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
+        <Tooltip key={f.id} label={t("docViewer.open")}>
+          <DocumentLink href={`/files${f.url}`} name={f.name} aria-label={`${t("docViewer.open")}: ${f.name}`} className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-accent-500 transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
             <FileTextIcon width={18} height={18} />
           </DocumentLink>
         </Tooltip>

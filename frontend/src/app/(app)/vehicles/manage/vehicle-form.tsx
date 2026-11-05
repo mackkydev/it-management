@@ -123,7 +123,7 @@ export function VehicleForm({ vehicle: initialVehicle, choices, types, fuels }: 
   const err = (k: Field) => (errors[k] ? <p className="mt-1 text-xs font-medium text-red-500">{errors[k]}</p> : null);
   const cls = (k: Field) => `${input} ${errors[k] ? inputError : ""}`;
   const photoButton = (labelKey: "meeting.rooms.setPrimary" | "meeting.rooms.removeImage", onClick: () => void, danger = false) => (
-    <Tooltip label={t(labelKey)} side="top">
+    <Tooltip label={t(labelKey)}>
       <button
         type="button"
         disabled={imaging}

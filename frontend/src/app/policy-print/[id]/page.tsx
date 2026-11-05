@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { PrintDocument } from "@/components/document-template";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
-import { DOCUMENT_PRINT_CSS } from "@/lib/print-page";
 import type { PolicyDocument, SystemPolicy } from "@/lib/types";
-import { PrintButton } from "../../leave-print/[id]/print-button";
 
 /** ?version= ต้องเป็นตัวเลข — ไม่ระบุ = ฉบับล่าสุดที่ยอมรับ */
 const versionOf = (value: string | string[] | undefined) => (typeof value === "string" && /^\d+$/.test(value) ? value : null);
@@ -48,13 +47,7 @@ export default async function PolicyPrintPage({ params, searchParams }: PageProp
   );
 
   return (
-    <div className="min-h-screen bg-canvas py-6 text-black print:bg-white print:py-0">
-      <style>{DOCUMENT_PRINT_CSS}</style>
-      <div className="no-print mx-auto mb-4 flex max-w-[210mm] flex-wrap items-center justify-between gap-3 px-4">
-        <p className="text-sm text-muted">{t("policyDoc.pdfHint")}</p>
-        <PrintButton label={t("policyDoc.print")} />
-      </div>
-      <article className="mx-auto max-w-[210mm] space-y-5 bg-white p-10 shadow print:p-0 print:shadow-none">
+    <PrintDocument>
         <header className="text-center">
           <h1 className="text-xl font-bold">{doc ? t("policyDoc.title") : t("policyDoc.blankTitle")}</h1>
           {version > 0 && <p className="text-sm text-gray-600">{t("policyDoc.version", { version })}</p>}
@@ -104,7 +97,6 @@ export default async function PolicyPrintPage({ params, searchParams }: PageProp
             {doc?.accepted_at && !doc.signature_url && <p className="no-print mt-1 text-xs text-gray-500">{t("policyDoc.noSignature")}</p>}
           </div>
         </footer>
-      </article>
-    </div>
+    </PrintDocument>
   );
 }

@@ -106,7 +106,7 @@ export default async function UsersPage({ searchParams }: PageProps<"/users">) {
         )}
         <div className="flex gap-2">
           {canManageUsers && (
-            <Tooltip label={t("common.clearFilters")} side="top">
+            <Tooltip label={t("common.clearFilters")}>
               <Link href="/users" className={`${btn.secondary} h-full`} aria-label={t("common.clearFilters")}>
                 <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
               </Link>

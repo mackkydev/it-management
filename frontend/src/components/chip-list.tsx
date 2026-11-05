@@ -59,7 +59,7 @@ export function ChipList({
         <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {items.map((it) => (
             <span key={it} className="flex min-h-10 min-w-0 items-center gap-1 rounded-xl bg-accent-100 py-1 pl-3 pr-1 text-sm text-accent-900 dark:bg-accent-400/15 dark:text-accent-100">
-              <Tooltip label={it} side="top">
+              <Tooltip label={it}>
                 <span className="block min-w-0 flex-1 truncate">{it}</span>
               </Tooltip>
               <button

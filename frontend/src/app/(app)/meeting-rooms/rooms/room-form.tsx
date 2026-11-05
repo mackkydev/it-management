@@ -184,7 +184,7 @@ export function RoomForm({ room: initialRoom, choices }: { room: MeetingRoom | n
                     className={cls("seats")}
                   />
                 </div>
-                <Tooltip label={t("meeting.rooms.removeSeat")} side="top">
+                <Tooltip label={t("meeting.rooms.removeSeat")}>
                   <button type="button" disabled={v.seats.length === 1} onClick={() => set("seats", v.seats.filter((_, n) => n !== i))} aria-label={t("meeting.rooms.removeSeat")} className={`${btn.danger} ${btn.sm} px-2`}>
                     <TrashIcon width={14} height={14} />
                   </button>
@@ -243,13 +243,13 @@ export function RoomForm({ room: initialRoom, choices }: { room: MeetingRoom | n
                 {img.is_primary && <figcaption className="absolute left-1.5 top-1.5 rounded-full bg-accent-500 px-2 py-0.5 text-[10px] font-medium text-white">{t("meeting.rooms.primary")}</figcaption>}
                 <div className="absolute right-1.5 top-1.5 flex gap-1">
                   {!img.is_primary && (
-                    <Tooltip label={t("meeting.rooms.setPrimary")} side="top">
+                    <Tooltip label={t("meeting.rooms.setPrimary")}>
                       <button type="button" disabled={imaging} onClick={() => imageAction(img.id, "primary")} aria-label={t("meeting.rooms.setPrimary")} className="cursor-pointer rounded-lg bg-surface/90 p-1.5 text-warning-600 shadow-sm hover:bg-surface disabled:cursor-not-allowed dark:text-warning-300">
                         <StarIcon width={14} height={14} />
                       </button>
                     </Tooltip>
                   )}
-                  <Tooltip label={t("meeting.rooms.removeImage")} side="top">
+                  <Tooltip label={t("meeting.rooms.removeImage")}>
                     <button type="button" disabled={imaging} onClick={() => imageAction(img.id, "delete")} aria-label={t("meeting.rooms.removeImage")} className="cursor-pointer rounded-lg bg-surface/90 p-1.5 text-danger-600 shadow-sm hover:bg-surface disabled:cursor-not-allowed dark:text-danger-300">
                       <TrashIcon width={14} height={14} />
                     </button>
@@ -263,7 +263,7 @@ export function RoomForm({ room: initialRoom, choices }: { room: MeetingRoom | n
                 <img src={p.url} alt="" className="aspect-video w-full object-cover opacity-80" />
                 {i === 0 && <figcaption className="absolute left-1.5 top-1.5 rounded-full bg-accent-500 px-2 py-0.5 text-[10px] font-medium text-white">{t("meeting.rooms.primary")}</figcaption>}
                 <div className="absolute right-1.5 top-1.5">
-                  <Tooltip label={t("meeting.rooms.removeImage")} side="top">
+                  <Tooltip label={t("meeting.rooms.removeImage")}>
                     <button
                       type="button"
                       onClick={() => (URL.revokeObjectURL(p.url), setPending((list) => list.filter((x) => x !== p)))}

@@ -115,7 +115,7 @@ export async function TicketListPage({ scope, params }: { scope: TicketScope; pa
           </>
         )}
         <div className="flex gap-2 sm:col-span-2 lg:shrink-0">
-          <Tooltip label={t("common.clearFilters")} side="top">
+          <Tooltip label={t("common.clearFilters")}>
             <Link href={scope === "mine" ? MINE_HREF : BASE[scope]} className={`${btn.secondary} px-3`} aria-label={t("common.clearFilters")}>
               <LinkPendingIcon icon={<ResetIcon className="text-faint" />} />
             </Link>

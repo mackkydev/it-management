@@ -147,7 +147,7 @@ async function VaultResults({ query, canEdit, canReveal: mayReveal }: { query: U
                   <div className="flex items-center gap-1.5 font-medium">
                     {c.title}
                     {c.access_mode === "restricted" && (
-                      <Tooltip label={t("vault.access.restrictedBadge")} side="top">
+                      <Tooltip label={t("vault.access.restrictedBadge")}>
                         <LockIcon width={13} height={13} className="shrink-0 text-warning-600 dark:text-warning-300" aria-label={t("vault.access.restrictedBadge")} />
                       </Tooltip>
                     )}
@@ -157,16 +157,17 @@ async function VaultResults({ query, canEdit, canReveal: mayReveal }: { query: U
                     {/* URL / IP ที่เปิดในเบราว์เซอร์ได้ (http/https) → ลิงก์เข้าหน้าจัดการอุปกรณ์ เช่น เครื่องพิมพ์ / router */}
                     {c.url &&
                       (panelHref(c.url) ? (
-                        <a
-                          href={panelHref(c.url)!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title={t("vault.openPanel")}
-                          className="inline-flex max-w-56 cursor-pointer items-center gap-1 font-mono text-accent-700 hover:underline dark:text-accent-300"
-                        >
-                          <span className="truncate">{c.url}</span>
-                          <ExternalLinkIcon width={12} height={12} className="shrink-0" />
-                        </a>
+                        <Tooltip label={t("vault.openPanel")}>
+                          <a
+                            href={panelHref(c.url)!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex max-w-56 cursor-pointer items-center gap-1 font-mono text-accent-700 hover:underline dark:text-accent-300"
+                          >
+                            <span className="truncate">{c.url}</span>
+                            <ExternalLinkIcon width={12} height={12} className="shrink-0" />
+                          </a>
+                        </Tooltip>
                       ) : (
                         <span className="max-w-56 truncate font-mono">{c.url}</span>
                       ))}

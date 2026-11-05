@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { PrintDocument } from "@/components/document-template";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
-import { DOCUMENT_PRINT_CSS } from "@/lib/print-page";
 import type { PolicyAcceptanceList } from "@/lib/types";
-import { PrintButton } from "../../../leave-print/[id]/print-button";
 
 const load = (version: string) =>
   apiFetch<PolicyAcceptanceList>(`/policy/versions/${version}/acceptances`).catch((e) => {
@@ -29,13 +28,7 @@ export default async function PolicyAcceptancesPrintPage({ params }: PageProps<"
   const td = "border border-gray-300 px-2 py-1.5 align-top";
 
   return (
-    <div className="min-h-screen bg-canvas py-6 text-black print:bg-white print:py-0">
-      <style>{DOCUMENT_PRINT_CSS}</style>
-      <div className="no-print mx-auto mb-4 flex max-w-[210mm] flex-wrap items-center justify-between gap-3 px-4">
-        <p className="text-sm text-muted">{t("policyDoc.pdfHint")}</p>
-        <PrintButton label={t("policyDoc.print")} />
-      </div>
-      <article className="mx-auto max-w-[210mm] space-y-4 bg-white p-10 shadow print:p-0 print:shadow-none">
+    <PrintDocument className="space-y-4">
         <header className="text-center">
           <h1 className="text-xl font-bold">{t("policyPage.printTitle")}</h1>
           <p className="text-sm text-gray-600">{t("policyPage.versionOf", { title: list.title, version: list.version })}</p>
@@ -72,7 +65,6 @@ export default async function PolicyAcceptancesPrintPage({ params }: PageProps<"
             ))}
           </tbody>
         </table>
-      </article>
-    </div>
+    </PrintDocument>
   );
 }

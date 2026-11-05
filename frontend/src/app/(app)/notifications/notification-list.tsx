@@ -106,7 +106,7 @@ export function NotificationList({ items }: { items: AppNotification[] }) {
               </span>
               {!n.read_at && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-accent-500" aria-hidden="true" />}
             </button>
-            <Tooltip label={t("notifications.page.delete")} side="top">
+            <Tooltip label={t("notifications.page.delete")}>
               <button
                 type="button"
                 onClick={() => remove(n)}
