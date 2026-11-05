@@ -110,4 +110,37 @@ describe("announcements", () => {
     const removed = await field(manager.put(`/api/v1/announcements/${id}`), { ...form, remove_cover: "1" });
     expect(removed.body.data.cover_url).toBeNull();
   });
+
+  it("past announcements stay readable with their files, but not hidden or upcoming ones", async () => {
+    const manager = await as(await makeUser({ is_it_staff: true }));
+    const viewer = await as(await makeUser());
+    const add = (title: string, fields: Record<string, string>) => {
+      let req = manager.post("/api/v1/announcements");
+      for (const [k, v] of Object.entries({ title, level: "info", is_active: "1", ...fields })) req = req.field(k, v);
+      return req;
+    };
+
+    const ended = await add("past-ended", { body: "รายละเอียดเดิม", ends_on: localDay(-1) }).attach("cover", await realImage(800, 300, "png"), "cover.png").attach("files[]", await realImage(800, 300, "png"), "doc.png");
+    const older = await add("past-older", { ends_on: localDay(-30) });
+    const hidden = await add("past-hidden", { is_active: "0", ends_on: localDay(-1) }).attach("cover", await realImage(800, 300, "png"), "cover.png");
+    const upcoming = await add("past-upcoming", { starts_on: localDay(3) }).attach("cover", await realImage(800, 300, "png"), "cover.png");
+    await add("past-today", { ends_on: localDay(0) });
+
+    expect((await request(createApp()).get("/api/v1/announcements/past").set("Accept", "application/json")).status).toBe(401);
+
+    const past = (await viewer.get("/api/v1/announcements/past")).body.data as { id: number; title: string; body: string | null; cover_url: string | null; files: { url: string }[] }[];
+    const titles = past.map((a) => a.title).filter((title) => title.startsWith("past-"));
+    expect(titles).toEqual(["past-ended", "past-older"]);
+    const item = past.find((a) => a.id === ended.body.data.id)!;
+    expect(item.body).toBe("รายละเอียดเดิม");
+    expect((await viewer.get(`/api/v1${item.cover_url}`)).status).toBe(200);
+    expect((await viewer.get(`/api/v1${item.files[0].url}`)).status).toBe(200);
+    expect(past.find((a) => a.id === older.body.data.id)).toMatchObject({ cover_url: null, files: [] });
+
+    // ปิดไว้ / ยังไม่ถึงเวลา = คนทั่วไปเปิดไฟล์ไม่ได้ ผู้จัดการยังเปิดได้
+    for (const row of [hidden, upcoming]) {
+      expect((await viewer.get(`/api/v1${row.body.data.cover_url}`)).status).toBe(404);
+      expect((await manager.get(`/api/v1${row.body.data.cover_url}`)).status).toBe(200);
+    }
+  });
 });

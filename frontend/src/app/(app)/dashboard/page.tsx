@@ -13,6 +13,7 @@ import { getCurrentUser } from "@/lib/auth";
 import type { NewsAnnouncement, TicketStatus, TicketType } from "@/lib/types";
 import { TicketStatusBadge, ticketSubject } from "../tickets/ticket-ui";
 import { NewsCarousel } from "./news-carousel";
+import { PastNews } from "./past-news";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -102,13 +103,16 @@ function Panel({ title, icon: Icon, href, more, empty, color, className = "", li
 }
 
 /** หัวข้อของแต่ละกลุ่ม */
-function Group({ title, icon: Icon, className = "", children }: { title: string; icon: Icon; className?: string; children: ReactNode }) {
+function Group({ title, icon: Icon, action, className = "", children }: { title: string; icon: Icon; action?: ReactNode; className?: string; children: ReactNode }) {
   return (
     <section className={`space-y-3 ${className}`}>
-      <h2 className="flex items-center gap-2 text-base font-semibold">
-        <Icon width={18} height={18} className="text-accent-500" />
-        {title}
-      </h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-base font-semibold">
+          <Icon width={18} height={18} className="text-accent-500" />
+          {title}
+        </h2>
+        {action}
+      </div>
       {children}
     </section>
   );
@@ -116,6 +120,8 @@ function Group({ title, icon: Icon, className = "", children }: { title: string;
 
 /** ประกาศข่าวสาร (เปิดใช้งาน + อยู่ในช่วงวันที่) — ดึงไม่ได้ก็ยังแสดงหน้าภาพรวมตามปกติ */
 const loadNews = () => apiFetch<{ data: NewsAnnouncement[] }>("/announcements/feed").then((r) => r.data).catch(() => [] as NewsAnnouncement[]);
+/** ประกาศที่ผ่านไปแล้ว — ดึงไม่ได้ก็แค่ไม่แสดงปุ่มดูย้อนหลัง */
+const loadPastNews = () => apiFetch<{ data: NewsAnnouncement[] }>("/announcements/past").then((r) => r.data).catch(() => [] as NewsAnnouncement[]);
 
 /**
  * ภาพรวม (GET /dashboard) = ศูนย์รวมข้อมูลและข่าวสาร:
@@ -123,7 +129,7 @@ const loadNews = () => apiFetch<{ data: NewsAnnouncement[] }>("/announcements/fe
  *   ตัวเลขสรุป = บล็อกขาว + ไอคอนสี
  */
 export default async function DashboardPage() {
-  const [{ data: d }, user, { t, fmt }, news] = await Promise.all([apiFetch<{ data: Dashboard }>("/dashboard"), getCurrentUser(), getI18n(), loadNews()]);
+  const [{ data: d }, user, { t, fmt }, news, pastNews] = await Promise.all([apiFetch<{ data: Dashboard }>("/dashboard"), getCurrentUser(), getI18n(), loadNews(), loadPastNews()]);
   const range = (from: string, to: string) => (from === to ? fmt.date(from) : `${fmt.date(from)} – ${fmt.date(to)}`);
   const row = "flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 text-sm";
   const isIt = Boolean(d.it);
@@ -135,7 +141,7 @@ export default async function DashboardPage() {
 
       {/* แถวบน: ข่าวสาร · งานฝ่าย IT + ใบแจ้งงานล่าสุด */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Group title={t("dashboard.news.title")} icon={BellIcon} className="flex flex-col">
+        <Group title={t("dashboard.news.title")} icon={BellIcon} action={<PastNews items={pastNews} />} className="flex flex-col">
           <NewsCarousel key={news.map((a) => a.id).join(",")} items={news} />
         </Group>
         <Group title={t("dashboard.sectionIt")} icon={WrenchIcon} className="flex flex-col">

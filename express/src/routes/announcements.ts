@@ -14,8 +14,9 @@ import { deleteStored, randomString, readStored, storeUploadIn, writeStored } fr
  * ประกาศข่าวสาร (แสดงที่หน้าภาพรวม) — เหมือน AnnouncementController ของ Laravel
  *   GET    /announcements/public       (ไม่ต้อง login) ประกาศที่แสดงอยู่ ≤ 5 รายการ — ไม่มีข้อมูลไฟล์
  *   GET    /announcements/feed         (login) เหมือน public + รูปหน้าปก + เอกสารแนบ — หน้าภาพรวมใช้อันนี้
+ *   GET    /announcements/past         (login) ประกาศที่ผ่านไปแล้ว (เปิดอยู่ + เลยวันสิ้นสุด) ล่าสุดก่อน ≤ PAST_MAX รายการ + รูปหน้าปก + เอกสารแนบ
  *   GET    /announcements              ทั้งหมด (announcements.manage)
- *   GET    /announcements/{id}/files/{fileId}  ผู้จัดการ = ทุกไฟล์, คนอื่น = เฉพาะประกาศที่แสดงอยู่
+ *   GET    /announcements/{id}/files/{fileId}  ผู้จัดการ = ทุกไฟล์, คนอื่น = เฉพาะประกาศที่แสดงอยู่ / ผ่านไปแล้ว
  *   POST   /announcements              JSON หรือ multipart: title, body, level, is_active, starts_on, ends_on, sort_order, repeat_*, cover, files[]
  *   PUT|PATCH /announcements/{id}      เหมือน POST + remove_cover, remove_file_ids[]
  *   DELETE /announcements/{id}
@@ -28,6 +29,7 @@ export const publicAnnouncementRoutes = Router();
 const LEVELS = ["info", "warning", "danger"];
 const REPEATS = ["none", "daily", "weekly", "monthly", "yearly"];
 const SHOWN_MAX = 5;
+const PAST_MAX = 50;
 const COVER = "cover";
 const DOCUMENT = "document";
 /** รูปหน้าปก ≤ 1MB (หน้าเว็บย่อให้ก่อนส่ง) → WebP ไม่มี metadata / เอกสารตรงกับ DOC_* ของ file-pickers.tsx */
@@ -86,6 +88,12 @@ function isShowing(r: Row, today: string): boolean {
   return Boolean(r.is_active) && (!from || from <= today) && (!to || to >= today) && repeatsOn(r, today);
 }
 
+/** ประกาศที่ผ่านไปแล้ว: เปิดอยู่ + เลยวันสิ้นสุด — ประกาศที่ปิดไว้ไม่นับ เพราะผู้จัดการตั้งใจซ่อน */
+function isPast(r: Row, today: string): boolean {
+  const to = dateOnly(r.ends_on);
+  return Boolean(r.is_active) && Boolean(to) && to! < today;
+}
+
 const publicJson = (r: Row) => ({ id: r.id, title: r.title, body: r.body, level: r.level, starts_on: dateOnly(r.starts_on), ends_on: dateOnly(r.ends_on) });
 
 const filesJson = (r: Row, files: FileRow[]) => {
@@ -136,6 +144,14 @@ announcementRoutes.get("/announcements/feed", async (_req, res) => {
   res.json({ data: rows.map((r) => ({ ...publicJson(r), ...filesJson(r, files) })) });
 });
 
+/** หน้าภาพรวม: ประกาศที่ผ่านไปแล้ว ให้กดอ่านย้อนหลังได้ */
+announcementRoutes.get("/announcements/past", async (_req, res) => {
+  const today = localToday();
+  const rows = (await select<Row>(`SELECT ${SELECT} WHERE a.is_active = true AND a.ends_on IS NOT NULL ORDER BY a.ends_on DESC, a.id DESC`)).filter((r) => isPast(r, today)).slice(0, PAST_MAX);
+  const files = await filesOf(rows.map((r) => Number(r.id)));
+  res.json({ data: rows.map((r) => ({ ...publicJson(r), ...filesJson(r, files) })) });
+});
+
 announcementRoutes.get("/announcements", async (req, res) => {
   manage(req);
   const rows = await select<Row>(`SELECT ${SELECT} ORDER BY a.sort_order, a.id DESC`);
@@ -153,7 +169,8 @@ async function findRow(req: Request): Promise<Row> {
 
 announcementRoutes.get("/announcements/:id/files/:fileId", async (req, res) => {
   const row = await findRow(req);
-  if (!manages(me(req)) && !isShowing(row, localToday())) throw notFound();
+  const today = localToday();
+  if (!manages(me(req)) && !isShowing(row, today) && !isPast(row, today)) throw notFound();
   const file = /^\d+$/.test(req.params.fileId) ? await first<FileRow>("SELECT * FROM announcement_files WHERE id = ? AND announcement_id = ?", [Number(req.params.fileId), row.id]) : null;
   if (!file) throw notFound();
   const stored = await readStored(file.path);
