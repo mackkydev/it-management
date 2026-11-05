@@ -26,6 +26,17 @@ export interface UserRow {
   password_changed_at?: string | null;
   /** ต้องเปลี่ยนรหัสผ่านก่อนใช้งาน (มีผลเมื่อเปิด password_policy.force_first_change) */
   must_change_password?: boolean | number;
+  /** ผู้ดูแลติ๊กให้ตั้งรหัสผ่านใหม่เมื่อเข้าระบบ — มีผลเสมอ ไม่ขึ้นกับ force_first_change */
+  password_change_forced?: boolean | number;
+  /** เข้าสู่ระบบสำเร็จล่าสุด / ใส่รหัสผิดล่าสุด */
+  last_login_at?: string | null;
+  last_login_failed_at?: string | null;
+  /** โดนล็อกล่าสุด: เมื่อไร / สาเหตุ password | inactive / ผิดกี่ครั้ง */
+  last_locked_at?: string | null;
+  last_lock_reason?: string | null;
+  last_lock_attempts?: number | null;
+  /** ผู้ดูแลปลดล็อกล่าสุด — เริ่มนับวันไม่เข้าระบบใหม่จากเวลานี้ */
+  inactive_unlocked_at?: string | null;
   /** ผู้ใช้ตั้งรหัสผ่านเองล่าสุด (null = ยังไม่เคย — บังคับเปลี่ยนครั้งแรกเมื่อเปิดนโยบาย) */
   password_self_changed_at?: string | null;
   /** สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing */

@@ -8,7 +8,8 @@ import { btn } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
 import { getCurrentUser, has, isSuperAdmin } from "@/lib/auth";
-import type { ApprovalRoute, Branch, ManagedUser, OrgUnit, PermissionCatalog } from "@/lib/types";
+import { isReadOnly } from "@/lib/permissions";
+import type { ApprovalRoute, Branch, LoginActivity, ManagedUser, OrgUnit, PermissionCatalog } from "@/lib/types";
 import { UserForm } from "../../user-form";
 import { SignatureStatus } from "./signature-status";
 import { LoginLockStatus } from "./login-lock-status";
@@ -21,7 +22,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 async function getUser(id: string) {
   try {
-    return await apiFetch<{ data: ManagedUser; meta: { can_delete: boolean; two_factor_required: boolean } }>(`/users/${id}`);
+    return await apiFetch<{ data: ManagedUser; meta: { can_delete: boolean; two_factor_required: boolean; login_activity?: LoginActivity } }>(`/users/${id}`);
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) notFound();
     throw e;
@@ -60,7 +61,7 @@ export default async function EditUserPage({ params }: PageProps<"/users/[id]/ed
           )
         }
       />
-      {has(me, "users.update") && user.login_locked_until && <LoginLockStatus userId={user.id} until={user.login_locked_until} />}
+      {meta.login_activity && <LoginLockStatus userId={user.id} until={user.login_locked_until ?? null} activity={meta.login_activity} canUnlock={has(me, "users.unlock") && !isReadOnly(me)} />}
       <UserForm
         user={user}
         isSelf={user.id === me.id}

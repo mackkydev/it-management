@@ -189,7 +189,7 @@ Production: `npm run build` แล้ว `npm run start`
   allowlist IP ภายใน (กัน SSRF), ลิงก์ลืม/เปลี่ยนรหัสผ่านที่ต้นทาง + ปุ่มทดสอบการเชื่อมต่อ — เปิดแล้วหน้า login มีแท็บของระบบนั้น
 - **ผู้ใช้จาก API** `/api-users`: ค้นหา/กรองบทบาท สถานะ ระบบต้นทาง อีเมลซ้ำ · ปุ่ม "ผูกบัญชี" (อีเมลซ้ำกับบัญชี LOCAL เดิม) ·
   แก้บทบาท (ผู้จัดการ / ผู้ใช้งานทั่วไป) + สิทธิ์รายตัว (ตามบทบาท / อนุญาต / ไม่อนุญาต)
-- **บันทึกการเปลี่ยนแปลง** `/audit-logs`: ใคร เมื่อไร ทำอะไร ค่าก่อน-หลัง IP (ไม่มี secret/token/รหัสผ่าน)
+- **บันทึกการทำงาน** `/audit-logs`: ใคร เมื่อไร ทำอะไร ค่าก่อน-หลัง IP (ไม่มี secret/token/รหัสผ่าน)
 - **ซิงค์รายชื่อตามเวลา** (ตั้งที่การเชื่อมต่อ): สร้างผู้ใช้ล่วงหน้าเพื่อตั้งบทบาท/ลายเซ็นก่อน login ครั้งแรก, ปิดใช้งาน + ตัด session คนที่ถูกปิด/หายจากต้นทาง, ดึงไม่ได้หรือได้ 0 คน = ไม่ปิดใคร
 - บัญชีในระบบ (LOCAL) login ด้วย **อีเมลหรือชื่อผู้ใช้** (ตั้ง username ที่หน้าแก้ไขผู้ใช้ — ไม่บังคับ, ห้ามมี @)
 - Session ของ API User: ไม่ใช้งานเกิน 30 นาที (`API_SESSION_IDLE_MINUTES`) ต้อง login ใหม่ · อายุไม่เกิน token ต้นทาง · ตรวจสถานะกับต้นทางทุก 10 นาที
@@ -253,7 +253,7 @@ Production: `npm run build` แล้ว `npm run start`
 | GET / PUT | `/users/{id}/permissions` | Local Admin | สิทธิ์จากกลุ่ม + เพิ่ม/ถอดรายคน + สิทธิ์จริง · PUT `{role? (API User: manager\|viewer), overrides: {key: allow\|deny\|inherit}}` |
 | GET | `/api-users` | Local Admin | `?search=&role=&status=&connection_id=&conflict=1` รายการ API User |
 | POST | `/api-users/{id}/link` | Local Admin | `{local_user_id}` ผูก API User กับบัญชี LOCAL เดิม (บัญชีเดิมใช้รหัสผ่านเดิมไม่ได้อีก; ห้ามผูกกับ admin) |
-| GET | `/audit-logs`, `/audit-logs/actions` | Local Admin | `?action=&subject_type=&subject_id=&actor_id=&from=&to=` บันทึกการเปลี่ยนแปลง |
+| GET | `/audit-logs`, `/audit-logs/actions` | Local Admin | `?action=&subject_type=&subject_id=&actor_id=&from=&to=` บันทึกการทำงาน |
 | GET / POST / PUT / DELETE | `/announcements[/{id}]` | admin / ฝ่าย IT | จัดการประกาศ `{title, body, level: info\|warning\|danger, is_active, starts_on, ends_on, sort_order}` |
 | GET | `/assets/suggestions?field=brand\|model&q=&brand=` | ทุกคน | ยี่ห้อ/รุ่นที่มีอยู่ (ไม่ซ้ำ ไม่สนตัวพิมพ์, รุ่นกรองตามยี่ห้อ) |
 | POST | `/assets/{uuid}/license-key` | ผู้จัดการสินทรัพย์ / ฝ่าย IT | ดู license key (จำกัด 30 ครั้ง/นาที) |

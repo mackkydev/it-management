@@ -16,7 +16,7 @@ import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
 import type { AuditLog, Paginated } from "@/lib/types";
 import { AppSelect } from "@/components/app-select";
-import { actionLabel, auditQuery } from "./labels";
+import { actionLabel, AUDIT_KINDS, auditQuery } from "./labels";
 import { ConfirmDownload } from "@/components/confirm-download";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -24,7 +24,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("audit.title") };
 }
 
-/** ตั้งค่าระบบ → บันทึกการเปลี่ยนแปลง (Local Admin) */
+/** ตั้งค่าระบบ → บันทึกการทำงาน (Local Admin) */
 export default async function AuditLogsPage({ searchParams }: PageProps<"/audit-logs">) {
   if (!has(await getCurrentUser(), "audit_logs.view")) redirect("/tickets");
   const params = await searchParams;
@@ -35,7 +35,7 @@ export default async function AuditLogsPage({ searchParams }: PageProps<"/audit-
     apiFetch<{ data: { id: number; name: string }[] }>("/branches").then((r) => r.data),
   ]);
 
-  // ตัวกรอง: การกระทำ / ผู้ทำ (พิมพ์ชื่อ) / สาขาของผู้ทำ / ช่วงวันที่ — ไฟล์ Excel ใช้ตัวกรองเดียวกัน
+  // ตัวกรอง: ประเภท / การกระทำ / ผู้ทำ (พิมพ์ชื่อ) / สาขาของผู้ทำ / ช่วงวันที่ — ไฟล์ Excel ใช้ตัวกรองเดียวกัน
   const filters = auditQuery(str, actions);
   const q = new URLSearchParams(filters);
   if (/^\d+$/.test(str("page"))) q.set("page", str("page"));
@@ -43,8 +43,16 @@ export default async function AuditLogsPage({ searchParams }: PageProps<"/audit-
   return (
     <div className="space-y-5">
       <PageHeader icon={HistoryIcon} title={t("audit.title")} subtitle={t("audit.subtitle")} />
-      <Form action="/audit-logs" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_12rem_11rem_11rem_auto] ${card}`}>
+      <Form action="/audit-logs" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_11rem_1fr_11rem_10rem_10rem_auto] ${card}`}>
         <input name="actor" defaultValue={str("actor")} placeholder={t("audit.actorPlaceholder")} aria-label={t("audit.col.actor")} className={input} />
+        <AppSelect name="kind" defaultValue={str("kind")} className={input} aria-label={t("audit.kind")}>
+          <option value="">{t("audit.allKinds")}</option>
+          {AUDIT_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {t(`audit.kinds.${k}`)}
+            </option>
+          ))}
+        </AppSelect>
         <AppSelect name="action" defaultValue={str("action")} className={input} aria-label={t("audit.col.action")}>
           <option value="">{t("audit.allActions")}</option>
           {actions.map((a) => (

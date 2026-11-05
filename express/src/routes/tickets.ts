@@ -807,6 +807,7 @@ ticketRoutes.post("/tickets", async (req, res) => {
   });
 
   const ticket = (await loadTicket("t.id = ?", ticketId))!;
+  await auditTicketCreated(req, ticket);
   if (itFirst) {
     // ถึงฝ่าย IT ทันที — แจ้งผู้รับงาน (หรือผู้รับงานได้ทั้งหมด) + ผู้ดูแล VPN (คำขอ VPN)
     await notify(ticket, "submitted_it", u);
@@ -854,8 +855,15 @@ export async function createSystemTicket(
     return { id, uuid, ticket_no: ticketNo };
   });
   // แจ้งผู้รับงาน (หรือผู้รับงานได้ทั้งหมด) ว่ามีงานรอในคิว
-  await notify((await loadTicket("t.id = ?", created.id))!, "approved", requester);
+  const ticket = (await loadTicket("t.id = ?", created.id))!;
+  await auditTicketCreated(req, ticket);
+  await notify(ticket, "approved", requester);
   return created;
+}
+
+/** ใครสร้างใบแจ้งงาน — ทุกทางที่เปิดใบงาน: ผู้ใช้แจ้งเอง / ระบบเปิดให้จาก VPN / จอง ZOOM */
+function auditTicketCreated(req: Request, t: { uuid: string; ticket_no: string | null; type: string; status: string }) {
+  return audit(req, { action: "ticket.created", subjectType: "ticket", subjectId: t.uuid, after: { ticket_no: t.ticket_no, type: t.type, status: t.status } });
 }
 
 /* ---------------------------------------------------------------- ใบงานของการจอง ZOOM (routes/zoom.ts — เรียกภายใน transaction ได้, ไม่แจ้งเตือนฝั่งใบงาน) */
@@ -886,6 +894,7 @@ export async function createZoomTicket(req: Request, requesterId: number, opts: 
     const signature = await copySignatureTo(requesterId, `tickets/${uuid}/signatures`, "requester", req, { ticket: uuid });
     if (signature) await update("it_tickets", { requester_signature: signature }, "id = ?", [id]);
     await insert("it_ticket_events", { it_ticket_id: id, user_id: requesterId, action: "submitted", comment: null, created_at: opts.requestedAt });
+    await auditTicketCreated(req, (await loadTicket("t.id = ?", id))!);
     return id;
   });
 }

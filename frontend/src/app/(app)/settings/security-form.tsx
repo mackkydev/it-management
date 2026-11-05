@@ -84,7 +84,9 @@ export function SecurityForm({
 
       {feedback?.text && <ResultToast result={feedback} />}
 
-      <fieldset disabled={pending} className="space-y-3 disabled:opacity-60">
+      {/* 2 คอลัมน์เรียงลงมาอิสระ — เปิดกล่องไหนแล้วสูงขึ้น ไม่เกิดช่องโหว่ข้าง ๆ */}
+      <fieldset disabled={pending} className="grid items-start gap-3 disabled:opacity-60 lg:grid-cols-2">
+        <div className="space-y-3">
         <Toggle id="sg-reauth" checked={v.reauth} onChange={(x) => set("reauth", x)} title={t("secretGuard.reauthTitle")} hint={t("secretGuard.reauthHint")}>
           {/* ยืนยันด้วยอะไร: รหัสผ่าน login ของแต่ละคน / PIN กลางอันเดียว */}
           <fieldset className="mb-4">
@@ -125,7 +127,20 @@ export function SecurityForm({
           />
           <p className="mt-1 text-xs text-muted">{t("secretGuard.reauthMinutesHint")}</p>
         </Toggle>
+        <Toggle id="sg-ip" checked={v.ip_restrict} onChange={(x) => set("ip_restrict", x)} title={t("secretGuard.ipTitle")} hint={t("secretGuard.ipHint")}>
+          <ChipList
+            items={v.allowed_ips}
+            onChange={(ips) => set("allowed_ips", ips)}
+            placeholder={t("secretGuard.ipPlaceholder")}
+            addLabel={t("secretGuard.ipAdd")}
+            emptyText={t("secretGuard.ipEmpty")}
+            validate={(ip) => (!IP_RE.test(ip.trim()) ? t("secretGuard.ipInvalid") : v.allowed_ips.includes(ip.trim()) ? t("secretGuard.ipDuplicate") : null)}
+          />
+          <p className="mt-2 text-xs text-warning-700 dark:text-warning-300">{t("secretGuard.ipProxyNote")}</p>
+        </Toggle>
+        </div>
 
+        <div className="space-y-3">
         {/* ล้าง clipboard หลังคัดลอก — เปิดเสมอ ตั้งได้แค่เวลา */}
         <div className="rounded-xl p-4 ring-1 ring-line">
           <label htmlFor="sg-clipboard" className="block text-sm font-medium">
@@ -147,18 +162,6 @@ export function SecurityForm({
           </div>
         </div>
 
-        <Toggle id="sg-ip" checked={v.ip_restrict} onChange={(x) => set("ip_restrict", x)} title={t("secretGuard.ipTitle")} hint={t("secretGuard.ipHint")}>
-          <ChipList
-            items={v.allowed_ips}
-            onChange={(ips) => set("allowed_ips", ips)}
-            placeholder={t("secretGuard.ipPlaceholder")}
-            addLabel={t("secretGuard.ipAdd")}
-            emptyText={t("secretGuard.ipEmpty")}
-            validate={(ip) => (!IP_RE.test(ip.trim()) ? t("secretGuard.ipInvalid") : v.allowed_ips.includes(ip.trim()) ? t("secretGuard.ipDuplicate") : null)}
-          />
-          <p className="mt-2 text-xs text-warning-700 dark:text-warning-300">{t("secretGuard.ipProxyNote")}</p>
-        </Toggle>
-
         <Toggle id="sg-notify" checked={v.notify_heads} onChange={(x) => set("notify_heads", x)} title={t("secretGuard.notifyTitle")} hint={t("secretGuard.notifyHint")}>
           {/* ผู้รับแจ้งเตือน: เลือกผู้ใช้ในระบบ — ไม่เลือก = หัวหน้า IT ทุกคน */}
           <p className="mb-1 text-xs font-medium">{t("secretGuard.notifyRecipients")}</p>
@@ -174,7 +177,9 @@ export function SecurityForm({
           )}
         </Toggle>
 
-        <p className="text-xs text-muted">{t("secretGuard.logNote")}</p>
+        </div>
+
+        <p className="text-xs text-muted lg:col-span-2">{t("secretGuard.logNote")}</p>
       </fieldset>
 
       <div className="flex justify-end">

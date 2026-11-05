@@ -17,7 +17,7 @@ describe("password policy", () => {
   it("defaults: lockout after 10 failures for 15 minutes, no password expiry", async () => {
     const api = await superAdmin();
     const s = (await api.get("/api/v1/settings")).body.data.password_policy;
-    expect(s).toEqual({ lockout_attempts: 10, lockout_minutes: 15, expiry_days: 0, expiry_warn_days: 7, since: null, force_first_change: false });
+    expect(s).toEqual({ lockout_attempts: 10, lockout_minutes: 15, expiry_days: 0, expiry_warn_days: 7, since: null, force_first_change: false, inactive_lock_days: 0, inactive_lock_groups: {} });
   });
 
   it("locks the account after N failed sign-ins, even with the right password, and notifies admins", async () => {

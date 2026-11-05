@@ -29,7 +29,7 @@ import { putSetting } from "../services/settings.js";
  *   PUT    /users/{id}/permissions         { role?, groups?: [{ key, expires_on }], overrides?: { key: { effect, expires_on } | "inherit" } } (access.assign)
  *   GET    /api-users                      รายการ API User (access.assign)
  *   POST   /api-users/{id}/link            { local_user_id } ผูก API User กับบัญชี LOCAL เดิม (access.assign)
- *   GET    /audit-logs                     บันทึกการเปลี่ยนแปลง (audit_logs.view)
+ *   GET    /audit-logs                     บันทึกการทำงาน (audit_logs.view)
  * ทุกการเปลี่ยนสิทธิ์บันทึก audit_logs (ก่อน-หลัง) + แจ้งเตือนผู้ดูแลระบบสูงสุด + ผู้ดูแลระบบทุกคน
  * กติกาการมอบ (กันยกระดับสิทธิ์ตัวเอง) อยู่ที่ services/access-control.ts
  */
@@ -714,7 +714,7 @@ accessRoutes.post("/api-users/:id/link", async (req, res) => {
 
 /* ---------------------------------------------------------------- audit log */
 
-/** ตัวกรองบันทึกการเปลี่ยนแปลง — ใช้ร่วมกันระหว่างหน้ารายการและไฟล์ Excel */
+/** ตัวกรองบันทึกการทำงาน — ใช้ร่วมกันระหว่างหน้ารายการและไฟล์ Excel */
 async function auditFilter(req: Request, input: Record<string, unknown>) {
   const f = await validate(
     input,
@@ -729,10 +729,15 @@ async function auditFilter(req: Request, input: Record<string, unknown>) {
       branch_id: ["nullable", "integer"],
       from: ["nullable", "date"],
       to: ["nullable", "date"],
+      // ประเภท: เข้า-ออกระบบ / สร้าง / ลบ (ยืมของ VPN Zoom ไม่มีการลบจริง — นับการยกเลิกเป็นลบ)
+      kind: ["nullable", "in:login,created,deleted"],
     },
     { locale: req.locale },
   );
   const where = ["1 = 1"];
+  if (f.kind === "login") where.push("a.action IN ('auth.login', 'auth.logout', 'auth.super_admin_login')");
+  if (f.kind === "created") where.push("(a.action LIKE '%.created' OR a.action = 'vpn_loan.requested')");
+  if (f.kind === "deleted") where.push("(a.action LIKE '%.deleted' OR a.action LIKE '%.cancelled')");
   const params: unknown[] = [];
   if (f.action) (where.push("a.action LIKE ?"), params.push(`${likeEscape(String(f.action))}%`));
   if (f.subject_type) (where.push("a.subject_type = ?"), params.push(f.subject_type));
@@ -756,8 +761,11 @@ interface AuditRow {
 }
 
 const AUDIT_SELECT = `SELECT a.*, u.name AS actor_name, b.name AS branch_name,
-       CASE a.subject_type WHEN 'user' THEN (SELECT s.name FROM users s WHERE s.id = CAST(a.subject_id AS UNSIGNED))
-                           WHEN 'api_connection' THEN (SELECT c.name FROM api_connections c WHERE c.id = CAST(a.subject_id AS UNSIGNED)) END AS subject_name
+       COALESCE(
+         CASE a.subject_type WHEN 'user' THEN (SELECT s.name FROM users s WHERE s.id = CAST(a.subject_id AS UNSIGNED))
+                             WHEN 'api_connection' THEN (SELECT c.name FROM api_connections c WHERE c.id = CAST(a.subject_id AS UNSIGNED)) END,
+         a.after->>'$.ticket_no', a.before->>'$.ticket_no', a.after->>'$.name', a.after->>'$.title', a.before->>'$.name', a.before->>'$.title'
+       ) AS subject_name
      FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id LEFT JOIN branches b ON b.id = u.branch_id`;
 
 accessRoutes.get("/audit-logs", async (req, res) => {
@@ -793,7 +801,7 @@ accessRoutes.post("/audit-logs/export", async (req, res) => {
   });
   const h = (k: string, fallback: string) => (typeof head[k] === "string" ? String(head[k]) : fallback);
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(h("sheet", "Audit log"));
+  const ws = wb.addWorksheet(h("sheet", "Activity log"));
   ws.columns = [
     { header: h("time", "Time"), key: "time", width: 22 },
     { header: h("actor", "By"), key: "actor", width: 26 },

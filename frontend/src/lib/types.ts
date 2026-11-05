@@ -225,7 +225,25 @@ export interface Branch {
 }
 
 /** นโยบายรหัสผ่าน (แก้ได้เฉพาะ access.manage) — 0 = ปิด */
+/** GET /users/{id} meta.login_activity — ประวัติการเข้าสู่ระบบของผู้ใช้ */
+export interface LoginActivity {
+  last_login_at: string | null;
+  /** ใส่รหัสผิดติดกันตอนนี้ */
+  failures: number;
+  last_failed_at: string | null;
+  last_locked_at: string | null;
+  last_lock_reason: "password" | "inactive" | null;
+  /** ผิดกี่ครั้งตอนโดนล็อกล่าสุด */
+  last_lock_attempts: number | null;
+  inactive_locked: boolean;
+  inactive_locked_at: string | null;
+}
+
 export interface PasswordPolicy {
+  /** ไม่เข้าระบบกี่วันจึงล็อก (0 = ปิด) */
+  inactive_lock_days?: number;
+  /** กลุ่มที่เปิดสวิตช์ → เวลาที่เปิด (ตอนบันทึกส่งเป็นรายชื่อกลุ่ม) */
+  inactive_lock_groups?: Record<string, string> | string[];
   lockout_attempts: number;
   lockout_minutes: number;
   expiry_days: number;
@@ -685,6 +703,8 @@ export interface UserFormValues {
   is_active: boolean;
   password: string;
   password_confirmation: string;
+  /** ผู้ดูแลตั้งรหัสผ่านให้: ติ๊กให้ผู้ใช้ตั้งรหัสผ่านใหม่เมื่อเข้าระบบ */
+  must_change_password?: boolean;
   branch_id: string;
   department: string;
   division: string;

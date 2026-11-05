@@ -11,11 +11,13 @@ export function actionLabel(t: T, action: string): string {
 }
 
 export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+export const AUDIT_KINDS = ["login", "created", "deleted"] as const;
 
 /** ตัวกรองจาก query string ของหน้า (ตรวจรูปแบบก่อนส่งต่อ API) — ไม่รวมเลขหน้า */
 export function auditQuery(get: (k: string) => string, actions: string[]): URLSearchParams {
   const q = new URLSearchParams();
   if (actions.includes(get("action"))) q.set("action", get("action"));
+  if ((AUDIT_KINDS as readonly string[]).includes(get("kind"))) q.set("kind", get("kind"));
   if (ISO_DATE.test(get("from"))) q.set("from", get("from"));
   if (ISO_DATE.test(get("to"))) q.set("to", get("to"));
   if (/^\d+$/.test(get("branch_id"))) q.set("branch_id", get("branch_id"));

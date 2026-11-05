@@ -35,7 +35,7 @@ export const MODULES = [
   { key: "settings", group: "system", name_th: "ตั้งค่าระบบ", name_en: "System settings" },
   { key: "policy", group: "system", name_th: "นโยบายการใช้งาน", name_en: "Usage policies" },
   { key: "approval_routes", group: "system", name_th: "สายอนุมัติ", name_en: "Approval routes" },
-  { key: "audit", group: "system", name_th: "บันทึกการเปลี่ยนแปลง", name_en: "Audit log" },
+  { key: "audit", group: "system", name_th: "บันทึกการทำงาน", name_en: "Activity log" },
   { key: "access", group: "system", name_th: "สิทธิ์การใช้งาน", name_en: "Access control" },
   { key: "security", group: "system", name_th: "ความปลอดภัย", name_en: "Security" },
   { key: "calendar", group: "users", name_th: "ปฏิทินและวันหยุด", name_en: "Calendar and holidays" },
@@ -124,6 +124,7 @@ const DEFS: Def[] = [
   { key: "users.create", module: "users", action: "create", name_th: "เพิ่มผู้ใช้", name_en: "Add users", defaults: ["admin"], from: "users.manage" },
   { key: "users.update", module: "users", action: "update", name_th: "แก้ไขผู้ใช้ (ข้อมูล / ปิดใช้งาน / รีเซ็ตรหัสผ่าน)", name_en: "Edit users (details / deactivate / reset password)", defaults: ["admin"], from: "users.manage" },
   { key: "users.delete", module: "users", action: "delete", name_th: "ลบผู้ใช้", name_en: "Delete users", defaults: ["admin"], from: "users.manage" },
+  { key: "users.unlock", module: "users", action: "other", name_th: "ปลดล็อกผู้ใช้ที่ถูกล็อกการเข้าสู่ระบบ", name_en: "Unlock users locked out of sign-in", defaults: ["admin"] },
   { key: "users.search", module: "users", action: "other", name_th: "ค้นหาผู้ใช้ (เลือกผู้ถือครอง/ผู้ใช้งาน)", name_en: "Search users (pickers)", defaults: MANAGERS_IT },
   { key: "branches.manage", module: "branches", action: "manage", name_th: "จัดการสาขา", name_en: "Manage branches", defaults: ["admin"] },
   { key: "org.manage", module: "org", action: "manage", name_th: "จัดการแผนกและฝ่าย", name_en: "Manage departments and divisions", defaults: ["admin"] },
@@ -137,7 +138,7 @@ const DEFS: Def[] = [
   // หน้า ข้อมูล Drop Down: Computer Type / ยี่ห้อ / หมวดหมู่คลังบัญชี — ผู้ที่ตั้งค่าระบบได้อยู่แล้วได้ตั้งแต่แรก (from)
   { key: "dropdowns.manage", module: "settings", action: "other", name_th: "จัดการข้อมูล Drop Down (Computer Type, ยี่ห้อ, หมวดหมู่คลังบัญชี, ตัวเลือกเรื่อง \"อื่นๆ\")", name_en: "Manage drop-down data (computer type, brand, vault category, \"Other\" ticket subjects)", defaults: ["admin"] },
   { key: "approval_routes.manage", module: "approval_routes", action: "manage", name_th: "จัดการสายอนุมัติ", name_en: "Manage approval routes", defaults: ["admin"] },
-  { key: "audit_logs.view", module: "audit", action: "view", name_th: "ดูบันทึกการเปลี่ยนแปลง (audit log)", name_en: "View the audit log", defaults: ["admin"] },
+  { key: "audit_logs.view", module: "audit", action: "view", name_th: "ดูบันทึกการทำงาน (audit log)", name_en: "View the activity log", defaults: ["admin"] },
   { key: "access.assign", module: "access", action: "other", name_th: "มอบตำแหน่ง/กลุ่ม/สิทธิ์ให้ผู้ใช้ (เฉพาะสิทธิ์ที่ตัวเองมี)", name_en: "Assign roles / groups / permissions to users (only ones held)", defaults: ["admin"] },
   // ผู้ดูแลระบบ (admin): แก้ตารางสิทธิ์ / สร้าง-เปลี่ยนชื่อ-ลบกลุ่มที่ต่ำกว่าตำแหน่งตัวเอง (กลุ่มตามตำแหน่งที่ต่ำกว่า + กลุ่มที่สร้างเองที่ตัวเองไม่ได้อยู่) — groupEditError ใน services/access-control.ts
   { key: "access.groups", module: "access", action: "other", name_th: "แก้สิทธิ์ของกลุ่มที่ต่ำกว่าตัวเอง / สร้าง-ลบกลุ่มที่สร้างเอง (เฉพาะสิทธิ์ที่ตัวเองมี)", name_en: "Edit permissions of lower groups / create-delete custom groups (only permissions held)", defaults: ["admin"], locked: true },

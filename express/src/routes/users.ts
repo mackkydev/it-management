@@ -14,7 +14,7 @@ import { disableTwoFactor, twoFactorRequiredFor } from "../services/two-factor.j
 import { grantError, groupKeys, lastLocalSuperAdmin, notifyAccessChange, roleChangeError } from "../services/access-control.js";
 import { audit } from "../services/audit.js";
 import { canFor, scopeOf, scopeWhere } from "../services/manage-scope.js";
-import { loginLockedMinutes, passwordChangedNow, passwordSetByAdmin } from "../services/password-policy.js";
+import { inactiveLockStatus, loginLockedMinutes, passwordChangedNow, passwordSetByAdmin } from "../services/password-policy.js";
 import { userResource } from "../resources.js";
 
 /** UserController — ตัวเลือกผู้ถือครอง (admin/manager) และจัดการผู้ใช้ (users.create / update / delete) */
@@ -153,7 +153,29 @@ userRoutes.get("/users/:id", async (req, res) => {
     const inScope = await Promise.all(USER_KEYS.map((k) => canFor(u, k, target.branch_id)));
     if (!inScope.some(Boolean)) throw notFound();
   }
-  res.json({ data: managed(await loadManaged(target.id), u.id), meta: { can_delete: !(await hasHistory(target.id)), two_factor_required: await twoFactorRequiredFor(target) } });
+  const inactive = await inactiveLockStatus(target);
+  res.json({
+    data: managed(await loadManaged(target.id), u.id),
+    meta: {
+      can_delete: !(await hasHistory(target.id)),
+      two_factor_required: await twoFactorRequiredFor(target),
+      // ประวัติการเข้าสู่ระบบ (หน้าแก้ไขผู้ใช้) — เฉพาะผู้จัดการผู้ใช้
+      ...(editsUsers(u)
+        ? {
+            login_activity: {
+              last_login_at: iso(target.last_login_at ?? null),
+              failures: Number(target.login_failures ?? 0),
+              last_failed_at: iso(target.last_login_failed_at ?? null),
+              last_locked_at: iso(target.last_locked_at ?? null),
+              last_lock_reason: target.last_lock_reason ?? null,
+              last_lock_attempts: target.last_lock_attempts ?? null,
+              inactive_locked: inactive.locked,
+              inactive_locked_at: inactive.locked ? inactive.lockedAt : null,
+            },
+          }
+        : {}),
+    },
+  });
 });
 
 /**
@@ -182,6 +204,7 @@ async function validatedUser(req: Request, target: UserRow | null) {
       is_active: ["sometimes", "boolean"],
       // ต้องกรอกยืนยันรหัสผ่าน (password_confirmation) ให้ตรงกัน
       password: [target ? "nullable" : "required", "string", "confirmed", password(8, { letters: true, numbers: true })],
+      must_change_password: ["sometimes", "boolean"],
       branch_id: ["sometimes", "nullable", "integer", exists("branches", "id", "deleted_at IS NULL")],
       job_title: ["sometimes", "nullable", "string", "max:100"],
       department: ["sometimes", "nullable", "string", "max:100"],
@@ -254,6 +277,8 @@ userRoutes.post("/users", async (req, res) => {
     password: makeHash(String(data.password), config.bcryptRounds),
     // เปิดบังคับเปลี่ยนรหัสผ่านครั้งแรก = ผู้ใช้ใหม่ต้องตั้งรหัสผ่านเองตอนเข้าสู่ระบบ
     ...(await passwordSetByAdmin()),
+    // ผู้ดูแลติ๊กให้ตั้งรหัสผ่านใหม่เมื่อเข้าระบบ
+    password_change_forced: bool(req.input.must_change_password),
     ...orgColumns(data),
     created_at: now,
     updated_at: now,
@@ -285,8 +310,9 @@ async function updateUser(req: Request, res: import("express").Response) {
     const newPassword = target.type === "LOCAL" && typeof req.input.password === "string" && req.input.password !== "";
     // รีเซ็ตรหัสผ่าน = เริ่มนับวันหมดอายุใหม่ + ปลดล็อกการ login
     // รีเซ็ตให้ผู้อื่น = ต้องเปลี่ยนเองตอนเข้าสู่ระบบ (ถ้าเปิดนโยบาย) / แก้ของตัวเอง = ไม่ต้อง
-    const changed = target.id === me(req).id ? passwordChangedNow() : await passwordSetByAdmin();
-    if (newPassword) Object.assign(changes, { password: makeHash(req.input.password, config.bcryptRounds), ...changed, login_failures: 0, login_locked_until: null });
+    const changed = target.id === me(req).id ? passwordChangedNow() : { ...(await passwordSetByAdmin()), password_change_forced: bool(req.input.must_change_password) };
+    // ตั้งรหัสผ่านใหม่ให้ = ปลดล็อกทั้งจากรหัสผิดและจากไม่เข้าระบบ
+    if (newPassword) Object.assign(changes, { password: makeHash(req.input.password, config.bcryptRounds), ...changed, login_failures: 0, login_locked_until: null, inactive_unlocked_at: nowDb() });
 
     if (Object.keys(changes).length) await update("users", { ...changes, updated_at: nowDb() }, "id = ?", [target.id]);
 
@@ -339,14 +365,15 @@ userRoutes.delete("/users/:id/2fa", async (req, res) => {
   res.status(204).end();
 });
 
-/** DELETE /users/{id}/login-lock — ปลดล็อกบัญชีที่ถูกล็อกเพราะ login ผิดหลายครั้ง (ผู้มีสิทธิ์แก้ไขผู้ใช้) */
+/** DELETE /users/{id}/login-lock — ปลดล็อกบัญชีที่ถูกล็อกเพราะ login ผิดหลายครั้ง หรือไม่เข้าระบบนาน (users.unlock — ตั้งต้น admin ขึ้นไป) */
 userRoutes.delete("/users/:id/login-lock", async (req, res) => {
   const target = await routeUser(req);
-  authorize(can(me(req), "users.update") && !superAdminTarget(me(req), target));
+  authorize(can(me(req), "users.unlock") && !superAdminTarget(me(req), target));
   await assertInScope(me(req), target, "users.update");
-  if (!loginLockedMinutes(target) && !Number(target.login_failures ?? 0)) throw notFound();
-  await update("users", { login_failures: 0, login_locked_until: null }, "id = ?", [target.id]);
-  await audit(req, { action: "auth.unlocked", subjectType: "user", subjectId: target.id, before: { until: target.login_locked_until ?? null, failures: Number(target.login_failures ?? 0) } });
+  const inactive = await inactiveLockStatus(target);
+  if (!loginLockedMinutes(target) && !Number(target.login_failures ?? 0) && !inactive.locked) throw notFound();
+  await update("users", { login_failures: 0, login_locked_until: null, inactive_unlocked_at: nowDb() }, "id = ?", [target.id]);
+  await audit(req, { action: "auth.unlocked", subjectType: "user", subjectId: target.id, before: { until: target.login_locked_until ?? null, failures: Number(target.login_failures ?? 0), inactive: inactive.locked } });
   res.status(204).end();
 });
 

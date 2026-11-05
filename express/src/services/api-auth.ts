@@ -3,6 +3,7 @@ import { exec, first, insert, update } from "../db.js";
 import { readPath, readString } from "../lib/json-path.js";
 import { decryptString, encryptNullable, encryptString } from "../lib/laravel-crypt.js";
 import { nowDb, toDbDateTime } from "../lib/time.js";
+import { blockedByInactivity } from "./password-policy.js";
 import { createToken, deleteToken } from "../lib/tokens.js";
 import { ERROR_KINDS, type ApiConnectionRow, type ErrorKind, type ErrorMessage } from "../models/api-connection.js";
 import type { Role, UserRow } from "../models/user.js";
@@ -83,7 +84,7 @@ const ok = (status: number) => status >= 200 && status < 300;
 /* ---------------------------------------------------------------- login ที่ต้นทาง */
 
 /** เหตุที่ login ไม่สำเร็จ — invalid = ข้อความกลางเสมอ (ไม่บอกว่ามี username หรือไม่) */
-export type LoginFailureKind = ErrorKind | "unavailable" | "misconfigured" | "connection_disabled";
+export type LoginFailureKind = ErrorKind | "unavailable" | "misconfigured" | "connection_disabled" | "inactive_locked";
 
 export class ApiLoginError extends Error {
   constructor(
@@ -329,6 +330,10 @@ export async function loginWithApi(conn: ApiConnectionRow, username: string, pas
   if (!user.is_active) {
     await upstreamLogout(conn, result.token);
     throw new ApiLoginError("disabled");
+  }
+  if (await blockedByInactivity(actor, user)) {
+    await upstreamLogout(conn, result.token);
+    throw new ApiLoginError("inactive_locked");
   }
 
   const ours = new Date(Date.now() + config.tokenTtlMinutes * 60_000);

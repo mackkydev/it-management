@@ -26,12 +26,14 @@ const eamTh = {
   auth: {
     read_only: "บัญชีผู้ตรวจสอบดูได้อย่างเดียว ไม่สามารถแก้ไขข้อมูลได้",
     failed: "อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง",
+    inactive_locked: "บัญชีถูกล็อกเพราะไม่ได้เข้าใช้งานเกิน :days วัน กรุณาติดต่อผู้ดูแลระบบเพื่อปลดล็อก",
     locked: "บัญชีถูกล็อกชั่วคราวเพราะเข้าสู่ระบบผิดหลายครั้ง — ลองใหม่ในอีก :minutes นาที หรือติดต่อผู้ดูแลระบบ",
     password_expired: "รหัสผ่านหมดอายุ — กรุณาเปลี่ยนรหัสผ่านก่อนใช้งานต่อ",
   },
   /** login ผ่านระบบต้นทาง (API User) — failed ใช้กับทุกกรณี "รหัสผิด/ไม่มีผู้ใช้" (ไม่บอกว่ามี username หรือไม่) */
   api_auth: {
     failed: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง",
+    inactive_locked: "บัญชีถูกล็อกเพราะไม่ได้เข้าใช้งานนานเกินกำหนด กรุณาติดต่อผู้ดูแลระบบเพื่อปลดล็อก",
     password_expired: "รหัสผ่านหมดอายุ กรุณาเปลี่ยนรหัสผ่านที่ระบบต้นทาง",
     locked: "บัญชีถูกล็อก กรุณาติดต่อผู้ดูแลระบบต้นทาง",
     disabled: "บัญชีนี้ถูกปิดใช้งาน",
@@ -440,11 +442,13 @@ const eamEn: Eam = {
   auth: {
     read_only: "Auditor accounts are read-only and cannot change data.",
     failed: "Invalid e-mail/username or password.",
+    inactive_locked: "This account was locked after more than :days days without signing in. Ask an administrator to unlock it.",
     locked: "This account is temporarily locked after too many failed sign-ins — try again in :minutes minute(s) or contact an administrator.",
     password_expired: "Your password has expired — please change it to continue.",
   },
   api_auth: {
     failed: "Invalid username or password.",
+    inactive_locked: "This account was locked after a long time without signing in. Ask an administrator to unlock it.",
     password_expired: "Your password has expired. Please change it in the source system.",
     locked: "This account is locked. Please contact the source system administrator.",
     disabled: "This account has been disabled.",

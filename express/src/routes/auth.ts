@@ -17,7 +17,7 @@ import { audit } from "../services/audit.js";
 import { groupsOf } from "../services/permissions.js";
 import { checkCentralPin, secretGuard, verifyLoginPassword } from "../services/secret-guard.js";
 import { policyStatus } from "../services/system-policy.js";
-import { assertNotLocked, clearLoginFailures, passwordChangedNow, passwordPolicy, passwordStatus, recordLoginFailure } from "../services/password-policy.js";
+import { assertNotLocked, blockedByInactivity, clearLoginFailures, passwordChangedNow, passwordPolicy, passwordStatus, recordLoginFailure } from "../services/password-policy.js";
 import { activeSignature, deactivateSignature, mimeOf, readSignature, saveSignature, SignatureError, signatureRequired } from "../services/signatures.js";
 import type { Locale } from "../lib/i18n.js";
 import {
@@ -60,6 +60,9 @@ loginRoutes.post("/auth/login", limits.login, async (req, res) => {
     const locked = await recordLoginFailure(req, user);
     throw ValidationError.withMessages({ email: trans(req.locale, locked ? "eam.auth.locked" : "eam.auth.failed", { minutes: locked }) });
   }
+  // รหัสผ่านถูกแล้วจึงบอกว่าถูกล็อกเพราะไม่เข้าระบบ
+  const inactiveDays = await blockedByInactivity(req, user);
+  if (inactiveDays) throw ValidationError.withMessages({ email: trans(req.locale, "eam.auth.inactive_locked", { days: inactiveDays }) });
 
   // 2FA: รหัสผ่านถูกแล้ว → ขอรหัสจากแอป (verify) หรือบังคับตั้ง 2FA ก่อน (setup) — ยังไม่ออก token
   if (twoFactorEnabled(user)) return void res.json({ two_factor: "verify", challenge: signChallenge(user, "verify") });
@@ -68,10 +71,17 @@ loginRoutes.post("/auth/login", limits.login, async (req, res) => {
   res.json(await issueLogin(req, user, String(data.device_name), "password"));
 });
 
+/** บันทึกการเข้าสู่ระบบ + เวลาเข้าล่าสุด — super_admin มีแถว auth.super_admin_login จาก notifySuperAdminLogin แล้ว */
+const auditLogin = async (req: import("express").Request, user: UserRow, method: LoginMethod) => {
+  await update("users", { last_login_at: nowDb() }, "id = ?", [user.id]);
+  if (user.role !== "super_admin") await audit({ user, ip: req.ip }, { action: "auth.login", subjectType: "user", subjectId: user.id, after: { method } });
+};
+
 /** ออก token ของเรา (รูปแบบ response เดียวกับ /auth/login เดิม) — method = วิธียืนยันตัวตน (แจ้งเตือนเมื่อ super_admin เข้าสู่ระบบ) */
 async function issueLogin(req: import("express").Request, user: UserRow, deviceName: string, method: LoginMethod) {
   await clearLoginFailures(user);
   await notifySuperAdminLogin(req, user, method);
+  await auditLogin(req, user, method);
   const expiresAt = addMinutes(new Date(), config.tokenTtlMinutes);
   const token = await createToken(user.id, deviceName, expiresAt);
   const fresh = (await findUser(user.id))!;
@@ -217,6 +227,7 @@ loginRoutes.post("/auth/api-login", limits.apiLogin, async (req, res) => {
     if (!conn) throw new ApiLoginError("connection_disabled");
     const session = await loginWithApi(conn, String(data.username), String(data.password), String(data.device_name), req);
     await notifySuperAdminLogin(req, session.user, "api");
+    await auditLogin(req, session.user, "api");
     res.json({ token: session.plainText, token_type: "Bearer", expires_at: iso(toDbDateTime(session.expiresAt)), user: userResource(session.user) });
   } catch (e) {
     if (!(e instanceof ApiLoginError)) throw e;
@@ -336,6 +347,7 @@ authRoutes.post("/auth/logout", async (req, res) => {
   const u = me(req);
   if (u.type === "API") await revokeApiSession(req.tokenId!, u);
   await deleteToken(req.tokenId!);
+  await audit(req, { action: "auth.logout", subjectType: "user", subjectId: u.id });
   res.status(204).end();
 });
 

@@ -3,10 +3,10 @@ import { update } from "../db.js";
 import { ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
 import { iso, nowDb, toDbDateTime } from "../lib/time.js";
-import { isLocal, type UserRow } from "../models/user.js";
+import { isLocal, isSuperAdmin, type UserRow } from "../models/user.js";
 import { audit } from "./audit.js";
 import { notifyUsers } from "./notifications.js";
-import { adminRecipients } from "./permissions.js";
+import { adminRecipients, groupsOf } from "./permissions.js";
 import { getSetting } from "./settings.js";
 
 /**
@@ -17,6 +17,9 @@ import { getSetting } from "./settings.js";
  * - บังคับเปลี่ยนรหัสผ่านทุก expiry_days วัน (0 = ไม่บังคับ): นับจาก users.password_changed_at
  *   (ยังไม่เคยเปลี่ยนตั้งแต่มีคอลัมน์ = นับจากวันที่เปิดนโยบาย `since`) — หมดอายุแล้ว API ตอบ 403 password_expired
  *   ทุก endpoint ยกเว้น PASSWORD_EXPIRED_ALLOWED จนกว่าจะเปลี่ยนรหัสผ่าน; แจ้งล่วงหน้า expiry_warn_days วัน (แถบในหน้าเว็บ)
+ * - ล็อกเมื่อไม่เข้าระบบ inactive_lock_days วัน (0 = ปิด) เฉพาะกลุ่มที่เปิดสวิตช์ inactive_lock_groups (LOCAL และ API):
+ *   นับจากล่าสุดของ เข้าระบบ / สร้างบัญชี / ผู้ดูแลปลดล็อก / วันที่เปิดกลุ่มนั้น จึงไม่มีใครถูกล็อกทันทีตอนเปิด
+ *   ไม่ล็อก super_admin เสมอ ไม่งั้นถ้าไม่มีใครเข้าระบบนานเกินกำหนด จะไม่เหลือคนปลดล็อก — ไม่มี cron: ตรวจตอน login
  */
 export interface PasswordPolicy {
   lockout_attempts: number;
@@ -27,9 +30,13 @@ export interface PasswordPolicy {
   since: string | null;
   /** บังคับเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบครั้งแรก / หลังผู้ดูแลรีเซ็ตรหัสผ่าน (users.must_change_password) */
   force_first_change: boolean;
+  /** ไม่เข้าระบบกี่วันจึงล็อก (0 = ปิด) */
+  inactive_lock_days: number;
+  /** กลุ่มที่เปิดสวิตช์ → เวลาที่เปิด (UTC) ใช้เป็นจุดเริ่มนับของกลุ่มนั้น */
+  inactive_lock_groups: Record<string, string>;
 }
 
-export const PASSWORD_POLICY_DEFAULTS: PasswordPolicy = { lockout_attempts: 10, lockout_minutes: 15, expiry_days: 0, expiry_warn_days: 7, since: null, force_first_change: false };
+export const PASSWORD_POLICY_DEFAULTS: PasswordPolicy = { lockout_attempts: 10, lockout_minutes: 15, expiry_days: 0, expiry_warn_days: 7, since: null, force_first_change: false, inactive_lock_days: 0, inactive_lock_groups: {} };
 
 /** endpoint ที่ใช้ได้ระหว่างรหัสผ่านหมดอายุ (path ใต้ /api/v1) */
 export const PASSWORD_EXPIRED_ALLOWED: { method: string; path: string }[] = [
@@ -51,6 +58,8 @@ export async function passwordPolicy(): Promise<PasswordPolicy> {
     expiry_warn_days: num(raw.expiry_warn_days, d.expiry_warn_days),
     since: typeof raw.since === "string" ? raw.since : null,
     force_first_change: raw.force_first_change === true,
+    inactive_lock_days: num(raw.inactive_lock_days, d.inactive_lock_days),
+    inactive_lock_groups: raw.inactive_lock_groups && typeof raw.inactive_lock_groups === "object" ? (raw.inactive_lock_groups as Record<string, string>) : {},
   };
 }
 
@@ -78,11 +87,11 @@ export async function recordLoginFailure(req: Request, u: UserRow): Promise<numb
   const policy = await passwordPolicy();
   const failures = Number(u.login_failures ?? 0) + 1;
   if (policy.lockout_attempts <= 0 || failures < policy.lockout_attempts) {
-    await update("users", { login_failures: failures }, "id = ?", [u.id]);
+    await update("users", { login_failures: failures, last_login_failed_at: nowDb() }, "id = ?", [u.id]);
     return 0;
   }
   const until = toDbDateTime(new Date(Date.now() + policy.lockout_minutes * 60_000));
-  await update("users", { login_failures: 0, login_locked_until: until }, "id = ?", [u.id]);
+  await update("users", { login_failures: 0, login_locked_until: until, last_login_failed_at: nowDb(), last_locked_at: nowDb(), last_lock_reason: "password", last_lock_attempts: failures }, "id = ?", [u.id]);
   await audit({ ip: req.ip }, { action: "auth.locked", subjectType: "user", subjectId: u.id, after: { attempts: failures, minutes: policy.lockout_minutes, until: iso(until) } });
   const ids = await adminRecipients(u.id);
   if (ids.length) {
@@ -98,6 +107,42 @@ export async function clearLoginFailures(u: UserRow): Promise<void> {
   if (Number(u.login_failures ?? 0) > 0 || u.login_locked_until) await update("users", { login_failures: 0, login_locked_until: null }, "id = ?", [u.id]);
 }
 
+/* ---------------------------------------------------------------- ล็อกเมื่อไม่เข้าระบบ */
+
+const timeOf = (v: string | null | undefined) => {
+  const t = v ? parseDb(v).getTime() : NaN;
+  return Number.isNaN(t) ? 0 : t;
+};
+
+/** ถูกล็อกเพราะไม่เข้าระบบไหม และเริ่มล็อกเมื่อไร — คำนวณจากวันที่ทุกครั้ง จึงไม่ต้องมีงานตั้งเวลา */
+export async function inactiveLockStatus(u: UserRow, given?: PasswordPolicy): Promise<{ locked: boolean; lockedAt: string | null }> {
+  const policy = given ?? (await passwordPolicy());
+  if (policy.inactive_lock_days <= 0 || isSuperAdmin(u)) return { locked: false, lockedAt: null };
+  const starts = (await groupsOf(u)).map((g) => policy.inactive_lock_groups[g]).filter(Boolean);
+  if (!starts.length) return { locked: false, lockedAt: null };
+  // อยู่หลายกลุ่ม = นับจากกลุ่มที่เปิดก่อนสุด
+  const groupStart = Math.min(...starts.map(timeOf));
+  const base = Math.max(groupStart, timeOf(u.last_login_at), timeOf(u.created_at), timeOf(u.inactive_unlocked_at));
+  const at = base + policy.inactive_lock_days * 86_400_000;
+  return { locked: at <= Date.now(), lockedAt: iso(toDbDateTime(new Date(at))) };
+}
+
+/** ล็อกแล้ว → บันทึกครั้งแรกที่พบ (พยายามเข้าซ้ำไม่บันทึกซ้ำ) */
+async function recordInactiveLock(actor: { ip?: string }, u: UserRow, lockedAt: string | null, days: number) {
+  if (u.last_lock_reason === "inactive" && lockedAt && timeOf(u.last_locked_at) >= new Date(lockedAt).getTime()) return;
+  await update("users", { last_locked_at: nowDb(), last_lock_reason: "inactive", last_lock_attempts: null }, "id = ?", [u.id]);
+  await audit({ ip: actor.ip }, { action: "auth.locked_inactive", subjectType: "user", subjectId: u.id, after: { days } });
+}
+
+/** ตรวจตอน login (หลังรหัสผ่านถูกแล้ว เพื่อไม่บอกสถานะบัญชีกับคนที่เดารหัส) — ถูกล็อกคืน true */
+export async function blockedByInactivity(actor: { ip?: string }, u: UserRow): Promise<number | null> {
+  const policy = await passwordPolicy();
+  const { locked, lockedAt } = await inactiveLockStatus(u, policy);
+  if (!locked) return null;
+  await recordInactiveLock(actor, u, lockedAt, policy.inactive_lock_days);
+  return policy.inactive_lock_days;
+}
+
 /* ---------------------------------------------------------------- วันหมดอายุรหัสผ่าน */
 
 /** วันเวลาที่รหัสผ่านหมดอายุ (null = ไม่บังคับ / ไม่ใช่ผู้ใช้ LOCAL) */
@@ -111,9 +156,10 @@ export function passwordExpiresAt(u: UserRow, policy: PasswordPolicy): Date | nu
 /**
  * ต้องตั้งรหัสผ่านใหม่ก่อนใช้งาน — มีผลเฉพาะเมื่อเปิด force_first_change:
  * ผู้ใช้ทุกคนที่ยังไม่เคยตั้งรหัสผ่านเอง (password_self_changed_at NULL — ผู้ใช้เดิม / ผู้ดูแลสร้างให้) หรือผู้ดูแลรีเซ็ตรหัสผ่านให้ (must_change_password)
+ * ผู้ดูแลติ๊กให้ตั้งรหัสผ่านใหม่ (password_change_forced) = มีผลเสมอ แม้ปิดสวิตช์นี้
  */
 export const mustChangePassword = (u: UserRow, policy: PasswordPolicy) =>
-  isLocal(u) && policy.force_first_change && (Boolean(u.must_change_password) || !u.password_self_changed_at);
+  isLocal(u) && (Boolean(u.password_change_forced) || (policy.force_first_change && (Boolean(u.must_change_password) || !u.password_self_changed_at)));
 
 /**
  * password_warn = ใกล้หมดอายุ (ภายใน expiry_warn_days วัน) — หน้าเว็บแสดงแถบเตือนให้เปลี่ยนก่อน
@@ -137,7 +183,7 @@ export function passwordStatus(
 /** ตั้งรหัสผ่านใหม่แล้ว — เริ่มนับวันหมดอายุใหม่ (ผู้ใช้เปลี่ยนเอง = ไม่ต้องเปลี่ยนครั้งแรกแล้ว) */
 export const passwordChangedNow = () => {
   const now = nowDb();
-  return { password_changed_at: now, password_self_changed_at: now, must_change_password: false };
+  return { password_changed_at: now, password_self_changed_at: now, must_change_password: false, password_change_forced: false };
 };
 
 /** ผู้ดูแลตั้งรหัสผ่านให้ผู้อื่น (สร้างผู้ใช้ / รีเซ็ต) — เปิด force_first_change = ผู้ใช้ต้องเปลี่ยนเองตอนเข้าสู่ระบบ */

@@ -67,7 +67,7 @@ export function notificationHref(n: AppNotification): string {
   }
   // บัญชีถูกล็อก → หน้าแก้ไขผู้ใช้ (ปุ่มปลดล็อก)
   if (n.data.kind === "account_locked") return `/users/${n.data.subject_id}/edit`;
-  // ผู้ดูแลระบบสูงสุดเข้าสู่ระบบ → บันทึกการเปลี่ยนแปลง (ประวัติการเข้าสู่ระบบของบัญชีสูงสุด)
+  // ผู้ดูแลระบบสูงสุดเข้าสู่ระบบ → บันทึกการทำงาน (ประวัติการเข้าสู่ระบบของบัญชีสูงสุด)
   if (n.data.kind === "super_admin_login") return "/audit-logs?action=auth.super_admin_login";
   // ใบลา: ส่งมาให้อนุมัติ → หน้ารออนุมัติลา, ผลการอนุมัติ → ใบลาของฉัน
   if (n.data.kind === "leave") return n.data.event === "submitted" ? "/leave/approvals" : `/leave?open=${n.data.leave_id}`;

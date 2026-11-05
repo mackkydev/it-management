@@ -29,6 +29,7 @@ export default async function SettingsPage() {
     getUiConfig(),
     apiFetch<{ data: SystemPolicy }>("/policy"),
   ]);
+  const groups = has(user, "access.manage") ? (await apiFetch<PermissionCatalog>("/permissions")).groups : null;
 
   return (
     <div className="space-y-5">
@@ -42,14 +43,17 @@ export default async function SettingsPage() {
         userOptions={data.secret_notify_options}
         effectiveRecipients={data.secret_notify_effective}
       />
-      {/* บังคับลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (หน้านี้ = settings.manage) */}
-      <SignaturePolicy initial={Boolean(data.require_signature)} />
-      {/* นโยบายการใช้งานระบบที่ต้องยอมรับก่อนใช้งาน + รายชื่อผู้ยอมรับ (settings.manage) */}
-      <PolicyOptions initial={policy.data} />
+      {/* การ์ดเล็กวางคู่กัน ไม่ต้องกินเต็มแถว */}
+      <div className="grid items-start gap-5 lg:grid-cols-2">
+        {/* นโยบายการใช้งานระบบที่ต้องยอมรับก่อนใช้งาน + รายชื่อผู้ยอมรับ (settings.manage) */}
+        <PolicyOptions initial={policy.data} />
+        {/* บังคับลายเซ็นก่อนบันทึก/อนุมัติเอกสาร (หน้านี้ = settings.manage) */}
+        <SignaturePolicy initial={Boolean(data.require_signature)} />
+      </div>
       {/* บังคับ 2FA ตามกลุ่ม — นโยบายการเข้าสู่ระบบ (access.manage) */}
-      {has(user, "access.manage") && <TwoFactorPolicy groups={(await apiFetch<PermissionCatalog>("/permissions")).groups} initial={data.two_factor_groups ?? []} />}
-      {/* นโยบายรหัสผ่าน: ล็อกบัญชีเมื่อ login ผิด + บังคับเปลี่ยนรหัสผ่านทุก N วัน (access.manage) */}
-      {has(user, "access.manage") && <PasswordPolicyForm initial={data.password_policy} />}
+      {groups && <TwoFactorPolicy groups={groups} initial={data.two_factor_groups ?? []} />}
+      {/* นโยบายรหัสผ่าน: ล็อกบัญชีเมื่อ login ผิด + บังคับเปลี่ยนรหัสผ่านทุก N วัน + ล็อกเมื่อไม่เข้าระบบรายกลุ่ม (access.manage) */}
+      {groups && <PasswordPolicyForm initial={data.password_policy} groups={groups} />}
     </div>
   );
 }

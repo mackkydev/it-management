@@ -892,6 +892,16 @@ model users {
   must_change_password                                     Boolean                    @default(false)
   /// ผู้ใช้ตั้งรหัสผ่านเองล่าสุด — NULL = ยังไม่เคย (บังคับเปลี่ยนครั้งแรกเมื่อเปิด force_first_change)
   password_self_changed_at                                 DateTime?                  @db.DateTime(0)
+  /// ผู้ดูแลติ๊กให้ตั้งรหัสผ่านใหม่เมื่อเข้าระบบ — มีผลเสมอ ไม่ขึ้นกับ force_first_change
+  password_change_forced                                   Boolean                    @default(false)
+  last_login_at                                            DateTime?                  @db.DateTime(0)
+  last_login_failed_at                                     DateTime?                  @db.DateTime(0)
+  last_locked_at                                           DateTime?                  @db.DateTime(0)
+  /// password = รหัสผิดติดกัน / inactive = ไม่เข้าระบบนาน
+  last_lock_reason                                         String?                    @db.VarChar(20)
+  last_lock_attempts                                       Int?
+  /// ผู้ดูแลปลดล็อกล่าสุด — เริ่มนับวันไม่เข้าระบบใหม่
+  inactive_unlocked_at                                     DateTime?                  @db.DateTime(0)
   /// สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing (null = ยังไม่เคยซิงค์) — ซิงค์ปิดใช้งาน/เปิดคืนเฉพาะที่ซิงค์เป็นคนปิด
   external_status                                          String?                    @db.VarChar(20)
   remember_token                                           String?                    @db.VarChar(100)

@@ -303,6 +303,10 @@ itDataRoutes.put("/settings", async (req, res) => {
       "password_policy.expiry_warn_days": ["sometimes", "integer", "min:0", "max:60"],
       // บังคับเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบครั้งแรก / หลังผู้ดูแลรีเซ็ต
       "password_policy.force_first_change": ["sometimes", "boolean"],
+      // ไม่เข้าระบบกี่วันจึงล็อก (0 = ปิด) + กลุ่มที่เปิดสวิตช์
+      "password_policy.inactive_lock_days": ["sometimes", "integer", "min:0", "max:3650"],
+      "password_policy.inactive_lock_groups": ["sometimes", "array", "max:100"],
+      "password_policy.inactive_lock_groups.*": [custom((v) => typeof v === "string" && groupKeys.has(v), trans(req.locale, "eam.access.invalid_group"))],
     },
     {
       locale: req.locale,
@@ -367,7 +371,13 @@ itDataRoutes.put("/settings", async (req, res) => {
       expiry_warn_days: "expiry_warn_days" in p ? int(p.expiry_warn_days)! : current.expiry_warn_days,
       since: current.since,
       force_first_change: "force_first_change" in p ? bool(p.force_first_change) : current.force_first_change,
+      inactive_lock_days: "inactive_lock_days" in p ? int(p.inactive_lock_days)! : current.inactive_lock_days,
+      inactive_lock_groups: current.inactive_lock_groups,
     };
+    // แต่ละกลุ่มเริ่มนับจากวันที่เปิด: เปิดกลุ่มใหม่ หรือเพิ่งเปิดกฎนี้ = นับจากวันนี้ จึงไม่มีใครถูกล็อกทันที — ไม่มีกฎนี้กับ super_admin
+    const lockOn = current.inactive_lock_days > 0;
+    const lockGroups = "inactive_lock_groups" in p ? Object.values((p.inactive_lock_groups ?? {}) as Record<string, string>) : Object.keys(current.inactive_lock_groups);
+    next.inactive_lock_groups = Object.fromEntries(lockGroups.filter((g) => g !== "super_admin").map((g) => [g, (lockOn && current.inactive_lock_groups[g]) || nowDb()]));
     // เพิ่งเปิดบังคับเปลี่ยน → ผู้ที่ยังไม่มีวันเปลี่ยนรหัสผ่านเริ่มนับจากวันนี้ (ไม่หมดอายุทันที) / ปิด = ล้างจุดเริ่มนับ
     if (next.expiry_days > 0 && (current.expiry_days <= 0 || !current.since)) next.since = nowDb();
     if (next.expiry_days <= 0) next.since = null;

@@ -66,6 +66,8 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
     is_active: user?.is_active ?? true,
     password: "",
     password_confirmation: "",
+    // ผู้ดูแลรู้รหัสผ่านที่ตั้งให้ — ตั้งต้นให้ผู้ใช้เปลี่ยนเอง
+    must_change_password: true,
     branch_id: user?.branch_id ? String(user.branch_id) : "",
     department: user?.department ?? "",
     division: user?.division ?? "",
@@ -244,6 +246,16 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
               isCreate,
             )}
           </div>
+          {/* ผู้ดูแลตั้งรหัสผ่านให้คนอื่น (ไม่ใช่ของตัวเอง) */}
+          {(isCreate || (!isSelf && values.password)) && (
+            <label className="mt-4 flex cursor-pointer items-start gap-2 text-sm">
+              <input type="checkbox" name="must_change_password" checked={Boolean(values.must_change_password)} onChange={onChange} className="mt-0.5 h-4 w-4 cursor-pointer accent-[var(--accent-500)]" />
+              <span>
+                {t("users.form.mustChangePassword")}
+                <span className="block text-xs text-muted">{t("users.form.mustChangePasswordHint")}</span>
+              </span>
+            </label>
+          )}
         </section>
 
         {/* สังกัด + หัวหน้าตามสายบังคับบัญชา (ผู้อนุมัติใบแจ้งงาน) */}
