@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
+import { DOCUMENT_PRINT_CSS } from "@/lib/print-page";
 import type { PolicyDocument, SystemPolicy } from "@/lib/types";
 import { PrintButton } from "../../leave-print/[id]/print-button";
 
@@ -48,7 +49,7 @@ export default async function PolicyPrintPage({ params, searchParams }: PageProp
 
   return (
     <div className="min-h-screen bg-canvas py-6 text-black print:bg-white print:py-0">
-      <style>{`@page { size: A4; margin: 15mm; } @media print { .no-print { display: none !important; } }`}</style>
+      <style>{DOCUMENT_PRINT_CSS}</style>
       <div className="no-print mx-auto mb-4 flex max-w-[210mm] flex-wrap items-center justify-between gap-3 px-4">
         <p className="text-sm text-muted">{t("policyDoc.pdfHint")}</p>
         <PrintButton label={t("policyDoc.print")} />

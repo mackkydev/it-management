@@ -5,17 +5,7 @@ import { createPortal } from "react-dom";
 import { FileTextIcon, PrinterIcon, XIcon } from "@/components/icons";
 import { btn } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-
-/**
- * ตอนพิมพ์: กระดาษ A4 ไม่มีขอบเว้นของเครื่องพิมพ์ (เอกสารกำหนดระยะขอบเอง)
- * และซ่อนทุกอย่างใน body ยกเว้น modal นี้ (portal เป็นลูกตรงของ body) — ใช้เฉพาะตอน modal เปิดอยู่
- */
-const PRINT_CSS = `
-@page { size: A4; margin: 0; }
-@media print {
-  html, body { background: #fff !important; height: auto !important; overflow: visible !important; }
-  body > *:not(.ticket-print-root) { display: none !important; }
-}`;
+import { SHEET_PRINT_CSS } from "@/lib/print-page";
 
 /** ปุ่ม "พิมพ์" → modal แสดงเอกสาร A4 พร้อมปุ่มพิมพ์ / บันทึก PDF (ผ่านหน้าต่างพิมพ์ของเบราว์เซอร์) — title = หัว modal (ตั้งต้น ใบแจ้งดำเนินงาน IT) */
 export function PrintModal({ label, fileName, title, children }: { label: string; fileName: string; title?: string; children: ReactNode }) {
@@ -54,7 +44,7 @@ export function PrintModal({ label, fileName, title, children }: { label: string
             className="ticket-print-root fixed inset-0 z-[60] flex bg-overlay p-2 backdrop-blur-sm sm:p-6 print:static print:block print:bg-transparent print:p-0 print:backdrop-blur-none"
             onClick={() => setOpen(false)}
           >
-            <style>{PRINT_CSS}</style>
+            <style>{SHEET_PRINT_CSS}</style>
             <div
               role="dialog"
               aria-modal="true"

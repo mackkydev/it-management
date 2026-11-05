@@ -16,6 +16,7 @@
 - แก้เฉพาะขอบเขตที่ขอ + ไฟล์ที่เกี่ยวข้องโดยตรง; ปัญหานอกขอบเขตให้รายงาน ไม่แก้เอง
 - ไฟล์ที่มีภาษาไทย ห้ามใช้ PowerShell `Get-Content`/`Set-Content` แก้ไข — ใช้ Read/Edit/Write
 - **เปิดเอกสารใน modal เสมอ ห้ามเปิด tab ใหม่** (PWA ไม่มีแถบ tab จึงกลับมาที่แอปไม่ได้): ไฟล์แนบ/รูป/หน้าพิมพ์ในระบบ ใช้ `<DocumentLink>` (`components/document-viewer.tsx` — `name` = ชื่อไฟล์, `kind="image"` = รูป, `kind="page"` + `title` = หน้าพิมพ์ เช่น `/leave-print/…`) หรือ `<PrintModal>` เมื่อแสดงเอกสารในหน้าเดียวกัน — ESLint `no-restricted-syntax` กัน `target="_blank"` กับ `/files`, `/policy-print`, `/leave-print`; `target="_blank"` ใช้ได้เฉพาะลิงก์ออกเว็บภายนอก (ZOOM, แผนที่, หน้าจัดการของระบบอื่น); หน้าพิมพ์ใหม่ต้องเพิ่ม path ใน `FRAMABLE` (`src/proxy.ts`) และ `next.config.ts` ไม่งั้นฝังในกล่องไม่ได้
+- **เอกสารที่พิมพ์หรือบันทึก PDF ต้องไม่มีวันเวลา ชื่อหน้า หรือ URL ที่เบราว์เซอร์ใส่เอง แสดงได้เฉพาะเลขหน้า**: ตั้งหน้ากระดาษจาก `lib/print-page.ts` เท่านั้น — `DOCUMENT_PRINT_CSS` = เอกสารยาวหลายหน้า (ขอบ 15mm + เลขหน้ากึ่งกลางล่าง), `SHEET_PRINT_CSS` = แบบฟอร์มเต็มแผ่น 1 แผ่น (ไม่มีขอบ ไม่มีเลขหน้า เพราะจะล้นไปหน้าใหม่); ESLint กันการเขียน `@page` เอง; ต้องประกาศกล่องขอบกระดาษว่างครบทุกตำแหน่ง ไม่งั้น Chrome/Edge ยังใส่ชื่อหน้า (ต้องใช้ Chrome/Edge 131 ขึ้นไป)
 - หลังแก้ ต้องผ่าน: `npm test` + `npx tsc --noEmit` (ใน `express/`), `npm run lint`, `npx tsc --noEmit`, `npm run build` (ใน `frontend/`)
 
 ## การถามผู้ใช้ (ลดการรอคำตอบ)

@@ -106,7 +106,10 @@ export function PolicyManager({ versions, enabled, others, canEdit, canOpenSetti
                         <span className="rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium tabular-nums">{t("policyDoc.version", { version: v.version })}</span>
                         <h2 className="min-w-0 font-semibold">{v.title || t("policyAccept.title")}</h2>
                         {v.is_default ? (
-                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.success.badge}`}>{t("policyPage.default")}</span>
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.success.badge}`}>
+                            {t("policyPage.default")}
+                            <CheckCircleIcon width={13} height={13} aria-hidden="true" />
+                          </span>
                         ) : (
                           <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${v.published_at ? tone.info.badge : tone.idle.badge}`}>{t(v.published_at ? "policyPage.published" : "policyPage.draft")}</span>
                         )}
@@ -124,6 +127,12 @@ export function PolicyManager({ versions, enabled, others, canEdit, canOpenSetti
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {canEdit && !v.is_default && (
+                        <button type="button" onClick={() => setDefault(v)} disabled={pending} className={`${btn.soft} ${btn.sm} disabled:cursor-not-allowed`}>
+                          {busy === `default-${v.version}` ? <SpinnerIcon width={14} height={14} /> : <CheckCircleIcon width={14} height={14} />}
+                          {t("policyPage.setDefault")}
+                        </button>
+                      )}
                       <button type="button" onClick={() => setPreview(v)} aria-haspopup="dialog" className={`${btn.secondary} ${btn.sm}`}>
                         <EyeIcon width={14} height={14} />
                         {t("policyPage.preview")}
@@ -138,12 +147,6 @@ export function PolicyManager({ versions, enabled, others, canEdit, canOpenSetti
                             {busy === `duplicate-${v.version}` ? <SpinnerIcon width={14} height={14} /> : <CopyIcon width={14} height={14} />}
                             {t("policyPage.duplicate")}
                           </button>
-                          {!v.is_default && (
-                            <button type="button" onClick={() => setDefault(v)} disabled={pending} className={`${btn.soft} ${btn.sm} disabled:cursor-not-allowed`}>
-                              {busy === `default-${v.version}` ? <SpinnerIcon width={14} height={14} /> : <CheckCircleIcon width={14} height={14} />}
-                              {t("policyPage.setDefault")}
-                            </button>
-                          )}
                         </>
                       )}
                       <Link href={`/policy/versions/${v.version}/acceptances`} className={`${btn.secondary} ${btn.sm}`}>
