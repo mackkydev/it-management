@@ -10,8 +10,11 @@ const TOKEN_COOKIE = "eam_token";
  * - style: 'unsafe-inline' — หน้าเว็บใช้ style attribute (ตำแหน่งแถบในปฏิทิน/ไทม์ไลน์, ทูลทิป, ธีมสีกำหนดเอง) ซึ่ง nonce ใช้กับ attribute ไม่ได้
  * - รูป/ฟอนต์/ไฟล์/การเชื่อมต่อ = โดเมนเดียวกันเท่านั้น (ไฟล์ส่วนตัวผ่าน /files, ฟอนต์จาก next/font โหลดจากโดเมนเราเอง)
  * - upgrade-insecure-requests เฉพาะเมื่อเปิดผ่าน https (เปิดผ่าน http ในวงแลน = ไม่ใส่ ไม่งั้นไฟล์ประกอบโหลดไม่ขึ้น)
+ * - ฝังใน iframe ได้เฉพาะไฟล์และหน้าพิมพ์ ภายในโดเมนเดียวกัน (กล่องดูเอกสาร components/document-viewer.tsx) — หน้าอื่นห้ามฝัง
  */
-function contentSecurityPolicy(nonce: string, https: boolean): string {
+const FRAMABLE = /^\/(files|policy-print|leave-print)(\/|$)/;
+
+function contentSecurityPolicy(nonce: string, https: boolean, framable: boolean): string {
   const dev = process.env.NODE_ENV === "development";
   return [
     "default-src 'self'",
@@ -25,7 +28,7 @@ function contentSecurityPolicy(nonce: string, https: boolean): string {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${framable ? "'self'" : "'none'"}`,
     ...(https ? ["upgrade-insecure-requests"] : []),
   ].join("; ");
 }
@@ -34,7 +37,7 @@ function contentSecurityPolicy(nonce: string, https: boolean): string {
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const https = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
-  const csp = contentSecurityPolicy(nonce, https);
+  const csp = contentSecurityPolicy(nonce, https, FRAMABLE.test(request.nextUrl.pathname));
   const withCsp = (response: NextResponse) => (response.headers.set("Content-Security-Policy", csp), response);
   // ส่ง nonce + CSP ไปกับ request ให้ Next.js ใส่ nonce ตอน render (layout อ่าน x-nonce ใส่สคริปต์ inline ของเรา)
   const next = () => {

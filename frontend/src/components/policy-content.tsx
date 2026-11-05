@@ -1,8 +1,25 @@
 "use client";
 
+import { DocumentLink } from "@/components/document-viewer";
 import { FileTextIcon } from "@/components/icons";
+import { Tooltip } from "@/components/tooltip";
 import { useI18n } from "@/i18n/client";
 import type { PolicyFile, PolicySection } from "@/lib/types";
+
+/** ไอคอนเอกสารสำหรับวางในบรรทัดเดียวกับหัวข้อ — ไม่แสดงชื่อไฟล์ (ชี้ค้างเห็นชื่อ), กดแล้วเปิดเอกสาร */
+export function PolicyFileIcons({ files }: { files: Pick<PolicyFile, "id" | "name" | "url">[] }) {
+  return (
+    <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+      {files.map((f) => (
+        <Tooltip key={f.id} label={f.name} side="top">
+          <DocumentLink href={`/files${f.url}`} name={f.name} aria-label={f.name} className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-accent-500 transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
+            <FileTextIcon width={18} height={18} />
+          </DocumentLink>
+        </Tooltip>
+      ))}
+    </span>
+  );
+}
 
 /** รายการไฟล์แนบของนโยบาย */
 export function PolicyFiles({ files }: { files: Pick<PolicyFile, "id" | "name" | "url">[] }) {
@@ -10,10 +27,10 @@ export function PolicyFiles({ files }: { files: Pick<PolicyFile, "id" | "name" |
     <ul className="space-y-1.5">
       {files.map((f) => (
         <li key={f.id}>
-          <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
+          <DocumentLink href={`/files${f.url}`} name={f.name} className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
             <FileTextIcon width={16} height={16} className="shrink-0 text-accent-500" />
             <span className="min-w-0 flex-1 truncate">{f.name}</span>
-          </a>
+          </DocumentLink>
         </li>
       ))}
     </ul>

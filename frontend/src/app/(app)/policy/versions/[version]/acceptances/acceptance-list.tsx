@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { DocumentLink } from "@/components/document-viewer";
 import { CheckCircleIcon, ChevronLeftIcon, PrinterIcon } from "@/components/icons";
 import { btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
@@ -25,10 +26,10 @@ export function AcceptanceList({ list }: { list: PolicyAcceptanceList }) {
             <ChevronLeftIcon width={14} height={14} />
             {t("policyPage.back")}
           </Link>
-          <a href={`/policy-print/acceptances/${list.version}`} target="_blank" rel="noreferrer" className={`${btn.primary} ${btn.sm}`}>
+          <DocumentLink href={`/policy-print/acceptances/${list.version}`} kind="page" title={t("policyPage.printList")} className={`${btn.primary} ${btn.sm}`}>
             <PrinterIcon width={14} height={14} />
             {t("policyPage.printList")}
-          </a>
+          </DocumentLink>
         </span>
       </div>
       <div className="flex flex-wrap gap-1" role="tablist">
@@ -54,10 +55,10 @@ export function AcceptanceList({ list }: { list: PolicyAcceptanceList }) {
               <span className="block text-xs text-muted">{[r.user.job_title, r.user.department, r.user.branch].filter(Boolean).join(" · ") || r.user.email || "-"}</span>
             </span>
             {r.accepted_at ? (
-              <a href={`/policy-print/${r.user.id}?version=${list.version}`} target="_blank" rel="noreferrer" className="flex cursor-pointer items-center gap-1 text-xs text-success-700 hover:underline dark:text-success-300">
+              <DocumentLink href={`/policy-print/${r.user.id}?version=${list.version}`} kind="page" title={r.name_stamp ?? r.user.name} className="flex cursor-pointer items-center gap-1 text-xs text-success-700 hover:underline dark:text-success-300">
                 <CheckCircleIcon width={14} height={14} />
                 {t("settingsPage.policy.acceptedAt", { date: fmt.dateTime(r.accepted_at) })}
-              </a>
+              </DocumentLink>
             ) : (
               <span className="text-xs text-warning-700 dark:text-warning-300">{t("settingsPage.policy.pending")}</span>
             )}

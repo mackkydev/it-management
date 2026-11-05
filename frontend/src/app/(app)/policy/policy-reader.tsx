@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { PolicyAcceptForm } from "@/app/policy-accept/policy-accept-form";
+import { DocumentLink } from "@/components/document-viewer";
 import { CheckCircleIcon, HistoryIcon, PrinterIcon } from "@/components/icons";
 import { ModalShell } from "@/components/modal-shell";
-import { PolicyContent, PolicyFiles } from "@/components/policy-content";
+import { PolicyContent, PolicyFileIcons, PolicyFiles } from "@/components/policy-content";
 import { alert, btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { OtherPolicy, PolicyPrevious, SystemPolicy } from "@/lib/types";
@@ -42,10 +43,10 @@ export function PolicyReader({ userId, policy, acceptedAt, previous, others }: {
                   </button>
                 )}
                 {acceptedAt && (
-                  <a href={`/policy-print/${userId}?version=${policy.version}`} target="_blank" rel="noreferrer" className={`${btn.secondary} ${btn.sm}`}>
+                  <DocumentLink href={`/policy-print/${userId}?version=${policy.version}`} kind="page" title={t("policyAccept.myDocument")} className={`${btn.secondary} ${btn.sm}`}>
                     <PrinterIcon width={14} height={14} />
                     {t("policyAccept.myDocument")}
-                  </a>
+                  </DocumentLink>
                 )}
               </span>
             </div>
@@ -73,10 +74,12 @@ export function PolicyReader({ userId, policy, acceptedAt, previous, others }: {
         ) : (
           <ul className="space-y-2.5">
             {others.map((o) => (
-              <li key={o.id} className={`space-y-2 p-4 ${card}`}>
-                <h2 className="font-medium">{o.title}</h2>
+              <li key={o.id} className={`space-y-1 p-4 ${card}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="min-w-0 font-medium">{o.title}</h2>
+                  <PolicyFileIcons files={o.files} />
+                </div>
                 {o.description && <p className="whitespace-pre-line text-sm text-muted">{o.description}</p>}
-                {o.files.length > 0 ? <PolicyFiles files={o.files} /> : <p className="text-xs text-faint">{t("policyPage.others.noFiles")}</p>}
               </li>
             ))}
           </ul>

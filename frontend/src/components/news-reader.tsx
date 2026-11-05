@@ -1,5 +1,6 @@
 "use client";
 
+import { DocumentLink } from "@/components/document-viewer";
 import { FileTextIcon } from "@/components/icons";
 import { ModalShell } from "@/components/modal-shell";
 import { RichText } from "@/components/rich-text";
@@ -25,11 +26,11 @@ export function NewsReader({ title, body, cover, files, meta, onClose }: { title
             <ul className="space-y-1.5">
               {files.map((f) => (
                 <li key={f.id}>
-                  <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
+                  <DocumentLink href={`/files${f.url}`} name={f.name} className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
                     <FileTextIcon width={16} height={16} className="shrink-0 text-accent-500" />
                     <span className="min-w-0 flex-1 truncate">{f.name}</span>
                     <span className="text-xs text-muted">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
-                  </a>
+                  </DocumentLink>
                 </li>
               ))}
             </ul>

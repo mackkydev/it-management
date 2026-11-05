@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { DocumentLink } from "@/components/document-viewer";
 import { CheckCircleIcon, FileTextIcon, PrinterIcon } from "@/components/icons";
 import { PolicyFiles } from "@/components/policy-content";
 import { alert, btn } from "@/components/ui";
@@ -58,10 +59,10 @@ export default async function PolicyAcceptPage() {
               {t("policyAccept.acceptedOn", { date: fmt.dateTime(accepted_at) })}
             </p>
             <span className="flex flex-wrap gap-2">
-              <a href={`/policy-print/${user.id}?version=${policy.version}`} target="_blank" rel="noreferrer" className={btn.secondary}>
+              <DocumentLink href={`/policy-print/${user.id}?version=${policy.version}`} kind="page" title={t("policyAccept.myDocument")} className={btn.secondary}>
                 <PrinterIcon />
                 {t("policyAccept.myDocument")}
-              </a>
+              </DocumentLink>
               <Link href="/" className={btn.secondary}>
                 {t("policyAccept.back")}
               </Link>

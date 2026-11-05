@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { createRepairOrder, lookupRepairItem, updateRepairOrder } from "@/app/actions/repair-orders";
+import { DocumentLink } from "@/components/document-viewer";
 import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
 import { DocumentPicker, EVENT_FILE_ACCEPT, EVENT_FILE_MAX_BYTES, EVENT_FILES_MAX } from "@/components/file-pickers";
@@ -380,9 +381,9 @@ export function RepairForm({ vendors, staff, tickets = [], defaults, order }: Pr
                   .filter((f) => f.kind === "send" && !removed.includes(f.id))
                   .map((f) => (
                     <li key={f.id} className="flex items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm">
-                      <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
+                      <DocumentLink href={`/files${f.url}`} name={f.name} className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
                         {f.name}
-                      </a>
+                      </DocumentLink>
                       <button type="button" onClick={() => setRemoved((x) => [...x, f.id])} aria-label={t("repairOrders.form.removeFile", { name: f.name })} className="cursor-pointer text-faint hover:text-danger-500">
                         <XIcon width={14} height={14} />
                       </button>

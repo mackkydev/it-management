@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import { DocumentLink } from "@/components/document-viewer";
 import { CheckCircleIcon, ChevronLeftIcon, ClipboardIcon, FileTextIcon, HistoryIcon, PaperclipIcon, WrenchIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
 import { alert, card, tone } from "@/components/ui";
@@ -74,10 +75,10 @@ function Photos({ urls, label }: { urls: { url: string; name: string | null }[];
       <p className="mb-2 text-xs text-muted">{label}</p>
       <div className="flex flex-wrap gap-2">
         {urls.map((p) => (
-          <a key={p.url} href={fileUrl(p.url)} target="_blank" rel="noreferrer" className="block cursor-zoom-in overflow-hidden rounded-xl ring-1 ring-line transition hover:ring-accent-300">
+          <DocumentLink key={p.url} href={fileUrl(p.url)} kind="image" title={p.name ?? undefined} className="block cursor-zoom-in overflow-hidden rounded-xl ring-1 ring-line transition hover:ring-accent-300">
             {/* eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน route handler (ไม่ใช้ next/image optimizer) */}
             <img src={fileUrl(p.url)} alt={p.name ?? ""} loading="lazy" className="h-28 w-28 object-cover" />
-          </a>
+          </DocumentLink>
         ))}
       </div>
     </div>
@@ -96,16 +97,15 @@ function FileList({ files, label }: { files: TicketFile[]; label?: string }) {
         <ul className="space-y-1.5">
           {docs.map((d) => (
             <li key={d.id}>
-              <a
+              <DocumentLink
                 href={fileUrl(d.url)}
-                target="_blank"
-                rel="noreferrer"
+                name={d.name ?? undefined}
                 className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10"
               >
                 <FileTextIcon width={16} height={16} className="shrink-0 text-accent-500" />
                 <span className="min-w-0 flex-1 truncate">{d.name}</span>
                 <span className="text-xs text-muted">{(d.size / 1024 / 1024).toFixed(2)} MB</span>
-              </a>
+              </DocumentLink>
             </li>
           ))}
         </ul>
@@ -113,10 +113,10 @@ function FileList({ files, label }: { files: TicketFile[]; label?: string }) {
       {images.length > 0 && (
         <div className={`flex flex-wrap gap-2 ${docs.length > 0 ? "mt-2" : ""}`}>
           {images.map((p) => (
-            <a key={p.id} href={fileUrl(p.url)} target="_blank" rel="noreferrer" className="block cursor-zoom-in overflow-hidden rounded-xl ring-1 ring-line transition hover:ring-accent-300">
+            <DocumentLink key={p.id} href={fileUrl(p.url)} kind="image" title={p.name ?? undefined} className="block cursor-zoom-in overflow-hidden rounded-xl ring-1 ring-line transition hover:ring-accent-300">
               {/* eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน route handler (ไม่ใช้ next/image optimizer) */}
               <img src={fileUrl(p.url)} alt={p.name ?? ""} loading="lazy" className="h-20 w-20 object-cover" />
-            </a>
+            </DocumentLink>
           ))}
         </div>
       )}
@@ -343,16 +343,15 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
                 <ul className="space-y-1.5">
                   {documents.map((d) => (
                     <li key={d.id}>
-                      <a
+                      <DocumentLink
                         href={fileUrl(d.url)}
-                        target="_blank"
-                        rel="noreferrer"
+                        name={d.name ?? undefined}
                         className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10"
                       >
                         <FileTextIcon width={16} height={16} className="shrink-0 text-accent-500" />
                         <span className="min-w-0 flex-1 truncate">{d.name}</span>
                         <span className="text-xs text-muted">{(d.size / 1024 / 1024).toFixed(2)} MB</span>
-                      </a>
+                      </DocumentLink>
                     </li>
                   ))}
                 </ul>
@@ -401,10 +400,10 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
                     <li key={p.id} className="flex items-center gap-3 rounded-xl bg-subtle p-2 pr-3 text-sm">
                       <span className="w-6 text-center text-xs text-muted">{i + 1}.</span>
                       {p.photo_url && (
-                        <a href={fileUrl(p.photo_url)} target="_blank" rel="noreferrer" className="cursor-zoom-in">
+                        <DocumentLink href={fileUrl(p.photo_url)} kind="image" title={p.name} className="cursor-zoom-in">
                           {/* eslint-disable-next-line @next/next/no-img-element -- ไฟล์ส่วนตัวผ่าน route handler */}
                           <img src={fileUrl(p.photo_url)} alt={p.name} className="h-12 w-12 rounded-lg object-cover" />
-                        </a>
+                        </DocumentLink>
                       )}
                       <span className="flex-1 font-medium">{p.name}</span>
                       <span className="text-muted">× {p.quantity}</span>

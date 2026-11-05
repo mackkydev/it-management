@@ -24,6 +24,8 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
+      // กล่องดูเอกสาร (components/document-viewer.tsx) ฝังไฟล์และหน้าพิมพ์ได้เฉพาะภายในโดเมนเดียวกัน — ต้องตรงกับ FRAMABLE ใน src/proxy.ts
+      ...["/files/:path*", "/policy-print/:path*", "/leave-print/:path*"].map((source) => ({ source, headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }] })),
       // PWA: service worker ต้องไม่ถูก cache — แก้ sw.js แล้วเครื่องผู้ใช้ได้ตัวใหม่ทันที
       { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
     ];

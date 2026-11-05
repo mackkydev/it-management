@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { createVendor, deleteVendor, updateVendor, type VendorResult } from "@/app/actions/vendors";
+import { DocumentLink } from "@/components/document-viewer";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
 import { DocumentPicker } from "@/components/file-pickers";
@@ -142,9 +143,9 @@ function VendorForm({ vendor, types, onClose, busyChange }: { vendor?: Vendor; t
             <ul className="mb-2 space-y-1.5">
               {existing.map((f) => (
                 <li key={f.id} className="flex items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm">
-                  <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
+                  <DocumentLink href={`/files${f.url}`} name={f.name} className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
                     {f.name}
-                  </a>
+                  </DocumentLink>
                   <button type="button" onClick={() => setRemoved((x) => [...x, f.id])} aria-label={t("vendors.form.removeFile", { name: f.name })} className="cursor-pointer text-faint hover:text-danger-500">
                     <XIcon width={14} height={14} />
                   </button>

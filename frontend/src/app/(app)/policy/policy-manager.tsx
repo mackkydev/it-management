@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { deletePolicyVersion, duplicatePolicyVersion, setDefaultPolicyVersion } from "@/app/actions/policy";
+import { DocumentLink } from "@/components/document-viewer";
 import { useConfirm } from "@/components/dialog-provider";
 import { CheckCircleIcon, CopyIcon, EyeIcon, PencilIcon, PlusIcon, PrinterIcon, SpinnerIcon, TrashIcon, UsersIcon } from "@/components/icons";
 import { ModalShell } from "@/components/modal-shell";
@@ -62,10 +63,10 @@ export function PolicyManager({ versions, enabled, others, canEdit, canOpenSetti
         </div>
         {tab === "versions" && (
           <span className="flex flex-wrap gap-2">
-            <a href="/policy-print/blank" target="_blank" rel="noreferrer" className={btn.secondary}>
+            <DocumentLink href="/policy-print/blank" kind="page" title={t("settingsPage.policy.printDoc")} className={btn.secondary}>
               <PrinterIcon />
               {t("settingsPage.policy.printDoc")}
-            </a>
+            </DocumentLink>
             {canEdit && (
               <Link href="/policy/versions/new" className={btn.primary}>
                 <PlusIcon />
@@ -98,29 +99,31 @@ export function PolicyManager({ versions, enabled, others, canEdit, canOpenSetti
               {versions.map((v) => {
                 const blocked = deleteBlocked(v);
                 return (
-                  <li key={v.version} className={`relative space-y-3 overflow-hidden p-4 pl-5 ${card}`}>
+                  <li key={v.version} className={`relative flex flex-wrap items-center justify-between gap-x-4 gap-y-3 overflow-hidden p-4 pl-5 ${card}`}>
                     <span className={`absolute inset-y-0 left-0 w-1 ${v.is_default ? tone.success.dot : tone.idle.dot}`} aria-hidden="true" />
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium tabular-nums">{t("policyDoc.version", { version: v.version })}</span>
-                      <h2 className="min-w-0 font-semibold">{v.title || t("policyAccept.title")}</h2>
-                      {v.is_default ? (
-                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.success.badge}`}>{t("policyPage.default")}</span>
-                      ) : (
-                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${v.published_at ? tone.info.badge : tone.idle.badge}`}>{t(v.published_at ? "policyPage.published" : "policyPage.draft")}</span>
-                      )}
+                    <div className="min-w-64 flex-1 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium tabular-nums">{t("policyDoc.version", { version: v.version })}</span>
+                        <h2 className="min-w-0 font-semibold">{v.title || t("policyAccept.title")}</h2>
+                        {v.is_default ? (
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.success.badge}`}>{t("policyPage.default")}</span>
+                        ) : (
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${v.published_at ? tone.info.badge : tone.idle.badge}`}>{t(v.published_at ? "policyPage.published" : "policyPage.draft")}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted">
+                        {[
+                          t("policyPage.acceptedCount", { count: fmt.number(v.accepted) }),
+                          t("policyPage.sectionCount", { count: fmt.number(v.sections.length) }),
+                          t("policyPage.fileCount", { count: fmt.number(v.files.length) }),
+                          v.updated_at ? t("policyPage.updated", { date: fmt.dateTime(v.updated_at) }) : null,
+                          v.created_by,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
                     </div>
-                    <p className="text-xs text-muted">
-                      {[
-                        t("policyPage.acceptedCount", { count: fmt.number(v.accepted) }),
-                        t("policyPage.sectionCount", { count: fmt.number(v.sections.length) }),
-                        t("policyPage.fileCount", { count: fmt.number(v.files.length) }),
-                        v.updated_at ? t("policyPage.updated", { date: fmt.dateTime(v.updated_at) }) : null,
-                        v.created_by,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
                       <button type="button" onClick={() => setPreview(v)} aria-haspopup="dialog" className={`${btn.secondary} ${btn.sm}`}>
                         <EyeIcon width={14} height={14} />
                         {t("policyPage.preview")}
@@ -147,10 +150,10 @@ export function PolicyManager({ versions, enabled, others, canEdit, canOpenSetti
                         <UsersIcon width={14} height={14} />
                         {t("policyPage.acceptances")}
                       </Link>
-                      <a href={`/policy-print/acceptances/${v.version}`} target="_blank" rel="noreferrer" className={`${btn.secondary} ${btn.sm}`}>
+                      <DocumentLink href={`/policy-print/acceptances/${v.version}`} kind="page" title={t("policyPage.printList")} className={`${btn.secondary} ${btn.sm}`}>
                         <PrinterIcon width={14} height={14} />
                         {t("policyPage.printList")}
-                      </a>
+                      </DocumentLink>
                       {canEdit && (
                         <Tooltip label={blocked ?? t("common.delete")}>
                           <button type="button" onClick={() => remove(v)} disabled={pending || Boolean(blocked)} aria-label={t("common.delete")} className={`${btn.danger} ${btn.sm} px-2 disabled:cursor-not-allowed disabled:opacity-50`}>

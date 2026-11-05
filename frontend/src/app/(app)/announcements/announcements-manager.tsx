@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { deleteAnnouncement, saveAnnouncement, type AnnouncementPayload } from "@/app/actions/announcements";
+import { DocumentLink } from "@/components/document-viewer";
 import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
 import { useConfirm } from "@/components/dialog-provider";
@@ -223,9 +224,9 @@ export function AnnouncementsManager({ items }: { items: Announcement[] }) {
                 <ul className="mb-2 space-y-1.5">
                   {existingFiles.map((f) => (
                     <li key={f.id} className="flex items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm">
-                      <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
+                      <DocumentLink href={`/files${f.url}`} name={f.name} className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
                         {f.name}
-                      </a>
+                      </DocumentLink>
                       <button type="button" onClick={() => setRemovedFiles((x) => [...x, f.id])} aria-label={t("announcements.form.removeFile", { name: f.name })} className="cursor-pointer text-faint hover:text-danger-500">
                         <XIcon width={14} height={14} />
                       </button>
@@ -419,10 +420,10 @@ export function AnnouncementsManager({ items }: { items: Announcement[] }) {
                       <ul className="space-y-1.5">
                         {a.files.map((f) => (
                           <li key={f.id}>
-                            <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="inline-flex max-w-full cursor-pointer items-center gap-2 text-sm text-accent-700 hover:underline dark:text-accent-300">
+                            <DocumentLink href={`/files${f.url}`} name={f.name} className="inline-flex max-w-full cursor-pointer items-center gap-2 text-sm text-accent-700 hover:underline dark:text-accent-300">
                               <FileTextIcon width={15} height={15} className="shrink-0" />
                               <span className="truncate">{f.name}</span>
-                            </a>
+                            </DocumentLink>
                           </li>
                         ))}
                       </ul>

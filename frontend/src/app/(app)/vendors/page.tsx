@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { DocumentLink } from "@/components/document-viewer";
 import { BuildingIcon, FileTextIcon, MapPinIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { card, table } from "@/components/ui";
@@ -29,10 +30,10 @@ function VendorLinks({ v, t }: { v: Vendor; t: TFunction }) {
         </a>
       )}
       {v.files.map((f) => (
-        <a key={f.id} href={`/files${f.url}`} target="_blank" rel="noreferrer" className={linkCls}>
+        <DocumentLink key={f.id} href={`/files${f.url}`} name={f.name} className={linkCls}>
           <FileTextIcon width={12} height={12} className="shrink-0" />
           <span className="truncate">{f.name}</span>
-        </a>
+        </DocumentLink>
       ))}
     </span>
   );

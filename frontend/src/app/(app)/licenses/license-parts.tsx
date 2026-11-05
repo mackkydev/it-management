@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { deleteLicenseFile, revealLicenseKey, uploadLicenseFiles } from "@/app/actions/licenses";
+import { DocumentLink } from "@/components/document-viewer";
 import { CheckIcon, CopyIcon, DownloadIcon, EyeIcon, EyeOffIcon, FileTextIcon, SpinnerIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import { ReauthPrompt } from "@/components/reauth-prompt";
 import type { ReauthChallenge } from "@/lib/types";
@@ -136,18 +137,18 @@ export function LicenseFiles({ licenseId, files, canManage }: { licenseId: strin
             <li key={f.id} className="flex items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm">
               <FileTextIcon width={16} height={16} className="shrink-0 text-accent-500" />
               {previewable(f.mime) ? (
-                <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
+                <DocumentLink href={`/files${f.url}`} name={f.name} className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
                   {f.name}
-                </a>
+                </DocumentLink>
               ) : (
                 <span className="min-w-0 flex-1 truncate">{f.name}</span>
               )}
               <span className="shrink-0 text-xs text-muted">{sizeText(f.size)}</span>
               {previewable(f.mime) && (
                 <Tooltip label={t("assets.files.preview")}>
-                  <a href={`/files${f.url}`} target="_blank" rel="noreferrer" aria-label={t("assets.files.preview")} className={ICON_BTN}>
+                  <DocumentLink href={`/files${f.url}`} name={f.name} aria-label={t("assets.files.preview")} className={ICON_BTN}>
                     <EyeIcon width={15} height={15} />
-                  </a>
+                  </DocumentLink>
                 </Tooltip>
               )}
               <Tooltip label={t("assets.files.download")}>

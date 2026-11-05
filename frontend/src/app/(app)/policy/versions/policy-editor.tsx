@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { createPolicyVersion, deletePolicyVersionFile, updatePolicyVersion, uploadPolicyVersionFiles } from "@/app/actions/policy";
+import { DocumentLink } from "@/components/document-viewer";
 import { DOC_ACCEPT, DOC_MAX_BYTES } from "@/components/file-pickers";
 import { useConfirm } from "@/components/dialog-provider";
 import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, FileTextIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
@@ -214,9 +215,9 @@ export function PolicyEditor({ initial, prefillSamples = false }: { initial: Pol
             {initial.files.map((f) => (
               <li key={f.id} className="flex items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm">
                 <FileTextIcon width={15} height={15} className="shrink-0 text-accent-500" />
-                <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
+                <DocumentLink href={`/files${f.url}`} name={f.name} className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
                   {f.name}
-                </a>
+                </DocumentLink>
                 {!locked && (
                   <button type="button" onClick={() => removeFile(f.id, f.name)} disabled={pending} aria-label={t("settingsPage.policy.deleteFileConfirm", { name: f.name })} className="cursor-pointer text-faint hover:text-danger-500 disabled:cursor-not-allowed">
                     <TrashIcon width={14} height={14} />

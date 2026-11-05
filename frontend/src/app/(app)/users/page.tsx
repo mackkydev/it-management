@@ -3,6 +3,7 @@ import Form from "next/form";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { DocumentLink } from "@/components/document-viewer";
 import { PencilIcon, PlusIcon, ResetIcon, SearchIcon, UsersIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
@@ -185,9 +186,9 @@ async function ManagedUsers({ query, selfId }: { query: URLSearchParams; selfId:
                 </td>
                 <td className={`${table.td} whitespace-nowrap`}>
                   {u.policy_status === "accepted" || u.policy_status === "outdated" ? (
-                    <a href={`/policy-print/${u.id}`} target="_blank" rel="noreferrer" className={`inline-flex cursor-pointer items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:underline ${u.policy_status === "accepted" ? tone.success.badge : tone.warning.badge}`}>
+                    <DocumentLink href={`/policy-print/${u.id}`} kind="page" title={u.name} className={`inline-flex cursor-pointer items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:underline ${u.policy_status === "accepted" ? tone.success.badge : tone.warning.badge}`}>
                       {u.policy_accepted_at ? t(`users.policy.${u.policy_status}`, { date: fmt.date(u.policy_accepted_at) }) : t("users.policy.none")}
-                    </a>
+                    </DocumentLink>
                   ) : u.policy_status === "pending" ? (
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.idle.badge}`}>{t("users.policy.pending")}</span>
                   ) : (

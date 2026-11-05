@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useState, useTransition } from "react";
 import { cancelLeave, decideLeave } from "@/app/actions/calendar";
+import { DocumentLink } from "@/components/document-viewer";
 import { useConfirm } from "@/components/dialog-provider";
 import { AlertIcon, CheckIcon, PaperclipIcon, PrinterIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { alert, btn, card, input, inputError, tone } from "@/components/ui";
@@ -56,10 +56,10 @@ export function LeaveCard({ leave: l, showUser = false, highlight = false }: { l
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <Link href={`/leave-print/${l.id}`} target="_blank" className={`${btn.secondary} ${btn.sm}`}>
+          <DocumentLink href={`/leave-print/${l.id}`} kind="page" title={t("leave.print")} className={`${btn.secondary} ${btn.sm}`}>
             <PrinterIcon width={14} height={14} />
             {t("leave.print")}
-          </Link>
+          </DocumentLink>
           {l.can_cancel && (
             <button type="button" onClick={cancel} disabled={pending} className={`${btn.danger} ${btn.sm}`}>
               {pending ? <SpinnerIcon width={14} height={14} /> : <XIcon width={14} height={14} />}
@@ -77,9 +77,9 @@ export function LeaveCard({ leave: l, showUser = false, highlight = false }: { l
         <p className="flex flex-wrap items-center gap-2 text-xs">
           <PaperclipIcon width={13} height={13} className="text-muted" />
           {l.files.map((f) => (
-            <a key={f.id} href={`/files/leave/${l.id}/files/${f.id}`} target="_blank" rel="noopener" className="text-accent-700 hover:underline dark:text-accent-300">
+            <DocumentLink key={f.id} href={`/files/leave/${l.id}/files/${f.id}`} name={f.name} className="text-accent-700 hover:underline dark:text-accent-300">
               {f.name}
-            </a>
+            </DocumentLink>
           ))}
         </p>
       )}

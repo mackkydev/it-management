@@ -91,7 +91,8 @@ export function PolicyAcceptForm({ sections, version, accepted, boxClassName = "
                     {i + 1}
                   </span>
                   <span className="min-w-0 flex-1 font-medium">{s.title}</span>
-                  {read.has(i) && !accepted && (
+                  {/* ยอมรับแล้ว = อ่านครบแล้ว */}
+                  {(accepted || read.has(i)) && (
                     <span className="flex shrink-0 items-center gap-1 text-xs text-success-700 dark:text-success-300">
                       <CheckCircleIcon width={14} height={14} />
                       {t("policyAccept.read")}

@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { deleteOtherPolicy, saveOtherPolicy } from "@/app/actions/policy";
+import { DocumentLink } from "@/components/document-viewer";
 import { useConfirm } from "@/components/dialog-provider";
 import { DocumentPicker } from "@/components/file-pickers";
 import { PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { ModalShell } from "@/components/modal-shell";
-import { PolicyFiles } from "@/components/policy-content";
+import { PolicyFileIcons } from "@/components/policy-content";
 import { ResultToast } from "@/components/toast";
 import { Tooltip } from "@/components/tooltip";
 import { btn, card, input, inputError, tone } from "@/components/ui";
@@ -88,12 +89,13 @@ export function OtherPoliciesManager({ items, canEdit }: { items: OtherPolicy[];
       ) : (
         <ul className="space-y-2.5">
           {items.map((o) => (
-            <li key={o.id} className={`space-y-2 p-4 ${card}`}>
-              <div className="flex items-start gap-2">
+            <li key={o.id} className={`space-y-1 p-4 ${card}`}>
+              <div className="flex items-center gap-2">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                   <h2 className="min-w-0 font-medium">{o.title}</h2>
                   {!o.is_active && <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.idle.badge}`}>{t("policyPage.others.hidden")}</span>}
                 </div>
+                <PolicyFileIcons files={o.files} />
                 {canEdit && (
                   <span className="flex shrink-0 items-center gap-0.5">
                     <Tooltip label={t("common.edit")}>
@@ -110,7 +112,6 @@ export function OtherPoliciesManager({ items, canEdit }: { items: OtherPolicy[];
                 )}
               </div>
               {o.description && <p className="whitespace-pre-line text-sm text-muted">{o.description}</p>}
-              {o.files.length > 0 ? <PolicyFiles files={o.files} /> : <p className="text-xs text-faint">{t("policyPage.others.noFiles")}</p>}
             </li>
           ))}
         </ul>
@@ -153,9 +154,9 @@ export function OtherPoliciesManager({ items, canEdit }: { items: OtherPolicy[];
                 <ul className="mb-2 space-y-1.5">
                   {existing.map((f) => (
                     <li key={f.id} className="flex items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm">
-                      <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
+                      <DocumentLink href={`/files${f.url}`} name={f.name} className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
                         {f.name}
-                      </a>
+                      </DocumentLink>
                       <button type="button" onClick={() => setRemoved((x) => [...x, f.id])} aria-label={t("settingsPage.policy.deleteFileConfirm", { name: f.name })} className="cursor-pointer text-faint hover:text-danger-500">
                         <XIcon width={14} height={14} />
                       </button>
