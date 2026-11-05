@@ -1701,8 +1701,10 @@ export interface SystemPolicy {
   enabled: boolean;
   /** ให้ยอมรับที่ไหน: after_login = หน้ายอมรับหลังเข้าสู่ระบบ / login = ติ๊กยอมรับในหน้า login */
   display: PolicyDisplay;
-  /** ไฟล์แนบประกาศ — เปิดดูได้ตอนอ่านนโยบาย */
+  /** ไฟล์แนบของฉบับที่แสดงอยู่ — เปิดดูได้ตอนอ่านนโยบาย */
   files: PolicyFile[];
+  /** ชื่อนโยบายของฉบับที่แสดงอยู่ */
+  title: string;
   version: number;
   sections: PolicySection[];
   updated_at: string | null;
@@ -1720,8 +1722,53 @@ export interface PolicyDocument {
   /** สำเนาลายเซ็น — null = ผู้ใช้ยังไม่มีลายเซ็น (เติมให้เองเมื่ออัปโหลด) */
   signature_url: string | null;
 }
+/** GET /policy/versions/{v}/acceptances */
 export interface PolicyAcceptance {
-  user: { id: number; name: string; email: string | null; type: "LOCAL" | "API"; branch: string | null };
+  user: { id: number; name: string; email: string | null; type: "LOCAL" | "API"; branch: string | null; department: string | null; job_title: string | null };
   accepted_at: string | null;
   ip: string | null;
+  /** ชื่อ-สกุลที่ประทับตอนยอมรับ */
+  name_stamp: string | null;
+}
+export interface PolicyAcceptanceList {
+  data: PolicyAcceptance[];
+  version: number;
+  title: string;
+  accepted: number;
+  total: number;
+}
+/** GET /policy/versions — นโยบายแต่ละฉบับ */
+export interface PolicyVersion {
+  version: number;
+  title: string;
+  sections: PolicySection[];
+  /** ฉบับที่แสดงให้ผู้ใช้ */
+  is_default: boolean;
+  /** เคยแสดงให้ผู้ใช้แล้ว (null = ร่าง) */
+  published_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  created_by: string | null;
+  accepted: number;
+  /** มีผู้ยอมรับแล้ว = แก้เนื้อหาและไฟล์แนบไม่ได้ */
+  locked: boolean;
+  files: PolicyFile[];
+}
+/** GET /policy/previous — ฉบับก่อนหน้าฉบับที่แสดงอยู่ */
+export interface PolicyPrevious {
+  version: number;
+  title: string;
+  sections: PolicySection[];
+  published_at: string | null;
+  files: PolicyFile[];
+}
+/** GET /policy/others — นโยบายอื่นๆ (เอกสารให้เปิดอ่าน) */
+export interface OtherPolicy {
+  id: number;
+  title: string;
+  description: string | null;
+  sort_order: number;
+  is_active: boolean;
+  updated_at: string | null;
+  files: PolicyFile[];
 }

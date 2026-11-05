@@ -11,9 +11,9 @@ import type { PolicySection } from "@/lib/types";
 
 /**
  * หัวข้อนโยบายแบบกดเปิดอ่าน (accordion) ในกล่องเลื่อน — ติ๊กยอมรับได้เมื่อเปิดอ่านครบทุกหัวข้อ และเลื่อนลงจนสุดกล่อง
- * accepted = ยอมรับแล้ว (อ่านอย่างเดียว ไม่มีช่องยอมรับ)
+ * accepted = ยอมรับแล้ว (อ่านอย่างเดียว ไม่มีช่องยอมรับ), boxClassName = ความสูงของกล่องเลื่อน (ตั้งต้นไม่เกิน 60% ของจอ)
  */
-export function PolicyAcceptForm({ sections, version, accepted }: { sections: PolicySection[]; version: number; accepted: boolean }) {
+export function PolicyAcceptForm({ sections, version, accepted, boxClassName = "max-h-[60vh]" }: { sections: PolicySection[]; version: number; accepted: boolean; boxClassName?: string }) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const [open, setOpen] = useState<Set<number>>(() => new Set(sections.length === 1 ? [0] : []));
@@ -73,8 +73,8 @@ export function PolicyAcceptForm({ sections, version, accepted }: { sections: Po
   };
 
   return (
-    <div className="space-y-4">
-      <div ref={boxRef} className={`max-h-[60vh] overflow-y-auto p-2 sm:p-3 ${card}`}>
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div ref={boxRef} className={`overflow-y-auto p-2 sm:p-3 ${boxClassName} ${card}`}>
         <ol className="space-y-2">
           {sections.map((s, i) => {
             const isOpen = open.has(i);

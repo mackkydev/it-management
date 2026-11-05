@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { ModalShell } from "@/components/modal-shell";
+import { PolicyContent } from "@/components/policy-content";
 import { useI18n } from "@/i18n/client";
-import { FileTextIcon } from "@/components/icons";
 import type { PolicyFile, PolicySection } from "@/lib/types";
 
 export interface LoginPolicy {
@@ -36,32 +36,8 @@ export function PolicyConsent({ policy, checked, onChange }: { policy: LoginPoli
         </span>
       </label>
       {reading && (
-        <ModalShell id="login-policy" size="wide" title={t("login_policy.title")} onClose={() => setReading(false)}>
-          <div className="space-y-4">
-            {policy.sections.map((s, i) => (
-              <section key={i}>
-                <h3 className="mb-1 font-semibold">
-                  {i + 1}. {s.title}
-                </h3>
-                <p className="whitespace-pre-line text-sm leading-relaxed text-muted">{s.body}</p>
-              </section>
-            ))}
-            {policy.files.length > 0 && (
-              <section>
-                <h3 className="mb-2 font-semibold">{t("login_policy.files")}</h3>
-                <ul className="space-y-1.5">
-                  {policy.files.map((f) => (
-                    <li key={f.id}>
-                      <a href={`/files${f.url}`} target="_blank" rel="noreferrer" className="flex cursor-pointer items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm transition-colors hover:bg-accent-50 dark:hover:bg-accent-400/10">
-                        <FileTextIcon width={16} height={16} className="shrink-0 text-accent-500" />
-                        <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-          </div>
+        <ModalShell id="login-policy" size="policy" title={t("login_policy.title")} onClose={() => setReading(false)}>
+          <PolicyContent sections={policy.sections} files={policy.files} />
         </ModalShell>
       )}
     </div>

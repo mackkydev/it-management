@@ -33,6 +33,7 @@ export const MODULES = [
   { key: "org", group: "users", name_th: "แผนกและฝ่าย", name_en: "Departments and divisions" },
   { key: "signature", group: "users", name_th: "ลายเซ็น", name_en: "Signatures" },
   { key: "settings", group: "system", name_th: "ตั้งค่าระบบ", name_en: "System settings" },
+  { key: "policy", group: "system", name_th: "นโยบายการใช้งาน", name_en: "Usage policies" },
   { key: "approval_routes", group: "system", name_th: "สายอนุมัติ", name_en: "Approval routes" },
   { key: "audit", group: "system", name_th: "บันทึกการเปลี่ยนแปลง", name_en: "Audit log" },
   { key: "access", group: "system", name_th: "สิทธิ์การใช้งาน", name_en: "Access control" },
@@ -132,6 +133,7 @@ const DEFS: Def[] = [
 
   // ตั้งค่าระบบ
   { key: "settings.manage", module: "settings", action: "manage", name_th: "ตั้งค่าระบบ (แจ้งเตือน, ความปลอดภัย, โลโก้)", name_en: "System settings (notifications, security, logo)", defaults: [], locked: true },
+  { key: "policy.manage", module: "policy", action: "manage", name_th: "จัดการนโยบายการใช้งาน (ฉบับ, รายชื่อผู้ยอมรับ, นโยบายอื่นๆ)", name_en: "Manage usage policies (versions, acceptances, other policies)", defaults: [], from: "settings.manage", locked: true },
   // หน้า ข้อมูล Drop Down: Computer Type / ยี่ห้อ / หมวดหมู่คลังบัญชี — ผู้ที่ตั้งค่าระบบได้อยู่แล้วได้ตั้งแต่แรก (from)
   { key: "dropdowns.manage", module: "settings", action: "other", name_th: "จัดการข้อมูล Drop Down (Computer Type, ยี่ห้อ, หมวดหมู่คลังบัญชี, ตัวเลือกเรื่อง \"อื่นๆ\")", name_en: "Manage drop-down data (computer type, brand, vault category, \"Other\" ticket subjects)", defaults: ["admin"] },
   { key: "approval_routes.manage", module: "approval_routes", action: "manage", name_th: "จัดการสายอนุมัติ", name_en: "Manage approval routes", defaults: ["admin"] },

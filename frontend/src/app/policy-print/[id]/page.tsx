@@ -5,9 +5,12 @@ import { ApiError, apiFetch } from "@/lib/api";
 import type { PolicyDocument, SystemPolicy } from "@/lib/types";
 import { PrintButton } from "../../leave-print/[id]/print-button";
 
-const loadDocument = async (id: string): Promise<PolicyDocument> => {
+/** ?version= ต้องเป็นตัวเลข — ไม่ระบุ = ฉบับล่าสุดที่ยอมรับ */
+const versionOf = (value: string | string[] | undefined) => (typeof value === "string" && /^\d+$/.test(value) ? value : null);
+
+const loadDocument = async (id: string, version: string | null): Promise<PolicyDocument> => {
   try {
-    return (await apiFetch<{ data: PolicyDocument }>(`/policy/documents/${id}`)).data;
+    return (await apiFetch<{ data: PolicyDocument }>(`/policy/documents/${id}${version ? `?version=${version}` : ""}`)).data;
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 403)) notFound();
     throw e;
@@ -15,24 +18,24 @@ const loadDocument = async (id: string): Promise<PolicyDocument> => {
 };
 
 /** ชื่อหน้า = ชื่อไฟล์ตอนบันทึกเป็น PDF */
-export async function generateMetadata({ params }: PageProps<"/policy-print/[id]">): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: PageProps<"/policy-print/[id]">): Promise<Metadata> {
   const { id } = await params;
   const { t } = await getI18n();
   if (!/^\d+$/.test(id)) return { title: t("policyDoc.blankTitle") };
-  const doc = await loadDocument(id);
+  const doc = await loadDocument(id, versionOf((await searchParams).version));
   return { title: `${t("policyDoc.title")} - ${doc.user.name}` };
 }
 
 /**
  * เอกสารยอมรับนโยบาย A4 (นอกเมนูหลัก — พิมพ์ / บันทึก PDF จากเบราว์เซอร์)
- *   /policy-print/{userId} = ของผู้ใช้คนนั้น: ประทับชื่อ-สกุลเมื่อยอมรับแล้ว + ลายเซ็นเมื่อผู้ใช้มีลายเซ็น
+ *   /policy-print/{userId}[?version=] = ของผู้ใช้คนนั้น: ประทับชื่อ-สกุลเมื่อยอมรับแล้ว + ลายเซ็นเมื่อผู้ใช้มีลายเซ็น
  *   /policy-print/blank    = แบบฟอร์มเปล่าของฉบับปัจจุบัน ไว้เซ็นบนกระดาษ
  */
-export default async function PolicyPrintPage({ params }: PageProps<"/policy-print/[id]">) {
+export default async function PolicyPrintPage({ params, searchParams }: PageProps<"/policy-print/[id]">) {
   const { id } = await params;
   if (id !== "blank" && !/^\d+$/.test(id)) notFound();
   const { t, fmt } = await getI18n();
-  const doc = id === "blank" ? null : await loadDocument(id);
+  const doc = id === "blank" ? null : await loadDocument(id, versionOf((await searchParams).version));
   const policy = doc ? null : (await apiFetch<{ data: SystemPolicy }>("/policy")).data;
   const version = doc?.version ?? policy?.version ?? 0;
   const sections = doc?.sections ?? policy?.sections ?? [];

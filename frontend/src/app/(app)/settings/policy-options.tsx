@@ -11,7 +11,7 @@ import type { PolicyDisplay, SystemPolicy } from "@/lib/types";
 
 const DISPLAYS: PolicyDisplay[] = ["after_login", "login"];
 
-/** นโยบายการใช้งานระบบ: เปิด-ปิด + ให้ยอมรับที่หน้า login หรือหลัง login — เนื้อหาอยู่ที่ ข้อมูลหลัก → นโยบายการใช้งาน */
+/** นโยบายการใช้งานระบบ: เปิด-ปิด + ให้ยอมรับที่หน้า login หรือหลัง login — เนื้อหาอยู่ที่เมนูนโยบายการใช้งาน */
 export function PolicyOptions({ initial }: { initial: SystemPolicy }) {
   const { t, fmt } = useI18n();
   const [enabled, setEnabled] = useState(initial.enabled);
@@ -79,7 +79,7 @@ export function PolicyOptions({ initial }: { initial: SystemPolicy }) {
       {result.message && <ResultToast result={result} />}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Link href="/policy-manage" className={`${btn.secondary} ${btn.sm}`}>
+        <Link href="/policy" className={`${btn.secondary} ${btn.sm}`}>
           <PencilIcon width={14} height={14} />
           {t("settingsPage.policy.editContent")}
         </Link>

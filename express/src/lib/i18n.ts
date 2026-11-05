@@ -61,6 +61,10 @@ const eamTh = {
     required: "กรุณาอ่านและยอมรับนโยบายการใช้งานระบบก่อนใช้งาน",
     version_changed: "นโยบายมีการแก้ไขระหว่างที่อ่าน — กรุณาอ่านฉบับล่าสุดแล้วยอมรับอีกครั้ง",
     sections_required: "เพิ่มหัวข้อนโยบายอย่างน้อย 1 หัวข้อก่อนเปิดใช้งาน",
+    version_locked: "ฉบับนี้มีผู้ยอมรับแล้ว แก้เนื้อหาหรือไฟล์แนบไม่ได้ — คัดลอกเป็นฉบับใหม่แล้วแก้ที่ฉบับนั้น",
+    default_required_sections: "ฉบับนี้ยังไม่มีหัวข้อ — เพิ่มหัวข้อก่อนตั้งเป็นฉบับที่แสดงให้ผู้ใช้",
+    delete_default: "ลบฉบับที่แสดงให้ผู้ใช้อยู่ไม่ได้ — ตั้งฉบับอื่นก่อน",
+    delete_accepted: "ลบฉบับที่มีผู้ยอมรับแล้วไม่ได้ เพราะต้องเก็บเป็นหลักฐาน",
   },
   signature: {
     required: "ต้องมีลายเซ็นก่อนบันทึกหรืออนุมัติเอกสาร — อัปโหลดหรือวาดลายเซ็นที่หน้าโปรไฟล์ของฉัน",
@@ -470,6 +474,10 @@ const eamEn: Eam = {
     required: "Please read and accept the system usage policy before continuing.",
     version_changed: "The policy changed while you were reading — please read the latest version and accept again.",
     sections_required: "Add at least one policy section before turning it on.",
+    version_locked: "This version has acceptances, so its content and attachments cannot change. Duplicate it and edit the new version.",
+    default_required_sections: "This version has no sections. Add one before showing it to users.",
+    delete_default: "This version is showing to users. Choose another version before deleting it.",
+    delete_accepted: "Versions with acceptances cannot be deleted because they are kept as evidence.",
   },
   signature: {
     required: "A signature is required before saving or approving documents — upload or draw one on your profile page.",

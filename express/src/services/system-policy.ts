@@ -1,4 +1,4 @@
-import { first } from "../db.js";
+import { first, select } from "../db.js";
 import { iso } from "../lib/time.js";
 import type { UserRow } from "../models/user.js";
 import { getSetting } from "./settings.js";
@@ -7,8 +7,12 @@ import { getSetting } from "./settings.js";
  * นโยบายของระบบที่ผู้ใช้ต้องยอมรับก่อนเข้าใช้งาน (app_settings.system_policy — หน้าตั้งค่าระบบ, settings.manage)
  *   เปิดใช้ + มีอย่างน้อย 1 หัวข้อ = ผู้ใช้ทุกคน (LOCAL และ API) ที่ยังไม่ยอมรับเวอร์ชันปัจจุบัน ใช้ได้เฉพาะ POLICY_ALLOWED
  *   (middleware auth ตอบ 403 code policy_required) — ยอมรับแล้วเก็บแถวใน policy_acceptances (วันเวลา + IP)
- *   แก้เนื้อหาโดยติ๊ก "ให้ทุกคนยอมรับใหม่" = เพิ่มเวอร์ชัน → ทุกคนต้องยอมรับอีกครั้ง
+ *   ฉบับทั้งหมดอยู่ที่ policy_versions (routes/policy-versions.ts) — ตั้งฉบับไหนเป็นค่าที่แสดง = คัดลอกมาที่ system_policy
+ *   ผู้ใช้ที่ยังไม่เคยยอมรับฉบับนั้นต้องยอมรับก่อนใช้งาน
  */
+/** สิทธิ์จัดการนโยบายแต่ละฉบับ + นโยบายอื่นๆ — เปิด-ปิด / ที่แสดง ยังเป็น settings.manage ที่หน้าตั้งค่าระบบ */
+export const POLICY_MANAGE = "policy.manage";
+
 export interface PolicySection {
   title: string;
   body: string;
@@ -55,6 +59,26 @@ export async function systemPolicy(): Promise<SystemPolicy> {
     updated_at: typeof raw.updated_at === "string" ? raw.updated_at : null,
   };
 }
+
+/** sections จากคอลัมน์ JSON (driver คืนได้ทั้ง string และ object) — MySQL เรียง key ใหม่ จึงจัดรูปให้เทียบเนื้อหากันได้ */
+export function parseSections(raw: unknown): PolicySection[] {
+  const value = typeof raw === "string" ? JSON.parse(raw) : raw;
+  return Array.isArray(value) ? (value as Partial<PolicySection>[]).map((s) => ({ title: String(s.title ?? ""), body: String(s.body ?? "") })) : [];
+}
+
+export interface PolicyFileRow {
+  id: number;
+  version: number | null;
+  original_name: string;
+  path: string;
+  mime: string;
+  size: number;
+}
+
+export const policyFilesOf = (versions: number[]) =>
+  versions.length ? select<PolicyFileRow>("SELECT * FROM policy_files WHERE version IN (?) ORDER BY id", [versions]) : Promise.resolve([] as PolicyFileRow[]);
+
+export const policyFileJson = (f: PolicyFileRow, base = "/policy/files") => ({ id: Number(f.id), name: f.original_name, mime: f.mime, size: Number(f.size), url: `${base}/${f.id}` });
 
 /** ต้องยอมรับก่อนใช้งาน = เปิดใช้ + มีเนื้อหา */
 export const policyActive = (p: SystemPolicy) => p.enabled && p.version > 0 && p.sections.length > 0;

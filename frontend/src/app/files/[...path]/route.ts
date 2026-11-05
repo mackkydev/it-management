@@ -17,7 +17,7 @@ import { apiFile } from "@/lib/api";
  * อนุญาตเฉพาะ path ของไฟล์ — กันไม่ให้ใช้เป็น proxy เรียก API อื่น
  */
 const ALLOWED =
-  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/export|kpi\/export|assets\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/icon|leave\/export|leave\/[0-9a-f-]{36}\/files\/\d+|leave\/[0-9a-f-]{36}\/signature\/(requester|approver)|holidays\/import-template|org-units\/import-template|meeting-rooms\/\d+\/images\/\d+|vehicles\/\d+\/images\/\d+|repair-orders\/[0-9a-f-]{36}\/files\/\d+|vendors\/\d+\/files\/\d+|announcements\/\d+\/files\/\d+|policy\/documents\/\d+\/signature|policy\/files\/\d+|policy\/public\/files\/\d+)$/i;
+  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/export|kpi\/export|assets\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/icon|leave\/export|leave\/[0-9a-f-]{36}\/files\/\d+|leave\/[0-9a-f-]{36}\/signature\/(requester|approver)|holidays\/import-template|org-units\/import-template|meeting-rooms\/\d+\/images\/\d+|vehicles\/\d+\/images\/\d+|repair-orders\/[0-9a-f-]{36}\/files\/\d+|vendors\/\d+\/files\/\d+|announcements\/\d+\/files\/\d+|policy\/documents\/\d+\/signature|policy\/files\/\d+|policy\/public\/files\/\d+|policy\/others\/\d+\/files\/\d+)$/i;
 
 export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
   const { path } = await ctx.params;
@@ -31,6 +31,8 @@ export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
   let query = sp.has("download") ? "?download=1" : "";
   // template วันหยุด: ปี (เติมวันหยุดของปีนั้นไว้ในไฟล์)
   if (joined === "holidays/import-template" && /^\d{4}$/.test(sp.get("year") ?? "")) query = `?year=${sp.get("year")}`;
+  // ลายเซ็นในเอกสารการยอมรับ: ฉบับที่พิมพ์
+  if (/^policy\/documents\/\d+\/signature$/.test(joined) && /^\d+$/.test(sp.get("version") ?? "")) query = `?version=${sp.get("version")}`;
   if (joined === "kpi/export") {
     const q = new URLSearchParams();
     for (const k of ["from", "to"]) if (/^\d{4}-\d{2}$/.test(sp.get(k) ?? "")) q.set(k, sp.get(k)!);

@@ -137,6 +137,14 @@ export const NAV: NavGroup[] = [
     items: [{ label: "nav.announcements", href: "/announcements", icon: BellIcon, visible: perm("announcements.manage") }],
   },
   {
+    // นโยบายการใช้งาน — ทุกคน: อ่านฉบับล่าสุด + นโยบายอื่นๆ; policy.manage = จัดการรายการฉบับ (เปิด-ปิด / ที่แสดง อยู่ที่หน้าตั้งค่าระบบ)
+    id: "policy",
+    label: "nav.policyManage",
+    icon: ShieldIcon,
+    direct: true,
+    items: [{ label: "nav.policyManage", href: "/policy", icon: ShieldIcon }],
+  },
+  {
     // ยืมอุปกรณ์ / VPN — ทุกคน: ยืมโน้ตบุ๊ก (รายการเครื่อง + ปฏิทิน) / ขอใช้ VPN / การยืมของฉัน (ตัวเลข = เกินกำหนดคืน + VPN ใกล้หมดอายุ);
     // ส่งมอบ/รับคืน + จัดการ VPN = loans.manage (ตัวเลข = รอส่งมอบที่ถึงวัน + เกินกำหนด / คำขอ VPN รอมอบ + หมดอายุ)
     id: "loans",
@@ -197,8 +205,6 @@ export const NAV: NavGroup[] = [
       { label: "nav.dropdowns", href: "/dropdowns", icon: ListIcon, visible: (u) => has(u, "contracts.categories") || has(u, "dropdowns.manage") || has(u, "settings.manage") || has(u, "meeting.rooms") || has(u, "zoom.manage") || has(u, "vehicle.manage") || has(u, "vendors.manage") },
       { label: "nav.locations", href: "/locations", icon: MapPinIcon, visible: (u) => has(u, "locations.view") || has(u, "locations.manage") },
       { label: "nav.vendors", href: "/vendors", icon: BuildingIcon, visible: perm("vendors.manage") },
-      // เนื้อหานโยบาย + รายชื่อผู้ยอมรับ — เปิด-ปิด / ที่แสดง อยู่ที่หน้าตั้งค่าระบบ
-      { label: "nav.policyManage", href: "/policy-manage", icon: FileTextIcon, visible: perm("settings.manage") },
       { label: "nav.users", href: "/users", icon: UsersIcon, visible: perm("users.view") },
     ],
   },

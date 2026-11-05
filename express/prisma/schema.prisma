@@ -847,6 +847,9 @@ model users {
   vendor_files                                             vendor_files[]
   announcement_files                                       announcement_files[]
   policy_files                                             policy_files[]
+  policy_versions                                          policy_versions[]
+  other_policies                                           other_policies[]
+  other_policy_files                                       other_policy_files[]
   licenses_cancelled                                      licenses[]                 @relation("licenses_cancelled_byTousers")
   licenses_created                                         licenses[]                 @relation("licenses_created_byTousers")
   licenses_updated                                         licenses[]                 @relation("licenses_updated_byTousers")
@@ -1758,24 +1761,69 @@ model announcement_files {
 
 /// เนื้อหานโยบายของแต่ละฉบับ — เอกสารการยอมรับแสดงเนื้อหาของฉบับที่ผู้ใช้ยอมรับ
 model policy_versions {
-  version    Int       @id
-  sections   Json
-  created_at DateTime? @db.DateTime(0)
+  version      Int            @id
+  title        String         @default("") @db.VarChar(200)
+  sections     Json
+  created_at   DateTime?      @db.DateTime(0)
+  /// เคยตั้งเป็นฉบับที่แสดงให้ผู้ใช้แล้ว (null = ร่าง)
+  published_at DateTime?      @db.DateTime(0)
+  created_by   BigInt?
+  updated_at   DateTime?      @db.DateTime(0)
+  users        users?         @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "policy_versions_created_by_foreign")
+  files        policy_files[]
+
+  @@index([created_by], map: "policy_versions_created_by_index")
 }
 
-/// ไฟล์แนบประกาศของนโยบาย — เปิดดูได้ตอนอ่านนโยบาย
+/// ไฟล์แนบของนโยบายแต่ละฉบับ — เปิดดูได้ตอนอ่านนโยบาย
 model policy_files {
-  id            BigInt    @id @default(autoincrement())
-  original_name String    @db.VarChar(255)
-  path          String    @db.VarChar(255)
-  mime          String    @db.VarChar(100)
-  size          Int
-  uploaded_by   BigInt?
-  created_at    DateTime? @db.DateTime(0)
-  updated_at    DateTime? @db.DateTime(0)
-  users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "policy_files_uploaded_by_foreign")
+  id              BigInt           @id @default(autoincrement())
+  version         Int?
+  original_name   String           @db.VarChar(255)
+  path            String           @db.VarChar(255)
+  mime            String           @db.VarChar(100)
+  size            Int
+  uploaded_by     BigInt?
+  created_at      DateTime?        @db.DateTime(0)
+  updated_at      DateTime?        @db.DateTime(0)
+  users           users?           @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "policy_files_uploaded_by_foreign")
+  policy_versions policy_versions? @relation(fields: [version], references: [version], onDelete: Restrict, onUpdate: Restrict, map: "policy_files_version_foreign")
 
   @@index([uploaded_by], map: "policy_files_uploaded_by_index")
+  @@index([version], map: "policy_files_version_index")
+}
+
+/// นโยบายอื่นๆ — เอกสารให้เปิดอ่าน ไม่ต้องกดยอมรับ
+model other_policies {
+  id          BigInt               @id @default(autoincrement())
+  title       String               @db.VarChar(200)
+  description String?              @db.Text
+  sort_order  Int                  @default(0)
+  is_active   Boolean              @default(true)
+  created_by  BigInt?
+  created_at  DateTime?            @db.DateTime(0)
+  updated_at  DateTime?            @db.DateTime(0)
+  users       users?               @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "other_policies_created_by_foreign")
+  files       other_policy_files[]
+
+  @@index([created_by], map: "other_policies_created_by_index")
+}
+
+model other_policy_files {
+  id              BigInt         @id @default(autoincrement())
+  other_policy_id BigInt
+  original_name   String         @db.VarChar(255)
+  path            String         @db.VarChar(255)
+  mime            String         @db.VarChar(100)
+  size            Int
+  uploaded_by     BigInt?
+  created_at      DateTime?      @db.DateTime(0)
+  updated_at      DateTime?      @db.DateTime(0)
+  other_policies  other_policies @relation(fields: [other_policy_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "other_policy_files_other_policy_id_foreign")
+  users           users?         @relation(fields: [uploaded_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "other_policy_files_uploaded_by_foreign")
+
+  @@index([other_policy_id], map: "other_policy_files_other_policy_id_index")
+  @@index([uploaded_by], map: "other_policy_files_uploaded_by_index")
 }
 
 /// ไฟล์เอกสารบริษัทของ Vendor
