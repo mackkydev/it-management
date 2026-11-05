@@ -86,7 +86,7 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
         <LockIcon width={12} height={12} className="shrink-0 text-warning-500" aria-label={t("rolePermissions.locked")} />
       </Tooltip>
     );
-  const caption = (key: MessageKey | undefined) => key && <span className="whitespace-nowrap text-[11px] leading-none text-muted">{t(key)}</span>;
+  const caption = (key: MessageKey | undefined) => key && <span className="whitespace-nowrap text-2xs leading-none text-muted">{t(key)}</span>;
   // ช่อง "ทำได้เสมอ": ติ๊กไว้และล็อก แก้ไม่ได้ (+ คำสั้น เช่น "ของตัวเอง")
   const always = (moduleKey: string, c: Column) => {
     const a = ALWAYS[moduleKey]?.[c];
@@ -214,7 +214,7 @@ export function PermissionMatrix({ catalog, modules, cell }: { catalog: Permissi
                 <li key={p.key} className="flex items-center gap-3 px-3 py-2">
                   {cell(p)}
                   <span className="min-w-0 flex-1 text-sm">
-                    <span className="mr-1.5 rounded bg-subtle px-1.5 py-0.5 text-[11px] text-muted">{t(`rolePermissions.actions.${p.action}` as MessageKey)}</span>
+                    <span className="mr-1.5 rounded bg-subtle px-1.5 py-0.5 text-2xs text-muted">{t(`rolePermissions.actions.${p.action}` as MessageKey)}</span>
                     {name(p)}
                   </span>
                   {lockBadge(p)}

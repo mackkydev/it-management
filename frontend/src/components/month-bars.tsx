@@ -126,7 +126,7 @@ export function MonthBarGrid({
                       </button>
                     )}
                   </span>
-                  {hidden[i] > 0 && <span className="absolute bottom-1 left-2 text-[11px] font-medium text-muted">{moreLabel(hidden[i])}</span>}
+                  {hidden[i] > 0 && <span className="absolute bottom-1 left-2 text-2xs font-medium text-muted">{moreLabel(hidden[i])}</span>}
                 </div>
               );
             })}
@@ -141,7 +141,7 @@ export function MonthBarGrid({
                   <button
                     type="button"
                     onClick={s.bar.onClick}
-                    className={`block h-5 w-full cursor-pointer truncate px-2 text-left text-[11px] font-medium leading-5 ring-1 ring-inset ${s.bar.tone} ${s.head ? "rounded-l-md" : ""} ${s.tail ? "rounded-r-md" : ""} ${s.bar.dashed ? "opacity-60 outline-1 outline-dashed outline-current" : ""}`}
+                    className={`block h-5 w-full cursor-pointer truncate px-2 text-left text-2xs font-medium leading-5 ring-1 ring-inset ${s.bar.tone} ${s.head ? "rounded-l-md" : ""} ${s.tail ? "rounded-r-md" : ""} ${s.bar.dashed ? "opacity-60 outline-1 outline-dashed outline-current" : ""}`}
                   >
                     {s.bar.label}
                   </button>

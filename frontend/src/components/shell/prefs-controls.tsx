@@ -10,6 +10,7 @@ import {
   PlusIcon,
   SidebarIcon,
   SunIcon,
+  TextSizeIcon,
   TopbarIcon,
 } from "@/components/icons";
 import { usePrefs } from "@/components/prefs-provider";
@@ -17,7 +18,7 @@ import { Tooltip } from "@/components/tooltip";
 import { input as inputCls, inputError as inputErrorCls } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { HEX_RE } from "@/lib/color";
-import { CUSTOM_SUGGESTIONS, LAYOUTS, LOCALES, MODES, PRESET_THEMES, THEME_SWATCH, TONES, type Layout, type Mode } from "@/lib/prefs";
+import { CUSTOM_SUGGESTIONS, LAYOUTS, LOCALES, MODES, PRESET_THEMES, TEXT_SIZES, THEME_SWATCH, TONES, type Layout, type Mode } from "@/lib/prefs";
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -189,7 +190,7 @@ function CustomColor({ accent, onChange }: { accent: string; onChange: (hex: str
         />
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="text-[11px] text-muted">{t("prefs.customSuggest")}</span>
+        <span className="text-2xs text-muted">{t("prefs.customSuggest")}</span>
         {CUSTOM_SUGGESTIONS.map((hex) => (
           <Tooltip key={hex} label={<span className="font-mono">{hex.toUpperCase()}</span>}>
             <button
@@ -202,7 +203,7 @@ function CustomColor({ accent, onChange }: { accent: string; onChange: (hex: str
           </Tooltip>
         ))}
       </div>
-      <p className="text-[11px] leading-snug text-muted">{t("prefs.customHint")}</p>
+      <p className="text-2xs leading-snug text-muted">{t("prefs.customHint")}</p>
     </div>
   );
 }
@@ -226,6 +227,13 @@ export function ToneSwitch() {
       )}
     />
   );
+}
+
+/** ขนาดตัวอักษร: เล็ก (ขนาดเดิม) / กลาง / ใหญ่ */
+export function TextSizeSwitch() {
+  const { t } = useI18n();
+  const { textSize, set } = usePrefs();
+  return <Segmented label={t("prefs.textSize")} icon={TextSizeIcon} options={TEXT_SIZES} value={textSize} onChange={(v) => set("textSize", v)} render={(v) => <span>{t(`prefs.textSizes.${v}`)}</span>} />;
 }
 
 export function LanguageSwitch() {
@@ -274,6 +282,7 @@ export function PrefsControls() {
       <ModeSwitch />
       <ThemePicker />
       <ToneSwitch />
+      <TextSizeSwitch />
       {/* รูปแบบเมนู + ภาษา อยู่บรรทัดเดียวกัน */}
       <div className="grid grid-cols-[1fr_auto] items-end gap-2">
         <LayoutSwitch />

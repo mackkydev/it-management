@@ -336,7 +336,7 @@ function MenuName({
         <span className={custom ? "font-medium text-accent-700 dark:text-accent-300" : undefined}>{shown}</span>
         {custom && (
           <Tooltip label={t("permissions.menuNameDefault", { name: fallback })}>
-            <span className="rounded-full bg-accent-50 px-1.5 py-0.5 text-[10px] text-accent-700 dark:bg-accent-400/15 dark:text-accent-300">{t("permissions.menuNameEdited")}</span>
+            <span className="rounded-full bg-accent-50 px-1.5 py-0.5 text-3xs text-accent-700 dark:bg-accent-400/15 dark:text-accent-300">{t("permissions.menuNameEdited")}</span>
           </Tooltip>
         )}
         <Tooltip label={t("permissions.menuNameEdit")}>

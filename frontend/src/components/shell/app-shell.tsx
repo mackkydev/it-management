@@ -89,13 +89,14 @@ function Logo() {
   const { t } = useI18n();
   const isNew = useNewVersion();
   return (
-    <Link href="/about" title={t("about.openHint")} className="group flex cursor-pointer items-center gap-2 font-semibold text-ink">
+    <Tooltip label={t("about.openHint")}>
+    <Link href="/about" className="group flex cursor-pointer items-center gap-2 font-semibold text-ink">
       <LogoMark />
       <span className="leading-tight">
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5 whitespace-nowrap">
           {t("app.name")}
           <span
-            className={`relative rounded-full px-1.5 py-px text-[10px] font-semibold leading-4 ring-1 ring-inset transition-colors ${
+            className={`relative shrink-0 rounded-full px-1.5 py-px text-3xs font-semibold leading-4 ring-1 ring-inset transition-colors ${
               isNew
                 ? "bg-danger-50 text-danger-700 ring-danger-200 dark:bg-danger-400/15 dark:text-danger-300 dark:ring-danger-400/30"
                 : "bg-subtle text-muted ring-line group-hover:bg-accent-100 group-hover:text-accent-700 dark:group-hover:bg-accent-400/15 dark:group-hover:text-accent-300"
@@ -108,6 +109,7 @@ function Logo() {
         <span className="block text-xs font-normal text-muted">{isNew ? t("about.newBadge") : t("app.tagline")}</span>
       </span>
     </Link>
+    </Tooltip>
   );
 }
 

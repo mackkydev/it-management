@@ -60,7 +60,7 @@ function Stat({ href, label, value, icon: Icon, color }: { href: string; label: 
         <Icon width={20} height={20} />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-xs text-muted group-hover:text-ink">{label}</span>
+        <span className="line-clamp-2 block text-xs text-muted group-hover:text-ink">{label}</span>
         <span className="mt-0.5 block text-2xl font-semibold tabular-nums">{value}</span>
       </span>
     </Link>

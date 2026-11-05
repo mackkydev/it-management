@@ -98,7 +98,8 @@ export function PrintDocument({ className = "space-y-5", children }: { className
     <div className="min-h-screen bg-canvas py-6 text-black print:bg-white print:py-0">
       <style>{DOCUMENT_PRINT_CSS}</style>
       <PrintToolbar />
-      <article className={`mx-auto max-w-[210mm] bg-white p-10 shadow print:p-0 print:shadow-none ${className}`}>{children}</article>
+      {/* ตัวเอกสารคงขนาดเดิม ไม่ขยายตามการตั้งค่าขนาดตัวอักษร ไม่งั้นจำนวนหน้ากระดาษเปลี่ยน */}
+      <article className={`text-size-fixed mx-auto max-w-[210mm] bg-white p-10 shadow print:p-0 print:shadow-none ${className}`}>{children}</article>
     </div>
   );
 }

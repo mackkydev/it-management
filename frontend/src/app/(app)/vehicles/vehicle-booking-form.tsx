@@ -159,9 +159,9 @@ export function VehicleBookingForm({
                   <li key={o.id} className={`flex min-w-0 flex-col items-start gap-0.5 rounded-lg px-2 py-1.5 ring-1 ring-inset ${toneOf(vehicles, o.id).bar}`}>
                     <CarIcon width={16} height={16} />
                     <span className="line-clamp-2 w-full break-words text-xs font-semibold leading-4">{o.name}</span>
-                    <span className="w-full truncate text-[11px] leading-4 opacity-80">{[o.plate_no, o.vehicle_type].filter(Boolean).join(" · ") || "-"}</span>
+                    <span className="w-full truncate text-2xs leading-4 opacity-80">{[o.plate_no, o.vehicle_type].filter(Boolean).join(" · ") || "-"}</span>
                     {timesOk ? (
-                      <span className={`inline-flex rounded-full px-1.5 text-[10px] font-medium leading-4 ${busy ? tone.danger.badge : tone.success.badge}`}>
+                      <span className={`inline-flex rounded-full px-1.5 text-3xs font-medium leading-4 ${busy ? tone.danger.badge : tone.success.badge}`}>
                         {busy ? t("vehicle.form.statusBusy") : t("vehicle.form.statusReady")}
                       </span>
                     ) : null}

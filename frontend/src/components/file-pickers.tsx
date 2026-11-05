@@ -56,7 +56,7 @@ function Thumb({ file, onRemove, label }: { file: File; onRemove: () => void; la
       >
         <XIcon width={13} height={13} />
       </button>
-      <span className="absolute inset-x-0 bottom-0 bg-black/50 px-1 py-0.5 text-center text-[10px] text-white">
+      <span className="absolute inset-x-0 bottom-0 bg-black/50 px-1 py-0.5 text-center text-3xs text-white">
         {Math.round(file.size / 1024)} KB
       </span>
     </div>
@@ -117,7 +117,7 @@ export function PhotoPicker({
             className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-accent-200 text-accent-600 transition-colors hover:bg-accent-50 dark:border-accent-400/30 dark:text-accent-300 dark:hover:bg-accent-400/10"
           >
             {busy ? <SpinnerIcon /> : <CameraIcon width={20} height={20} />}
-            <span className="px-1 text-center text-[11px] leading-tight">{busy ? t("upload.processing") : t("upload.takePhoto")}</span>
+            <span className="px-1 text-center text-2xs leading-tight">{busy ? t("upload.processing") : t("upload.takePhoto")}</span>
           </label>
         )}
       </div>

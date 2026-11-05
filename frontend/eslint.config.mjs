@@ -25,6 +25,11 @@ const eslintConfig = defineConfig([
           selector: 'CallExpression[callee.object.name="window"][callee.property.name="print"]',
           message: "สั่งพิมพ์ผ่าน PrintDocument / PrintToolbar (components/document-template.tsx) หรือ PrintModal — ดูกฎใน CLAUDE.md",
         },
+        // ตัวอักษรขนาดตายตัวจะไม่ขยายตามการตั้งค่าขนาดตัวอักษร
+        {
+          selector: "TemplateElement[value.raw=/\\btext-\\[[0-9.]+(px|rem|em)\\]/], Literal[value=/\\btext-\\[[0-9.]+(px|rem|em)\\]/]",
+          message: "ใช้ text-3xs / text-2xs / text-xs ขึ้นไปแทนขนาดตายตัว เพื่อให้ขยายตามการตั้งค่าขนาดตัวอักษร — ดูกฎใน CLAUDE.md",
+        },
       ],
     },
   },

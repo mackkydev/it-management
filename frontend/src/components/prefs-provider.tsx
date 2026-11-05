@@ -72,6 +72,8 @@ export function PrefsProvider({ initial, children }: { initial: Prefs; children:
       if (key === "theme" || key === "accent") applyTheme(next.theme, next.accent);
       // โทนพาสเทล / ปกติ: เปลี่ยนตัวแปรสีที่ <html> ทันที (globals.css [data-tone])
       if (key === "tone") document.documentElement.dataset.tone = value as Prefs["tone"];
+      // ขนาดตัวอักษร: เปลี่ยนทันที (globals.css [data-text-size])
+      if (key === "textSize") document.documentElement.dataset.textSize = value as Prefs["textSize"];
       if (key === "layout" || key === "locale") router.refresh();
     },
     [router],

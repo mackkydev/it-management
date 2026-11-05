@@ -182,8 +182,8 @@ export function PermissionEditor({ initial, catalog, superAdmin }: { initial: Us
                       className="h-4 w-4 cursor-pointer accent-[var(--accent-500)] disabled:cursor-not-allowed"
                     />
                     <span className="font-medium">{name(g)}</span>
-                    <span className="rounded-full bg-subtle px-1.5 py-0.5 text-[11px] text-muted">{g.is_system ? t("rolePermissions.system") : t("rolePermissions.custom")}</span>
-                    {assigned && expired(assigned.expires_on) && <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone.danger.badge}`}>{t("access.expired")}</span>}
+                    <span className="rounded-full bg-subtle px-1.5 py-0.5 text-2xs text-muted">{g.is_system ? t("rolePermissions.system") : t("rolePermissions.custom")}</span>
+                    {assigned && expired(assigned.expires_on) && <span className={`rounded-full px-2 py-0.5 text-2xs font-medium ${tone.danger.badge}`}>{t("access.expired")}</span>}
                   </label>
                   {assigned && expiry && (
                     <div className="flex items-center gap-2 sm:w-64">
@@ -238,9 +238,9 @@ export function PermissionEditor({ initial, catalog, superAdmin }: { initial: Us
                 return (
                   <li key={p.key} className="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center">
                     <span className="min-w-0 flex-1 text-sm">
-                      <span className={`mr-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${c.effect === "allow" ? tone.success.badge : tone.danger.badge}`}>{c.effect === "allow" ? t("access.allow") : t("access.deny")}</span>
+                      <span className={`mr-2 rounded-full px-2 py-0.5 text-2xs font-medium ${c.effect === "allow" ? tone.success.badge : tone.danger.badge}`}>{c.effect === "allow" ? t("access.allow") : t("access.deny")}</span>
                       {name(p)}
-                      {expired(c.expires_on) && <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${tone.idle.badge}`}>{t("access.expired")}</span>}
+                      {expired(c.expires_on) && <span className={`ml-2 rounded-full px-2 py-0.5 text-2xs font-medium ${tone.idle.badge}`}>{t("access.expired")}</span>}
                     </span>
                     {expiry && (
                       <div className="flex items-center gap-2 sm:w-64">

@@ -122,7 +122,7 @@ export function NotificationBell({ size = "md" }: { size?: "md" | "lg" }) {
           {unread > 0 && (
             <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center">
               <span className="absolute inset-0 animate-ping rounded-full bg-danger-400 opacity-60 motion-reduce:hidden" aria-hidden="true" />
-              <span className="relative flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger-500 px-1 text-[10px] font-bold text-white ring-2 ring-surface">
+              <span className="relative flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger-500 px-1 text-3xs font-bold text-white ring-2 ring-surface">
                 {unread > 99 ? "99+" : unread}
               </span>
             </span>

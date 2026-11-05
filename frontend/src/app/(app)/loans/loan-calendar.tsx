@@ -90,7 +90,7 @@ export function LoanCalendar({
       type="button"
       onClick={(e) => (e.stopPropagation(), setSelected(l))}
       onDoubleClick={(e) => e.stopPropagation()}
-      className={`flex w-full cursor-pointer items-center gap-1 truncate rounded-md px-1.5 text-left font-medium ring-1 ring-inset ${small ? "py-0.5 text-[11px]" : "py-1 text-xs"} ${colorOf(l.asset.id)} ${l.status === "returned" ? "opacity-60" : ""}`}
+      className={`flex w-full cursor-pointer items-center gap-1 truncate rounded-md px-1.5 text-left font-medium ring-1 ring-inset ${small ? "py-0.5 text-2xs" : "py-1 text-xs"} ${colorOf(l.asset.id)} ${l.status === "returned" ? "opacity-60" : ""}`}
     >
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATE_TONE[stateOf(l)].dot}`} aria-hidden="true" />
       <span className="truncate">{small ? `${l.asset.asset_tag} · ${l.user.name}` : line(l)}</span>
@@ -176,7 +176,7 @@ export function LoanCalendar({
                       </span>
                     }
                   >
-                    <span className="px-1 text-[11px] font-medium text-muted">{t("loan.more", { n: list.length - MAX_CHIPS })}</span>
+                    <span className="px-1 text-2xs font-medium text-muted">{t("loan.more", { n: list.length - MAX_CHIPS })}</span>
                   </Tooltip>
                 )}
               </div>

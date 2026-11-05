@@ -22,6 +22,16 @@ function Icon({ children, ...props }: SVGProps<SVGSVGElement>) {
 
 type P = SVGProps<SVGSVGElement>;
 
+/** ขนาดตัวอักษร */
+export const TextSizeIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M3 19 8 6l5 13" />
+    <path d="M4.8 15h6.4" />
+    <path d="m14 19 3.5-8.5L21 19" />
+    <path d="M15.2 16h4.6" />
+  </Icon>
+);
+
 /** วงหมุนแสดงสถานะกำลังโหลด */
 export const SpinnerIcon = ({ className = "", ...p }: P) => (
   <Icon className={`animate-spin ${className}`} {...p}>

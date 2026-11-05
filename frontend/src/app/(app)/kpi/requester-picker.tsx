@@ -116,7 +116,7 @@ export function RequesterPicker({ value, onChange, onPick, className, ariaLabel 
                     <span className="block font-medium text-ink">{p.name}</span>
                     <span className="block text-xs text-muted">{[p.branch?.name, p.department].filter(Boolean).join(" · ") || "-"}</span>
                   </span>
-                  {p.type === "API" && <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone.info.badge}`}>{t("kpi.apiUser")}</span>}
+                  {p.type === "API" && <span className={`shrink-0 rounded-full px-2 py-0.5 text-3xs font-semibold ${tone.info.badge}`}>{t("kpi.apiUser")}</span>}
                 </button>
               ))
             )}

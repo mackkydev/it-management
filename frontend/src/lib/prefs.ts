@@ -15,7 +15,10 @@ export const LAYOUTS = ["sidebar", "topbar"] as const;
 /** sidebar ย่อเหลือแค่ icon หรือแสดงเต็ม */
 export const SIDEBAR_STATES = ["expanded", "collapsed"] as const;
 export const LOCALES = ["th", "en"] as const;
+/** ขนาดตัวอักษร: sm = ขนาดเดิมของระบบ / md / lg (globals.css `[data-text-size]`) */
+export const TEXT_SIZES = ["sm", "md", "lg"] as const;
 
+export type TextSize = (typeof TEXT_SIZES)[number];
 export type Mode = (typeof MODES)[number];
 export type PresetTheme = (typeof PRESET_THEMES)[number];
 export type Theme = (typeof THEMES)[number];
@@ -30,6 +33,7 @@ export interface Prefs {
   /** สีหลักของธีมกำหนดเอง (#rrggbb) */
   accent: string;
   tone: Tone;
+  textSize: TextSize;
   layout: Layout;
   sidebar: SidebarState;
   locale: Locale;
@@ -40,6 +44,7 @@ export const PREF_COOKIES = {
   theme: "eam_theme",
   accent: "eam_accent",
   tone: "eam_tone",
+  textSize: "eam_text_size",
   layout: "eam_layout",
   sidebar: "eam_sidebar",
   locale: "eam_locale",
@@ -50,6 +55,7 @@ export const DEFAULT_PREFS: Prefs = {
   theme: "lavender",
   accent: "#8b5cf6",
   tone: "normal",
+  textSize: "sm",
   layout: "sidebar",
   sidebar: "expanded",
   locale: "th",
@@ -59,6 +65,7 @@ const ALLOWED: { [K in Exclude<keyof Prefs, "accent">]: readonly Prefs[K][] } = 
   mode: MODES,
   theme: THEMES,
   tone: TONES,
+  textSize: TEXT_SIZES,
   layout: LAYOUTS,
   sidebar: SIDEBAR_STATES,
   locale: LOCALES,

@@ -123,7 +123,7 @@ export function VehicleTimeline({
             {v.plate_no && ` · ${v.plate_no}`}
           </p>
           {v.mileage !== null && (
-            <p className="flex items-center gap-1 text-[11px] text-faint">
+            <p className="flex items-center gap-1 text-2xs text-faint">
               <GaugeIcon width={11} height={11} />
               {t("vehicle.mileageValue", { n: fmt.number(v.mileage) })}
             </p>
@@ -167,7 +167,7 @@ export function VehicleTimeline({
               ))}
               {hover?.row === r.id && canBook(hover.min) && !busy(r.list, hover.min) && (
                 <span
-                  className="pointer-events-none absolute inset-y-2 flex items-center justify-center rounded-md border border-dashed border-accent-300 bg-accent-50 text-[11px] font-medium text-accent-700 dark:border-accent-400/50 dark:bg-accent-400/10 dark:text-accent-200"
+                  className="pointer-events-none absolute inset-y-2 flex items-center justify-center rounded-md border border-dashed border-accent-300 bg-accent-50 text-2xs font-medium text-accent-700 dark:border-accent-400/50 dark:bg-accent-400/10 dark:text-accent-200"
                   style={{ left: `${pct(hover.min)}%`, width: `${pct(60)}%` }}
                 >
                   +
@@ -187,7 +187,7 @@ export function VehicleTimeline({
                     style={{ left: `${pct(s)}%`, width: `${pct(e - s)}%`, ...box }}
                   >
                     <span className="block truncate text-xs font-semibold leading-5">{b.details}</span>
-                    <span className="block truncate text-[11px] leading-4 opacity-80">
+                    <span className="block truncate text-2xs leading-4 opacity-80">
                       {b.start_on === date ? b.start_time : "…"}–{b.end_on === date ? b.end_time : "…"} · {b.user.name}
                     </span>
                   </button>
@@ -213,7 +213,7 @@ export function VehicleTimeline({
                   <span className="block text-xs font-semibold">
                     {b.start_on === date ? b.start_time : "…"}–{b.end_on === date ? b.end_time : "…"} · {b.details}
                   </span>
-                  <span className="block text-[11px] opacity-80">{b.user.name}</span>
+                  <span className="block text-2xs opacity-80">{b.user.name}</span>
                 </button>
               ))
             )}

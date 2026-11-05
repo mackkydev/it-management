@@ -160,7 +160,7 @@ export function DeviceList({
                         {busy
                           .filter((b) => b.status === "reserved")
                           .map((b) => (
-                            <span key={b.id} className="rounded-md bg-subtle px-1.5 py-0.5 text-[11px] text-ink">
+                            <span key={b.id} className="rounded-md bg-subtle px-1.5 py-0.5 text-2xs text-ink">
                               {t("loan.board.busyItem", { period: periodText(b, fmt.date), name: b.user })}
                             </span>
                           ))}

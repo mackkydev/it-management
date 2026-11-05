@@ -42,7 +42,7 @@ export default async function NotificationsPage({ searchParams }: PageProps<"/no
     >
       {label}
       {count ? (
-        <span className="rounded-full bg-accent-200 px-1.5 text-[11px] font-semibold text-accent-900 dark:bg-accent-400/30 dark:text-accent-100">{count}</span>
+        <span className="rounded-full bg-accent-200 px-1.5 text-2xs font-semibold text-accent-900 dark:bg-accent-400/30 dark:text-accent-100">{count}</span>
       ) : null}
     </Link>
   );

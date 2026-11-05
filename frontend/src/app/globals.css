@@ -3,6 +3,12 @@
 /* โหมดมืดควบคุมด้วย class .dark ที่ <html> (ตั้งจากค่าที่ผู้ใช้เลือก หรือ "ตามระบบ") */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ตัวอักษรเล็กกว่า text-xs — ใช้แทน text-[11px] / text-[10px] เพื่อให้ขยายตามการตั้งค่าขนาดตัวอักษร */
+@theme {
+  --text-2xs: 0.6875rem;
+  --text-3xs: 0.625rem;
+}
+
 /*
  * Token สี 3 ชุด:
  * 1) accent-*   = สีหลักของธีม pastel (เปลี่ยนตาม data-theme)
@@ -365,6 +371,39 @@
 body {
   background: var(--canvas);
   color: var(--ink);
+}
+
+/*
+ * ขนาดตัวอักษร (ตั้งค่าการแสดงผล): เล็ก = ขนาดเดิม / กลาง +12.5% / ใหญ่ +25% — ใช้ทุกอย่างในเว็บ ขยายเฉพาะตัวอักษร ระยะห่างและไอคอนคงเดิม
+ * ไม่เปลี่ยน font-size ของ html เพราะระยะห่างของ Tailwind คิดจาก rem
+ * .text-size-fixed = เอกสารที่พิมพ์ คงขนาดเดิมเสมอ ไม่งั้นจำนวนหน้ากระดาษเปลี่ยนตามค่าของผู้ใช้
+ */
+html[data-text-size="md"] {
+  --text-scale: 1.125;
+}
+html[data-text-size="lg"] {
+  --text-scale: 1.25;
+}
+.text-size-fixed {
+  --text-scale: 1;
+}
+html,
+.text-size-fixed {
+  --text-3xs: calc(0.625rem * var(--text-scale, 1));
+  --text-2xs: calc(0.6875rem * var(--text-scale, 1));
+  --text-xs: calc(0.75rem * var(--text-scale, 1));
+  --text-sm: calc(0.875rem * var(--text-scale, 1));
+  --text-base: calc(1rem * var(--text-scale, 1));
+  --text-lg: calc(1.125rem * var(--text-scale, 1));
+  --text-xl: calc(1.25rem * var(--text-scale, 1));
+  --text-2xl: calc(1.5rem * var(--text-scale, 1));
+  --text-3xl: calc(1.875rem * var(--text-scale, 1));
+  --text-4xl: calc(2.25rem * var(--text-scale, 1));
+  --text-5xl: calc(3rem * var(--text-scale, 1));
+}
+body,
+.text-size-fixed {
+  font-size: var(--text-base);
 }
 
 /*

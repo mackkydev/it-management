@@ -52,7 +52,7 @@ export function MenuBadge({ count, dot = false, className = "" }: { count: numbe
     <span
       aria-label={t("nav.badge", { count: text })}
       className={`inline-flex shrink-0 items-center justify-center rounded-full bg-danger-500 font-semibold leading-none text-white tabular-nums ${
-        dot ? "absolute -right-1 -top-1 h-4 min-w-4 px-1 text-[10px] ring-2 ring-surface" : "h-5 min-w-5 px-1.5 text-[11px]"
+        dot ? "absolute -right-1 -top-1 h-4 min-w-4 px-1 text-3xs ring-2 ring-surface" : "h-5 min-w-5 px-1.5 text-2xs"
       } ${className}`}
     >
       {text}

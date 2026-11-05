@@ -33,7 +33,7 @@ export default async function ZoomManagePage({ searchParams }: PageProps<"/zoom/
     if (!n) return null;
     const urgent = s !== "confirmed" && s !== "needs_change";
     return (
-      <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold ${urgent ? "bg-danger-500 text-white" : "bg-subtle text-muted ring-1 ring-line"}`}>
+      <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-2xs font-semibold ${urgent ? "bg-danger-500 text-white" : "bg-subtle text-muted ring-1 ring-line"}`}>
         {n > 99 ? "99+" : n}
       </span>
     );

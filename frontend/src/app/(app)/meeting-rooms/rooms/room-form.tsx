@@ -240,7 +240,7 @@ export function RoomForm({ room: initialRoom, choices }: { room: MeetingRoom | n
               <figure key={img.id} className={`relative overflow-hidden rounded-xl ring-2 ${img.is_primary ? "ring-accent-400" : "ring-line"}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element -- รูปส่วนตัวผ่าน /files (ต้องมี cookie) ใช้ next/image ไม่ได้ */}
                 <img src={imageUrl(room.id, img.id)} alt="" className="aspect-video w-full object-cover" />
-                {img.is_primary && <figcaption className="absolute left-1.5 top-1.5 rounded-full bg-accent-500 px-2 py-0.5 text-[10px] font-medium text-white">{t("meeting.rooms.primary")}</figcaption>}
+                {img.is_primary && <figcaption className="absolute left-1.5 top-1.5 rounded-full bg-accent-500 px-2 py-0.5 text-3xs font-medium text-white">{t("meeting.rooms.primary")}</figcaption>}
                 <div className="absolute right-1.5 top-1.5 flex gap-1">
                   {!img.is_primary && (
                     <Tooltip label={t("meeting.rooms.setPrimary")}>
@@ -261,7 +261,7 @@ export function RoomForm({ room: initialRoom, choices }: { room: MeetingRoom | n
               <figure key={p.url} className={`relative overflow-hidden rounded-xl ring-2 ${i === 0 ? "ring-accent-400" : "ring-line"}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element -- พรีวิวไฟล์ในเครื่อง (blob:) */}
                 <img src={p.url} alt="" className="aspect-video w-full object-cover opacity-80" />
-                {i === 0 && <figcaption className="absolute left-1.5 top-1.5 rounded-full bg-accent-500 px-2 py-0.5 text-[10px] font-medium text-white">{t("meeting.rooms.primary")}</figcaption>}
+                {i === 0 && <figcaption className="absolute left-1.5 top-1.5 rounded-full bg-accent-500 px-2 py-0.5 text-3xs font-medium text-white">{t("meeting.rooms.primary")}</figcaption>}
                 <div className="absolute right-1.5 top-1.5">
                   <Tooltip label={t("meeting.rooms.removeImage")}>
                     <button

@@ -247,7 +247,7 @@ export function BookingForm({
                 {roomDay.map((b) => (
                   <span
                     key={b.id}
-                    className={`absolute inset-y-1 truncate rounded px-1.5 text-[10px] font-medium leading-7 ring-1 ring-inset ${toneOf(rooms, room.id).bar}`}
+                    className={`absolute inset-y-1 truncate rounded px-1.5 text-3xs font-medium leading-7 ring-1 ring-inset ${toneOf(rooms, room.id).bar}`}
                     style={{ left: `${pct(b.start_time)}%`, width: `${width(b.start_time, b.end_time)}%` }}
                   >
                     {b.start_time}–{b.end_time} {b.title}
@@ -262,7 +262,7 @@ export function BookingForm({
                 )}
               </div>
               {/* เวลาทุก 1 ชั่วโมง */}
-              <div className="relative h-3 text-[10px] tabular-nums text-faint">
+              <div className="relative h-3 text-3xs tabular-nums text-faint">
                 {Array.from({ length: hTo - hFrom + 1 }, (_, i) => hFrom + i).map((h, i, all) => (
                   <span
                     key={h}

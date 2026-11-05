@@ -154,11 +154,11 @@ export function ZoomCalendar({ month: initialMonth, initialBookings, accounts = 
                   >
                     <span className="flex min-w-0 flex-col gap-1">
                       {list.slice(0, MAX_BARS).map((b) => (
-                        <span key={b.id} className={`block w-full truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium leading-4 ring-1 ring-inset ${zoomBarOf(b, accounts)}`}>
+                        <span key={b.id} className={`block w-full truncate rounded-md px-1.5 py-0.5 text-left text-2xs font-medium leading-4 ring-1 ring-inset ${zoomBarOf(b, accounts)}`}>
                           <span className="tabular-nums">{timeOn(b, d)}</span> {b.title}
                         </span>
                       ))}
-                      {list.length > MAX_BARS && <span className="px-1 text-[10px] font-medium text-muted">{t("zoom.moreCount", { n: list.length - MAX_BARS })}</span>}
+                      {list.length > MAX_BARS && <span className="px-1 text-3xs font-medium text-muted">{t("zoom.moreCount", { n: list.length - MAX_BARS })}</span>}
                     </span>
                   </Tooltip>
                 )}

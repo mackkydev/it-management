@@ -64,7 +64,7 @@ export default async function RepairOrdersPage({ searchParams }: PageProps<"/it/
             <Link key={s} href={`/it/repair-orders?status=${s}`} aria-current={s === status ? "page" : undefined} className={`inline-flex cursor-pointer items-center gap-2 ${TAB_CLS(s === status)}`}>
               {t(`repairOrders.tabs.${s}`)}
               {s === "sent" && res.meta.counts.sent > 0 && (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger-500 px-1.5 text-[11px] font-semibold text-white">{res.meta.counts.sent > 99 ? "99+" : res.meta.counts.sent}</span>
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger-500 px-1.5 text-2xs font-semibold text-white">{res.meta.counts.sent > 99 ? "99+" : res.meta.counts.sent}</span>
               )}
             </Link>
           ))}

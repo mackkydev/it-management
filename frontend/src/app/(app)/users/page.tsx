@@ -166,7 +166,7 @@ async function ManagedUsers({ query, selfId }: { query: URLSearchParams; selfId:
                       <div className="flex items-center gap-2 font-medium">
                         {u.name}
                         {u.id === selfId && (
-                          <span className="rounded-full bg-accent-200 px-2 py-0.5 text-[10px] font-semibold text-accent-800 dark:bg-accent-400/25 dark:text-accent-200">
+                          <span className="rounded-full bg-accent-200 px-2 py-0.5 text-3xs font-semibold text-accent-800 dark:bg-accent-400/25 dark:text-accent-200">
                             {t("users.you")}
                           </span>
                         )}

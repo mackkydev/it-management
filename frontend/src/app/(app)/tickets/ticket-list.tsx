@@ -205,7 +205,7 @@ function Tabs({ tabs }: { tabs: Tab[] }) {
         >
           {tab.label}
           {tab.count ? (
-            <span className="rounded-full bg-accent-200 px-1.5 text-[11px] font-semibold text-accent-900 dark:bg-accent-400/30 dark:text-accent-100">
+            <span className="rounded-full bg-accent-200 px-1.5 text-2xs font-semibold text-accent-900 dark:bg-accent-400/30 dark:text-accent-100">
               {tab.count}
             </span>
           ) : null}
@@ -232,7 +232,7 @@ async function TicketResults({ scope, query }: { scope: TicketScope; query: URLS
 
   const actionHint = (tk: TicketSummary) =>
     tk.actions.length > 0 ? (
-      <span className="inline-flex items-center gap-1 rounded-full bg-accent-100 px-2 py-0.5 text-[11px] font-medium text-accent-800 dark:bg-accent-400/15 dark:text-accent-200">
+      <span className="inline-flex items-center gap-1 rounded-full bg-accent-100 px-2 py-0.5 text-2xs font-medium text-accent-800 dark:bg-accent-400/15 dark:text-accent-200">
         {t(`tickets.actions.${tk.actions[0]}`)}
       </span>
     ) : null;

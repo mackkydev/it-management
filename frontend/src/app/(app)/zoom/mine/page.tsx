@@ -55,7 +55,7 @@ export default async function ZoomBookingsPage({ searchParams }: PageProps<"/zoo
         {TABS.map((s) => (
           <Link key={s} href={`/zoom/mine?status=${s}`} aria-current={s === status ? "page" : undefined} className={`inline-flex cursor-pointer items-center gap-2 ${TAB_CLS(s === status)}`}>
             {t(`zoom.mine.tabs.${s}`)}
-            {s === "todo" && todo > 0 && <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger-500 px-1.5 text-[11px] font-semibold text-white">{todo > 99 ? "99+" : todo}</span>}
+            {s === "todo" && todo > 0 && <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger-500 px-1.5 text-2xs font-semibold text-white">{todo > 99 ? "99+" : todo}</span>}
           </Link>
         ))}
       </nav>

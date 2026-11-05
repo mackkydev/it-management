@@ -106,7 +106,7 @@ export function AboutView() {
               <ul className="mt-2 space-y-1.5">
                 {r.changes.map((c, j) => (
                   <li key={j} className="flex items-start gap-2 text-sm">
-                    <span className={`mt-0.5 shrink-0 rounded-md px-1.5 py-px text-[11px] font-medium ${TYPE_STYLE[c.type]}`}>{t(`about.type.${c.type}`)}</span>
+                    <span className={`mt-0.5 shrink-0 rounded-md px-1.5 py-px text-2xs font-medium ${TYPE_STYLE[c.type]}`}>{t(`about.type.${c.type}`)}</span>
                     <span>{text(c)}</span>
                   </li>
                 ))}

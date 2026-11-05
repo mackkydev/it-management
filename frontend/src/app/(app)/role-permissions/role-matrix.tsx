@@ -171,7 +171,7 @@ export function RoleMatrix({ catalog, canManage, superAdmin, held }: { catalog: 
               }`}
             >
               <span className="font-medium">{name(g)}</span>
-              <span className="rounded-full bg-subtle px-1.5 py-0.5 text-[11px] text-muted">{g.is_system ? t("rolePermissions.system") : t("rolePermissions.custom")}</span>
+              <span className="rounded-full bg-subtle px-1.5 py-0.5 text-2xs text-muted">{g.is_system ? t("rolePermissions.system") : t("rolePermissions.custom")}</span>
               <span className="text-xs text-faint">{t("rolePermissions.members", { count: g.members })}</span>
               {!editable.has(g.key) && g.key !== SUPER && <LockIcon width={12} height={12} className="text-faint" aria-label={t("rolePermissions.notEditable")} />}
               {dirty.includes(g.key) && <span className="h-1.5 w-1.5 rounded-full bg-warning-500" aria-hidden="true" />}

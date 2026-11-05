@@ -307,11 +307,11 @@ export function CalendarView({ month: initialMonth, initialItems, meta, branches
                         {Number(d.slice(8))}
                       </span>
                       {/* tooltip ตอนชี้ที่ช่องวัน (ซ่อนเมื่อซ่อนปุ่มเพิ่มกิจกรรม) */}
-                      <span hidden={!canAddEvent} aria-hidden="true" className="pointer-events-none relative z-20 shrink-0 whitespace-nowrap rounded-md bg-ink px-1.5 py-0.5 text-[10px] font-medium text-canvas opacity-0 shadow-sm transition-opacity delay-300 group-hover:opacity-90">
+                      <span hidden={!canAddEvent} aria-hidden="true" className="pointer-events-none relative z-20 shrink-0 whitespace-nowrap rounded-md bg-ink px-1.5 py-0.5 text-3xs font-medium text-canvas opacity-0 shadow-sm transition-opacity delay-300 group-hover:opacity-90">
                         {t("calendar.rightClickHint")}
                       </span>
                     </div>
-                    {hidden[i] > 0 && <span className="absolute bottom-1 text-[11px] text-muted" style={{ left: `calc(${(i / 7) * 100}% + 6px)` }}>{t("calendar.more", { n: hidden[i] })}</span>}
+                    {hidden[i] > 0 && <span className="absolute bottom-1 text-2xs text-muted" style={{ left: `calc(${(i / 7) * 100}% + 6px)` }}>{t("calendar.more", { n: hidden[i] })}</span>}
                   </div>
                 );
               })}
@@ -322,7 +322,7 @@ export function CalendarView({ month: initialMonth, initialItems, meta, branches
                   type="button"
                   onClick={() => setSelected(s.item)}
                   title={`${s.item.title} — ${periodText(s.item)}`}
-                  className={`absolute z-10 h-5 cursor-pointer truncate px-2 text-left text-[11px] font-medium leading-5 ring-1 ring-inset ${KIND_CLS[s.item.kind]} ${s.head ? "rounded-l-md" : ""} ${s.tail ? "rounded-r-md" : ""} ${s.item.status === "pending" ? "border border-dashed opacity-70" : ""}`}
+                  className={`absolute z-10 h-5 cursor-pointer truncate px-2 text-left text-2xs font-medium leading-5 ring-1 ring-inset ${KIND_CLS[s.item.kind]} ${s.head ? "rounded-l-md" : ""} ${s.tail ? "rounded-r-md" : ""} ${s.item.status === "pending" ? "border border-dashed opacity-70" : ""}`}
                   style={{ top: `${32 + s.lane * 23}px`, left: `calc(${(s.col / 7) * 100}% + 3px)`, width: `calc(${(s.span / 7) * 100}% - 6px)` }}
                 >
                   {s.item.status === "pending" && `${t("calendar.pending")} · `}
