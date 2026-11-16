@@ -15,7 +15,7 @@ import { canEditAssets, canViewLicenses, getAccess, has, getCurrentUser } from "
 import type { Branch, LicenseInstallation, LicenseSummary } from "@/lib/types";
 import { InstallForm } from "./install-form";
 import { RowActions } from "./row-actions";
-import { LicenseCard } from "../licenses/license-card";
+import { LicenseCard, licenseGroupHref, licenseGroupKey } from "../licenses/license-card";
 import { AppSelect } from "@/components/app-select";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -47,6 +47,8 @@ export default async function LicenseInstallationsPage({ searchParams }: PagePro
   ]);
   const current = licenses.find((l) => l.id === license);
   if (!current) redirect("/licenses");
+  // License ชื่อเดียวกันหลายใบ = กลับไปหน้ารวมของชื่อนั้น
+  const inGroup = licenses.filter((l) => licenseGroupKey(l.name) === licenseGroupKey(current.name)).length > 1;
 
   const q = new URLSearchParams({ status, per_page: "25", license_id: license });
   if (str("search")) q.set("search", str("search"));
@@ -54,9 +56,9 @@ export default async function LicenseInstallationsPage({ searchParams }: PagePro
 
   return (
     <div className="space-y-5">
-      <Link href="/licenses" className="inline-flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink">
+      <Link href={inGroup ? licenseGroupHref(current.name) : "/licenses"} className="inline-flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink">
         <LinkPendingIcon icon={<ChevronLeftIcon width={15} height={15} />} size={15} />
-        {t("licenses.back")}
+        {inGroup ? t("licenses.group.back") : t("licenses.back")}
       </Link>
       <PageHeader icon={MonitorIcon} title={t("installations.title")} subtitle={t("installations.subtitle")} />
 

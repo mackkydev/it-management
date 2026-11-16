@@ -11,7 +11,10 @@ import type { AppSettings } from "@/lib/types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function SettingsForm({ initial }: { initial: AppSettings }) {
+/** หัวข้อของฟอร์มนี้ที่แยกเป็นเมนูย่อยในหน้าตั้งค่า — บันทึกค่าทั้งชุดเหมือนเดิม (ค่าที่ไม่แสดง = ค่าจากเซิร์ฟเวอร์) */
+export type SettingsSection = "expiry" | "tickets" | "emails";
+
+export function SettingsForm({ initial, section }: { initial: AppSettings; section: SettingsSection }) {
   const { t } = useI18n();
   const [v, setV] = useState<AppSettings>(initial);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
@@ -24,6 +27,7 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
         contract_notify_days: v.contract_notify_days,
         credential_notify_days: v.credential_notify_days,
         license_notify_days: v.license_notify_days,
+        vpn_notify_days: v.vpn_notify_days ?? 7,
         ticket_auto_close_days: v.ticket_auto_close_days ?? 7,
         ticket_flow: v.ticket_flow ?? "approval_first",
         notify_emails: v.notify_emails,
@@ -32,7 +36,7 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
       setFeedback({ ok: Boolean(res.ok), text: firstError ?? res.message ?? "" });
     });
 
-  const days = (key: "contract_notify_days" | "credential_notify_days" | "license_notify_days", label: string, hint?: string) => (
+  const days = (key: "contract_notify_days" | "credential_notify_days" | "license_notify_days" | "vpn_notify_days", label: string, hint?: string) => (
     <div>
       <label htmlFor={key} className="mb-1 block text-sm font-medium">
         {label}
@@ -40,9 +44,9 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
       <input
         id={key}
         type="number"
-        min={1}
-        max={365}
-        value={v[key]}
+        min={key === "vpn_notify_days" ? 0 : 1}
+        max={key === "vpn_notify_days" ? 60 : 365}
+        value={v[key] ?? 7}
         onChange={(e) => setV({ ...v, [key]: Number(e.target.value) })}
         className={`${input} max-w-40`}
       />
@@ -55,21 +59,28 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
       {feedback?.text && <ResultToast result={feedback} />}
 
       <fieldset disabled={pending} className="space-y-5 disabled:opacity-60">
+        {section === "expiry" && (
         <section className={`p-4 sm:p-6 ${card}`}>
           <h2 className="mb-4 font-semibold">{t("settingsPage.expirySection")}</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {days("contract_notify_days", t("settingsPage.contractDays"), t("settingsPage.contractDaysHint"))}
             {days("credential_notify_days", t("settingsPage.credentialDays"))}
             {days("license_notify_days", t("settingsPage.licenseDays"), t("settingsPage.licenseDaysHint"))}
+            {/* ยืม VPN — ค่าตั้งต้นของช่อง "แจ้งเตือนล่วงหน้า" ในฟอร์มมอบรหัส VPN */}
+            {days("vpn_notify_days", t("settingsPage.vpnDays"), t("settingsPage.vpnDaysHint"))}
           </div>
         </section>
+        )}
 
         {/* ใบแจ้งงาน: ผู้แจ้งไม่กดรับงานเกิน N วัน → ระบบปิดงานอัตโนมัติ (0 = ไม่ปิดอัตโนมัติ) */}
+        {section === "tickets" && (
         <section className={`p-4 sm:p-6 ${card}`}>
           <h2 className="mb-4 font-semibold">{t("settingsPage.ticketSection")}</h2>
           {/* ขั้นตอนใบแจ้งงาน: หัวหน้าอนุมัติก่อน (แบบเดิม) / ส่งถึงฝ่าย IT ทันที (IT ขอให้หัวหน้าอนุมัติเมื่อจำเป็น) */}
-          <fieldset className="mb-5 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+          <div className="grid gap-x-6 gap-y-4 lg:grid-cols-3">
+          <fieldset className="min-w-0 lg:col-span-2">
             <legend className="mb-1 text-sm font-medium">{t("settingsPage.ticketFlow")}</legend>
+            <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
             {(["it_first", "approval_first"] as const).map((f) => (
               <label key={f} className="flex cursor-pointer items-start gap-2 text-sm">
                 <input
@@ -86,7 +97,9 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
                 </span>
               </label>
             ))}
+            </div>
           </fieldset>
+          <div>
           <label htmlFor="ticket_auto_close_days" className="mb-1 block text-sm font-medium">
             {t("settingsPage.autoCloseDays")}
           </label>
@@ -100,8 +113,12 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
             className={`${input} max-w-40`}
           />
           <p className="mt-1 text-xs text-muted">{t("settingsPage.autoCloseDaysHint")}</p>
+          </div>
+          </div>
         </section>
+        )}
 
+        {section === "emails" && (
         <section className={`p-4 sm:p-6 ${card}`}>
           <h2 className="mb-1 font-semibold">{t("settingsPage.emailsSection")}</h2>
           <p className="mb-3 text-sm text-muted">{t("settingsPage.emailsHint")}</p>
@@ -121,6 +138,7 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
             }
           />
         </section>
+        )}
       </fieldset>
 
       <div className="flex justify-end">

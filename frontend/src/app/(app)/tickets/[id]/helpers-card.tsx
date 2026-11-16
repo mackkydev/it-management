@@ -113,7 +113,13 @@ export function HelpersCard({ ticket }: { ticket: TicketDetail }) {
         ))}
       {editing && (
         <div className="space-y-3">
-          <HelperPicker options={ticket.helper_options ?? []} value={value} onChange={setValue} exclude={ticket.assignee?.id} />
+          {/* ผู้ร่วมเดิมที่ไม่อยู่ในรายชื่อเจ้าหน้าที่ IT แล้ว (เช่น ภายหลังติ๊กเป็นผู้จัดการ) — คงไว้ให้เห็นและเอาออกได้ */}
+          <HelperPicker
+            options={[
+              ...(ticket.helper_options ?? []),
+              ...helpers.filter((h) => !(ticket.helper_options ?? []).some((o) => o.id === h.id)).map((h) => ({ id: h.id, name: h.name, busy: null })),
+            ]}
+            value={value} onChange={setValue} exclude={ticket.assignee?.id} />
           <p className="text-xs text-muted">{t("ticketHelpers.hint")}</p>
           {error && <p className="text-xs font-medium text-red-500">{error}</p>}
           <div className="flex justify-end gap-2">

@@ -1,3 +1,4 @@
+import { clientAgent } from "../lib/client.js";
 import type { Request } from "express";
 import { update } from "../db.js";
 import { ValidationError } from "../lib/errors.js";
@@ -92,7 +93,7 @@ export async function recordLoginFailure(req: Request, u: UserRow): Promise<numb
   }
   const until = toDbDateTime(new Date(Date.now() + policy.lockout_minutes * 60_000));
   await update("users", { login_failures: 0, login_locked_until: until, last_login_failed_at: nowDb(), last_locked_at: nowDb(), last_lock_reason: "password", last_lock_attempts: failures }, "id = ?", [u.id]);
-  await audit({ ip: req.ip }, { action: "auth.locked", subjectType: "user", subjectId: u.id, after: { attempts: failures, minutes: policy.lockout_minutes, until: iso(until) } });
+  await audit({ ip: req.ip, agent: clientAgent(req) }, { action: "auth.locked", subjectType: "user", subjectId: u.id, after: { attempts: failures, minutes: policy.lockout_minutes, until: iso(until) } });
   const ids = await adminRecipients(u.id);
   if (ids.length) {
     await notifyUsers(ids, "App\\Notifications\\AccountLocked", {

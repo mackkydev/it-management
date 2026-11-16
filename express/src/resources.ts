@@ -49,6 +49,7 @@ export function userResource(
     job_title: u.job_title ?? null,
     is_it_staff: bool(u.is_it_staff),
     is_it_head: bool(u.is_it_head),
+    is_it_manager: bool(u.is_it_manager),
     approval_route_id: u.approval_route_id,
     ...(extra.custodian_assets_count !== undefined ? { custodian_assets_count: extra.custodian_assets_count } : {}),
     signature_url: viewerId === u.id ? ownSignatureUrl(extra.signature_id) : null,

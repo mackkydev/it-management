@@ -81,7 +81,7 @@ function daysOf(t: WorkSpan, span: { from: string; to: string }, off: (d: string
   return days.length ? days : all;
 }
 
-/** วันปฏิบัติงานของใบงานหลายวันสำหรับเจ้าของชีต — null = ใบงานวันเดียว (1 แถวตามวันที่แจ้ง) */
+/** วันปฏิบัติงานของใบงานหลายวันสำหรับเจ้าของชีต — null = ใบงานวันเดียว (1 แถว ลงเดือนตามวันที่แล้วเสร็จ) */
 export async function ticketWorkDays(t: WorkSpan, userId: number): Promise<string[] | null> {
   const span = spanOf(t);
   if (!span) return null;
@@ -104,12 +104,12 @@ export async function kpiPendingMonths(userId: number): Promise<{ month: string;
 async function kpiPendingDates(userId: number): Promise<string[]> {
   const mine = "(t.assignee_id = ? OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = ?)) AND t.status IN (?)";
   const single = (
-    await select<{ requested_at: string }>(
-      `SELECT t.requested_at FROM it_tickets t WHERE ${mine} AND NOT ${MULTI_DAY_SQL}
+    await select<{ requested_at: string; completed_on: string | null }>(
+      `SELECT t.requested_at, t.completed_on FROM it_tickets t WHERE ${mine} AND NOT ${MULTI_DAY_SQL}
           AND NOT EXISTS (SELECT 1 FROM kpi_entries k WHERE k.ticket_id = t.id AND k.user_id = ? AND k.complexity > 0)`,
       [userId, userId, KPI_TICKET_STATUSES, userId],
     )
-  ).map((t) => localDateOf(t.requested_at));
+  ).map(sheetDateOf);
   const multi = await select<WorkSpan & { id: number }>(
     `SELECT t.id, t.work_start_on, t.completed_on, t.work_skip_off_days FROM it_tickets t WHERE ${mine} AND ${MULTI_DAY_SQL}`,
     [userId, userId, KPI_TICKET_STATUSES],
@@ -156,10 +156,19 @@ export function monthRange(month: string): { first: string; last: string } {
 /** วันที่ตามเวลาท้องถิ่นของผู้ใช้ จาก DATETIME (UTC) ใน DB */
 export const localDateOf = (dbDateTime: string) => localToday(config.localTimezone, new Date(`${String(dbDateTime).replace(" ", "T")}Z`));
 
+/**
+ * ใบงานวันเดียวลงชีตเดือนของ**วันที่แล้วเสร็จ** (`completed_on` — บันทึกตอน IT บันทึกผล ไม่ใช่วันที่หัวหน้าอนุมัติ)
+ * ไม่มีวันที่แล้วเสร็จ (ผลไม่สามารถดำเนินการได้) = วันที่แจ้ง
+ */
+function sheetDateOf(t: { requested_at: string; completed_on: string | null }): string {
+  return dateOnly(t.completed_on) ?? localDateOf(t.requested_at);
+}
+
 const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
 
 /**
- * แถว KPI ของเจ้าหน้าที่ 1 คนในเดือนนั้น เรียงตามวันที่แจ้ง — ใบงานที่เป็นผู้รับงานหรือผู้ร่วมดำเนินการ (ประเภท/Complexity แยกต่อคน)
+ * แถว KPI ของเจ้าหน้าที่ 1 คนในเดือนนั้น — ใบงานวันเดียวลงเดือนตามวันที่แล้วเสร็จ เรียงตามวันที่แจ้ง (แจ้งเดือนก่อน = ตามวันที่แล้วเสร็จ)
+ * ใบงานที่เป็นผู้รับงานหรือผู้ร่วมดำเนินการ (ประเภท/Complexity แยกต่อคน)
  * ใบงานหลายวัน = แถวละวันปฏิบัติงานที่อยู่ในเดือนนี้ (ประเภท/Complexity แยกต่อวัน)
  */
 export async function kpiMonthRows(userId: number, month: string, locale: Locale = "th"): Promise<KpiRow[]> {
@@ -178,9 +187,10 @@ export async function kpiMonthRows(userId: number, month: string, locale: Locale
        LEFT JOIN branches b ON b.id = t.branch_id
       WHERE (t.assignee_id = o.id OR EXISTS (SELECT 1 FROM it_ticket_helpers h WHERE h.it_ticket_id = t.id AND h.user_id = o.id))
         AND t.status IN (?)
-        AND ((NOT ${MULTI_DAY_SQL} AND t.requested_at >= DATE_SUB(?, INTERVAL 1 DAY) AND t.requested_at < DATE_ADD(?, INTERVAL 2 DAY))
+        AND ((NOT ${MULTI_DAY_SQL} AND (t.completed_on BETWEEN ? AND ?
+               OR (t.completed_on IS NULL AND t.requested_at >= DATE_SUB(?, INTERVAL 1 DAY) AND t.requested_at < DATE_ADD(?, INTERVAL 2 DAY))))
           OR (${MULTI_DAY_SQL} AND t.work_start_on <= ? AND t.completed_on >= ?))`,
-    [userId, KPI_TICKET_STATUSES, first, last, last, first],
+    [userId, KPI_TICKET_STATUSES, first, last, first, last, last, first],
   );
   // ค่าที่กรอก (ประเภท/Complexity) ต่อคน — ใบงานหลายวันแยกต่อวัน (work_date), ใบงานวันเดียวใช้แถวล่าสุด
   const ticketEntries = tickets.length
@@ -204,6 +214,8 @@ export async function kpiMonthRows(userId: number, month: string, locale: Locale
   );
 
   const rows: KpiRow[] = [];
+  // ลำดับในชีต: แจ้งในเดือนนี้ = ตามวันที่แจ้ง / แจ้งเดือนก่อน (ข้ามเดือน) = ตามวันที่แล้วเสร็จ — คอลัมน์ยังแสดงวันที่แจ้งจริง
+  const sortDate = new Map<string, string>();
   for (const t of tickets) {
     const mine = ticketEntries.filter((k) => Number(k.ticket_id) === Number(t.id));
     const push = (key: string, workDate: string, entry: (typeof mine)[number] | undefined, day: KpiRow["day"]) => {
@@ -234,9 +246,12 @@ export async function kpiMonthRows(userId: number, month: string, locale: Locale
       });
       continue;
     }
+    // ใบงานวันเดียว: เดือนตามวันที่แล้วเสร็จ (sheetDateOf) — แถวแสดงวันที่แจ้ง
+    const sheetDate = sheetDateOf(t);
+    if (sheetDate < first || sheetDate > last) continue;
     const workDate = localDateOf(t.requested_at);
-    if (workDate < first || workDate > last) continue;
     push(`t:${t.uuid}`, workDate, mine[0], null);
+    sortDate.set(`t:${t.uuid}`, workDate >= first ? workDate : sheetDate);
   }
   for (const e of entries) {
     const holiday = e.entry_type === "holiday";
@@ -260,11 +275,12 @@ export async function kpiMonthRows(userId: number, month: string, locale: Locale
     });
   }
   rows.push(...(await calendarRows(userId, first, last, locale)));
-  // เรียงตามวันที่แจ้ง → วันเดียวกัน: วันหยุด, ใบงาน (ตามเลขที่), แถวกรอกเอง (ตามลำดับที่เพิ่ม)
+  // เรียงตามวันที่แจ้ง (ใบที่แจ้งเดือนก่อน = วันที่แล้วเสร็จ) → วันเดียวกัน: วันหยุด, ใบงาน (ตามเลขที่), แถวกรอกเอง (ตามลำดับที่เพิ่ม)
   const rank: Record<KpiRowKind, number> = { holiday: 0, ticket: 1, work: 2 };
+  const order = (r: KpiRow) => sortDate.get(r.key) ?? r.work_date;
   return rows.sort(
     (a, b) =>
-      a.work_date.localeCompare(b.work_date) ||
+      order(a).localeCompare(order(b)) ||
       rank[a.kind] - rank[b.kind] ||
       (a.ticket && b.ticket ? a.ticket.ticket_no.localeCompare(b.ticket.ticket_no) : (a.entry_id ?? 0) - (b.entry_id ?? 0)),
   );

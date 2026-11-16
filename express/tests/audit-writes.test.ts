@@ -31,6 +31,34 @@ describe("audit log: login and logout", () => {
     expect(JSON.stringify(await select("SELECT * FROM audit_logs"))).not.toContain(login.body.token);
   });
 
+  it("records the browser the web app forwards and a plain IPv4 address; managers see the last sign-in source", async () => {
+    const user = await makeUser({ email: "device@example.com" });
+    const chrome = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+    const login = await guest()
+      .post("/api/v1/auth/login")
+      .set("X-Forwarded-For", "::ffff:192.168.1.25")
+      .set("X-Client-Agent", `${chrome} [pwa]`)
+      .send({ login: "device@example.com", password: "password", device_name: "t" });
+    expect(login.status).toBe(200);
+    expect(await first("SELECT ip, user_agent FROM audit_logs WHERE action = 'auth.login' ORDER BY id DESC LIMIT 1")).toEqual({ ip: "192.168.1.25", user_agent: `${chrome} [pwa]` });
+
+    // ไม่ได้ส่ง X-Client-Agent = ใช้ User-Agent ของคำขอเอง (ตัดที่ 255 ตัวอักษร)
+    await guest().post("/api/v1/auth/login").set("User-Agent", "x".repeat(300)).send({ login: "device@example.com", password: "password", device_name: "t" });
+    expect(String(await scalar("SELECT user_agent FROM audit_logs WHERE action = 'auth.login' ORDER BY id DESC LIMIT 1"))).toHaveLength(255);
+    // คำขอทั่วไปก็บันทึกเบราว์เซอร์ของผู้ทำ
+    const admin = await makeUser({ role: "super_admin" });
+    await (await as(admin)).post("/api/v1/auth/logout").set("X-Client-Agent", chrome);
+    expect(await scalar("SELECT user_agent FROM audit_logs WHERE action = 'auth.logout' ORDER BY id DESC LIMIT 1")).toBe(chrome);
+
+    // หน้าแก้ไขผู้ใช้: เข้าระบบล่าสุดจาก IP / เบราว์เซอร์ไหน (เฉพาะผู้จัดการผู้ใช้)
+    const viewer = await as(await makeUser({ role: "super_admin" }));
+    await guest().post("/api/v1/auth/login").set("X-Forwarded-For", "192.168.1.30").set("X-Client-Agent", chrome).send({ login: "device@example.com", password: "password", device_name: "t" });
+    expect((await viewer.get(`/api/v1/users/${user.id}`)).body.meta.login_activity).toMatchObject({ last_login_ip: "192.168.1.30", last_login_agent: chrome });
+    // รายการบันทึกการทำงานคืน user_agent + IP แบบอ่านง่าย
+    const logs = (await viewer.get("/api/v1/audit-logs?per_page=100")).body.data as { action: string; ip: string | null; user_agent: string | null }[];
+    expect(logs.find((l) => l.action === "auth.login" && l.ip === "192.168.1.25")).toMatchObject({ user_agent: `${chrome} [pwa]` });
+  });
+
   it("super admins keep their own sign-in record without a duplicate", async () => {
     const root = await makeUser({ role: "super_admin", email: "root@example.com" });
     await guest().post("/api/v1/auth/login").send({ login: "root@example.com", password: "password", device_name: "t" });

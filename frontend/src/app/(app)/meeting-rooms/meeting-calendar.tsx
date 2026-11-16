@@ -84,10 +84,10 @@ export function MeetingCalendar({ month: initialMonth, initialBookings, rooms, c
           {loading && <SpinnerIcon width={16} height={16} className="text-accent-400" />}
         </h2>
         {/* สีประจำห้อง */}
-        <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+        <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
           {rooms.map((r) => (
             <span key={r.id} className="flex items-center gap-1.5">
-              <MeetingRoomIcon width={14} height={14} className={`shrink-0 ${toneOf(rooms, r.id).icon}`} aria-hidden="true" />
+              <MeetingRoomIcon width="1.2em" height="1.2em" className={`shrink-0 ${toneOf(rooms, r.id).icon}`} aria-hidden="true" />
               {r.name}
             </span>
           ))}

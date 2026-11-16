@@ -16,7 +16,8 @@ const BadgeContext = createContext<Record<string, number>>({});
 export function MenuBadgesProvider({ children }: { children: ReactNode }) {
   const [badges, setBadges] = useState<Record<string, number>>({});
   const pathname = usePathname();
-  const load = useCallback(() => void fetchMenuBadges().then(setBadges), []);
+  // เชื่อมต่อไม่ได้ชั่วคราว = คงตัวเลขเดิม รอโหลดรอบถัดไป
+  const load = useCallback(() => void fetchMenuBadges().then(setBadges, () => undefined), []);
 
   useEffect(() => {
     load();

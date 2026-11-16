@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { AlertIcon, CalendarIcon, ChevronLeftIcon, ExternalLinkIcon, VideoIcon } from "@/components/icons";
+import { AlertIcon, CalendarIcon, CheckCircleIcon, ChevronLeftIcon, ExternalLinkIcon, VideoIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { FlashToast } from "@/components/toast";
 import { alert, card, tone } from "@/components/ui";
@@ -84,8 +84,14 @@ export default async function ZoomBookingPage({ params, searchParams }: PageProp
           {/* คัดลอกข้อความเชิญ (หัวข้อ / วันเวลา / ลิงก์ / Meeting ID / Passcode) ไว้ส่งต่อ */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <CopyShare booking={z} />
-            <p className="text-xs text-muted">{t("zoom.share.hint")}</p>
+            <p className="text-xs text-muted">{t(z.can_receive_link && (!z.link_received_at || z.can_acknowledge) ? "zoom.share.receiveHint" : "zoom.share.hint")}</p>
           </div>
+          {z.link_received_at && (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-success-700 dark:text-success-300">
+              <CheckCircleIcon width={14} height={14} />
+              {t("zoom.share.receivedAt", { date: fmt.dateTime(z.link_received_at) })}
+            </p>
+          )}
         </section>
       )}
       {z.status === "rejected" && (

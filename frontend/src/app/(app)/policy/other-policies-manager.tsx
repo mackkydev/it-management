@@ -7,23 +7,25 @@ import { useConfirm } from "@/components/dialog-provider";
 import { DocumentPicker } from "@/components/file-pickers";
 import { PencilIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
 import { ModalShell } from "@/components/modal-shell";
-import { PolicyFileIcons } from "@/components/policy-content";
+import { PolicyFileIcons, PolicySectionAccordion } from "@/components/policy-content";
+import { PolicySectionsEditor, sectionErrors } from "@/components/policy-sections-editor";
 import { ResultToast } from "@/components/toast";
 import { Tooltip } from "@/components/tooltip";
 import { btn, card, input, inputError, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import type { OtherPolicy } from "@/lib/types";
+import type { OtherPolicy, PolicySection } from "@/lib/types";
 
 const FILES_MAX = 10;
 const ICON_BTN = "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
 
-/** แท็บนโยบายอื่นๆ ของผู้จัดการ: รายการ + เอกสารแนบ, เพิ่ม/แก้ในกล่อง popup */
+/** แท็บนโยบายอื่นๆ ของผู้จัดการ: รายการ (หัวข้อ + รายละเอียดกดเปิดอ่าน) + เอกสารแนบ, เพิ่ม/แก้ในกล่อง popup */
 export function OtherPoliciesManager({ items, canEdit }: { items: OtherPolicy[]; canEdit: boolean }) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const [form, setForm] = useState<{ item: OtherPolicy | null } | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [sections, setSections] = useState<PolicySection[]>([]);
   const [sortOrder, setSortOrder] = useState("");
   const [active, setActive] = useState(true);
   const [files, setFiles] = useState<File[]>([]);
@@ -36,6 +38,7 @@ export function OtherPoliciesManager({ items, canEdit }: { items: OtherPolicy[];
     setForm({ item });
     setTitle(item?.title ?? "");
     setDescription(item?.description ?? "");
+    setSections(item?.sections ?? []);
     setSortOrder(item ? String(item.sort_order) : "");
     setActive(item?.is_active ?? true);
     setFiles([]);
@@ -44,10 +47,16 @@ export function OtherPoliciesManager({ items, canEdit }: { items: OtherPolicy[];
   };
 
   const save = () => {
-    if (!title.trim()) return setErrors({ title: t("policyPage.others.validateTitle") });
+    const e = sectionErrors(sections, t);
+    if (!title.trim()) e.title = t("policyPage.others.validateTitle");
+    if (Object.keys(e).length) return setErrors(e);
     const fd = new FormData();
     fd.set("title", title.trim());
     fd.set("description", description.trim());
+    sections.forEach((sec, i) => {
+      fd.set(`sections[${i}][title]`, sec.title.trim());
+      fd.set(`sections[${i}][body]`, sec.body.trim());
+    });
     fd.set("sort_order", sortOrder || "0");
     fd.set("is_active", active ? "1" : "0");
     files.forEach((f) => fd.append("files[]", f));
@@ -112,6 +121,11 @@ export function OtherPoliciesManager({ items, canEdit }: { items: OtherPolicy[];
                 )}
               </div>
               {o.description && <p className="whitespace-pre-line text-sm text-muted">{o.description}</p>}
+              {o.sections.length > 0 && (
+                <div className="pt-2">
+                  <PolicySectionAccordion sections={o.sections} idPrefix={`other-${o.id}`} />
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -135,6 +149,7 @@ export function OtherPoliciesManager({ items, canEdit }: { items: OtherPolicy[];
               <textarea id="other-description" rows={3} maxLength={2000} value={description} onChange={(e) => setDescription(e.target.value)} className={input} />
               {err("description")}
             </div>
+            <PolicySectionsEditor sections={sections} onChange={setSections} errors={errors} onClearError={(k) => setErrors((x) => (x[k] ? { ...x, [k]: "" } : x))} />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="other-sort" className="mb-1 block text-sm font-medium">

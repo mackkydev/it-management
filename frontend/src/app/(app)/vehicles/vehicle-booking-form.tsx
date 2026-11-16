@@ -11,6 +11,7 @@ import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { Vehicle, VehicleBooking } from "@/lib/types";
 import { endAt, imageUrl, overlaps, periodText, primaryImage, startAt, TIME_OPTIONS, toneOf } from "./vehicle-utils";
+import { MasterDataSelect } from "@/components/master-data-select";
 
 type Field = keyof VehicleBookingValues;
 
@@ -251,14 +252,16 @@ export function VehicleBookingForm({
             </div>
             <div>
               {label("purpose", t("vehicle.form.purpose"), true)}
-              <AppSelect id="purpose" value={v.purpose} onValueChange={(x) => set("purpose", x)} className={cls("purpose")}>
-                <option value="">{t("vehicle.form.purposePlaceholder")}</option>
-                {[...new Set([...purposes, ...(initial.purpose ? [initial.purpose] : [])])].map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </AppSelect>
+              <MasterDataSelect source="vehicle_purpose">
+                <AppSelect id="purpose" value={v.purpose} onValueChange={(x) => set("purpose", x)} className={cls("purpose")}>
+                  <option value="">{t("vehicle.form.purposePlaceholder")}</option>
+                  {[...new Set([...purposes, ...(initial.purpose ? [initial.purpose] : [])])].map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>
               {err("purpose")}
             </div>
             <div>

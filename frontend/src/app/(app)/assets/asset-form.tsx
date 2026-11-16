@@ -10,6 +10,7 @@ import { AlertIcon, SaveIcon, SpinnerIcon, TrashIcon, TruckIcon, XIcon } from "@
 import { alert, btn, card, input as inputBase, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { TFunction } from "@/i18n/types";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { localToday } from "@/lib/date";
 import {
   assetCategoryLabel,
@@ -315,15 +316,17 @@ export function AssetForm({
             {field(
               "category",
               t("assets.form.category"),
-              <AppSelect id="category" name="category" value={values.category} onChange={onChange} className={cls("category")}>
-                <option value="">{t("assets.form.chooseCategory")}</option>
-                {/* หมวดเดิมที่ถูกปิดใช้งาน/ไม่อยู่ในรายการแล้ว ยังแสดงเพื่อไม่ให้ค่าหาย */}
-                {[...new Set(["COMPUTER", ...categories, ...(values.category ? [values.category] : [])])].map((c) => (
-                  <option key={c} value={c}>
-                    {assetCategoryLabel(t, c)}
-                  </option>
-                ))}
-              </AppSelect>,
+              <MasterDataSelect source="asset_category">
+                <AppSelect id="category" name="category" value={values.category} onChange={onChange} className={cls("category")}>
+                  <option value="">{t("assets.form.chooseCategory")}</option>
+                  {/* หมวดเดิมที่ถูกปิดใช้งาน/ไม่อยู่ในรายการแล้ว ยังแสดงเพื่อไม่ให้ค่าหาย */}
+                  {[...new Set(["COMPUTER", ...categories, ...(values.category ? [values.category] : [])])].map((c) => (
+                    <option key={c} value={c}>
+                      {assetCategoryLabel(t, c)}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>,
               true,
             )}
             {field(
@@ -354,14 +357,16 @@ export function AssetForm({
             {field(
               "brand",
               t("assets.form.brand"),
-              <OptionPicker
-                id="brand"
-                options={brands.map((b) => ({ value: b, label: b }))}
-                value={values.brand}
-                onChange={(v) => setField("brand", v)}
-                onAdd={(name) => quickAddOption("brand", name)}
-                className={cls("brand")}
-              />,
+              <MasterDataSelect source="brand">
+                <OptionPicker
+                  id="brand"
+                  options={brands.map((b) => ({ value: b, label: b }))}
+                  value={values.brand}
+                  onChange={(v) => setField("brand", v)}
+                  onAdd={(name) => quickAddOption("brand", name)}
+                  className={cls("brand")}
+                />
+              </MasterDataSelect>,
             )}
             {field(
               "model",
@@ -378,32 +383,38 @@ export function AssetForm({
             {field(
               "branch_id",
               t("assets.form.branch"),
-              <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
-                <option value="">{t("common.none")}</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </AppSelect>,
+              <MasterDataSelect source="branches">
+                <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
+                  <option value="">{t("common.none")}</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>,
             )}
             {field(
               "department",
               t("assets.form.department"),
-              <AppSelect id="department" name="department" value={values.department} onChange={onChange} className={cls("department")}>
-                <option value="">{t("common.none")}</option>
-                {/* แผนกเดิมที่ไม่อยู่ในข้อมูลหลัก (เช่น จากไฟล์ Excel) ยังแสดงเพื่อไม่ให้ค่าหาย */}
-                {[...new Set([...departments, ...(values.department.trim() ? [values.department] : [])])].map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </AppSelect>,
+              <MasterDataSelect source="departments">
+                <AppSelect id="department" name="department" value={values.department} onChange={onChange} className={cls("department")}>
+                  <option value="">{t("common.none")}</option>
+                  {/* แผนกเดิมที่ไม่อยู่ในข้อมูลหลัก (เช่น จากไฟล์ Excel) ยังแสดงเพื่อไม่ให้ค่าหาย */}
+                  {[...new Set([...departments, ...(values.department.trim() ? [values.department] : [])])].map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>,
             )}
             {field(
               "location_id",
               t("assets.form.location"),
-              <LocationPicker id="location_id" locations={locations} value={values.location_id} onChange={onLocationChange} className={cls("location_id")} />,
+              <MasterDataSelect source="locations">
+                <LocationPicker id="location_id" locations={locations} value={values.location_id} onChange={onLocationChange} className={cls("location_id")} />
+              </MasterDataSelect>,
             )}
             {/* ผู้ถือครอง = ผู้ใช้งาน (ช่องเดียว) */}
             <div>
@@ -460,15 +471,17 @@ export function AssetForm({
               {field(
                 "computer_type",
                 t("assets.computer.computerType"),
-                <OptionPicker
-                  id="computer_type"
-                  options={computerTypes.map((c) => ({ value: c, label: c }))}
-                  value={values.computer_type}
-                  onChange={(v) => setField("computer_type", v)}
-                  onAdd={(name) => quickAddOption("computer_type", name)}
-                  maxLength={30}
-                  className={cls("computer_type")}
-                />,
+                <MasterDataSelect source="computer_type">
+                  <OptionPicker
+                    id="computer_type"
+                    options={computerTypes.map((c) => ({ value: c, label: c }))}
+                    value={values.computer_type}
+                    onChange={(v) => setField("computer_type", v)}
+                    onAdd={(name) => quickAddOption("computer_type", name)}
+                    maxLength={30}
+                    className={cls("computer_type")}
+                  />
+                </MasterDataSelect>,
               )}
               {field("received_date", t("assets.computer.receivedDate"), dateInput("received_date"))}
               {field("start_use_date", t("assets.computer.startUseDate"), dateInput("start_use_date"))}
@@ -478,15 +491,17 @@ export function AssetForm({
               {field(
                 "computer_spec",
                 t("assets.computer.spec"),
-                <OptionPicker
-                  id="computer_spec"
-                  options={computerSpecs.map((c) => ({ value: c, label: c }))}
-                  value={values.computer_spec}
-                  onChange={(v) => setField("computer_spec", v)}
-                  onAdd={(name) => quickAddOption("computer_spec", name)}
-                  maxLength={255}
-                  className={cls("computer_spec")}
-                />,
+                <MasterDataSelect source="computer_spec">
+                  <OptionPicker
+                    id="computer_spec"
+                    options={computerSpecs.map((c) => ({ value: c, label: c }))}
+                    value={values.computer_spec}
+                    onChange={(v) => setField("computer_spec", v)}
+                    onAdd={(name) => quickAddOption("computer_spec", name)}
+                    maxLength={255}
+                    className={cls("computer_spec")}
+                  />
+                </MasterDataSelect>,
               )}
               {field("ip_address", t("assets.computer.ip"), input("ip_address", { maxLength: 45, placeholder: "192.168.4.36", className: `${cls("ip_address")} font-mono` }))}
               {field("mac_address", t("assets.computer.mac"), input("mac_address", { maxLength: 50, placeholder: "A0:36:BC:25:1C:5C", className: `${cls("mac_address")} font-mono` }))}

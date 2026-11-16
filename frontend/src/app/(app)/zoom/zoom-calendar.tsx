@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition } from "react";
 import { loadZoomBookings } from "@/app/actions/zoom";
 import { ChevronLeftIcon, ChevronRightIcon, PlusIcon, SpinnerIcon } from "@/components/icons";
 import { Tooltip } from "@/components/tooltip";
+import { dayOffClass, useDaysOff } from "@/components/days-off";
 import { btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
@@ -30,6 +31,7 @@ export function ZoomCalendar({ month: initialMonth, initialBookings, accounts = 
   const today = localToday();
 
   const grid = useMemo(() => monthGrid(month), [month]);
+  const daysOff = useDaysOff(grid.from, grid.to);
   const byDay = useMemo(() => {
     const map = new Map<string, ZoomBooking[]>();
     for (const b of bookings) for (const d of daysOf(b)) map.set(d, [...(map.get(d) ?? []), b]);
@@ -122,10 +124,11 @@ export function ZoomCalendar({ month: initialMonth, initialBookings, accounts = 
                   e.preventDefault();
                   book(d);
                 }}
-                className={`group flex min-h-28 cursor-pointer flex-col gap-1 border-b border-r border-line p-1.5 transition-colors hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-300 dark:hover:bg-accent-400/5 [&:nth-child(7n)]:border-r-0 ${outside ? "bg-subtle/40 text-faint" : ""}`}
+                className={`group flex min-h-28 cursor-pointer flex-col gap-1 border-b border-r border-line p-1.5 transition-colors hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-300 dark:hover:bg-accent-400/5 [&:nth-child(7n)]:border-r-0 ${dayOffClass(d, daysOff)} ${outside ? "text-faint" : ""}`}
               >
                 <span className="flex items-center justify-between gap-1">
-                  <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium ${d === today ? "bg-accent-500 text-white" : ""}`}>{Number(d.slice(8))}</span>
+                  <span className={`cal-daynum inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium ${d === today ? "bg-accent-500 text-white" : ""}`}>{Number(d.slice(8))}</span>
+                  {daysOff.has(d) && <span className="min-w-0 flex-1 truncate text-3xs text-danger-700 dark:text-danger-300">{daysOff.get(d)}</span>}
                   {!past && canBook && (
                     <button
                       type="button"
@@ -154,7 +157,7 @@ export function ZoomCalendar({ month: initialMonth, initialBookings, accounts = 
                   >
                     <span className="flex min-w-0 flex-col gap-1">
                       {list.slice(0, MAX_BARS).map((b) => (
-                        <span key={b.id} className={`block w-full truncate rounded-md px-1.5 py-0.5 text-left text-2xs font-medium leading-4 ring-1 ring-inset ${zoomBarOf(b, accounts)}`}>
+                        <span key={b.id} className={`block w-full truncate rounded-md px-1.5 py-[3px] text-left text-2xs font-medium leading-4 ring-1 ring-inset ${zoomBarOf(b, accounts)}`}>
                           <span className="tabular-nums">{timeOn(b, d)}</span> {b.title}
                         </span>
                       ))}

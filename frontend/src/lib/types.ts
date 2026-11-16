@@ -109,6 +109,8 @@ export interface RepairLookupItem {
   serial_number: string | null;
   holder: string | null;
   symptom: string | null;
+  /** ใบแจ้งงาน: ผู้แจ้ง = ผู้ส่งซ่อมตั้งต้น */
+  requester?: { id: number; name: string } | null;
 }
 
 /** รายการส่งซ่อม (GET /repair-orders) */
@@ -131,10 +133,21 @@ export interface RepairOrder {
   vendor: { id: number; name: string; vendor_type: string; contact_name: string; contact_phone: string };
   sent_on: string;
   sent_time: string;
-  sent_by: { id: number; name: string };
+  /** ผู้ส่งซ่อม (เจ้าของอุปกรณ์) — id = เลือกจากผู้ใช้ในระบบ / null = พิมพ์ชื่อเอง */
+  sent_by: { id: number | null; name: string };
+  /** ผู้บันทึกงานซ่อม (ผู้สร้างรายการ) */
+  created_by: { id: number; name: string };
+  /** อุปกรณ์ที่ไม่อยู่ในระบบ (ไม่ผูกสินทรัพย์ / ใบแจ้งงาน) */
+  manual: boolean;
+  /** แจ้งเตือนตามงาน: จำนวนวันหลังวันที่ส่งซ่อม → วันกำหนด (YYYY-MM-DD), ถึงกำหนดแล้วยังไม่รับคืน = follow_up_due */
+  follow_up_days: number;
+  follow_up_on: string;
+  follow_up_due: boolean;
   returned_at: string | null;
   received_by: { id: number; name: string } | null;
   return_note: string | null;
+  /** อะไหล่ที่ร้านเปลี่ยน (กรอกตอนรับคืน) */
+  parts: { name: string; quantity: number }[];
   cancelled_at: string | null;
   cancelled_by: { id: number; name: string } | null;
   cancel_reason: string | null;
@@ -182,6 +195,7 @@ export interface User {
   supervisor?: { id: number; name: string } | null;
   is_it_staff?: boolean;
   is_it_head?: boolean;
+  is_it_manager?: boolean;
   /** URL ลายเซ็นในโปรไฟล์ (เฉพาะข้อมูลของตัวเอง) — เช่น /auth/me/signature?v=... */
   signature_url?: string | null;
   /** เปิดการยืนยันตัวตน 2 ขั้นแล้ว */
@@ -228,6 +242,9 @@ export interface Branch {
 /** GET /users/{id} meta.login_activity — ประวัติการเข้าสู่ระบบของผู้ใช้ */
 export interface LoginActivity {
   last_login_at: string | null;
+  /** เข้าระบบล่าสุดจาก IP / เบราว์เซอร์ไหน (บันทึกการเข้าสู่ระบบ) */
+  last_login_ip?: string | null;
+  last_login_agent?: string | null;
   /** ใส่รหัสผิดติดกันตอนนี้ */
   failures: number;
   last_failed_at: string | null;
@@ -261,6 +278,8 @@ export interface AppSettings {
   require_signature?: boolean;
   password_policy: PasswordPolicy;
   contract_notify_days: number;
+  /** ยืม VPN: แจ้งเตือนผู้ใช้ล่วงหน้ากี่วัน (ค่าตั้งต้นของฟอร์มมอบรหัส VPN) */
+  vpn_notify_days?: number;
   /** ผู้แจ้งไม่กดรับงานเกินกี่วัน ระบบปิดงานอัตโนมัติ (0 = ปิด) */
   ticket_auto_close_days?: number;
   /** ขั้นตอนใบแจ้งงาน: approval_first = หัวหน้าอนุมัติก่อน / it_first = ส่งถึงฝ่าย IT ทันที */
@@ -362,11 +381,17 @@ export interface Contract {
   contact_phone: string | null;
   notify_days_before: number | null;
   effective_notify_days: number;
+  /** วันที่แจ้งเตือนที่กำหนดเอง (YYYY-MM-DD เรียงแล้ว ≤ 10 วัน) — เพิ่มจากการแจ้งล่วงหน้า N วัน */
+  notify_dates: string[];
+  /** วันแจ้งเตือนที่กำหนดเองวันถัดไปที่ยังไม่ถึง */
+  next_notify_date: string | null;
   notify_enabled: boolean;
   notified_at: string | null;
   notes: string | null;
   branch: { id: number; name: string } | null;
   branch_id: number | null;
+  /** เอกสารแนบ (ไฟล์ละ ≤ 5MB) — url ต่อหน้า /files */
+  files: { id: number; name: string; mime: string; size: number; url: string }[];
   /** หมวดหมู่สัญญา (ข้อมูลหลัก) */
   /** key = หมวดตั้งต้น (แปลชื่อตามภาษา), null = หมวดที่เพิ่มเอง */
   category?: { id: number; name: string; key?: string | null } | null;
@@ -423,6 +448,9 @@ export interface TicketDetail extends TicketSummary {
   helper_options?: { id: number; name: string; busy: "leave" | "onsite" | null }[];
   /** โอนงาน (ยังไม่รับ): เจ้าหน้าที่ IT ที่เลือกได้ */
   forward_options?: { id: number; name: string; busy: "leave" | "onsite" | null }[];
+  /** บันทึกผลใบซ่อม "ซ่อมโดยช่างภายนอก": รายการส่งซ่อม/เคลมของใบนี้ / เครื่องนี้ (ผู้มี repair_orders.view) */
+  /** own = ส่งซ่อมจากใบนี้เอง (ไม่ใช่แค่เครื่องเดียวกัน); parts = อะไหล่ที่ร้านเปลี่ยนตอนรับคืน */
+  repair_order_options?: { id: string; own: boolean; status: "sent" | "returned"; vendor: string; document_no: string | null; item_name: string; symptom: string; return_note: string | null; sent_on: string; sent_time: string; returned_at: string | null; parts: { name: string; quantity: number }[] }[];
   /** รับงานแทนผู้ที่ผู้แจ้งเลือกไว้ (ชื่อผู้ถูกเลือกเดิม) — null = รับงานของตัวเอง */
   take_over_from?: string | null;
   /** ใบงานของการจอง ZOOM: จัดการที่หน้า ZOOM (หน้านี้อ่านอย่างเดียว) */
@@ -466,6 +494,10 @@ export interface TicketDetail extends TicketSummary {
   /** result_document / progress = แนบกับรายการในประวัติ (event_id) */
   attachments: { id: number; kind: TicketFileKind; name: string | null; mime: string | null; size: number; event_id: number | null; url: string }[];
   parts: { id: number; name: string; quantity: number; photo_url: string | null }[];
+  /** อะไหล่ที่ร้านเปลี่ยนจากรายการส่งซ่อมที่รับคืนแล้ว (ใบซ่อม) — แบบฟอร์มพิมพ์ใช้เมื่อ parts ว่าง */
+  repair_parts?: { name: string; quantity: number }[];
+  /** การ์ด 1.2: รายการส่งซ่อม/เคลมทั้งหมดของใบนี้ (ไม่รวมยกเลิก, เฉพาะผู้มี repair_orders.view) */
+  repair_orders?: TicketDetail["repair_order_options"];
   events: { id: number; action: string; comment: string | null; user: Person; created_at: string; attachments: TicketFile[]; repair_order_id: string | null }[];
   /** ขั้นอนุมัติปัจจุบัน (null = ระบบเดิม หรืออนุมัติครบแล้ว) */
   current_step: number | null;
@@ -508,6 +540,10 @@ export interface ApprovalPlan {
 
 export interface TicketCounts {
   mine_open: number;
+  /** รอผู้แจ้งดำเนินการ (กดรับงาน / เพิ่มผู้อนุมัติ) — ตัวเลขแดงบนแท็บ = เมนู */
+  mine_action?: number;
+  /** แท็บ "รอเลือกผู้อนุมัติ" = ใบของฉันที่ฝ่าย IT ขอให้หัวหน้าอนุมัติ ยังไม่เลือกผู้อนุมัติ (approval_requested) */
+  mine_choose_approver?: number;
   approvals: number;
   it_new?: number;
   it_in_progress?: number;
@@ -575,6 +611,16 @@ export interface AppNotification {
         end_time: string;
       }
     | {
+        // รายการส่งซ่อมถึงกำหนดตามงานแล้วยังไม่รับคืน (ถึงผู้บันทึก / ผู้มีสิทธิ์จัดการ)
+        kind: "repair_order";
+        event: "follow_up";
+        repair_order_id: string;
+        item: string;
+        vendor: string;
+        sent_on: string;
+        days: number;
+      }
+    | {
         // ผู้จัดการแก้ / ยกเลิก / ลบการจองห้องประชุมของเรา
         kind: "meeting";
         event: "updated" | "cancelled" | "deleted";
@@ -589,10 +635,13 @@ export interface AppNotification {
     | {
         // ยืมอุปกรณ์ IT: requested = จองยืม (ถึงผู้จัดการ), handed_out/returned/updated/cancelled = ผู้จัดการทำกับการยืมของเรา, overdue = เกินกำหนดคืน
         kind: "loan";
-        event: "requested" | "handed_out" | "returned" | "updated" | "cancelled" | "overdue";
+        // return_requested = ผู้ยืมกดคืนเครื่อง (ถึงผู้จัดการ)
+        event: "requested" | "handed_out" | "return_requested" | "returned" | "updated" | "cancelled" | "overdue";
         loan_id: string;
         actor: string | null;
-        device: string;
+        borrower?: string | null;
+        /** null = ยังไม่ได้เลือกเครื่อง (คำขอยืม) */
+        device: string | null;
         start_on: string;
         start_time: string;
         end_on: string;
@@ -602,7 +651,8 @@ export interface AppNotification {
         // ยืม VPN: requested = ขอใช้ (ถึงผู้ดูแล), assigned/updated/rejected/ended = ผู้ดูแลทำกับคำขอของเรา,
         // renewed / ended / choice_not_done = ผลใบแจ้งงาน ต่ออายุ / เลิกใช้, expiring = ใกล้หมดอายุ (ผู้ใช้), expired = หมดอายุ (ผู้ใช้ + ผู้ดูแล)
         kind: "vpn";
-        event: "requested" | "assigned" | "updated" | "rejected" | "ended" | "renewed" | "choice_not_done" | "expiring" | "expired";
+        // approval_requested / approval_returned = ผู้จัดการฝ่าย IT อนุมัติการมอบ / ส่งกลับ, revoked = เรียกคืนรหัส, choice_requested = ผู้ใช้ส่งเรื่อง (ถึงฝ่าย IT)
+        event: "requested" | "assigned" | "updated" | "rejected" | "ended" | "renewed" | "choice_not_done" | "expiring" | "expired" | "approval_requested" | "approval_returned" | "revoked" | "choice_requested";
         vpn_id: string;
         actor: string | null;
         user: string;
@@ -696,6 +746,8 @@ export interface UserFormValues {
   job_title: string;
   /** ผู้จัดการฝ่าย IT: อนุมัติผลงานใบแจ้งงาน */
   is_it_head: boolean;
+  is_it_staff: boolean;
+  is_it_manager: boolean;
   name: string;
   email: string;
   username: string;
@@ -1199,6 +1251,8 @@ export interface AuditLog {
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
   ip: string | null;
+  /** User-Agent ของผู้ทำ (ลงท้าย " [pwa]" = เปิดจากแอปที่ติดตั้ง) — แถวก่อนมีคอลัมน์นี้ = null */
+  user_agent?: string | null;
   created_at: string;
 }
 
@@ -1460,6 +1514,10 @@ export interface ZoomBooking {
   can_edit: boolean;
   can_cancel: boolean;
   can_acknowledge: boolean;
+  /** ผู้จองกด "รับลิงก์ / คัดลอกข้อความเชิญ" ได้ (หลังฝ่าย IT ส่งลิงก์) */
+  can_receive_link?: boolean;
+  /** ผู้จองรับลิงก์แล้วเมื่อ (แก้ลิงก์ = ล้าง) */
+  link_received_at?: string | null;
   can_accept: boolean;
   can_link: boolean;
   can_busy: boolean;
@@ -1585,17 +1643,27 @@ export interface LoanDevice {
   model: string | null;
   custodian: string | null;
   /** ยืมอยู่ตอนนี้ (ยังไม่คืน) */
-  on_loan: { user: string; end_on: string; end_time: string; is_overdue: boolean } | null;
+  on_loan: { user: string; end_on: string; end_time: string; is_overdue: boolean; returning?: boolean } | null;
   /** ช่วงที่ติดยืม / จองไว้ (ตั้งแต่วันนี้) */
   busy?: { id: string; user: string; status: LoanStatus; start_on: string; start_time: string; end_on: string; end_time: string }[];
 }
 
-export type LoanStatus = "reserved" | "on_loan" | "returned" | "cancelled";
+export type LoanStatus = "reserved" | "on_loan" | "return_requested" | "returned" | "cancelled";
 
-/** GET /loans — จอง (reserved) → ยืมอยู่ (on_loan) → คืนแล้ว (returned) / ยกเลิก (cancelled) */
+/** อุปกรณ์เสริมที่ให้ยืมพร้อมเครื่อง (LOAN_ACCESSORIES ใน express/src/routes/loans.ts) */
+export const LOAN_ACCESSORIES = ["wireless_mouse", "wired_mouse", "keyboard", "charger", "wifi_usb", "bag"] as const;
+export type LoanAccessory = (typeof LOAN_ACCESSORIES)[number];
+
+/** GET /loans — ขอยืม (reserved) → รับเครื่องแล้ว (on_loan) → รอยืนยันคืน (return_requested) → คืนแล้ว (returned) / ยกเลิก (cancelled) */
 export interface Loan {
   id: string;
-  asset: { id: number; asset_tag: string; name: string; category: string };
+  /** null = เจ้าหน้าที่ IT ยังไม่เลือกเครื่อง */
+  asset: { id: number; asset_tag: string; name: string; category: string } | null;
+  accessories: LoanAccessory[];
+  returned_accessories: LoanAccessory[];
+  photos: { id: number; stage: "hand_out" | "return" }[];
+  return_requested_at: string | null;
+  can_request_return: boolean;
   user: { id: number; name: string };
   department: string | null;
   purpose: string;
@@ -1620,7 +1688,8 @@ export interface Loan {
 }
 
 /** ยืม VPN (GET /vpn-loans/mine, /vpn-loans/manage) — บัญชีจากคลังบัญชีหมวด VPN */
-export type VpnLoanStatus = "requested" | "active" | "renewal_requested" | "cancel_requested" | "ended" | "rejected" | "cancelled";
+/** pending_approval = มอบบัญชีแล้ว รอผู้จัดการฝ่าย IT อนุมัติ */
+export type VpnLoanStatus = "requested" | "pending_approval" | "active" | "renewal_requested" | "cancel_requested" | "ended" | "rejected" | "cancelled";
 
 export interface VpnLoan {
   id: string;
@@ -1648,10 +1717,19 @@ export interface VpnLoan {
   ended_by: string | null;
   end_note: string | null;
   created_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  /** ผู้ขอกด "ได้รับแล้ว" (ปิดใบแจ้งงาน) */
+  received_at: string | null;
+  /** เจ้าหน้าที่ IT เรียกคืนรหัสแล้ว */
+  revoked_at: string | null;
   can_cancel: boolean;
+  can_receive: boolean;
   can_choose: boolean;
   can_reveal: boolean;
   can_assign: boolean;
+  can_approve: boolean;
+  can_revoke: boolean;
   can_reject: boolean;
   can_edit: boolean;
   can_end: boolean;
@@ -1704,7 +1782,7 @@ export interface AccessException extends AccessGrantMeta {
   can_revoke: boolean;
 }
 
-/** นโยบายการใช้งานระบบที่ผู้ใช้ต้องยอมรับ (GET /policy — app_settings.system_policy) */
+/** นโยบายการใช้งานระบบที่ผู้ใช้ต้องยอมรับ (GET /policy — app_settings.system_policy + policy_groups) */
 export interface PolicySection {
   title: string;
   body: string;
@@ -1717,22 +1795,42 @@ export interface PolicyFile {
   size: number;
   url: string;
 }
+/** หลายเรื่องที่ต้องยอมรับ: all = ครบทุกเรื่องในวันเดียว / daily = วันละ 1 เรื่องตามลำดับ */
+export type PolicyPace = "all" | "daily";
+/** ฉบับที่แสดงให้ผู้ใช้ของเรื่องหนึ่ง (GET /policy → data.items เรียงตามลำดับที่ให้ยอมรับ) */
+export interface PolicyItem {
+  group_id: number;
+  version: number;
+  title: string;
+  sections: PolicySection[];
+  updated_at: string | null;
+  /** ไฟล์แนบท้ายประกาศ */
+  files: PolicyFile[];
+  /** วันเวลาที่ฉันยอมรับฉบับนี้ (null = ยังไม่ยอมรับ) */
+  accepted_at: string | null;
+  /** ฉบับที่ประกาศใช้ก่อนหน้าของเรื่องเดียวกัน — ไว้ดูย้อนหลังและเทียบหัวข้อที่เปลี่ยน */
+  previous: PolicyPrevious | null;
+}
 export interface SystemPolicy {
   enabled: boolean;
   /** ให้ยอมรับที่ไหน: after_login = หน้ายอมรับหลังเข้าสู่ระบบ / login = ติ๊กยอมรับในหน้า login */
   display: PolicyDisplay;
-  /** ไฟล์แนบของฉบับที่แสดงอยู่ — เปิดดูได้ตอนอ่านนโยบาย */
-  files: PolicyFile[];
-  /** ชื่อนโยบายของฉบับที่แสดงอยู่ */
-  title: string;
-  version: number;
-  sections: PolicySection[];
-  updated_at: string | null;
+  pace: PolicyPace;
+  items: PolicyItem[];
+}
+/** GET /policy */
+export interface PolicyOverview {
+  data: SystemPolicy;
+  /** เปิดใช้ + มีเรื่องที่แสดงอยู่ */
+  active: boolean;
+  /** ฉบับที่ต้องยอมรับตอนนี้ตามลำดับ (ว่าง = ใช้งานได้) */
+  required: number[];
 }
 /** GET /policy/documents/{user} — เอกสารการยอมรับนโยบายของผู้ใช้ */
 export interface PolicyDocument {
   user: { id: number; name: string; email: string | null; job_title: string | null; department: string | null; branch: string | null };
   version: number;
+  title: string;
   sections: PolicySection[];
   /** null = ยังไม่เคยยอมรับ (แสดงฉบับปัจจุบัน ยังไม่มีตราชื่อ) */
   accepted_at: string | null;
@@ -1760,6 +1858,8 @@ export interface PolicyAcceptanceList {
 /** GET /policy/versions — นโยบายแต่ละฉบับ */
 export interface PolicyVersion {
   version: number;
+  /** เรื่องของนโยบาย — ฉบับที่คัดลอกมาอยู่เรื่องเดียวกัน */
+  group_id: number;
   title: string;
   sections: PolicySection[];
   /** ฉบับที่แสดงให้ผู้ใช้ */
@@ -1774,7 +1874,14 @@ export interface PolicyVersion {
   locked: boolean;
   files: PolicyFile[];
 }
-/** GET /policy/previous — ฉบับก่อนหน้าฉบับที่แสดงอยู่ */
+/** GET /policy/versions → groups — เรื่องของนโยบาย เรียงตามลำดับที่ให้ยอมรับ */
+export interface PolicyGroup {
+  id: number;
+  sort_order: number;
+  /** ฉบับที่แสดงให้ผู้ใช้ (null = ไม่แสดง) */
+  current_version: number | null;
+}
+/** ฉบับที่ประกาศใช้ก่อนหน้าฉบับที่แสดงอยู่ (เรื่องเดียวกัน) */
 export interface PolicyPrevious {
   version: number;
   title: string;
@@ -1787,8 +1894,111 @@ export interface OtherPolicy {
   id: number;
   title: string;
   description: string | null;
+  /** หัวข้อ + รายละเอียด เหมือนนโยบายที่ต้องยอมรับ */
+  sections: PolicySection[];
   sort_order: number;
   is_active: boolean;
   updated_at: string | null;
   files: PolicyFile[];
+}
+
+/** การซิงค์ Fixed Assets จาก STEC SyteLine (GET /fixed-assets/settings) — ความลับอยู่ใน .env ของ API ไม่ส่งมา */
+export interface FixedAssetSyncSettings {
+  enabled: boolean;
+  sites: string[];
+  departments: string[];
+  classes: string[];
+  include_inactive: boolean;
+  time: string;
+  paths: { depreciation: string; classdept: string };
+  ready: boolean;
+  connection: { configured: boolean; host: string | null; username: string | null; has_password: boolean };
+}
+
+export interface FixedAssetSyncSiteStats {
+  fetched: number;
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  missing: number;
+  classdepts?: number;
+  error?: string;
+}
+
+export interface FixedAssetSyncRun {
+  id: number;
+  trigger: "schedule" | "manual";
+  status: "running" | "ok" | "partial" | "failed";
+  stats: (Record<string, FixedAssetSyncSiteStats> & { _linked?: number }) | null;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+  triggered_by: string | null;
+}
+
+export interface FixedAssetConnectionTest {
+  health: boolean;
+  login: boolean;
+  app_ids: number[] | null;
+  error: string | null;
+  status: number | null;
+}
+
+/** Fixed Asset จาก SyteLine (GET /fixed-assets) — สำเนาอ่านอย่างเดียว */
+export interface FixedAsset {
+  id: number;
+  site: string;
+  site_name: string | null;
+  branch: { id: number; name: string | null } | null;
+  fanum: string;
+  description: string | null;
+  fa_class: string | null;
+  fa_dept: string | null;
+  class_dept_desc: string | null;
+  fa_type: string | null;
+  fa_status: string | null;
+  fa_location: string | null;
+  acquired_on: string | null;
+  depr_start_on: string | null;
+  disposed_on: string | null;
+  acq_cost: number | null;
+  accum_depr: number | null;
+  nbv: number | null;
+  salvage: number | null;
+  depr_method: string | null;
+  depr_rate: number | null;
+  useful_life: number | null;
+  as_of: string;
+  missing_since: string | null;
+  first_synced_at: string;
+  synced_at: string;
+  changed_at: string | null;
+  link_source: "auto" | "manual" | null;
+  linked_by: string | null;
+  asset: { id: string; asset_tag: string; cpu_tag: string | null; name: string | null; status: string | null } | null;
+}
+
+export type FixedAssetTab = "all" | "unlinked" | "disposed_active" | "missing";
+
+export interface FixedAssetList {
+  data: FixedAsset[];
+  meta: {
+    current_page: number;
+    last_page: number;
+    total: number;
+    from: number | null;
+    to: number | null;
+    counts: { unlinked: number; disposed_active: number; missing: number };
+    options: { sites: string[]; classes: string[]; departments: string[]; statuses: string[] };
+    last_sync: { status: string; started_at: string; finished_at: string | null } | null;
+    can_link: boolean;
+  };
+}
+
+export interface FixedAssetAssetOption {
+  id: string;
+  asset_tag: string;
+  cpu_tag: string | null;
+  name: string;
+  status: string;
 }

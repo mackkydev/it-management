@@ -1,10 +1,11 @@
+import { normalizeIp } from "../lib/client.js";
 import { Router, type Request } from "express";
 import { config } from "../config.js";
 import { exec, first, insert, likeEscape, scalar, select, transaction, update } from "../db.js";
 import { authorize, forbidden, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
 import { iso, nowDb } from "../lib/time.js";
-import { policyActive, systemPolicy } from "../services/system-policy.js";
+import { activePolicies } from "../services/system-policy.js";
 import { deleteUserTokens } from "../lib/tokens.js";
 import { bool, exists, int, makeHash, notIn, password, unique, validate, regex } from "../lib/validator.js";
 import { me, pageParam, paginated, simplePaginated } from "../http.js";
@@ -39,7 +40,7 @@ async function assertInScope(actor: UserRow, target: UserRow, key: (typeof USER_
 /** แก้บัญชีผู้ดูแลระบบ (super_admin) ได้เฉพาะผู้ดูแลระบบ */
 const superAdminTarget = (actor: UserRow, target: UserRow) => target.id !== actor.id && target.role === "super_admin" && !isSuperAdmin(actor);
 
-const ORG_FIELDS = ["job_title", "branch_id", "department", "division", "supervisor_id", "is_it_staff", "is_it_head", "approval_route_id"] as const;
+const ORG_FIELDS = ["job_title", "branch_id", "department", "division", "supervisor_id", "is_it_staff", "is_it_head", "is_it_manager", "approval_route_id"] as const;
 
 /** branch + supervisor + จำนวนสินทรัพย์ที่ถือครอง (ไม่นับที่ถูกลบ) */
 const MANAGED_SELECT = `u.*, (SELECT MAX(pa.version) FROM policy_acceptances pa WHERE pa.user_id = u.id) AS policy_version,
@@ -117,10 +118,16 @@ userRoutes.get("/users", async (req, res) => {
       [...params, perPage, (page - 1) * perPage],
     );
     // การยอมรับนโยบายของแต่ละคน (คอลัมน์หน้าผู้ใช้ — กดเปิดเอกสารได้)
-    const policy = await systemPolicy();
+    // accepted = ยอมรับครบทุกเรื่องที่แสดงอยู่, outdated = ยังไม่ครบ (ยอมรับฉบับเก่า / ยังเหลือบางเรื่อง)
+    const active = (await activePolicies()).map((a) => a.version);
+    const acceptedRows =
+      active.length && rows.length
+        ? await select<{ user_id: number; n: number }>("SELECT user_id, COUNT(*) AS n FROM policy_acceptances WHERE user_id IN (?) AND version IN (?) GROUP BY user_id", [rows.map((r) => r.id), active])
+        : [];
+    const acceptedCount = new Map(acceptedRows.map((a) => [Number(a.user_id), Number(a.n)]));
     const policyStatus = (r: ManagedRow) => {
-      if (r.policy_version === null) return policyActive(policy) ? "pending" : "none";
-      return policyActive(policy) && Number(r.policy_version) !== policy.version ? "outdated" : "accepted";
+      if (r.policy_version === null) return active.length ? "pending" : "none";
+      return active.length && (acceptedCount.get(Number(r.id)) ?? 0) < active.length ? "outdated" : "accepted";
     };
     return res.json(paginated(req, rows.map((r) => ({ ...managed(r, u.id), policy_status: policyStatus(r), policy_accepted_at: iso(r.policy_accepted_at) })), total, page, perPage));
   }
@@ -154,6 +161,13 @@ userRoutes.get("/users/:id", async (req, res) => {
     if (!inScope.some(Boolean)) throw notFound();
   }
   const inactive = await inactiveLockStatus(target);
+  // เข้าระบบล่าสุดจาก IP / เบราว์เซอร์ไหน (บันทึกการเข้าสู่ระบบ — super_admin มีแถว auth.super_admin_login แทน)
+  const lastLogin = editsUsers(u)
+    ? await first<{ ip: string | null; user_agent: string | null }>(
+        "SELECT ip, user_agent FROM audit_logs WHERE subject_type = 'user' AND subject_id = ? AND action IN ('auth.login', 'auth.super_admin_login') ORDER BY id DESC LIMIT 1",
+        [String(target.id)],
+      )
+    : null;
   res.json({
     data: managed(await loadManaged(target.id), u.id),
     meta: {
@@ -164,6 +178,8 @@ userRoutes.get("/users/:id", async (req, res) => {
         ? {
             login_activity: {
               last_login_at: iso(target.last_login_at ?? null),
+              last_login_ip: normalizeIp(lastLogin?.ip),
+              last_login_agent: lastLogin?.user_agent ?? null,
               failures: Number(target.login_failures ?? 0),
               last_failed_at: iso(target.last_login_failed_at ?? null),
               last_locked_at: iso(target.last_locked_at ?? null),
@@ -212,6 +228,7 @@ async function validatedUser(req: Request, target: UserRow | null) {
       supervisor_id: ["sometimes", "nullable", "integer", exists("users", "id", "is_active = true"), notIn(target ? [target.id] : [])],
       is_it_staff: ["sometimes", "boolean"],
       is_it_head: ["sometimes", "boolean"],
+      is_it_manager: ["sometimes", "boolean"],
       approval_route_id: ["sometimes", "nullable", "integer", exists("approval_routes", "id")],
     },
     {
@@ -322,7 +339,7 @@ async function updateUser(req: Request, res: import("express").Response) {
 
   // บันทึกการเปลี่ยนสิทธิ์ (บทบาท / สถานะ / สิทธิ์ฝ่าย IT)
   const fresh = (await findUser(target.id))!;
-  const pick = (u: UserRow) => ({ role: u.role, is_active: Boolean(u.is_active), is_it_staff: Boolean(u.is_it_staff), is_it_head: Boolean(u.is_it_head) });
+  const pick = (u: UserRow) => ({ role: u.role, is_active: Boolean(u.is_active), is_it_staff: Boolean(u.is_it_staff), is_it_head: Boolean(u.is_it_head), is_it_manager: Boolean(u.is_it_manager) });
   if (JSON.stringify(pick(target)) !== JSON.stringify(pick(fresh))) {
     await audit(req, { action: "user.access_updated", subjectType: "user", subjectId: target.id, before: pick(target), after: pick(fresh) });
     if (target.role !== fresh.role) await notifyAccessChange(req, "user", { id: target.id, name: fresh.name }, { role: fresh.role });

@@ -192,33 +192,51 @@ export interface ContractPayload {
   contact_phone: string;
   notify_enabled: boolean;
   notify_days_before: string;
+  /** วันที่แจ้งเตือนที่กำหนดเอง (YYYY-MM-DD) */
+  notify_dates: string[];
   notes: string;
   branch_id: string;
   category_id: string;
 }
 
-export async function saveContract(id: number | null, v: ContractPayload): Promise<ItResult> {
-  const text = (s: string) => s.trim() || null;
-  const body = {
+/** เพิ่ม / แก้ไขสัญญา — multipart: ช่องในฟอร์ม + notify_dates[] + files[] (ไฟล์ละ ≤ 5MB) + remove_file_ids[] */
+export async function saveContract(id: number | null, v: ContractPayload, form: FormData): Promise<ItResult> {
+  if (id !== null && !validId(id)) return notFound();
+  const fields: Record<string, string> = {
     title: v.title.trim(),
     vendor_name: v.vendor_name.trim(),
-    contract_no: text(v.contract_no),
+    contract_no: v.contract_no.trim(),
     start_date: v.start_date,
     end_date: v.end_date,
-    amount: text(v.amount),
-    contact_name: text(v.contact_name),
-    contact_email: text(v.contact_email),
-    contact_phone: text(v.contact_phone),
-    notify_enabled: v.notify_enabled,
-    notify_days_before: v.notify_days_before ? Number(v.notify_days_before) : null,
-    notes: text(v.notes),
-    branch_id: v.branch_id ? Number(v.branch_id) : null,
-    category_id: v.category_id ? Number(v.category_id) : null,
+    amount: v.amount.trim(),
+    contact_name: v.contact_name.trim(),
+    contact_email: v.contact_email.trim(),
+    contact_phone: v.contact_phone.trim(),
+    notify_enabled: v.notify_enabled ? "1" : "0",
+    notify_days_before: v.notify_days_before.trim(),
+    notes: v.notes.trim(),
+    branch_id: v.branch_id,
+    category_id: v.category_id,
   };
+  // ค่าว่างใน multipart = null ที่ API; ไม่มีวันที่แจ้งเตือน = ส่ง notify_dates ว่างเพื่อล้าง
+  const body = new FormData();
+  for (const [k, value] of Object.entries(fields)) body.set(k, value);
+  const dates = [...new Set(v.notify_dates.filter(Boolean))];
+  if (dates.length) dates.forEach((d) => body.append("notify_dates[]", d));
+  else body.set("notify_dates", "");
+  for (const f of form.getAll("files[]")) if (f instanceof File) body.append("files[]", f);
+  for (const r of form.getAll("remove_file_ids[]")) if (/^d+$/.test(String(r))) body.append("remove_file_ids[]", String(r));
   try {
-    await apiFetch(id ? `/contracts/${id}` : "/contracts", { method: id ? "PATCH" : "POST", body: JSON.stringify(body) });
+    await apiFetch(id ? `/contracts/${id}` : "/contracts", { method: id ? "PATCH" : "POST", body });
   } catch (e) {
-    return toActionResult(e);
+    const res = await toActionResult(e);
+    // ข้อผิดพลาดรายไฟล์ (files.0) / รายวันที่ (notify_dates.1) → ช่องรวม
+    const errors = { ...(res.errors ?? {}) } as Record<string, string | undefined>;
+    for (const k of Object.keys(errors)) {
+      const root = k.split(".")[0];
+      if (root !== k) errors[root] ??= errors[k];
+    }
+    return { ...res, errors: errors as ItResult["errors"] };
   }
   revalidatePath("/contracts");
   redirect(`/contracts?saved=${id ? "updated" : "created"}`);

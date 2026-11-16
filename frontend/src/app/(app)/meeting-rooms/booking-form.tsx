@@ -16,6 +16,7 @@ import type { MeetingBooking, MeetingRoom, ZoomBooking } from "@/lib/types";
 import { ZoomModalFrame } from "../zoom/book-zoom-modal";
 import { ZoomForm } from "../zoom/zoom-form";
 import { endAt, imageUrl, overlaps, primaryImage, slotOn, startAt, TIME_OPTIONS, timelineHours, toMin, toneOf } from "./meeting-utils";
+import { MasterDataSelect } from "@/components/master-data-select";
 
 type Field = keyof BookingValues;
 
@@ -306,14 +307,16 @@ export function BookingForm({
             </div>
             <div>
               {label("purpose", t("meeting.form.purpose"), true)}
-              <AppSelect id="purpose" value={v.purpose} onValueChange={(x) => set("purpose", x)} className={cls("purpose")}>
-                <option value="">{t("meeting.form.purposePlaceholder")}</option>
-                {[...new Set([...purposes, ...(initial.purpose ? [initial.purpose] : [])])].map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </AppSelect>
+              <MasterDataSelect source="meeting_purpose">
+                <AppSelect id="purpose" value={v.purpose} onValueChange={(x) => set("purpose", x)} className={cls("purpose")}>
+                  <option value="">{t("meeting.form.purposePlaceholder")}</option>
+                  {[...new Set([...purposes, ...(initial.purpose ? [initial.purpose] : [])])].map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>
               {err("purpose")}
             </div>
             <div>

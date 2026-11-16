@@ -10,6 +10,7 @@ import { useI18n } from "@/i18n/client";
 import type { ApprovalRoute, Branch } from "@/lib/types";
 import { CustodianPicker } from "../assets/custodian-picker";
 import { AppSelect } from "@/components/app-select";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { useConfirm } from "@/components/dialog-provider";
 
 const MAX_STEPS = 5;
@@ -131,28 +132,32 @@ export function RouteForm({ route, branches, departments }: { route?: ApprovalRo
             {field(
               "branch_id",
               t("approvalRoutes.form.branch"),
-              <AppSelect id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
-                <option value="">{t("approvalRoutes.allBranches")}</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </AppSelect>,
+              <MasterDataSelect source="branches">
+                <AppSelect id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
+                  <option value="">{t("approvalRoutes.allBranches")}</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>,
             )}
             {field(
               "department",
               t("approvalRoutes.form.department"),
               <>
-                <input
-                  id="department"
-                  list="department-options"
-                  value={v.department}
-                  maxLength={100}
-                  placeholder={t("approvalRoutes.allDepartments")}
-                  onChange={(e) => set("department", e.target.value)}
-                  className={cls("department")}
-                />
+                <MasterDataSelect source="departments">
+                  <input
+                    id="department"
+                    list="department-options"
+                    value={v.department}
+                    maxLength={100}
+                    placeholder={t("approvalRoutes.allDepartments")}
+                    onChange={(e) => set("department", e.target.value)}
+                    className={cls("department")}
+                  />
+                </MasterDataSelect>
                 <datalist id="department-options">
                   {departments.map((d) => (
                     <option key={d} value={d} />

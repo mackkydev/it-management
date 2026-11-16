@@ -186,22 +186,34 @@ describe("approver chosen by the requester", () => {
   const send = (u: UserRow, body: Record<string, unknown>) =>
     as(u).then((api) => api.post("/api/v1/tickets").send({ type: "install", branch_id: kkn, details: "ติดตั้งโปรแกรม", assignee_id: itUser.id, ...body }));
 
-  it("form options list only higher positions; the branch filter is checked on submit", async () => {
+  it("form options list only managers and above in the requester's own branch; checked again on submit", async () => {
     const head = await makeUser({ name: "KKN Head", role: "division_manager", branch_id: kkn });
     const boss = await makeUser({ name: "KKN Manager", role: "executive", branch_id: kkn });
     const bkkHead = await makeUser({ name: "BKK Head", role: "division_manager", branch_id: bkk });
     await makeUser({ name: "KKN Peer", branch_id: kkn });
     await makeUser({ name: "Off", role: "manager", branch_id: kkn, is_active: false });
+    // ยกเว้น super_admin / admin / เจ้าหน้าที่ IT
+    const kknAdmin = await makeUser({ name: "KKN Admin", role: "admin", branch_id: kkn });
+    await makeUser({ name: "KKN Super", role: "super_admin", branch_id: kkn });
+    await makeUser({ name: "KKN IT Manager", role: "manager", branch_id: kkn, department: "IT", is_it_staff: true });
 
+    // สาขาของผู้แจ้งเท่านั้น (ไม่ขึ้นกับสาขาที่เลือกในใบ)
     const forStaff = (await (await as(staff)).get("/api/v1/tickets/form-options")).body.data.approvers.map((a: { name: string }) => a.name);
-    expect(forStaff).toEqual(["BKK Head", "KKN Head", "KKN Manager"]);
+    expect(forStaff).toEqual(["KKN Head", "KKN Manager"]);
     const forHead = (await (await as(head)).get("/api/v1/tickets/form-options")).body.data.approvers.map((a: { name: string }) => a.name);
     expect(forHead).toEqual(["KKN Manager"]);
+    // ผู้ตรวจสอบ (ตำแหน่งต่ำกว่าพนักงาน) — พนักงานไม่ขึ้น เพราะต้องผู้จัดการขึ้นไป
+    const auditorUser = await makeUser({ role: "auditor", branch_id: kkn });
+    const forAuditor = (await (await as(auditorUser)).get("/api/v1/tickets/form-options")).body.data.approvers.map((a: { name: string }) => a.name);
+    expect(forAuditor).not.toContain("KKN Peer");
+    // ผู้แจ้งไม่มีสาขา = ไม่มีให้เลือก
+    expect((await (await as(await makeUser())).get("/api/v1/tickets/form-options")).body.data.approvers).toEqual([]);
 
     const wrongBranch = await send(staff, { approver_id: bkkHead.id });
     expect(wrongBranch.status).toBe(422);
-    expect(wrongBranch.body.errors.approver_id[0]).toBe("ผู้อนุมัติต้องอยู่สาขาที่เลือกและมีตำแหน่งสูงกว่าผู้แจ้ง");
+    expect(wrongBranch.body.errors.approver_id[0]).toBe("ผู้อนุมัติต้องอยู่สาขาเดียวกับผู้แจ้ง ตำแหน่งผู้จัดการขึ้นไป และสูงกว่าผู้แจ้ง");
     expect((await send(head, { approver_id: (await makeUser({ role: "division_manager", branch_id: kkn })).id })).status).toBe(422);
+    expect((await send(staff, { approver_id: kknAdmin.id })).status).toBe(422);
     expect((await send(staff, { approver_id: boss.id })).status).toBe(201);
 
     // เจ้าหน้าที่ IT ต้องระบุคน

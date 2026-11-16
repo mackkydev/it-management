@@ -15,6 +15,7 @@ import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
 import type { AuditLog, Paginated } from "@/lib/types";
+import { describeAgent } from "@/lib/user-agent";
 import { AppSelect } from "@/components/app-select";
 import { actionLabel, AUDIT_KINDS, auditQuery } from "./labels";
 import { ConfirmDownload } from "@/components/confirm-download";
@@ -129,6 +130,7 @@ async function AuditTable({ query }: { query: URLSearchParams }) {
               <th className={table.th}>{t("audit.col.action")}</th>
               <th className={table.th}>{t("audit.col.subject")}</th>
               <th className={table.th}>{t("audit.col.ip")}</th>
+              <th className={table.th}>{t("audit.col.device")}</th>
             </tr>
           </thead>
           <tbody className={table.body}>
@@ -172,6 +174,15 @@ async function AuditTable({ query }: { query: URLSearchParams }) {
                     {log.subject_id && <span className="text-xs text-faint"> #{log.subject_id}</span>}
                   </td>
                   <td className={`${table.td} whitespace-nowrap font-mono text-xs text-muted`}>{log.ip ?? "—"}</td>
+                  <td className={`${table.td} text-xs text-muted`}>
+                    {log.user_agent ? (
+                      <Tooltip label={log.user_agent}>
+                        <span className="cursor-help">{describeAgent(log.user_agent, t)}</span>
+                      </Tooltip>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                 </tr>
               );
             })}

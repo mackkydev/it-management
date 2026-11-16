@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CheckCircleIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
+import { ItemBadge } from "@/components/shell/menu-badges";
 import { card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
@@ -15,11 +16,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("loan.manage.title") };
 }
 
-const TABS = ["pending", "on_loan", "overdue", "all"] as const;
+const TABS = ["pending", "on_loan", "returning", "overdue", "all"] as const;
 const TAB_CLS = (active: boolean) =>
-  `cursor-pointer whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
+  `inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
 
-/** ส่งมอบ / รับคืนอุปกรณ์ (loans.manage) — รอส่งมอบ / ยืมอยู่ / เกินกำหนดคืน / ทั้งหมด */
+/** เตรียมเครื่อง / รับคืนอุปกรณ์ (loans.manage) — รอเตรียมเครื่อง / ยืมอยู่ / รอยืนยันคืน / เกินกำหนดคืน / ทั้งหมด — ตัวเลขที่แท็บ = menu-badges `/loans/manage?status=…` */
 export default async function ManageLoansPage({ searchParams }: PageProps<"/loans/manage">) {
   const user = await getCurrentUser();
   if (!has(user, "loans.manage")) redirect("/loans/book");
@@ -34,6 +35,7 @@ export default async function ManageLoansPage({ searchParams }: PageProps<"/loan
         {TABS.map((s) => (
           <Link key={s} href={`/loans/manage?status=${s}`} aria-current={s === status ? "page" : undefined} className={TAB_CLS(s === status)}>
             {t(`loan.manage.tabs.${s}`)}
+            <ItemBadge href={`/loans/manage?status=${s}`} />
           </Link>
         ))}
       </nav>

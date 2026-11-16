@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
-import { acceptZoomBooking, acknowledgeZoomBooking, cancelZoomBooking, sendZoomLink, zoomBusy } from "@/app/actions/zoom";
+import { acceptZoomBooking, cancelZoomBooking, sendZoomLink, zoomBusy } from "@/app/actions/zoom";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
 import { AlertIcon, CheckCircleIcon, PencilIcon, SendIcon, SpinnerIcon, XIcon } from "@/components/icons";
@@ -11,6 +11,7 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { ZoomBooking } from "@/lib/types";
 import { parseZoomInvitation, type ZoomMeetingInfo } from "../../zoom-utils";
+import { MasterDataSelect } from "@/components/master-data-select";
 
 type Busy = "accept" | "link" | "busy" | "cancel" | "acknowledge" | null;
 
@@ -50,7 +51,8 @@ export function ZoomActions({ booking: z, accounts = [] }: { booking: ZoomBookin
     start(async () => {
       const res = await fn();
       setBusy(null);
-      if (res.ok) return router.push(`/zoom/bookings/${z.id}?done=${done}`);
+      // ฝ่าย IT ส่ง / แก้ลิงก์สำเร็จ = กลับหน้ารวมคำขอ (แท็บส่งลิงก์แล้ว) — ปุ่มอื่นอยู่หน้าเดิม
+      if (res.ok) return router.push(kind === "link" ? `/zoom/manage?status=confirmed&done=${done}` : `/zoom/bookings/${z.id}?done=${done}`);
       setErrors(Object.fromEntries(Object.entries(res.errors ?? {}).map(([k, v]) => [k, v ?? ""])));
       setMessage(res.message ?? t("common.saveFailed"));
     });
@@ -71,8 +73,8 @@ export function ZoomActions({ booking: z, accounts = [] }: { booking: ZoomBookin
     run("cancel", () => cancelZoomBooking(z.id), "cancelled");
   };
 
-  const acknowledge = () => run("acknowledge", () => acknowledgeZoomBooking(z.id), "acknowledged");
-  const owner = z.can_edit || z.can_cancel || z.can_acknowledge;
+  // กดรับ (ผู้จอง) อยู่ที่กล่องลิงก์ประชุม (CopyShare)
+  const owner = z.can_edit || z.can_cancel;
   const it = z.can_accept || z.can_link || z.can_busy;
   if (!owner && !it) return null;
   const spin = (k: Busy, icon: ReactNode) => (busy === k ? <SpinnerIcon width={14} height={14} /> : icon);
@@ -105,22 +107,24 @@ export function ZoomActions({ booking: z, accounts = [] }: { booking: ZoomBookin
                 <label htmlFor="zoom_account" className="mb-1 block text-sm font-medium">
                   {t("zoom.actions.account")} <span className="text-red-500">*</span>
                 </label>
-                <AppSelect
-                  id="zoom_account"
-                  value={account}
-                  onValueChange={(x) => {
-                    setAccount(x);
-                    setErrors((e) => ({ ...e, zoom_account: "" }));
-                  }}
-                  className={`${input} ${errors.zoom_account ? inputError : ""}`}
-                >
-                  <option value="">{t("zoom.actions.accountPlaceholder")}</option>
-                  {[...new Set([...accounts, ...(z.zoom_account ? [z.zoom_account] : [])])].map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </AppSelect>
+                <MasterDataSelect source="zoom_account">
+                  <AppSelect
+                    id="zoom_account"
+                    value={account}
+                    onValueChange={(x) => {
+                      setAccount(x);
+                      setErrors((e) => ({ ...e, zoom_account: "" }));
+                    }}
+                    className={`${input} ${errors.zoom_account ? inputError : ""}`}
+                  >
+                    <option value="">{t("zoom.actions.accountPlaceholder")}</option>
+                    {[...new Set([...accounts, ...(z.zoom_account ? [z.zoom_account] : [])])].map((a) => (
+                      <option key={a} value={a}>
+                        {a}
+                      </option>
+                    ))}
+                  </AppSelect>
+                </MasterDataSelect>
                 {errors.zoom_account && <p className="mt-1 text-xs font-medium text-red-500">{errors.zoom_account}</p>}
               </div>
               <div>
@@ -215,12 +219,6 @@ export function ZoomActions({ booking: z, accounts = [] }: { booking: ZoomBookin
       {/* ผู้จอง */}
       {owner && (
         <div className={`flex flex-wrap items-center gap-2 ${it ? "border-t border-line pt-4" : ""}`}>
-          {z.can_acknowledge && (
-            <button type="button" onClick={acknowledge} disabled={busy !== null} className={btn.primary}>
-              {spin("acknowledge", <CheckCircleIcon width={16} height={16} />)}
-              {t("zoom.actions.acknowledge")}
-            </button>
-          )}
           {z.can_edit && (
             <Link href={`/zoom/bookings/${z.id}/edit`} className={z.status === "needs_change" ? btn.primary : btn.soft}>
               <PencilIcon width={16} height={16} />

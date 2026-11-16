@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { transferAsset } from "@/app/actions/assets";
 import { AppSelect } from "@/components/app-select";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { SaveIcon, SpinnerIcon, TruckIcon, XIcon } from "@/components/icons";
 import { ModalShell } from "@/components/modal-shell";
 import { alert, btn, input, inputError } from "@/components/ui";
@@ -72,23 +73,25 @@ export function TransferButton({
               <label htmlFor="transfer-branch" className="mb-1 block text-sm font-medium">
                 {t("assets.col.branch")}
               </label>
-              <AppSelect
-                id="transfer-branch"
-                value={branch}
-                onValueChange={(v) => {
-                  setBranch(v);
-                  setErrors((e) => ({ ...e, branch_id: "" }));
-                  setMessage("");
-                }}
-                className={`${input} ${errors.branch_id ? inputError : ""}`}
-              >
-                <option value="">{t("common.none")}</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={String(b.id)}>
-                    {b.name}
-                  </option>
-                ))}
-              </AppSelect>
+              <MasterDataSelect source="branches">
+                <AppSelect
+                  id="transfer-branch"
+                  value={branch}
+                  onValueChange={(v) => {
+                    setBranch(v);
+                    setErrors((e) => ({ ...e, branch_id: "" }));
+                    setMessage("");
+                  }}
+                  className={`${input} ${errors.branch_id ? inputError : ""}`}
+                >
+                  <option value="">{t("common.none")}</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={String(b.id)}>
+                      {b.name}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>
               {errors.branch_id && <p className="mt-1 text-xs text-red-500">{errors.branch_id}</p>}
             </div>
             <div>

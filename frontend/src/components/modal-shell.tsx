@@ -7,6 +7,8 @@ import { useI18n } from "@/i18n/client";
 
 const SIZE = {
   md: "max-h-full w-full max-w-lg",
+  /** กว้างกว่า md ~30% */
+  lg: "max-h-full w-full max-w-2xl",
   wide: "max-h-full w-full max-w-3xl",
   xl: "max-h-full w-full max-w-5xl",
   /** อ่านนโยบาย: สูง 80% กว้าง 70% ของจอ (จอมือถือเต็มความกว้าง) */

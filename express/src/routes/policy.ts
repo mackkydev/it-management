@@ -1,7 +1,9 @@
+import { normalizeIp } from "../lib/client.js";
 import { Router, type Response } from "express";
-import { exec, first } from "../db.js";
+import { exec, first, select } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
+import { forgetCached } from "../lib/request-cache.js";
 import { iso, nowDb } from "../lib/time.js";
 import { bool, validate } from "../lib/validator.js";
 import { me } from "../http.js";
@@ -9,15 +11,30 @@ import { can } from "../models/user.js";
 import { audit } from "../services/audit.js";
 import { putSetting } from "../services/settings.js";
 import { signPolicyAcceptances } from "../services/signatures.js";
-import { acceptanceOf, parseSections, POLICY_DISPLAYS, POLICY_MANAGE, policyActive, policyFileJson, policyFilesOf, systemPolicy, type PolicyFileRow, type SystemPolicy } from "../services/system-policy.js";
+import {
+  acceptanceOf,
+  activePolicies,
+  parseSections,
+  POLICY_DISPLAYS,
+  POLICY_MANAGE,
+  POLICY_PACES,
+  policyFileJson,
+  policyFilesOf,
+  policyProgress,
+  shownPolicies,
+  systemPolicy,
+  type PolicyFileRow,
+  type ShownPolicy,
+  type SystemPolicy,
+} from "../services/system-policy.js";
 import { readStored } from "../services/ticket-files.js";
 
 /**
  * นโยบายของระบบฝั่งผู้ใช้ (services/system-policy.ts) — จัดการแต่ละฉบับอยู่ที่ routes/policy-versions.ts
- *   GET  /policy               ฉบับที่แสดงอยู่ + สถานะการยอมรับของฉัน (ทุกคน — ใช้ได้ระหว่างยังไม่ยอมรับ)
- *   GET  /policy/previous      ฉบับที่ประกาศใช้ก่อนหน้าฉบับที่แสดงอยู่ 1 ฉบับ (data: null = ไม่มี)
+ *   GET  /policy               ทุกเรื่องที่แสดงอยู่ตามลำดับ (+ ฉบับก่อนหน้าของเรื่องนั้นไว้เทียบส่วนที่เปลี่ยน) + การยอมรับของฉัน
+ *                              + required = ฉบับที่ต้องยอมรับตอนนี้ตามลำดับ (ทุกคน — ใช้ได้ระหว่างยังไม่ยอมรับ)
  *   POST /policy/accept        ยอมรับฉบับที่แสดงอยู่ { version } → บันทึกวันเวลา + IP (audit policy.accepted)
- *   PUT  /policy/options       เปิด-ปิด + ให้ยอมรับที่หน้า login / หลัง login (settings.manage)
+ *   PUT  /policy/options       เปิด-ปิด + ให้ยอมรับที่หน้า login / หลัง login + ทั้งหมดวันเดียว / วันละเรื่อง (settings.manage)
  *   GET  /policy/documents/{user}[/signature][?version=]  เอกสารการยอมรับของผู้ใช้ (เจ้าของ / users.view / policy.manage) — ไม่ระบุฉบับ = ฉบับล่าสุดที่ยอมรับ
  *   GET  /policy/files/{id}    ผู้จัดการ = ทุกไฟล์, คนอื่น = เฉพาะฉบับที่เคยประกาศใช้
  *   GET  /policy/public[/files/{id}]  ไม่ต้อง login — เฉพาะเมื่อเปิดใช้และตั้งแสดงที่หน้า login, เฉพาะไฟล์ของฉบับที่แสดงอยู่
@@ -43,77 +60,107 @@ async function sendFile(res: Response, file: PolicyFileRow, download: boolean) {
 }
 
 /** แสดงที่หน้า login อยู่จริงไหม — ไม่ใช่ = ไม่เปิดเผยเนื้อหาให้คนที่ยังไม่ login */
-const loginPolicy = async (): Promise<SystemPolicy | null> => {
+const loginPolicies = async (): Promise<ShownPolicy[]> => {
   const p = await systemPolicy();
-  return policyActive(p) && p.display === "login" ? p : null;
+  return p.display === "login" ? activePolicies(p) : [];
 };
 
 publicPolicyRoutes.get("/policy/public", async (_req, res) => {
-  const p = await loginPolicy();
-  if (!p) return res.json({ data: null });
-  res.json({ data: { version: p.version, sections: p.sections, files: (await policyFilesOf([p.version])).map((f) => policyFileJson(f, "/policy/public/files")) } });
+  const items = await loginPolicies();
+  if (!items.length) return res.json({ data: null });
+  const files = await policyFilesOf(items.map((i) => i.version));
+  res.json({
+    data: {
+      items: items.map((i) => ({
+        version: i.version,
+        title: i.title,
+        sections: i.sections,
+        files: files.filter((f) => Number(f.version) === i.version).map((f) => policyFileJson(f, "/policy/public/files")),
+      })),
+    },
+  });
 });
 
 publicPolicyRoutes.get("/policy/public/files/:id", async (req, res) => {
-  const p = await loginPolicy();
-  if (!p) throw notFound();
+  const items = await loginPolicies();
+  if (!items.length) throw notFound();
   const file = await findFile(req.params.id);
-  if (Number(file.version) !== p.version) throw notFound();
+  if (!items.some((i) => i.version === Number(file.version))) throw notFound();
   await sendFile(res, file, "download" in req.query);
 });
 
-const titleOf = async (version: number) => (await first<{ title: string }>("SELECT title FROM policy_versions WHERE version = ?", [version]))?.title ?? "";
+/** ฉบับก่อนหน้าที่เคยประกาศใช้ของแต่ละเรื่อง (เลขฉบับต่ำกว่าถัดไป — ร่างไม่นับ) ไว้เทียบว่าหัวข้อไหนเปลี่ยน */
+async function previousOf(items: ShownPolicy[]) {
+  if (!items.length) return new Map<number, { version: number; title: string; sections: ReturnType<typeof parseSections>; published_at: string | null }>();
+  const rows = await select<{ group_id: number; version: number; title: string; sections: unknown; published_at: string | null }>(
+    "SELECT group_id, version, title, sections, published_at FROM policy_versions WHERE group_id IN (?) AND published_at IS NOT NULL ORDER BY version DESC",
+    [items.map((i) => i.group_id)],
+  );
+  const result = new Map<number, { version: number; title: string; sections: ReturnType<typeof parseSections>; published_at: string | null }>();
+  for (const item of items) {
+    const row = rows.find((r) => Number(r.group_id) === item.group_id && Number(r.version) < item.version);
+    if (row) result.set(item.version, { version: Number(row.version), title: row.title, sections: parseSections(row.sections), published_at: iso(row.published_at) });
+  }
+  return result;
+}
 
 policyRoutes.get("/policy", async (req, res) => {
   const p = await systemPolicy();
-  const accepted = policyActive(p) ? await acceptanceOf(me(req).id, p.version) : null;
-  res.json({ data: { ...p, title: await titleOf(p.version), files: (await policyFilesOf([p.version])).map((f) => policyFileJson(f)) }, active: policyActive(p), accepted_at: accepted?.accepted_at ?? null });
-});
-
-policyRoutes.get("/policy/previous", async (_req, res) => {
-  const p = await systemPolicy();
-  const row = policyActive(p)
-    ? await first<{ version: number; title: string; sections: unknown; published_at: string | null }>(
-        "SELECT version, title, sections, published_at FROM policy_versions WHERE version < ? AND published_at IS NOT NULL ORDER BY version DESC LIMIT 1",
-        [p.version],
-      )
-    : null;
-  if (!row) return res.json({ data: null });
-  const version = Number(row.version);
-  res.json({ data: { version, title: row.title, sections: parseSections(row.sections), published_at: iso(row.published_at), files: (await policyFilesOf([version])).map((f) => policyFileJson(f)) } });
+  const items = await shownPolicies();
+  const { accepted, required } = await policyProgress(me(req).id);
+  const previous = await previousOf(items);
+  const files = await policyFilesOf([...items.map((i) => i.version), ...[...previous.values()].map((v) => v.version)]);
+  const filesOf = (version: number) => files.filter((f) => Number(f.version) === version).map((f) => policyFileJson(f));
+  res.json({
+    data: {
+      ...p,
+      items: items.map((i) => {
+        const prev = previous.get(i.version);
+        return { ...i, files: filesOf(i.version), accepted_at: accepted.get(i.version) ?? null, previous: prev ? { ...prev, files: filesOf(prev.version) } : null };
+      }),
+    },
+    active: p.enabled && items.length > 0,
+    required,
+  });
 });
 
 policyRoutes.post("/policy/accept", async (req, res) => {
   const u = me(req);
   const data = await validate(req.input, { version: ["required", "integer"], user_agent: ["nullable", "string"] }, { locale: req.locale });
-  const p = await systemPolicy();
-  // นโยบายถูกแก้ระหว่างอ่าน (เปลี่ยนฉบับ) = ต้องอ่านฉบับใหม่ก่อน
-  if (!policyActive(p) || Number(data.version) !== p.version) throw ValidationError.withMessages({ version: trans(req.locale, "eam.policy.version_changed") });
+  const version = Number(data.version);
+  // นโยบายถูกแก้ระหว่างอ่าน (เปลี่ยนฉบับ / ซ่อนเรื่องนั้น) = ต้องอ่านฉบับใหม่ก่อน
+  if (!(await activePolicies()).some((a) => a.version === version)) throw ValidationError.withMessages({ version: trans(req.locale, "eam.policy.version_changed") });
   const now = nowDb();
   const userAgent = String(data.user_agent ?? req.get("User-Agent") ?? "").slice(0, 255) || null;
   // ยอมรับซ้ำ (กดสองครั้ง) = คงวันเวลาครั้งแรก
   const result = await exec(
     "INSERT IGNORE INTO policy_acceptances (user_id, version, accepted_at, ip, user_agent, name_stamp) VALUES (?, ?, ?, ?, ?, ?)",
-    [u.id, p.version, now, req.ip ?? null, userAgent, u.name],
+    [u.id, version, now, normalizeIp(req.ip), userAgent, u.name],
   );
+  forgetCached("policy:progress:");
   if (result.rowCount) {
-    await audit(req, { action: "policy.accepted", subjectType: "policy", subjectId: p.version, after: { version: p.version } });
+    await audit(req, { action: "policy.accepted", subjectType: "policy", subjectId: version, after: { version } });
     // ประทับลายเซ็นถ้ามีแล้ว — ยังไม่มี = เติมให้ตอนอัปโหลดลายเซ็น
     await signPolicyAcceptances(u.id, req);
   }
-  res.json({ data: { version: p.version, accepted_at: (await acceptanceOf(u.id, p.version))!.accepted_at } });
+  res.json({ data: { version, accepted_at: (await acceptanceOf(u.id, version))!.accepted_at }, required: (await policyProgress(u.id)).required });
 });
 
 policyRoutes.put("/policy/options", async (req, res) => {
   const u = me(req);
   authorize(can(u, "settings.manage"));
-  const data = await validate(req.input, { enabled: ["required", "boolean"], display: ["required", `in:${POLICY_DISPLAYS.join(",")}`] }, { locale: req.locale });
+  const data = await validate(
+    req.input,
+    { enabled: ["required", "boolean"], display: ["required", `in:${POLICY_DISPLAYS.join(",")}`], pace: ["nullable", `in:${POLICY_PACES.join(",")}`] },
+    { locale: req.locale },
+  );
   const before = await systemPolicy();
   const enabled = bool(data.enabled);
-  if (enabled && !before.sections.length) throw ValidationError.withMessages({ sections: trans(req.locale, "eam.policy.sections_required") });
-  const after = { ...before, enabled, display: data.display as SystemPolicy["display"] };
+  if (enabled && !(await shownPolicies()).length) throw ValidationError.withMessages({ sections: trans(req.locale, "eam.policy.sections_required") });
+  const after: SystemPolicy = { enabled, display: data.display as SystemPolicy["display"], pace: (data.pace as SystemPolicy["pace"] | null) ?? before.pace };
   await putSetting("system_policy", after, u.id);
-  await audit(req, { action: "settings.policy_options", subjectType: "settings", subjectId: "system_policy", before: { enabled: before.enabled, display: before.display }, after: { enabled, display: after.display } });
+  forgetCached("policy:");
+  await audit(req, { action: "settings.policy_options", subjectType: "settings", subjectId: "system_policy", before, after });
   res.json({ data: after });
 });
 
@@ -161,15 +208,15 @@ policyRoutes.get("/policy/documents/:user", async (req, res) => {
   if (!user) throw notFound();
   const asked = versionQuery(req);
   const accepted = await acceptanceFor(id, asked);
-  const p = await systemPolicy();
-  const version = accepted?.version ?? asked ?? p.version;
-  // เนื้อหาของฉบับนั้น — ยังไม่มีสำเนา = ฉบับปัจจุบัน
-  const snapshot = await first<{ sections: unknown }>("SELECT sections FROM policy_versions WHERE version = ?", [version]);
+  // ยังไม่เคยยอมรับ = เรื่องแรกที่แสดงอยู่
+  const version = accepted?.version ?? asked ?? (await shownPolicies())[0]?.version ?? 0;
+  const snapshot = await first<{ title: string; sections: unknown }>("SELECT title, sections FROM policy_versions WHERE version = ?", [version]);
   res.json({
     data: {
       user: { ...user, id: Number(user.id) },
       version: Number(version),
-      sections: snapshot ? parseSections(snapshot.sections) : p.sections,
+      title: snapshot?.title ?? "",
+      sections: snapshot ? parseSections(snapshot.sections) : [],
       accepted_at: accepted ? iso(accepted.accepted_at) : null,
       ip: accepted?.ip ?? null,
       name_stamp: accepted?.name_stamp ?? null,

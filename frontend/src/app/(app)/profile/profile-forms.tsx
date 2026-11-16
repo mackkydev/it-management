@@ -150,7 +150,10 @@ export function SignatureCard({ url }: { url: string | null }) {
       return send(picked.file, "UPLOAD");
     }
     if (!drawn) return setResult({ errors: { signature: t("signature.required") } });
-    const blob = await (await fetch(drawn)).blob();
+    // แปลง data URL เป็นไฟล์ในหน่วยความจำ — fetch(data:) ถูก CSP connect-src 'self' บล็อก ("Failed to fetch")
+    const [head, b64 = ""] = drawn.split(",");
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: /^data:([^;]+)/.exec(head)?.[1] ?? "image/png" });
     send(new File([blob], "signature.png", { type: "image/png" }), "DRAW");
   };
 

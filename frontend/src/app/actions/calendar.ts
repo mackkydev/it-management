@@ -26,6 +26,17 @@ export async function loadCalendar(from: string, to: string, scope?: CalendarSco
   }
 }
 
+/** วันหยุดบริษัทในช่วงวัน (ตามชุดวันหยุดของสาขาผู้ดู) — ปฏิทินทุกหน้าใช้ระบายสีพื้นวันหยุด */
+export async function loadDaysOff(from: string, to: string): Promise<{ date: string; name: string }[]> {
+  if (!DATE_RE.test(from) || !DATE_RE.test(to)) return [];
+  try {
+    return (await apiFetch<{ data: { date: string; name: string }[] }>(`/calendar/days-off?${new URLSearchParams({ from, to })}`)).data;
+  } catch (e) {
+    if (e instanceof ApiError) return [];
+    throw e;
+  }
+}
+
 export interface EventValues {
   title: string;
   start_on: string;

@@ -32,9 +32,14 @@ export function NotificationBell({ size = "md" }: { size?: "md" | "lg" }) {
 
   const load = useCallback(() => {
     startLoading(async () => {
-      const res = await fetchNotifications();
-      setItems(res.items);
-      setUnread(res.unread);
+      // เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ชั่วคราว (dev server รีสตาร์ต / เน็ตหลุด) = คงรายการเดิม รอโหลดรอบถัดไป — ไม่โยน error ทั้งหน้า
+      try {
+        const res = await fetchNotifications();
+        setItems(res.items);
+        setUnread(res.unread);
+      } catch {
+        /* โหลดใหม่รอบถัดไป */
+      }
     });
   }, []);
 
@@ -73,7 +78,8 @@ export function NotificationBell({ size = "md" }: { size?: "md" | "lg" }) {
   const toggle = () => {
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      const width = Math.min(360, window.innerWidth - 16);
+      // กว้างพอให้ข้อความแจ้งเตือน (มีเลขที่เอกสาร) อยู่บรรทัดเดียว-สองบรรทัด — จอเล็กเต็มความกว้างเว้นขอบ
+      const width = Math.min(520, window.innerWidth - 16);
       // อยู่ใน sidebar (ชิดซ้าย) → เปิดไปทางขวา, อยู่บน topbar → เปิดลงด้านล่างชิดขวา
       setPos(
         r.left < 320 && window.innerWidth >= 1024

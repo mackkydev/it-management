@@ -115,9 +115,9 @@ export default async function LicensesPage({ searchParams }: PageProps<"/license
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {groups.map((items) =>
             items.length > 1 ? (
-              <LicenseGroupCard key={items[0].id} items={items} t={t} fmt={fmt} />
+              <LicenseGroupCard key={items[0].id} items={items} t={t} fmt={fmt} canDuplicate={canCreate} />
             ) : (
-              <LicenseCard key={items[0].id} license={items[0]} t={t} fmt={fmt} showInstalls={canInstall} canEdit={canEdit} />
+              <LicenseCard key={items[0].id} license={items[0]} t={t} fmt={fmt} showInstalls={canInstall} canEdit={canEdit} canDuplicate={canCreate} />
             ),
           )}
         </ul>

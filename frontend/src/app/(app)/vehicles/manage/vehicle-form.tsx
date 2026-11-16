@@ -11,6 +11,7 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { BranchChoices, Vehicle } from "@/lib/types";
 import { imageUrl } from "../vehicle-utils";
+import { MasterDataSelect } from "@/components/master-data-select";
 
 /** ตัวเลือกที่เปิดใช้งาน + ค่าเดิมของรถคันนี้ (ถ้าตัวเลือกถูกปิดใช้งานภายหลัง) */
 const withCurrent = (list: string[], current?: string | null) => (current && !list.some((o) => o.toLowerCase() === current.toLowerCase()) ? [current, ...list] : list);
@@ -168,39 +169,45 @@ export function VehicleForm({ vehicle: initialVehicle, choices, types, fuels }: 
               <p className="mt-1 text-xs text-muted">{t("vehicle.transfer.formHint")}</p>
             </>
           ) : (
-            <AppSelect id="branch_id" value={v.branch_id} onValueChange={(x) => set("branch_id", x)} className={cls("branch_id")}>
-              {choices.allowShared && <option value="">{t("meeting.rooms.noBranch")}</option>}
-              {choices.branches.map((b) => (
-                <option key={b.id} value={String(b.id)}>
-                  {b.name}
-                </option>
-              ))}
-            </AppSelect>
+            <MasterDataSelect source="branches">
+              <AppSelect id="branch_id" value={v.branch_id} onValueChange={(x) => set("branch_id", x)} className={cls("branch_id")}>
+                {choices.allowShared && <option value="">{t("meeting.rooms.noBranch")}</option>}
+                {choices.branches.map((b) => (
+                  <option key={b.id} value={String(b.id)}>
+                    {b.name}
+                  </option>
+                ))}
+              </AppSelect>
+            </MasterDataSelect>
           )}
           {err("branch_id")}
         </div>
         <div>
           {label("vehicle_type", t("vehicle.manage.vehicleType"))}
-          <AppSelect id="vehicle_type" value={v.vehicle_type} onValueChange={(x) => set("vehicle_type", x)} className={cls("vehicle_type")}>
-            <option value="">{t("vehicle.manage.notSpecified")}</option>
-            {withCurrent(types, initialVehicle?.vehicle_type).map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </AppSelect>
+          <MasterDataSelect source="vehicle_type">
+            <AppSelect id="vehicle_type" value={v.vehicle_type} onValueChange={(x) => set("vehicle_type", x)} className={cls("vehicle_type")}>
+              <option value="">{t("vehicle.manage.notSpecified")}</option>
+              {withCurrent(types, initialVehicle?.vehicle_type).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </AppSelect>
+          </MasterDataSelect>
           {err("vehicle_type")}
         </div>
         <div>
           {label("fuel_type", t("vehicle.manage.fuelType"))}
-          <AppSelect id="fuel_type" value={v.fuel_type} onValueChange={(x) => set("fuel_type", x)} className={cls("fuel_type")}>
-            <option value="">{t("vehicle.manage.notSpecified")}</option>
-            {withCurrent(fuels, initialVehicle?.fuel_type).map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </AppSelect>
+          <MasterDataSelect source="vehicle_fuel">
+            <AppSelect id="fuel_type" value={v.fuel_type} onValueChange={(x) => set("fuel_type", x)} className={cls("fuel_type")}>
+              <option value="">{t("vehicle.manage.notSpecified")}</option>
+              {withCurrent(fuels, initialVehicle?.fuel_type).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </AppSelect>
+          </MasterDataSelect>
           {err("fuel_type")}
         </div>
         <div className="sm:col-span-2">

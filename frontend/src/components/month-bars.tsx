@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { PlusIcon } from "@/components/icons";
 import { Tooltip } from "@/components/tooltip";
 import { card } from "@/components/ui";
+import { dayOffClass, useDaysOff } from "@/components/days-off";
 
 /** รายการที่แสดงเป็นแถบในปฏิทินเดือน — start/end = "YYYY-MM-DD" (หลายวัน = แถบลากยาวต่อเนื่อง) */
 export interface MonthBar {
@@ -23,7 +24,8 @@ export interface MonthBar {
 
 /** แถบสูงสุดต่อสัปดาห์ (ต่อช่องวัน) — เกินแสดง "+n" ที่ช่องวันนั้น */
 const LANES = 3;
-const LANE_PX = 22;
+/** แถบสูง 22px (+10% จาก 20px) + ช่องไฟ 2px */
+const LANE_PX = 24;
 const HEAD_PX = 32;
 
 interface Segment {
@@ -82,6 +84,8 @@ export function MonthBarGrid({
   moreLabel: (n: number) => string;
 }) {
   const weeks = Array.from({ length: days.length / 7 }, (_, w) => days.slice(w * 7, w * 7 + 7));
+  // วันหยุดบริษัท + เสาร์-อาทิตย์ = พื้นต่างจากวันทำงาน
+  const daysOff = useDaysOff(days[0], days[days.length - 1]);
   return (
     <div className={`hidden overflow-hidden md:block ${card}`}>
       <div className="grid grid-cols-7 border-b border-line bg-subtle text-center text-xs font-medium text-muted">
@@ -111,10 +115,11 @@ export function MonthBarGrid({
                     e.preventDefault();
                     onBook(d);
                   }}
-                  className={`group relative cursor-pointer border-r border-line p-1.5 transition-colors last:border-r-0 hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-300 dark:hover:bg-accent-400/5 ${outside ? "bg-subtle/40 text-faint" : ""}`}
+                  className={`group relative cursor-pointer border-r border-line p-1.5 transition-colors last:border-r-0 hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-300 dark:hover:bg-accent-400/5 ${dayOffClass(d, daysOff)} ${outside ? "text-faint" : ""}`}
                 >
                   <span className="flex items-center justify-between gap-1">
-                    <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium ${d === today ? "bg-accent-500 text-white" : ""}`}>{Number(d.slice(8))}</span>
+                    <span className={`cal-daynum inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium ${d === today ? "bg-accent-500 text-white" : ""}`}>{Number(d.slice(8))}</span>
+                    {daysOff.has(d) && <span className="min-w-0 flex-1 truncate text-3xs text-danger-700 dark:text-danger-300">{daysOff.get(d)}</span>}
                     {!past && onBook && (
                       <button
                         type="button"
@@ -141,7 +146,7 @@ export function MonthBarGrid({
                   <button
                     type="button"
                     onClick={s.bar.onClick}
-                    className={`block h-5 w-full cursor-pointer truncate px-2 text-left text-2xs font-medium leading-5 ring-1 ring-inset ${s.bar.tone} ${s.head ? "rounded-l-md" : ""} ${s.tail ? "rounded-r-md" : ""} ${s.bar.dashed ? "opacity-60 outline-1 outline-dashed outline-current" : ""}`}
+                    className={`block h-[22px] w-full cursor-pointer truncate px-2 text-left text-2xs font-medium leading-[22px] ring-1 ring-inset ${s.bar.tone} ${s.head ? "rounded-l-md" : ""} ${s.tail ? "rounded-r-md" : ""} ${s.bar.dashed ? "opacity-60 outline-1 outline-dashed outline-current" : ""}`}
                   >
                     {s.bar.label}
                   </button>

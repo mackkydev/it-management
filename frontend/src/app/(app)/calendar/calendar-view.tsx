@@ -11,6 +11,7 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { localToday } from "@/lib/date";
 import type { CalendarItem, CalendarMeta, CalendarScope } from "@/lib/types";
+import { weekendClass } from "@/components/days-off";
 import { monthGrid, shiftMonth } from "./calendar-grid";
 
 type Kind = CalendarItem["kind"];
@@ -289,7 +290,8 @@ export function CalendarView({ month: initialMonth, initialItems, meta, branches
             <div key={week[0]} className="relative grid min-h-32 grid-cols-7 border-b border-line last:border-b-0">
               {week.map((d, i) => {
                 const outside = d.slice(0, 7) !== month;
-                const isHoliday = visible.some((x) => x.kind === "holiday" && x.start === d);
+                // วันหยุดบริษัท (แม้ซ่อนแถบวันหยุดไว้) / เสาร์-อาทิตย์ = พื้นต่างจากวันทำงาน
+                const isHoliday = items.some((x) => x.kind === "holiday" && x.start <= d && x.end >= d);
                 return (
                   <div
                     key={d}
@@ -300,10 +302,10 @@ export function CalendarView({ month: initialMonth, initialItems, meta, branches
                       e.preventDefault();
                       openNew(d);
                     }}
-                    className={`group min-h-32 border-r border-line p-1.5 text-left last:border-r-0 ${outside ? "bg-subtle/40 text-faint" : ""} ${isHoliday ? "bg-danger-50/50 dark:bg-danger-400/5" : ""}`}
+                    className={`group min-h-32 border-r border-line p-1.5 text-left last:border-r-0 ${isHoliday ? "cal-holiday" : weekendClass(d)} ${outside ? "text-faint" : ""}`}
                   >
                     <div className="flex items-start justify-between gap-1">
-                      <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium ${d === today ? "bg-accent-500 text-white" : ""}`}>
+                      <span className={`cal-daynum inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium ${d === today ? "bg-accent-500 text-white" : ""}`}>
                         {Number(d.slice(8))}
                       </span>
                       {/* tooltip ตอนชี้ที่ช่องวัน (ซ่อนเมื่อซ่อนปุ่มเพิ่มกิจกรรม) */}
@@ -322,8 +324,8 @@ export function CalendarView({ month: initialMonth, initialItems, meta, branches
                   type="button"
                   onClick={() => setSelected(s.item)}
                   title={`${s.item.title} — ${periodText(s.item)}`}
-                  className={`absolute z-10 h-5 cursor-pointer truncate px-2 text-left text-2xs font-medium leading-5 ring-1 ring-inset ${KIND_CLS[s.item.kind]} ${s.head ? "rounded-l-md" : ""} ${s.tail ? "rounded-r-md" : ""} ${s.item.status === "pending" ? "border border-dashed opacity-70" : ""}`}
-                  style={{ top: `${32 + s.lane * 23}px`, left: `calc(${(s.col / 7) * 100}% + 3px)`, width: `calc(${(s.span / 7) * 100}% - 6px)` }}
+                  className={`absolute z-10 h-[22px] cursor-pointer truncate px-2 text-left text-2xs font-medium leading-[22px] ring-1 ring-inset ${KIND_CLS[s.item.kind]} ${s.head ? "rounded-l-md" : ""} ${s.tail ? "rounded-r-md" : ""} ${s.item.status === "pending" ? "border border-dashed opacity-70" : ""}`}
+                  style={{ top: `${32 + s.lane * 25}px`, left: `calc(${(s.col / 7) * 100}% + 3px)`, width: `calc(${(s.span / 7) * 100}% - 6px)` }}
                 >
                   {s.item.status === "pending" && `${t("calendar.pending")} · `}
                   {s.item.title}

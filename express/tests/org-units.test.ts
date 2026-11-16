@@ -147,6 +147,22 @@ describe("new roles", () => {
   });
 });
 
+describe("system name", () => {
+  it("settings.manage sets the name and tagline; everyone (even logged out) can read them; empty = defaults", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }), "th");
+    expect((await guest().get("/api/v1/branding")).body.data).toEqual({ name: "", tagline: "" });
+    expect((await (await as(await makeUser())).put("/api/v1/settings/branding").send({ name: "X", tagline: "Y" })).status).toBe(403);
+    expect((await admin.put("/api/v1/settings/branding").send({ name: "x".repeat(31), tagline: "" })).status).toBe(422);
+    expect((await admin.put("/api/v1/settings/branding").send({ name: "", tagline: "x".repeat(61) })).status).toBe(422);
+
+    expect((await admin.put("/api/v1/settings/branding").send({ name: "  ACME\n  Desk ", tagline: "ฝ่ายไอที" })).body.data).toEqual({ name: "ACME Desk", tagline: "ฝ่ายไอที" });
+    expect((await guest().get("/api/v1/branding")).body.data).toEqual({ name: "ACME Desk", tagline: "ฝ่ายไอที" });
+
+    expect((await admin.put("/api/v1/settings/branding").send({ name: "", tagline: "" })).status).toBe(200);
+    expect((await guest().get("/api/v1/branding")).body.data).toEqual({ name: "", tagline: "" });
+  });
+});
+
 describe("system logo", () => {
   it("settings.manage uploads a logo; everyone (even logged out) can load it; ui-config exposes its version", async () => {
     const admin = await as(await makeUser({ role: "super_admin" }), "th");

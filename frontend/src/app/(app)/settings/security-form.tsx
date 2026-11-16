@@ -15,7 +15,7 @@ import { HelperPicker } from "../tickets/[id]/helpers-card";
 const IP_RE = /^([0-9]{1,3}(\.[0-9]{1,3}){3}(\/([0-9]|[12][0-9]|3[0-2]))?|[0-9a-f:]+:[0-9a-f:.]*(\/[0-9]{1,3})?)$/i;
 
 /** สวิตช์เปิด/ปิด */
-function Toggle({ id, checked, onChange, title, hint, children }: { id: string; checked: boolean; onChange: (v: boolean) => void; title: string; hint: string; children?: ReactNode }) {
+function Toggle({ id, checked, onChange, title, hint, children, footer }: { id: string; checked: boolean; onChange: (v: boolean) => void; title: string; hint: string; children?: ReactNode; footer?: ReactNode }) {
   return (
     <div className="rounded-xl p-4 ring-1 ring-line">
       <div className="flex items-start justify-between gap-4">
@@ -36,6 +36,8 @@ function Toggle({ id, checked, onChange, title, hint, children }: { id: string; 
         </button>
       </div>
       {checked && children && <div className="mt-3 border-t border-line pt-3">{children}</div>}
+      {/* แสดงเสมอ ไม่ว่าสวิตช์จะเปิดหรือปิด */}
+      {footer && <div className="mt-3 border-t border-line pt-3">{footer}</div>}
     </div>
   );
 }
@@ -84,12 +86,59 @@ export function SecurityForm({
 
       {feedback?.text && <ResultToast result={feedback} />}
 
-      {/* 2 คอลัมน์เรียงลงมาอิสระ — เปิดกล่องไหนแล้วสูงขึ้น ไม่เกิดช่องโหว่ข้าง ๆ */}
-      <fieldset disabled={pending} className="grid items-start gap-3 disabled:opacity-60 lg:grid-cols-2">
+      {/* ซ้าย: ยืนยันตัวตน + จำกัด IP / ขวา: แจ้งเตือน สูงเต็มตามฝั่งซ้าย */}
+      <fieldset disabled={pending} className="grid gap-3 disabled:opacity-60 lg:grid-cols-2">
         <div className="space-y-3">
-        <Toggle id="sg-reauth" checked={v.reauth} onChange={(x) => set("reauth", x)} title={t("secretGuard.reauthTitle")} hint={t("secretGuard.reauthHint")}>
+        <Toggle
+          id="sg-reauth"
+          checked={v.reauth}
+          onChange={(x) => set("reauth", x)}
+          title={t("secretGuard.reauthTitle")}
+          hint={t("secretGuard.reauthHint")}
+          footer={
+            <div className="grid gap-4 sm:grid-cols-2">
+              {/* เวลาเปิดดูต่อใช้เมื่อเปิดยืนยันตัวตน — ปิดอยู่ = เห็นค่าแต่แก้ไม่ได้ */}
+              <div className={v.reauth ? "" : "opacity-60 grayscale"}>
+                <label htmlFor="sg-minutes" className="mb-1 block text-xs font-medium">
+                  {t("secretGuard.reauthMinutes")}
+                </label>
+                <input
+                  id="sg-minutes"
+                  type="number"
+                  min={0}
+                  max={60}
+                  disabled={!v.reauth}
+                  value={v.reauth_minutes}
+                  onChange={(e) => set("reauth_minutes", Math.min(60, Math.max(0, Number(e.target.value) || 0)))}
+                  className={`${input} max-w-32 disabled:cursor-not-allowed`}
+                />
+                <p className="mt-1 text-xs text-muted">{t("secretGuard.reauthMinutesHint")}</p>
+              </div>
+              {/* ล้าง clipboard หลังคัดลอก — ทำงานเสมอ ไม่ขึ้นกับสวิตช์ด้านบน ตั้งได้แค่เวลา */}
+              <div>
+                <label htmlFor="sg-clipboard" className="mb-1 block text-xs font-medium">
+                  {t("secretGuard.clipboardTitle")}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="sg-clipboard"
+                    type="number"
+                    min={5}
+                    max={600}
+                    value={v.clipboard_clear_seconds}
+                    onChange={(e) => set("clipboard_clear_seconds", Number(e.target.value) || 0)}
+                    onBlur={(e) => set("clipboard_clear_seconds", Math.min(600, Math.max(5, Number(e.target.value) || 30)))}
+                    className={`${input} max-w-32`}
+                  />
+                  <span className="text-sm text-muted">{t("secretGuard.clipboardUnit")}</span>
+                </div>
+                <p className="mt-1 text-xs text-muted">{t("secretGuard.clipboardHint")}</p>
+              </div>
+            </div>
+          }
+        >
           {/* ยืนยันด้วยอะไร: รหัสผ่าน login ของแต่ละคน / PIN กลางอันเดียว */}
-          <fieldset className="mb-4">
+          <fieldset>
             <legend className="mb-2 text-xs font-medium">{t("secretGuard.methodTitle")}</legend>
             <div className="grid gap-2 sm:grid-cols-2">
               {(["password", "pin"] as const).map((m) => (
@@ -113,19 +162,6 @@ export function SecurityForm({
               </div>
             )}
           </fieldset>
-          <label htmlFor="sg-minutes" className="mb-1 block text-xs font-medium">
-            {t("secretGuard.reauthMinutes")}
-          </label>
-          <input
-            id="sg-minutes"
-            type="number"
-            min={0}
-            max={60}
-            value={v.reauth_minutes}
-            onChange={(e) => set("reauth_minutes", Math.min(60, Math.max(0, Number(e.target.value) || 0)))}
-            className={`${input} max-w-32`}
-          />
-          <p className="mt-1 text-xs text-muted">{t("secretGuard.reauthMinutesHint")}</p>
         </Toggle>
         <Toggle id="sg-ip" checked={v.ip_restrict} onChange={(x) => set("ip_restrict", x)} title={t("secretGuard.ipTitle")} hint={t("secretGuard.ipHint")}>
           <ChipList
@@ -138,28 +174,6 @@ export function SecurityForm({
           />
           <p className="mt-2 text-xs text-warning-700 dark:text-warning-300">{t("secretGuard.ipProxyNote")}</p>
         </Toggle>
-        </div>
-
-        <div className="space-y-3">
-        {/* ล้าง clipboard หลังคัดลอก — เปิดเสมอ ตั้งได้แค่เวลา */}
-        <div className="rounded-xl p-4 ring-1 ring-line">
-          <label htmlFor="sg-clipboard" className="block text-sm font-medium">
-            {t("secretGuard.clipboardTitle")}
-          </label>
-          <p className="mb-2 mt-0.5 text-xs text-muted">{t("secretGuard.clipboardHint")}</p>
-          <div className="flex items-center gap-2">
-            <input
-              id="sg-clipboard"
-              type="number"
-              min={5}
-              max={600}
-              value={v.clipboard_clear_seconds}
-              onChange={(e) => set("clipboard_clear_seconds", Number(e.target.value) || 0)}
-              onBlur={(e) => set("clipboard_clear_seconds", Math.min(600, Math.max(5, Number(e.target.value) || 30)))}
-              className={`${input} max-w-32`}
-            />
-            <span className="text-sm text-muted">{t("secretGuard.clipboardUnit")}</span>
-          </div>
         </div>
 
         <Toggle id="sg-notify" checked={v.notify_heads} onChange={(x) => set("notify_heads", x)} title={t("secretGuard.notifyTitle")} hint={t("secretGuard.notifyHint")}>
@@ -176,8 +190,6 @@ export function SecurityForm({
             </p>
           )}
         </Toggle>
-
-        </div>
 
         <p className="text-xs text-muted lg:col-span-2">{t("secretGuard.logNote")}</p>
       </fieldset>

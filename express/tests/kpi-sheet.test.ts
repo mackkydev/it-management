@@ -259,3 +259,36 @@ describe("KPI requester search", () => {
     expect((await (await as(await makeUser({ role: "viewer" }))).get("/api/v1/kpi/people?search=x")).status).toBe(403);
   });
 });
+
+describe("KPI month follows the completion date", () => {
+  it("a ticket finished on the 31st but approved next month stays in the month it was finished; cross-month rows sort by completion date", async () => {
+    const staff = await makeUser({ is_it_staff: true });
+    const requester = await makeUser();
+    const base = { requester_id: requester.id, assignee_id: staff.id };
+    // แจ้ง 20 ต.ค. เสร็จ 31 ต.ค. — หัวหน้าอนุมัติ 2 พ.ย. (สถานะตอนนี้ = รอผู้แจ้งรับงาน) → ชีต ต.ค.
+    const oct31 = await ticket({ ...base, status: "pending_requester", requested_at: "2025-10-20 03:00:00", completed_on: "2025-10-31" });
+    // แจ้ง 28 ต.ค. เสร็จ 4 พ.ย. → ชีต พ.ย. เรียงตามวันที่แล้วเสร็จ (4 พ.ย.) แต่แสดงวันที่แจ้งจริง
+    const cross = await ticket({ ...base, requested_at: "2025-10-28 03:00:00", completed_on: "2025-11-04" });
+    // แจ้งในเดือน พ.ย. → เรียงตามวันที่แจ้ง
+    const nov2 = await ticket({ ...base, requested_at: "2025-11-02 03:00:00", completed_on: "2025-11-10" });
+    const nov6 = await ticket({ ...base, requested_at: "2025-11-06 03:00:00", completed_on: "2025-11-06" });
+
+    const api = await as(staff);
+    const sheet = async (month: string) =>
+      (await api.get(`/api/v1/kpi/month?month=${month}`)).body.data
+        .filter((r: { kind: string }) => r.kind === "ticket")
+        .map((r: { ticket: { ticket_no: string }; work_date: string; completed_date: string }) => [r.ticket.ticket_no, r.work_date, r.completed_date]);
+
+    expect(await sheet("2025-10")).toEqual([[oct31.no, "2025-10-20", "2025-10-31"]]);
+    expect(await sheet("2025-11")).toEqual([
+      [nov2.no, "2025-11-02", "2025-11-10"],
+      [cross.no, "2025-10-28", "2025-11-04"],
+      [nov6.no, "2025-11-06", "2025-11-06"],
+    ]);
+    // ตัวเลขรอกรอกแยกเดือนตามวันที่แล้วเสร็จเหมือนกัน
+    expect((await api.get(`/api/v1/kpi/pending-months?user_id=${staff.id}`)).body.data).toEqual([
+      { month: "2025-10", count: 1 },
+      { month: "2025-11", count: 3 },
+    ]);
+  });
+});

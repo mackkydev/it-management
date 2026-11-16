@@ -7,22 +7,26 @@ import { FileTextIcon, PencilIcon, SaveIcon, SpinnerIcon } from "@/components/ic
 import { ResultToast } from "@/components/toast";
 import { alert, btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import type { PolicyDisplay, SystemPolicy } from "@/lib/types";
+import type { PolicyDisplay, PolicyPace, SystemPolicy } from "@/lib/types";
 
 const DISPLAYS: PolicyDisplay[] = ["after_login", "login"];
+const PACES: PolicyPace[] = ["all", "daily"];
+const SEGMENT = (active: boolean) =>
+  `cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
 
-/** นโยบายการใช้งานระบบ: เปิด-ปิด + ให้ยอมรับที่หน้า login หรือหลัง login — เนื้อหาอยู่ที่เมนูนโยบายการใช้งาน */
+/** นโยบายการใช้งานระบบ: เปิด-ปิด + ให้ยอมรับที่หน้า login หรือหลัง login + หลายเรื่องให้ยอมรับทั้งหมดวันเดียว / วันละเรื่อง — เนื้อหาอยู่ที่เมนูนโยบายการใช้งาน */
 export function PolicyOptions({ initial }: { initial: SystemPolicy }) {
   const { t, fmt } = useI18n();
   const [enabled, setEnabled] = useState(initial.enabled);
   const [display, setDisplay] = useState<PolicyDisplay>(initial.display);
+  const [pace, setPace] = useState<PolicyPace>(initial.pace);
   const [result, setResult] = useState<{ ok?: boolean; message?: string }>({});
   const [pending, start] = useTransition();
-  const noContent = initial.sections.length === 0;
+  const noContent = initial.items.length === 0;
 
   const save = () =>
     start(async () => {
-      setResult(await savePolicyOptions({ enabled, display }));
+      setResult(await savePolicyOptions({ enabled, display, pace }));
     });
 
   return (
@@ -35,7 +39,7 @@ export function PolicyOptions({ initial }: { initial: SystemPolicy }) {
           </h2>
           <p className="mt-1 text-sm text-muted">{t("settingsPage.policy.optionsHint")}</p>
           <p className="mt-1 text-xs text-faint">
-            {initial.version > 0 ? t("settingsPage.policy.version", { version: initial.version, date: initial.updated_at ? fmt.dateTime(initial.updated_at) : "-" }) : t("settingsPage.policy.contentEmpty")}
+            {noContent ? t("settingsPage.policy.contentEmpty") : t("settingsPage.policy.shownCount", { count: fmt.number(initial.items.length), titles: initial.items.map((i) => i.title).join(", ") })}
           </p>
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -67,13 +71,25 @@ export function PolicyOptions({ initial }: { initial: SystemPolicy }) {
               aria-checked={display === d}
               disabled={pending}
               onClick={() => setDisplay(d)}
-              className={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${display === d ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`}
+              className={SEGMENT(display === d)}
             >
               {t(`settingsPage.policy.displays.${d}`)}
             </button>
           ))}
         </div>
         <p className="mt-1 text-xs text-muted">{t(`settingsPage.policy.displayHints.${display}`)}</p>
+      </div>
+
+      <div>
+        <p className="mb-1 text-sm font-medium">{t("settingsPage.policy.pace")}</p>
+        <div role="radiogroup" aria-label={t("settingsPage.policy.pace")} className="inline-flex flex-wrap gap-1 rounded-xl bg-subtle p-1">
+          {PACES.map((v) => (
+            <button key={v} type="button" role="radio" aria-checked={pace === v} disabled={pending} onClick={() => setPace(v)} className={SEGMENT(pace === v)}>
+              {t(`settingsPage.policy.paces.${v}`)}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-xs text-muted">{t(`settingsPage.policy.paceHints.${pace}`)}</p>
       </div>
 
       {result.message && <ResultToast result={result} />}

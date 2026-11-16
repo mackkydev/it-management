@@ -3,7 +3,8 @@ import Form from "next/form";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { BellIcon, FileTextIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
+import { BellIcon, FileTextIcon, PaperclipIcon, PencilIcon, PlusIcon, ResetIcon, SearchIcon } from "@/components/icons";
+import { DocumentLink } from "@/components/document-viewer";
 import { PageHeader } from "@/components/page-header";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { TableSkeleton } from "@/components/skeletons";
@@ -168,6 +169,18 @@ async function ContractResults({ query, status, search, canEdit }: { query: URLS
                       {c.contract_no && c.branch && " · "}
                       {c.branch?.name}
                     </div>
+                    {c.files.length > 0 && (
+                      <ul aria-label={t("contracts.filesCount", { count: fmt.number(c.files.length) })} className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                        {c.files.map((f) => (
+                          <li key={f.id} className="min-w-0">
+                            <DocumentLink href={`/files${f.url}`} name={f.name} className="inline-flex max-w-56 cursor-pointer items-center gap-1 text-accent-700 hover:underline dark:text-accent-300">
+                              <PaperclipIcon width={11} height={11} className="shrink-0" />
+                              <span className="truncate">{f.name}</span>
+                            </DocumentLink>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </td>
                   <td className={table.td}>
                     <div>{c.vendor_name}</div>
@@ -182,6 +195,12 @@ async function ContractResults({ query, status, search, canEdit }: { query: URLS
                       <BellIcon width={11} height={11} />
                       {c.notify_enabled ? t("contracts.notifyInfo", { days: fmt.number(c.effective_notify_days) }) : t("contracts.notifyOff")}
                     </div>
+                    {c.notify_enabled && c.next_notify_date && (
+                      <div className="flex items-center gap-1 text-xs text-faint">
+                        <BellIcon width={11} height={11} />
+                        {t("contracts.nextNotify", { date: fmt.date(c.next_notify_date) })}
+                      </div>
+                    )}
                   </td>
                   <td className={table.td}>
                     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_TONE[c.status].badge}`}>

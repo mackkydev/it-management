@@ -85,7 +85,8 @@ export function TicketPaper({
   const isRepair = tk.type === "repair";
   const confirmed = tk.events.find((e) => e.action === "confirmed");
   const list = branches.some((b) => b.id === tk.branch?.id) || !tk.branch ? branches : [...branches, tk.branch];
-  const parts = tk.parts.map((p) => (p.quantity > 1 ? `${p.name} × ${p.quantity}` : p.name));
+  // อะไหล่ในผลงาน — ยังไม่มี = อะไหล่ที่ร้านเปลี่ยนจากรายการส่งซ่อมที่รับคืนแล้ว
+  const parts = (tk.parts.length ? tk.parts : (tk.repair_parts ?? [])).map((p) => (p.quantity > 1 ? `${p.name} × ${p.quantity}` : p.name));
 
   return (
     <article className={s.sheet} aria-label={t("ticketPaper.title")}>

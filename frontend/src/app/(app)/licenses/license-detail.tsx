@@ -1,13 +1,14 @@
+import type { Route } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { BoxIcon, ChevronLeftIcon, KeyIcon, PaperclipIcon, PencilIcon } from "@/components/icons";
+import { BoxIcon, ChevronLeftIcon, CopyIcon, KeyIcon, PaperclipIcon, PencilIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
 import { StatusBadge } from "@/components/status-badge";
 import { btn, card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
-import { canEditAssets, has, getAccess, getCurrentUser } from "@/lib/auth";
+import { canCreateAssets, canEditAssets, has, getAccess, getCurrentUser } from "@/lib/auth";
 import type { License } from "@/lib/types";
 import { UsageBar } from "../license-installations/usage-bar";
 import { LicenseIcon } from "./license-icon";
@@ -56,6 +57,9 @@ export async function LicenseDetail({ id }: { id: string }) {
   const lic = row.license;
   const canEdit = canEditAssets(user) && can("btn:assets:edit");
   const canRevealKey = has(user, "assets.license_key");
+  const canAddSame = canCreateAssets(user) && can("btn:licenses:create");
+  // คัดลอกข้อมูลทั้งหมดของใบนี้ไปเป็นใบใหม่ (แก้ key / S/N / ข้อมูลอื่นได้)
+  const duplicateHref = `/licenses/new?from=${row.id}` as Route;
   // หมดแล้ว = danger, เหลือ ≤ 30 วัน = warning
   const licenseTone = lic.days_left === null ? null : lic.days_left < 0 ? tone.danger : lic.days_left <= 30 ? tone.warning : tone.success;
 
@@ -81,14 +85,23 @@ export async function LicenseDetail({ id }: { id: string }) {
             </div>
           </div>
         </div>
-        {canEdit && (
+        {(canEdit || canAddSame) && (
           <div className="flex flex-wrap gap-2">
+            {/* คัดลอกเป็น License ใบใหม่ (อีกกล่อง/อีก key) — ชื่อเดิม = รวมเป็นการ์ดเดียวที่หน้า /licenses */}
+            {canAddSame && (
+              <Link href={duplicateHref} className={btn.soft}>
+                <LinkPendingIcon icon={<CopyIcon />} />
+                {t("licenses.group.duplicate")}
+              </Link>
+            )}
             {/* จัดการสัญญา: แสดงเมื่อถึงวันแจ้งเตือนแล้ว (ยังไม่ต่อ/ยกเลิก) */}
-            {lic.expiring && can("btn:licenses:contract") && <ManageContractButton licenseId={row.id} license={lic} />}
-            <Link href={`/licenses/${row.id}/edit`} className={btn.soft}>
-              <LinkPendingIcon icon={<PencilIcon />} />
-              {t("common.edit")}
-            </Link>
+            {canEdit && lic.expiring && can("btn:licenses:contract") && <ManageContractButton licenseId={row.id} license={lic} />}
+            {canEdit && (
+              <Link href={`/licenses/${row.id}/edit`} className={btn.soft}>
+                <LinkPendingIcon icon={<PencilIcon />} />
+                {t("common.edit")}
+              </Link>
+            )}
           </div>
         )}
       </div>

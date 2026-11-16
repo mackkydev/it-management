@@ -4,6 +4,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
 import { useDismiss, useFloating } from "@/components/floating";
+import { weekendClass } from "@/components/days-off";
 import { useI18n } from "@/i18n/client";
 import type { Locale } from "@/lib/prefs";
 import { formatDate, localToday, parseDisplayDate, yearOffset } from "@/lib/date";
@@ -192,7 +193,7 @@ function Calendar({
                     : c.inMonth
                       ? "text-ink hover:bg-subtle"
                       : "text-faint hover:bg-subtle"
-              }`}
+              } ${selected ? "" : weekendClass(c.iso)}`}
             >
               {c.day}
             </button>

@@ -25,7 +25,9 @@
     "db:import-postgres": "tsx scripts/migrate-from-postgres.ts",
     "vault:keygen": "tsx src/cli/vault-key.ts keygen",
     "vault:rekey": "tsx src/cli/vault-key.ts rekey",
-    "vault:rekey:prod": "node dist/cli/vault-key.js rekey"
+    "vault:rekey:prod": "node dist/cli/vault-key.js rekey",
+    "tickets:reset": "tsx src/cli/reset-tickets.ts",
+    "tickets:reset:prod": "node dist/cli/reset-tickets.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

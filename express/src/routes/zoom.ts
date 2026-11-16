@@ -4,7 +4,7 @@ import { config } from "../config.js";
 import { first, insert, isUuid, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
-import { dateOnly, iso, nowDb } from "../lib/time.js";
+import { dateOnly, displayDate, iso, nowDb } from "../lib/time.js";
 import { regex, validate } from "../lib/validator.js";
 import { me } from "../http.js";
 import { can, type UserRow } from "../models/user.js";
@@ -73,6 +73,8 @@ interface ZoomRow {
   zoom_account: string | null;
   confirmed_name: string | null;
   confirmed_at: string | null;
+  /** ผู้จองกด "รับลิงก์ / คัดลอกลิงก์" แล้ว (แก้ลิงก์ = ล้าง) */
+  link_received_at: string | null;
   reject_reason: string | null;
   rejected_name: string | null;
   rejected_at: string | null;
@@ -107,9 +109,16 @@ const upcomingParams = () => {
   const now = localNow();
   return [now.slice(0, 10), now.slice(0, 10), now.slice(11)];
 };
-/** รอฉันจัดการ (ผู้จอง): แก้วันเวลาที่ IT แจ้งกลับ / กดรับหลังผู้จัดการ IT อนุมัติ — เงื่อนไขเดียวกับตัวเลขเมนู + แท็บ */
-const TODO = `((z.status = 'needs_change' AND ${UPCOMING}) OR (z.status = 'confirmed' AND tk.status = 'pending_requester'))`;
+/** รอฉันจัดการ (ผู้จอง): แก้วันเวลาที่ IT แจ้งกลับ / กดรับ (ลิงก์ที่ยังไม่รับ หรือใบงานรอผู้จองกดรับ) — เงื่อนไขเดียวกับตัวเลขเมนู + แท็บ */
+const TODO = `((z.status = 'needs_change' AND ${UPCOMING}) OR (z.status = 'confirmed' AND (tk.status = 'pending_requester' OR (z.link_received_at IS NULL AND ${UPCOMING}))))`;
 const periodText = (z: Pick<ZoomRow, "start_on" | "start_time" | "end_on" | "end_time">) => (dateOnly(z.start_on) === dateOnly(z.end_on) ? `${dateOnly(z.start_on)} ${z.start_time}–${z.end_time}` : `${startAt(z)} – ${endAt(z)}`);
+
+/** วันเวลาประชุมแบบอ่านง่าย (dd/MM/yyyy ตามภาษา) สำหรับข้อความในใบแจ้งงาน */
+const meetingWhen = (z: Pick<ZoomRow, "start_on" | "start_time" | "end_on" | "end_time">, locale: "th" | "en") => {
+  const s = displayDate(dateOnly(z.start_on)!, locale);
+  const e = displayDate(dateOnly(z.end_on)!, locale);
+  return s === e ? `${s} ${z.start_time}–${z.end_time}` : `${s} ${z.start_time} – ${e} ${z.end_time}`;
+};
 
 function json(z: ZoomRow, u: UserRow) {
   const mine = Number(z.user_id) === u.id;
@@ -140,6 +149,7 @@ function json(z: ZoomRow, u: UserRow) {
     zoom_account: z.zoom_account,
     confirmed_by: z.confirmed_name,
     confirmed_at: iso(z.confirmed_at),
+    link_received_at: iso(z.link_received_at),
     reject_reason: z.reject_reason,
     rejected_by: z.rejected_name,
     rejected_at: iso(z.rejected_at),
@@ -154,6 +164,8 @@ function json(z: ZoomRow, u: UserRow) {
     can_edit: mine && (z.status === "pending" || z.status === "needs_change") && !over,
     can_cancel: mine && OPEN.includes(z.status) && !over,
     can_acknowledge: mine && z.status === "confirmed" && z.ticket_status === "pending_requester",
+    // ผู้จองกดรับลิงก์ (คัดลอกข้อความเชิญ + แจ้งผู้รับงาน) — กดซ้ำได้ (คัดลอกอีกครั้ง ไม่แจ้งซ้ำ)
+    can_receive_link: mine && z.status === "confirmed" && Boolean(z.meeting_link),
     can_accept: manager && z.status === "pending" && !over,
     can_link: manager && (z.status === "accepted" || z.status === "confirmed") && !over,
     can_busy: manager && (z.status === "pending" || z.status === "accepted") && !over,
@@ -191,6 +203,11 @@ async function notifyHandlers(u: UserRow, z: ZoomRow) {
   const ids = (await handlers()).filter((id) => id !== u.id);
   if (ids.length) await notifyUsers(ids, "zoom.requested", noticeData(u, z, "requested"));
 }
+/** ผู้จองกดรับลิงก์แล้ว → แจ้งผู้รับงาน (ไม่มี = ฝ่าย IT ที่รับงาน ZOOM ได้ทุกคน) */
+async function notifyAssignee(u: UserRow, z: ZoomRow, event: "link_received") {
+  const ids = (z.assignee_id ? [Number(z.assignee_id)] : await handlers()).filter((id) => id !== u.id);
+  if (ids.length) await notifyUsers(ids, `zoom.${event}`, noticeData(u, z, event));
+}
 async function notifyOwner(u: UserRow, z: ZoomRow, event: "accepted" | "confirmed" | "link_updated" | "needs_change" | "head_approved" | "cancelled") {
   if (Number(z.user_id) !== u.id) await notifyUsers([Number(z.user_id)], `zoom.${event}`, noticeData(u, z, event));
 }
@@ -222,7 +239,7 @@ zoomRoutes.get("/zoom-bookings/mine", async (req, res) => {
   const params: unknown[] = [u.id];
   // ยกเลิก = ยกเลิกเอง + ฝ่าย IT แจ้งว่ามีการใช้งานแล้ว; ที่จะถึง / ผ่านมาแล้ว = ที่ยังมีผล
   if (status === "cancelled") where.push("z.status IN ('cancelled', 'rejected')");
-  else if (status === "todo") (where.push(TODO), params.push(...upcomingParams()));
+  else if (status === "todo") (where.push(TODO), params.push(...upcomingParams(), ...upcomingParams()));
   else {
     where.push("z.status IN (?)", status === "upcoming" ? UPCOMING : `NOT ${UPCOMING}`);
     params.push(OPEN, ...upcomingParams());
@@ -234,7 +251,7 @@ zoomRoutes.get("/zoom-bookings/mine", async (req, res) => {
 
 /** เรื่องที่รอผู้จองจัดการ (ตัวเลขเมนู /zoom/mine + แท็บ) */
 const myTodoCount = async (userId: number) =>
-  Number(await scalar(`SELECT COUNT(*) FROM zoom_bookings z LEFT JOIN it_tickets tk ON tk.id = z.ticket_id WHERE z.user_id = ? AND ${TODO}`, [userId, ...upcomingParams()]));
+  Number(await scalar(`SELECT COUNT(*) FROM zoom_bookings z LEFT JOIN it_tickets tk ON tk.id = z.ticket_id WHERE z.user_id = ? AND ${TODO}`, [userId, ...upcomingParams(), ...upcomingParams()]));
 
 /** ฝ่าย IT: pending = รอรับงาน / accepted = รับงานแล้ว รอส่งลิงก์ / needs_change = รอผู้จองแก้วันเวลา / confirmed = ส่งลิงก์แล้ว (ยังไม่จบเวลา) */
 zoomRoutes.get("/zoom-bookings/manage", async (req, res) => {
@@ -486,8 +503,10 @@ zoomRoutes.post("/zoom-bookings/:uuid/link", async (req, res) => {
   await transaction(async () => {
     await lockStatus(req, z, [z.status]);
     const ticketId = await ensureTicket(req, z);
-    if (firstLink) await zoomTicketResulted(req, ticketId, Number(z.assignee_id ?? u.id), t(req, "eam.zoom.ticket_solution", { link }), t(req, "eam.zoom.ticket_comment"));
-    else await zoomTicketSolution(ticketId, t(req, "eam.zoom.ticket_solution", { link }));
+    // ลงใบแจ้งงาน: หัวข้อประชุม + วันเวลาประชุม (ไม่ใส่ลิงก์ — ลิงก์อยู่ที่หน้าการจอง ZOOM)
+    const solution = t(req, "eam.zoom.ticket_solution", { topic: text(data.meeting_topic) ?? z.title, when: meetingWhen(z, req.locale) });
+    if (firstLink) await zoomTicketResulted(req, ticketId, Number(z.assignee_id ?? u.id), solution, t(req, "eam.zoom.ticket_comment"));
+    else await zoomTicketSolution(ticketId, solution);
     await update(
       "zoom_bookings",
       {
@@ -498,6 +517,8 @@ zoomRoutes.post("/zoom-bookings/:uuid/link", async (req, res) => {
         passcode: text(data.passcode),
         zoom_account: accountOption?.name ?? account,
         ...(firstLink ? { status: "confirmed", confirmed_by: u.id, confirmed_at: now, ticket_id: ticketId, assignee_id: z.assignee_id ?? u.id } : {}),
+        // ลิงก์เปลี่ยน = ให้ผู้จองกดรับลิงก์ใหม่อีกครั้ง
+        link_received_at: null,
         updated_at: now,
       },
       "id = ?",
@@ -539,12 +560,40 @@ zoomRoutes.post("/zoom-bookings/:uuid/approve", async (req, res) => {
   const z = await findZoom(req);
   if (z.status !== "confirmed" || z.ticket_status !== "pending_it_head" || !z.ticket_id) throw ValidationError.withMessages({ status: t(req, "eam.zoom.status_changed") });
   await zoomTicketApprove(req, Number(z.ticket_id), u);
-  const after = await reload(Number(z.id));
   await audit(req, { action: "zoom_booking.head_approved", subjectType: "zoom_booking", subjectId: z.id, after: { ticket_id: Number(z.ticket_id) } });
   await markNoticesRead("zoom_booking_id", z.uuid, { events: ["head_requested"] });
-  await notifyOwner(u, after, "head_approved");
-  res.json({ data: json(after, u) });
+  // ผู้จองกดรับลิงก์ไปแล้ว = ไม่ต้องกดรับซ้ำ ปิดใบงานเลย / ยังไม่กด = แจ้งให้กดรับ
+  if (z.link_received_at) await acknowledgeTicket(req, (await reload(Number(z.id)))!, { id: Number(z.user_id) } as UserRow);
+  else await notifyOwner(u, await reload(Number(z.id)), "head_approved");
+  res.json({ data: json(await reload(Number(z.id)), u) });
 });
+
+/** ผู้จองกด "รับลิงก์ / คัดลอกลิงก์" หลังฝ่าย IT ส่งลิงก์ → บันทึกเวลา + แจ้งผู้รับงาน ครั้งแรกครั้งเดียว (กดซ้ำ = แค่คัดลอก) */
+zoomRoutes.post("/zoom-bookings/:uuid/received", async (req, res) => {
+  const u = me(req);
+  const z = await findZoom(req);
+  authorize(Number(z.user_id) === u.id);
+  if (z.status !== "confirmed" || !z.meeting_link) throw ValidationError.withMessages({ status: t(req, "eam.zoom.status_changed") });
+  if (!z.link_received_at) {
+    await update("zoom_bookings", { link_received_at: nowDb() }, "id = ? AND link_received_at IS NULL", [z.id]);
+    await audit(req, { action: "zoom_booking.link_received", subjectType: "zoom_booking", subjectId: z.id });
+    // แจ้งเตือน "ส่งลิงก์แล้ว / แก้ลิงก์" ของผู้จองจบหน้าที่
+    await markNoticesRead("zoom_booking_id", z.uuid, { userId: u.id, events: ["confirmed", "link_updated"] });
+    await notifyAssignee(u, z, "link_received");
+  }
+  // ผู้จัดการ IT อนุมัติแล้ว (รอผู้จองกดรับ) = กดรับครั้งนี้ปิดใบงานด้วย
+  if (z.ticket_status === "pending_requester" && z.ticket_id) await acknowledgeTicket(req, z, u);
+  res.json({ data: json(await reload(Number(z.id)), u) });
+});
+
+/** ผู้จองรับงาน = ปิดใบงาน (ใบงานรอผู้แจ้งกดรับ) + ไทม์ไลน์ + audit — ใช้กับปุ่มกดรับ และอนุมัติหลังผู้จองรับลิงก์แล้ว */
+async function acknowledgeTicket(req: Request, z: ZoomRow, by: Pick<UserRow, "id">) {
+  await zoomTicketConfirm(Number(z.ticket_id), by.id);
+  // กดรับงาน = รับลิงก์แล้วด้วย (ไม่ค้างใน "รอฉันจัดการ")
+  await update("zoom_bookings", { link_received_at: nowDb() }, "id = ? AND link_received_at IS NULL", [z.id]);
+  await audit(req, { action: "zoom_booking.acknowledged", subjectType: "zoom_booking", subjectId: z.id, after: { ticket_id: Number(z.ticket_id) } });
+  await markNoticesRead("zoom_booking_id", z.uuid, { events: ["head_approved"] });
+}
 
 /** ผู้จองกดรับ = ปิดใบงาน */
 zoomRoutes.post("/zoom-bookings/:uuid/acknowledge", async (req, res) => {
@@ -552,11 +601,8 @@ zoomRoutes.post("/zoom-bookings/:uuid/acknowledge", async (req, res) => {
   const z = await findZoom(req);
   authorize(Number(z.user_id) === u.id);
   if (z.status !== "confirmed" || z.ticket_status !== "pending_requester" || !z.ticket_id) throw ValidationError.withMessages({ status: t(req, "eam.zoom.status_changed") });
-  await zoomTicketConfirm(Number(z.ticket_id), u.id);
-  const after = await reload(Number(z.id));
-  await audit(req, { action: "zoom_booking.acknowledged", subjectType: "zoom_booking", subjectId: z.id, after: { ticket_id: Number(z.ticket_id) } });
-  await markNoticesRead("zoom_booking_id", z.uuid, { events: ["head_approved"] });
-  res.json({ data: json(after, u) });
+  await acknowledgeTicket(req, z, u);
+  res.json({ data: json(await reload(Number(z.id)), u) });
 });
 
 /**

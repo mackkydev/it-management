@@ -80,6 +80,15 @@ calendarRoutes.get("/calendar", async (req, res) => {
   res.json({ data: await calendarItems(u, { from, to, scope: chosen, branchId: chosen === "all" ? branchId : null, locale: req.locale, canManage: manages(u) }), meta: { scope: chosen } });
 });
 
+/** วันหยุดบริษัทในช่วง (ตามชุดวันหยุดของสาขาผู้ดู / branch_id ที่ส่งมา) — ปฏิทินทุกหน้าใช้ระบายสีพื้นวันหยุด */
+calendarRoutes.get("/calendar/days-off", async (req, res) => {
+  const { from, to, branchId } = await rangeOf(req);
+  const u = me(req);
+  const cal = await holidayCalendarFor(branchId ?? (u.branch_id ? Number(u.branch_id) : null));
+  const rows = await select<{ date: string; name: string }>("SELECT date, name FROM company_holidays WHERE calendar_id = ? AND date BETWEEN ? AND ? ORDER BY date", [cal, from, to]);
+  res.json({ data: rows.map((r) => ({ date: dateOnly(r.date)!, name: r.name })) });
+});
+
 calendarRoutes.get("/calendar/meta", async (req, res) => {
   const u = me(req);
   const max = await maxScope(u);

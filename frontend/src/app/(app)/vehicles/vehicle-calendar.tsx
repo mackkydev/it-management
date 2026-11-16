@@ -71,15 +71,15 @@ export function VehicleCalendar({ month: initialMonth, initialBookings, vehicles
           {monthTitle}
           {loading && <SpinnerIcon width={16} height={16} className="text-accent-400" />}
         </h2>
-        <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+        <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
           {vehicles.map((v) => (
             <span key={v.id} className="flex items-center gap-1.5">
-              <CarIcon width={14} height={14} className={`shrink-0 ${toneOf(vehicles, v.id).icon}`} aria-hidden="true" />
+              <CarIcon width="1.2em" height="1.2em" className={`shrink-0 ${toneOf(vehicles, v.id).icon}`} aria-hidden="true" />
               {v.name}
             </span>
           ))}
           <span className="flex items-center gap-1.5">
-            <CarIcon width={14} height={14} className={`shrink-0 ${IDLE_TONE.icon}`} aria-hidden="true" />
+            <CarIcon width="1.2em" height="1.2em" className={`shrink-0 ${IDLE_TONE.icon}`} aria-hidden="true" />
             {t("vehicle.unassigned")}
           </span>
         </div>

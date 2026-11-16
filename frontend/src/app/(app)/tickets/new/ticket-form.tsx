@@ -1,8 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { createTicket, updateTicket } from "@/app/actions/tickets";
+import { useEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { createTicket, lookupAssetNumber, searchAssetNumbers, updateTicket, type AssetMatch } from "@/app/actions/tickets";
+import { SuggestInput } from "@/components/suggest-input";
+
+/** ชื่อเครื่องที่เติมให้ช่องอุปกรณ์ = ชื่อ · ยี่ห้อ รุ่น */
+const matchLabel = (a: Pick<AssetMatch, "name" | "brand" | "model">) =>
+  [a.name, [a.brand, a.model].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
+import { PersonNameInput, type PersonName } from "./person-name-input";
 import { DateInput } from "@/components/date-input";
 import { DocumentPicker, PhotoPicker } from "@/components/file-pickers";
 import { AlertIcon, CheckCircleIcon, ClipboardIcon, PenIcon, SendIcon, SpinnerIcon, XIcon } from "@/components/icons";
@@ -14,6 +20,7 @@ import { has } from "@/lib/permissions";
 import { TICKET_TYPES, type ApprovalPlan, type TicketDetail, type TicketType, type User } from "@/lib/types";
 import { PlanView } from "../../approval-routes/plan-view";
 import { AppSelect } from "@/components/app-select";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { SignaturePad } from "@/components/signature-pad";
 
 export interface TicketFormOptions {
@@ -28,7 +35,8 @@ export interface TicketFormOptions {
   /** หัวข้อ "อื่นๆ" ที่เป็นการขอใช้ VPN (เลือกแล้วถามช่วงวันที่) */
   vpn_type?: string;
   /** สินทรัพย์ของผู้แจ้ง (ผู้ถือครอง / ชื่อผู้ใช้งานในทะเบียนคอมพิวเตอร์) — เลือกเครื่องที่ส่งซ่อม / ติดตั้ง */
-  my_assets: { id: string; asset_tag: string; name: string; brand: string | null; model: string | null; category: string }[];
+  /** สินทรัพย์ที่ผู้แจ้งถือครอง + เครื่องส่วนกลางของสาขาที่สังกัด (is_shared) */
+  my_assets: { id: string; asset_tag: string; name: string; brand: string | null; model: string | null; category: string; is_shared?: boolean }[];
   /** ขั้นตอนใบแจ้งงาน — it_first = ไม่ต้องอนุมัติ (ช่องผู้อนุมัติปิด) จนกว่า IT จะขอให้หัวหน้าอนุมัติ */
   approval_flow?: "approval_first" | "it_first";
 }
@@ -107,9 +115,10 @@ export function TicketForm({
     : selfApprove
       ? []
       : firstApprovers(plan);
-  const candidatesOf = (branchId: string) => options.approvers.filter((a) => String(a.branch_id) === branchId);
-  const pickApprover = (branchId: string) => {
-    const list = candidatesOf(branchId);
+  // รายชื่อจาก API = สาขาเดียวกับผู้แจ้ง + ตำแหน่งผู้จัดการขึ้นไป (approverCandidates) — ไม่ขึ้นกับสาขาที่เลือกในใบ
+  const approverOptions = options.approvers;
+  const pickApprover = () => {
+    const list = approverOptions;
     return String(preferredApprovers.find((p) => list.some((c) => c.id === p.id))?.id ?? "");
   };
   // 4.2.2 สาขา: เลือกให้อัตโนมัติจากสาขาที่ผู้ใช้สังกัด (ถ้าสาขานั้นยังเปิดใช้งาน)
@@ -122,7 +131,7 @@ export function TicketForm({
           branch_id: editing.branch ? String(editing.branch.id) : "",
           department: editing.department ?? "",
           division: editing.division ?? "",
-          approver_id: editing.branch ? pickApprover(String(editing.branch.id)) : "",
+          approver_id: pickApprover(),
           details: editing.details ?? "",
           due_date: editing.due_date ?? "",
           assignee_id: editing.assignee ? String(editing.assignee.id) : "",
@@ -139,7 +148,7 @@ export function TicketForm({
           branch_id: userBranch,
           department: user.department ?? "",
           division: user.division ?? "",
-          approver_id: userBranch ? pickApprover(userBranch) : "",
+          approver_id: pickApprover(),
           details: presetVpn ? vpnMock(localToday(), "") : "",
           due_date: "",
           assignee_id: "",
@@ -177,6 +186,36 @@ export function TicketForm({
     setV((s) => ({ ...s, asset_tag: a?.asset_tag ?? "", device_name: a ? assetLabel(a) : "" }));
     setErrors((e) => ({ ...e, asset_tag: "", device_name: "" }));
   };
+  // ติ๊ก "อุปกรณ์ไม่มีสินทรัพย์" — ไม่ต้องกรอกรหัสสินทรัพย์ (แก้ใบซ่อมเดิมที่ไม่มีเลข = ติ๊กไว้ให้)
+  const [noAsset, setNoAsset] = useState(() => Boolean(editing && (editing.type === "repair" || editing.type === "install") && !editing.asset_tag));
+  // พิมพ์รหัสสินทรัพย์เอง → ตรวจว่ามีในระบบไหม (มี = ดึงชื่อเครื่องมาแสดง / ไม่มี = แจ้งว่าฝ่าย IT จะเพิ่มให้)
+  const [assetCheck, setAssetCheck] = useState<{ tag: string; state: "checking" | "found" | "missing"; name?: string } | null>(null);
+  const autoName = useRef("");
+  const typedTag = showDevice && !useMine && !noAsset ? v.asset_tag.trim() : "";
+  useEffect(() => {
+    if (!typedTag) return;
+    let alive = true;
+    const timer = setTimeout(async () => {
+      setAssetCheck({ tag: typedTag, state: "checking" });
+      const found = await lookupAssetNumber(typedTag).catch(() => null);
+      if (!alive) return;
+      if (!found) {
+        setAssetCheck({ tag: typedTag, state: "missing" });
+        return;
+      }
+      const label = matchLabel(found);
+      setAssetCheck({ tag: typedTag, state: "found", name: label });
+      // เติมชื่อเครื่องเมื่อยังว่าง หรือยังเป็นชื่อที่ระบบเติมให้ครั้งก่อน (ไม่ทับที่ผู้แจ้งพิมพ์เอง)
+      setV((s) => (!s.device_name.trim() || s.device_name === autoName.current ? { ...s, device_name: label } : s));
+      setErrors((e) => ({ ...e, device_name: "" }));
+      autoName.current = label;
+    }, 450);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [typedTag]);
+  const shownCheck = assetCheck && assetCheck.tag === typedTag ? assetCheck : null;
 
   const set = (name: keyof typeof v, value: string) => {
     setV((s) => ({ ...s, [name]: value }));
@@ -200,18 +239,16 @@ export function TicketForm({
     setErrors((e) => ({ ...e, vpn_start_on: "", vpn_end_on: "", details: "" }));
   };
 
-  // สาขา → แผนก → ฝ่าย: เปลี่ยนสาขาแล้วผู้อนุมัติที่ไม่อยู่สาขาใหม่ถูกเลือกใหม่ตามสาย / ล้างแผนกแล้วล้างฝ่าย
+  // สาขา → แผนก → ฝ่าย: ผู้อนุมัติไม่เปลี่ยนตามสาขาที่เลือก (รายชื่อ = สาขาของผู้แจ้งเสมอ) / ล้างแผนกแล้วล้างฝ่าย
   const changeBranch = (branch: string) => {
-    const keep = candidatesOf(branch).some((c) => String(c.id) === v.approver_id);
-    setV((s) => ({ ...s, branch_id: branch, approver_id: keep ? s.approver_id : pickApprover(branch) }));
-    setErrors((e) => ({ ...e, branch_id: "", approver_id: "" }));
+    setV((s) => ({ ...s, branch_id: branch }));
+    setErrors((e) => ({ ...e, branch_id: "" }));
   };
   const changeDepartment = (department: string) => {
     setV((s) => ({ ...s, department, division: department ? s.division : "" }));
     setErrors((e) => ({ ...e, department: "" }));
   };
 
-  const approverOptions = candidatesOf(v.branch_id);
   const chosenApprover = approverOptions.find((a) => String(a.id) === v.approver_id);
   const selfPlan: ApprovalPlan = { source: "legacy", route: null, steps: [], legacy_approver: { id: user.id, name: user.name } };
   const shownPlan = selfApprove && !chosenApprover ? selfPlan : plan && withApprover(plan, chosenApprover);
@@ -225,6 +262,8 @@ export function TicketForm({
     if (needsPerson && !v.person_name_th.trim()) e.person_name_th = t("tickets.validate.nameTh");
     if (needsPerson && !v.person_name_en.trim()) e.person_name_en = t("tickets.validate.nameEn");
     if (isRepair && !v.device_name.trim()) e.device_name = t("tickets.validate.device");
+    // รหัสสินทรัพย์บังคับ (ซ่อม / ติดตั้ง) เว้นแต่ติ๊ก "อุปกรณ์ไม่มีสินทรัพย์" — ติ๊กสินทรัพย์ที่ถือครองแต่ยังไม่เลือกเครื่องก็ต้องเลือกก่อน
+    if (showDevice && !noAsset && !v.asset_tag.trim()) e.asset_tag = t("tickets.validate.assetTag");
     if (isRepair && !v.symptom.trim()) e.symptom = t("tickets.validate.symptom");
     if (isVpn && !v.vpn_start_on) e.vpn_start_on = t("tickets.vpn.validate.dates");
     if (needDrawn && !drawn) e.signature = t("signature.required");
@@ -259,7 +298,7 @@ export function TicketForm({
     }
     if (showDevice) {
       if (v.device_name.trim() || isRepair) fd.set("device_name", v.device_name.trim());
-      if (v.asset_tag.trim()) fd.set("asset_tag", v.asset_tag.trim());
+      if (v.asset_tag.trim() && !noAsset) fd.set("asset_tag", v.asset_tag.trim());
     }
     if (isRepair) fd.set("symptom", v.symptom.trim());
     if (isVpn) {
@@ -357,15 +396,17 @@ export function TicketForm({
                 t("tickets.form.otherType"),
                 <>
                   {/* เลือกจากรายการ หรือพิมพ์เรื่องใหม่เองได้ */}
-                  <input
-                    id="type_other"
-                    list="ticket-other-types"
-                    value={v.type_other}
-                    onChange={(e) => setTypeOther(e.target.value)}
-                    maxLength={255}
-                    placeholder={t("tickets.form.otherTypePlaceholder")}
-                    className={cls("type_other")}
-                  />
+                  <MasterDataSelect source="ticket_types">
+                    <input
+                      id="type_other"
+                      list="ticket-other-types"
+                      value={v.type_other}
+                      onChange={(e) => setTypeOther(e.target.value)}
+                      maxLength={255}
+                      placeholder={t("tickets.form.otherTypePlaceholder")}
+                      className={cls("type_other")}
+                    />
+                  </MasterDataSelect>
                   <datalist id="ticket-other-types">
                     {options.other_types.map((o) => (
                       <option key={o} value={o} />
@@ -419,52 +460,48 @@ export function TicketForm({
             {field(
               "branch_id",
               t("tickets.form.branch"),
-              <AppSelect id="branch_id" value={v.branch_id} onValueChange={changeBranch} className={cls("branch_id")}>
-                <option value="">{t("tickets.form.chooseBranch")}</option>
-                {options.branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </AppSelect>,
+              <MasterDataSelect source="branches">
+                <AppSelect id="branch_id" value={v.branch_id} onValueChange={changeBranch} className={cls("branch_id")}>
+                  <option value="">{t("tickets.form.chooseBranch")}</option>
+                  {options.branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>,
               true,
-              (user.branch_id || has(user, "branches.manage")) && (
-                <span className="flex flex-wrap items-center justify-between gap-2">
-                  <span>{user.branch_id ? t("tickets.form.branchAuto") : ""}</span>
-                  {/* ผู้มีสิทธิ์ branches.manage เพิ่ม/แก้ไข/ลบสาขาได้ที่ ข้อมูลหลัก → สาขา */}
-                  {has(user, "branches.manage") && (
-                    <Link href="/branches" className="cursor-pointer font-medium text-accent-600 hover:underline dark:text-accent-300">
-                      {t("tickets.form.manageBranches")}
-                    </Link>
-                  )}
-                </span>
-              ),
+              user.branch_id ? t("tickets.form.branchAuto") : undefined,
             )}
             {field(
               "department",
               t("tickets.form.department"),
-              <AppSelect id="department" value={v.department} onValueChange={changeDepartment} disabled={!v.branch_id} className={cls("department")}>
-                <option value="">{t("tickets.form.chooseDepartment")}</option>
-                {withCurrent(options.departments, v.department).map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </AppSelect>,
+              <MasterDataSelect source="departments">
+                <AppSelect id="department" value={v.department} onValueChange={changeDepartment} disabled={!v.branch_id} className={cls("department")}>
+                  <option value="">{t("tickets.form.chooseDepartment")}</option>
+                  {withCurrent(options.departments, v.department).map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>,
               false,
               !v.branch_id && t("tickets.form.branchFirst"),
             )}
             {field(
               "division",
               t("tickets.form.division"),
-              <AppSelect id="division" value={v.division} onValueChange={(d) => set("division", d)} disabled={!v.department} className={cls("division")}>
-                <option value="">{t("tickets.form.chooseDivision")}</option>
-                {withCurrent(options.divisions, v.division).map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </AppSelect>,
+              <MasterDataSelect source="divisions">
+                <AppSelect id="division" value={v.division} onValueChange={(d) => set("division", d)} disabled={!v.department} className={cls("division")}>
+                  <option value="">{t("tickets.form.chooseDivision")}</option>
+                  {withCurrent(options.divisions, v.division).map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>,
               false,
               !v.department && t("tickets.form.departmentFirst"),
             )}
@@ -475,7 +512,7 @@ export function TicketForm({
                 id="approver_id"
                 value={v.approver_id}
                 onValueChange={(a) => set("approver_id", a)}
-                disabled={noApproval || !v.branch_id || approverOptions.length === 0}
+                disabled={noApproval || approverOptions.length === 0}
                 className={cls("approver_id")}
               >
                 <option value="">
@@ -492,9 +529,7 @@ export function TicketForm({
                 ? t("tickets.form.approverNoneHint")
                 : choosingApprover
                   ? t("tickets.form.approverRequestedHint")
-                  : !v.branch_id
-                ? t("tickets.form.branchFirst")
-                : selfApprove
+                  : selfApprove
                   ? t("tickets.form.approverSelfHint")
                   : approverOptions.length === 0
                     ? t("tickets.form.noApprover")
@@ -516,8 +551,32 @@ export function TicketForm({
           <section className={`p-4 sm:p-6 ${card}`}>
             <h2 className="mb-3 font-semibold">{t("tickets.form.section11")}</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {field("person_name_th", t("tickets.form.nameTh"), text("person_name_th", { maxLength: 255 }), true)}
-              {field("person_name_en", t("tickets.form.nameEn"), text("person_name_en", { maxLength: 255, lang: "en" }), true)}
+              {(["th", "en"] as const).map((side) => {
+                const name = side === "th" ? "person_name_th" : "person_name_en";
+                // เลือกชื่อจากรายการฝั่งใดฝั่งหนึ่ง → เติมทั้งชื่อไทยและอังกฤษ (ฝั่งที่ไม่ทราบ = คงค่าเดิม)
+                const pickPerson = (p: PersonName) => {
+                  setV((s) => ({ ...s, person_name_th: p.th || s.person_name_th, person_name_en: p.en || s.person_name_en }));
+                  setErrors((e) => ({ ...e, ...(p.th ? { person_name_th: "" } : {}), ...(p.en ? { person_name_en: "" } : {}) }));
+                };
+                return (
+                  <div key={side}>
+                    {field(
+                      name,
+                      t(side === "th" ? "tickets.form.nameTh" : "tickets.form.nameEn"),
+                      <PersonNameInput
+                        id={name}
+                        side={side}
+                        value={v[name]}
+                        onChange={(value) => set(name, value)}
+                        onPick={pickPerson}
+                        className={cls(name)}
+                        lang={side === "en" ? "en" : undefined}
+                      />,
+                      true,
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}
@@ -527,45 +586,131 @@ export function TicketForm({
           <section className={`p-4 sm:p-6 ${card}`}>
             <h2 className="mb-3 font-semibold">{t(isRepair ? "tickets.form.section12" : "tickets.form.section12Install")}</h2>
             <div className="mb-4 space-y-2">
-              {myAssets.length > 0 ? (
+              {/* บรรทัดเดียวกัน: อุปกรณ์ไม่มีสินทรัพย์ (ลำดับแรก) · สินทรัพย์ของฉัน (ไม่มี = ข้อความแจ้ง) — เลือกได้อย่างใดอย่างหนึ่ง */}
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                 <label className="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium">
                   <input
                     type="checkbox"
-                    checked={useMine}
+                    checked={noAsset}
                     onChange={(e) => {
-                      setUseMine(e.target.checked);
-                      if (!e.target.checked) setV((s) => ({ ...s, asset_tag: "", device_name: "" }));
+                      setNoAsset(e.target.checked);
+                      if (e.target.checked) {
+                        if (useMine) setV((s) => ({ ...s, device_name: "" }));
+                        setUseMine(false);
+                        setV((s) => ({ ...s, asset_tag: "" }));
+                      }
+                      setErrors((x) => ({ ...x, asset_tag: "" }));
                     }}
                     className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
                   />
-                  {t("tickets.form.useMyAssets")}
-                  <span className="font-normal text-muted">{t("tickets.form.myAssetsCount", { count: fmt.number(myAssets.length) })}</span>
+                  {t("tickets.form.noAsset")}
                 </label>
-              ) : (
-                <p className="text-xs text-muted">{t("tickets.form.noMyAssets")}</p>
-              )}
+                {myAssets.length > 0 ? (
+                  <label className="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      checked={useMine}
+                      onChange={(e) => {
+                        setUseMine(e.target.checked);
+                        if (e.target.checked) setNoAsset(false);
+                        setV((s) => ({ ...s, asset_tag: "", device_name: "" }));
+                        setErrors((x) => ({ ...x, asset_tag: "", device_name: "" }));
+                      }}
+                      className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+                    />
+                    {t("tickets.form.useMyAssets")}
+                    <span className="font-normal text-muted">{t("tickets.form.myAssetsCount", { count: fmt.number(myAssets.length) })}</span>
+                  </label>
+                ) : (
+                  // ยังไม่มีเครื่องที่ถือครอง / เครื่องส่วนกลางของสาขา — ช่องติ๊กสีเทากดไม่ได้
+                  <label className="flex w-fit cursor-not-allowed items-center gap-2 text-sm text-faint">
+                    <input type="checkbox" disabled checked={false} readOnly className="h-4 w-4 cursor-not-allowed opacity-60" />
+                    {t("tickets.form.noMyAssets")}
+                  </label>
+                )}
+              </div>
+              {/* แยก 2 รายการ: เครื่องส่วนตัว (ถือครอง) / เครื่องส่วนกลางของสาขา — เลือกได้เครื่องเดียว (เลือกฝั่งหนึ่ง = อีกฝั่งว่าง) */}
               {useMine && (
-                <AppSelect value={v.asset_tag} onValueChange={pickAsset} className={`${input} sm:max-w-xl`} aria-label={t("tickets.form.chooseAsset")}>
-                  <option value="">{t("tickets.form.chooseAsset")}</option>
-                  {myAssets.map((a) => (
-                    <option key={a.id} value={a.asset_tag}>
-                      {`${a.asset_tag} — ${assetLabel(a)}`}
-                    </option>
-                  ))}
-                </AppSelect>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {([false, true] as const).map((shared) => {
+                    const list = myAssets.filter((a) => Boolean(a.is_shared) === shared);
+                    const selected = list.some((a) => a.asset_tag === v.asset_tag) ? v.asset_tag : "";
+                    const label = t(shared ? "tickets.form.sharedAssets" : "tickets.form.personalAssets");
+                    return (
+                      <div key={String(shared)}>
+                        <p className="mb-1 text-xs font-medium text-muted">
+                          {label} <span className="font-normal">{t("tickets.form.myAssetsCount", { count: fmt.number(list.length) })}</span>
+                        </p>
+                        <AppSelect value={selected} onValueChange={pickAsset} disabled={list.length === 0} className={`${input} disabled:cursor-not-allowed disabled:bg-subtle`} aria-label={label}>
+                          <option value="">{t(list.length ? "tickets.form.chooseAsset" : "tickets.form.noAssetsInList")}</option>
+                          {list.map((a) => (
+                            <option key={a.id} value={a.asset_tag}>
+                              {`${a.asset_tag} — ${assetLabel(a)}`}
+                            </option>
+                          ))}
+                        </AppSelect>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {field(
                 "device_name",
                 t(isRepair ? "tickets.form.device" : "tickets.form.deviceInstall"),
-                text("device_name", { maxLength: 255, readOnly: useMine, className: `${cls("device_name")} ${useMine ? "bg-subtle" : ""}` }),
-                isRepair,
+                // เลือกจากสินทรัพย์ที่ถือครอง = ระบบเติมให้ ไม่ต้องกรอก
+                text("device_name", { maxLength: 255, disabled: useMine, className: `${cls("device_name")} disabled:cursor-not-allowed disabled:bg-subtle disabled:text-muted` }),
+                isRepair && !useMine,
               )}
               {field(
                 "asset_tag",
                 t("tickets.form.assetTag"),
-                text("asset_tag", { maxLength: 50, readOnly: useMine, className: `${cls("asset_tag")} font-mono ${useMine ? "bg-subtle" : ""}` }),
+                useMine || noAsset ? (
+                  text("asset_tag", {
+                    maxLength: 50,
+                    disabled: true,
+                    className: `${cls("asset_tag")} font-mono disabled:cursor-not-allowed disabled:bg-subtle disabled:text-muted`,
+                  })
+                ) : (
+                  // พิมพ์แล้วแสดงสินทรัพย์ที่ตรง/เกี่ยวข้อง → เลือกแล้วเติมรหัส + อุปกรณ์ที่ส่งซ่อม (การตรวจ "พบในระบบ" ด้านล่างทำงานตามเดิม)
+                  <SuggestInput<AssetMatch>
+                    id="asset_tag"
+                    value={v.asset_tag}
+                    onChange={(value) => set("asset_tag", value)}
+                    load={async (q) =>
+                      (await searchAssetNumbers(q).catch(() => [])).map((a) => ({
+                        value: a.asset_tag,
+                        hint: [a.cpu_tag && a.cpu_tag !== a.asset_tag ? a.cpu_tag : "", matchLabel(a)].filter(Boolean).join(" · "),
+                        data: a,
+                      }))
+                    }
+                    onPick={(item) => {
+                      const label = item.data ? matchLabel(item.data) : "";
+                      autoName.current = label;
+                      setV((s) => ({ ...s, asset_tag: item.value, device_name: label || s.device_name }));
+                      setErrors((x) => ({ ...x, asset_tag: "", device_name: "" }));
+                    }}
+                    allowNew={false}
+                    maxLength={50}
+                    className={`${cls("asset_tag")} font-mono`}
+                  />
+                ),
+                !noAsset,
+                shownCheck &&
+                  (shownCheck.state === "checking" ? (
+                    t("tickets.form.assetChecking")
+                  ) : shownCheck.state === "found" ? (
+                    <span className="inline-flex items-center gap-1 text-success-600 dark:text-success-400">
+                      <CheckCircleIcon width={13} height={13} />
+                      {t("tickets.form.assetFound", { name: shownCheck.name ?? "" })}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-warning-700 dark:text-warning-300">
+                      <AlertIcon width={13} height={13} />
+                      {t("tickets.form.assetMissing")}
+                    </span>
+                  )),
               )}
               {isRepair && field(
                 "symptom",
@@ -644,13 +789,17 @@ export function TicketForm({
                 {t(user.signature_required ? "tickets.form.signatureDrawRequired" : "tickets.form.signatureDraw")}
                 {user.signature_required && <span className="text-red-500"> *</span>}
               </p>
-              <SignaturePad
-                invalid={Boolean(errors.signature)}
-                onChange={(s) => {
-                  setDrawn(s);
-                  if (s) setErrors((x) => ({ ...x, signature: undefined }));
-                }}
-              />
+              {/* กล่องวาดลายเซ็นขนาดพอดีลายเซ็น ไม่ต้องกว้างเต็มการ์ด */}
+              <div className="w-full max-w-md">
+                <SignaturePad
+                  saveToProfile
+                  invalid={Boolean(errors.signature)}
+                  onChange={(s) => {
+                    setDrawn(s);
+                    if (s) setErrors((x) => ({ ...x, signature: undefined }));
+                  }}
+                />
+              </div>
               {errors.signature && <p className="text-xs font-medium text-red-500">{errors.signature}</p>}
               <Link href="/profile" className="inline-flex cursor-pointer items-center gap-1 text-xs text-accent-700 hover:underline dark:text-accent-300">
                 <PenIcon width={14} height={14} />
