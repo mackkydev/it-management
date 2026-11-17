@@ -13,8 +13,10 @@ import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
-import type { FixedAsset, FixedAssetList, FixedAssetTab } from "@/lib/types";
+import { assetCategoryNames } from "@/lib/asset-categories";
+import { assetCategoryLabel, CATEGORIES, type FixedAsset, type FixedAssetList, type FixedAssetTab } from "@/lib/types";
 import { AutoLinkButton } from "./auto-link-button";
+import { CreateAssetsBar, FaSelectAllBox, FaSelectBox, FaSelectionProvider } from "./create-assets";
 import { LinkFixedAssetButton } from "./link-button";
 import { UnlinkAllButton } from "./unlink-all-button";
 
@@ -50,6 +52,13 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
   const res = await apiFetch<FixedAssetList>(`/fixed-assets?${query({ tab, page })}`);
   const { counts, options, last_sync: lastSync } = res.meta;
   const canLink = res.meta.can_link && access("btn:fixed-assets:link");
+  // เลือกหลายรายการที่ยังไม่ผูก → เพิ่มเข้าระบบสินทรัพย์ (สร้างใหม่ + ผูก)
+  const canCreate = res.meta.can_link && has(user, "assets.create") && access("btn:fixed-assets:create-assets");
+  const categories = canCreate
+    ? [...CATEGORIES, ...(await assetCategoryNames().catch(() => []))].map((c) => ({ value: c, label: assetCategoryLabel(t, c) }))
+    : [];
+  const selectable = canCreate ? res.data.filter((fa) => !fa.asset).map((fa) => ({ id: fa.id, fanum: fa.fanum })) : [];
+  const showLinkGroup = res.meta.can_link && (access("btn:fixed-assets:unlink-all") || access("btn:fixed-assets:auto-link"));
   const statusLabel = (s: string | null) => (s ? t(`fixedAssets.statuses.${s}` as MessageKey) : "—");
   const badge = (n: number) =>
     n > 0 && <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger-500 px-1.5 text-2xs font-semibold text-white">{n > 99 ? "99+" : n}</span>;
@@ -74,8 +83,13 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
         subtitle={t("fixedAssets.subtitle")}
         actions={
           <>
-            {res.meta.can_link && access("btn:fixed-assets:unlink-all") && <UnlinkAllButton />}
-            {res.meta.can_link && access("btn:fixed-assets:auto-link") && <AutoLinkButton />}
+            {/* ผูก / ยกเลิกการผูก = กลุ่มเดียวกัน */}
+            {showLinkGroup && (
+              <div role="group" aria-label={t("fixedAssets.linkActions")} className="flex flex-wrap items-center gap-1 rounded-xl bg-subtle p-1">
+                {access("btn:fixed-assets:auto-link") && <AutoLinkButton />}
+                {access("btn:fixed-assets:unlink-all") && <UnlinkAllButton />}
+              </div>
+            )}
             {access("btn:fixed-assets:export") && (
               <ConfirmDownload href={`/fixed-assets/export?${query({ tab })}`} className={btn.secondary}>
                 <DownloadIcon />
@@ -153,13 +167,18 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
       {res.data.length === 0 ? (
         <div className={`p-10 text-center text-muted ${card}`}>{lastSync ? t(`fixedAssets.empty.${tab}`) : t("fixedAssets.neverSynced")}</div>
       ) : (
-        <>
+        <FaSelectionProvider>
           {/* จอใหญ่: ตาราง */}
           {/* ทุกช่องอยู่บรรทัดเดียว — เกินความกว้างเลื่อนด้วยแถบเลื่อนแนวนอน (.scroll-x) */}
           <div className={`scroll-x hidden lg:block ${table.wrap}`}>
             <table className={table.table}>
               <thead className={table.head}>
                 <tr>
+                  {canCreate && (
+                    <th className={`${table.th} w-10`}>
+                      <FaSelectAllBox rows={selectable} />
+                    </th>
+                  )}
                   {/* ลำดับคอลัมน์ตามฟิลด์ Fixed assets info (ข้อ 3.27) */}
                   {HEAD_COLS.map((k) => (
                     <th key={k} className={`${table.th} whitespace-nowrap`}>
@@ -175,6 +194,7 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
               <tbody className={table.body}>
                 {res.data.map((fa) => (
                   <tr key={fa.id} className={table.row}>
+                    {canCreate && <td className={table.td}>{!fa.asset && <FaSelectBox id={fa.id} fanum={fa.fanum} />}</td>}
                     <td className={`${table.td} whitespace-nowrap`}>
                       {fa.site}
                       {fa.branch && <span className="text-xs text-muted"> · {fa.branch.name}</span>}
@@ -214,7 +234,12 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
             {res.data.map((fa) => (
               <li key={fa.id} className={`space-y-2 p-4 ${card}`}>
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  {canCreate && !fa.asset && (
+                    <span className="pt-0.5">
+                      <FaSelectBox id={fa.id} fanum={fa.fanum} />
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
                     <span className="font-mono text-xs text-accent-700 dark:text-accent-300">{fa.fanum}</span>
                     <span className="text-xs text-muted"> · {fa.site}{fa.branch ? ` (${fa.branch.name})` : ""}</span>
                     <p className="font-medium">{fa.description}</p>
@@ -248,7 +273,8 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
             ))}
           </ul>
           <Pagination meta={res.meta} href={(n: number) => `/fixed-assets?${query({ tab, page: String(n) })}`} />
-        </>
+          {canCreate && <CreateAssetsBar categories={categories} />}
+        </FaSelectionProvider>
       )}
     </div>
   );

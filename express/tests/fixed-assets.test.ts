@@ -176,3 +176,31 @@ describe("linking", () => {
     expect(ws.getRow(2).getCell(4).value).toBe("H-INSW-26002");
   });
 });
+
+describe("create assets from fixed assets", () => {
+  it("creates and links one asset per selected row, skipping linked / duplicate numbers", async () => {
+    const { ids } = await seed();
+    const dup = await fa({ fanum: "NB-01", description: "ซ้ำกับสินทรัพย์เดิม" });
+    const viewer = await as(await makeUser({ role: "viewer" }));
+    expect((await viewer.post("/api/v1/fixed-assets/create-assets").send({ ids: [ids.unlinked], category: "COMPUTER" })).status).toBe(403);
+
+    const admin = await as(await makeUser({ role: "admin" }));
+    expect((await admin.post("/api/v1/fixed-assets/create-assets").send({ ids: [], category: "COMPUTER" })).status).toBe(422);
+    expect((await admin.post("/api/v1/fixed-assets/create-assets").send({ ids: [ids.unlinked], category: "ไม่มีหมวดนี้" })).status).toBe(422);
+
+    const res = await admin
+      .post("/api/v1/fixed-assets/create-assets")
+      .send({ ids: [ids.unlinked, ids.disposedUnlinked, ids.linked, dup], category: "COMPUTER" });
+    expect(res.status).toBe(200);
+    expect(res.body.data.created).toBe(2);
+    expect(res.body.data.skipped.map((s: { reason: string }) => s.reason).sort()).toEqual(["exists", "linked"]);
+
+    const assetId = await scalar<number>("SELECT asset_id FROM fixed_assets WHERE id = ?", [ids.unlinked]);
+    expect(assetId).toBeTruthy();
+    expect(await scalar("SELECT link_source FROM fixed_assets WHERE id = ?", [ids.unlinked])).toBe("manual");
+    expect(await scalar("SELECT CONCAT(cpu_tag, '|', name, '|', serial_number, '|', category) FROM assets WHERE id = ?", [assetId])).toBe(
+      "H-INSW-26002|PDF5-Business|SN-001|COMPUTER",
+    );
+    expect(await scalar("SELECT asset_id FROM fixed_assets WHERE id = ?", [dup])).toBeNull();
+  });
+});

@@ -86,6 +86,8 @@ const eamTh = {
     time_invalid: "เวลาต้องเป็นรูปแบบ HH:MM",
     code_invalid: "รหัสใช้ได้เฉพาะ A-Z 0-9 _ - ไม่เกิน 20 ตัว",
     asset_not_found: "ไม่พบสินทรัพย์ที่เลือก",
+    select_rows: "เลือกรายการที่จะเพิ่มเข้าระบบอย่างน้อย 1 รายการ (ไม่เกิน :max รายการ)",
+    category_invalid: "เลือกหมวดหมู่สินทรัพย์",
   },
   contract: { notify_dates_max: "กำหนดวันที่แจ้งเตือนได้ไม่เกิน :max วัน", notify_date_after_end: "วันที่แจ้งเตือนต้องไม่เกินวันสิ้นสุดสัญญา" },
   repair_order: {
@@ -520,6 +522,8 @@ const eamEn: Eam = {
     time_invalid: "Time must be HH:MM",
     code_invalid: "Codes may contain only A-Z 0-9 _ -, up to 20 characters",
     asset_not_found: "The selected asset was not found",
+    select_rows: "Select 1 to :max rows to add to the system",
+    category_invalid: "Choose an asset category",
   },
   contract: { notify_dates_max: "You can set at most :max reminder dates.", notify_date_after_end: "Reminder dates must be on or before the contract end date." },
   repair_order: {

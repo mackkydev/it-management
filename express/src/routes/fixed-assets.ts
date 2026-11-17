@@ -1,13 +1,16 @@
+import { randomUUID } from "node:crypto";
 import ExcelJS from "exceljs";
 import { Router, type Request } from "express";
 import { config } from "../config.js";
-import { exec, first, isUuid, likeEscape, lockNamed, scalar, select, transaction, update } from "../db.js";
+import { exec, first, insert, isUuid, likeEscape, lockNamed, scalar, select, transaction, update } from "../db.js";
 import { me, pageParam, shortMeta } from "../http.js";
 import { authorize, HttpError, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
 import { iso, localToday, nowDb } from "../lib/time.js";
 import { bool } from "../lib/validator.js";
 import { can } from "../models/user.js";
+import { recordRegistration } from "../services/asset-movements.js";
+import { COMPUTER_CATEGORY } from "../services/asset-import.js";
 import { audit } from "../services/audit.js";
 import { FA_FROM, FA_TABS, faCount, type FaTab } from "../services/fixed-assets.js";
 import {
@@ -492,4 +495,83 @@ fixedAssetRoutes.put("/fixed-assets/:id/link", async (req, res) => {
     after: { fanum: row.fanum, asset_id: after.asset_uuid, link_source: after.link_source, at: nowDb() },
   });
   res.json({ data: faJson(after) });
+});
+
+const CREATE_MAX = 200;
+const ASSET_NO_RE = /^[A-Za-z0-9\-_/]+$/; // เดียวกับ asset_tag ของ routes/assets.ts
+
+/**
+ * เพิ่มเข้าระบบสินทรัพย์ทีละหลายรายการ (ยังไม่มีสินทรัพย์ให้ผูก) — POST /fixed-assets/create-assets { ids[], category }
+ * สิทธิ์ assets.create + fixed_assets.link; สร้าง 1 สินทรัพย์ต่อแถวแล้วผูกให้ (link_source manual)
+ * เลขที่ทรัพย์สิน = Fixed asset number (คอมพิวเตอร์: cpu_tag + Host Name ชั่วคราว = เลขเดียวกัน / หมวดอื่น: asset_tag),
+ * ชื่อ = Description, S/N = Serial, เลขเดิม (monitor_tag) = Manufacturer, สาขา = สาขาของ site, End user → หมายเหตุ
+ * ข้าม: ผูกแล้ว / เลขซ้ำสินทรัพย์ที่มีอยู่ (ให้ผูกแทน) / เลขมีอักขระที่ใช้ไม่ได้ — audit fixed_assets.assets_created
+ */
+fixedAssetRoutes.post("/fixed-assets/create-assets", async (req, res) => {
+  const u = me(req);
+  authorize(can(u, "fixed_assets.link") && can(u, "assets.create"));
+  const b = (req.body ?? {}) as { ids?: unknown; category?: unknown };
+  const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (ids.length === 0 || ids.length > CREATE_MAX) throw ValidationError.withMessages({ ids: trans(req.locale, "eam.fixed_asset.select_rows", { max: CREATE_MAX }) });
+  const category = typeof b.category === "string" ? b.category.trim() : "";
+  const known =
+    category === COMPUTER_CATEGORY ||
+    (category !== "" && (await scalar("SELECT 1 FROM dropdown_options WHERE list = 'asset_category' AND name = ? LIMIT 1", [category])) !== null);
+  if (!known) throw ValidationError.withMessages({ category: trans(req.locale, "eam.fixed_asset.category_invalid") });
+
+  const result = await transaction(async () => {
+    await lockNamed("fixed-asset-sync"); // ไม่ทับกับรอบซิงค์/ผูกอัตโนมัติ
+    const rows = await select<{ id: number; fanum: string; description: string | null; branch_id: number | null; asset_id: number | null; end_user: string | null; serial_no: string | null; mfg: string | null }>(
+      `SELECT f.id, f.fanum, f.description, f.branch_id, f.asset_id, ${SRC("enduser")} AS end_user, ${SRC("serial")} AS serial_no, ${SRC("mfg")} AS mfg
+       FROM fixed_assets f WHERE f.id IN (?) ORDER BY f.site, f.fanum FOR UPDATE`,
+      [ids],
+    );
+    const created: { id: number; fanum: string }[] = [];
+    const skipped: { id: number; fanum: string; reason: "linked" | "exists" | "invalid" }[] = [];
+    const now = nowDb();
+    for (const r of rows) {
+      const no = r.fanum.trim();
+      if (r.asset_id) {
+        skipped.push({ id: r.id, fanum: no, reason: "linked" });
+        continue;
+      }
+      if (!no || no.length > 50 || !ASSET_NO_RE.test(no)) {
+        skipped.push({ id: r.id, fanum: no, reason: "invalid" });
+        continue;
+      }
+      if ((await scalar("SELECT 1 FROM assets WHERE deleted_at IS NULL AND (asset_tag = ? OR cpu_tag = ?) LIMIT 1", [no, no])) !== null) {
+        skipped.push({ id: r.id, fanum: no, reason: "exists" });
+        continue;
+      }
+      const text = (v: string | null, max: number) => (v && v.trim() ? v.trim().slice(0, max) : null);
+      const endUser = text(r.end_user, 1000);
+      const assetId = await insert("assets", {
+        uuid: randomUUID(),
+        asset_tag: no,
+        cpu_tag: category === COMPUTER_CATEGORY ? no : null,
+        monitor_tag: text(r.mfg, 255),
+        name: text(r.description, 255) ?? no,
+        category,
+        serial_number: text(r.serial_no, 100),
+        status: "active",
+        branch_id: r.branch_id,
+        notes: endUser ? `SyteLine End user: ${endUser}` : null,
+        created_by: u.id,
+        updated_by: u.id,
+        created_at: now,
+        updated_at: now,
+      });
+      await recordRegistration(assetId, null, null, u.id, r.branch_id);
+      await update("fixed_assets", { asset_id: assetId, link_source: "manual", linked_by: u.id }, "id = ?", [r.id]);
+      created.push({ id: r.id, fanum: no });
+    }
+    return { created, skipped };
+  });
+  await audit(req, {
+    action: "fixed_assets.assets_created",
+    subjectType: "fixed_assets",
+    subjectId: "create",
+    after: { category, created: result.created.map((c) => c.fanum), skipped: result.skipped },
+  });
+  res.json({ data: { created: result.created.length, skipped: result.skipped } });
 });

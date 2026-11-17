@@ -82,6 +82,31 @@ export async function applyFixedAssetAutoLink(): Promise<ActionResult> {
   return { ok: true, message: t("fixedAssets.autoLink.done", { n: fmt.number(total) }) };
 }
 
+/** เพิ่ม Fixed Asset ที่เลือกเข้าระบบสินทรัพย์ (สร้างใหม่ + ผูก) — POST /fixed-assets/create-assets */
+export async function createAssetsFromFixedAssets(ids: number[], category: string): Promise<ActionResult> {
+  const { t, fmt } = await getI18n();
+  let created = 0;
+  let skipped: { fanum: string; reason: "linked" | "exists" | "invalid" }[] = [];
+  try {
+    ({ created, skipped } = (
+      await apiFetch<{ data: { created: number; skipped: typeof skipped } }>("/fixed-assets/create-assets", {
+        method: "POST",
+        body: JSON.stringify({ ids, category }),
+      })
+    ).data);
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath("/fixed-assets");
+  revalidatePath("/assets", "layout");
+  const parts = [t("fixedAssets.createAssets.done", { n: fmt.number(created) })];
+  if (skipped.length) {
+    const list = skipped.slice(0, 5).map((s) => `${s.fanum} (${t(`fixedAssets.createAssets.reasons.${s.reason}`)})`).join(", ");
+    parts.push(t("fixedAssets.createAssets.skipped", { n: fmt.number(skipped.length), list: skipped.length > 5 ? `${list} …` : list }));
+  }
+  return { ok: created > 0, message: parts.join("\n") };
+}
+
 /** ยกเลิกการผูกทั้งหมด (DELETE /fixed-assets/links) — ไม่ลบข้อมูลที่ซิงค์ */
 export async function unlinkAllFixedAssets(): Promise<ActionResult> {
   const { t, fmt } = await getI18n();
