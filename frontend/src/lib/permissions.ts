@@ -139,6 +139,8 @@ export const BUTTONS: { key: string; page: MessageKey; label: MessageKey; system
   { key: "btn:repair-orders:cancel", page: "nav.repairOrders", label: "permissions.buttons.repairOrderCancel", system: perm("repair_orders.manage") },
   { key: "btn:fixed-assets:export", page: "nav.fixedAssets", label: "permissions.buttons.fixedAssetExport", system: perm("fixed_assets.view") },
   { key: "btn:fixed-assets:link", page: "nav.fixedAssets", label: "permissions.buttons.fixedAssetLink", system: perm("fixed_assets.link") },
+  { key: "btn:fixed-assets:unlink-all", page: "nav.fixedAssets", label: "permissions.buttons.fixedAssetUnlinkAll", system: perm("fixed_assets.link") },
+  { key: "btn:fixed-assets:auto-link", page: "nav.fixedAssets", label: "permissions.buttons.fixedAssetAutoLink", system: perm("fixed_assets.link") },
   { key: "btn:users:create", page: "nav.users", label: "permissions.buttons.userCreate", system: perm("users.create") },
   { key: "btn:approval-routes:create", page: "nav.approvalRoutes", label: "permissions.buttons.approvalRouteCreate", system: perm("approval_routes.manage") },
   { key: "btn:audit-logs:export", page: "nav.auditLogs", label: "permissions.buttons.auditExport", system: perm("audit_logs.view") },

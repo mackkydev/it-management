@@ -7,7 +7,9 @@ import { StecError, stecConfigured, stecReport } from "./stec-client.js";
 
 /**
  * ซิงค์ Fixed Assets จาก STEC SyteLine API → fixed_assets (สำเนาอ่านอย่างเดียว ทางเดียว) — ดู docs/fixed-assets-sync.md
- * - ดึงรายงานค่าเสื่อม (มีทุกฟิลด์ของ Fixed Assets List) ทีละ site ตามลำดับ — ไม่ยิงพร้อมกัน ไม่กดดัน ERP
+ * - เรียก API เดียว: Fixed assets info (คู่มือ STEC SyteLine API ข้อ 3.27 — `/api/v1/reports/fainfo?pSite&fastat`)
+ *   ทีละ site ตามลำดับ — ไม่ยิงพร้อมกัน ไม่กดดัน ERP; ฟิลด์ site, sitename, fanum, fadesc, faclass, fadept, fastat, enduser, serial, mfg, recorddate
+ *   (ไม่มีราคาทุน/ค่าเสื่อม/วันที่ซื้อ/วันที่จำหน่าย — คอลัมน์เหล่านั้นเป็น NULL, แถวเต็มอยู่ใน source_data)
  * - upsert ตาม (site, fanum), แถวที่ไม่อยู่ในผล = missing_since (ไม่ลบ) — ยกเว้น site นั้นดึงไม่สำเร็จ / ได้ 0 แถว
  * - ผูกกับ assets อัตโนมัติด้วยเลขที่ทรัพย์สิน (asset_tag / cpu_tag / monitor_tag) — ไม่แตะแถวที่ผูก/ยกเลิกด้วยมือ (link_source = manual)
  * - ไม่เขียนทับข้อมูลใน assets
@@ -30,7 +32,8 @@ export interface FixedAssetSyncSettings {
   include_inactive: boolean;
   /** เวลาไทยที่ซิงค์อัตโนมัติวันละครั้ง */
   time: string;
-  paths: { depreciation: string; classdept: string };
+  /** path ของ Fixed assets info (ข้อ 3.27) */
+  paths: { info: string };
 }
 
 export const SYNC_DEFAULTS: FixedAssetSyncSettings = {
@@ -40,19 +43,43 @@ export const SYNC_DEFAULTS: FixedAssetSyncSettings = {
   classes: [],
   include_inactive: false,
   time: "02:00",
-  // path ตามคู่มือ STEC SyteLine API Rev 4.6 ข้อ 3.17–3.18
-  paths: { depreciation: "/api/v1/reports/facurrentdepreciation", classdept: "/api/v1/reports/faclassdeptlist" },
+  // path ตามคู่มือ STEC SyteLine API ข้อ 3.27 Fixed assets info
+  paths: { info: "/api/v1/reports/fainfo" },
 };
 
 export async function syncSettings(): Promise<FixedAssetSyncSettings> {
   const stored = ((await allSettings())[SETTING_KEY] ?? {}) as Partial<FixedAssetSyncSettings>;
-  return { ...SYNC_DEFAULTS, ...stored, paths: { ...SYNC_DEFAULTS.paths, ...(stored.paths ?? {}) } };
+  // ค่าเดิมเก็บ paths.depreciation / classdept (รายงานค่าเสื่อม) — ไม่ใช้แล้ว เหลือ info อย่างเดียว
+  const info = typeof stored.paths?.info === "string" ? stored.paths.info : SYNC_DEFAULTS.paths.info;
+  return { ...SYNC_DEFAULTS, ...stored, paths: { info } };
 }
 
 export const saveSyncSettings = (v: FixedAssetSyncSettings, userId: number | null) => putSetting(SETTING_KEY, v, userId);
 
-/** พร้อมซิงค์ = มีค่าใน .env + path รายงานค่าเสื่อม */
-export const syncReady = (s: FixedAssetSyncSettings) => stecConfigured() && Boolean(s.paths.depreciation);
+/**
+ * รหัสแผนก (fadept) / หมวดสินทรัพย์ (faclass) ที่พบในต้นทางรอบซิงค์ล่าสุด — นับก่อนกรองตามขอบเขต
+ * ให้หน้าตั้งค่าแสดงเป็นตัวเลือก (จำนวน = รายการทุกสาขาที่ดึงสำเร็จ)
+ */
+export const SOURCE_CODES_KEY = "fixed_asset_source_codes";
+export interface SourceCodes {
+  at: string;
+  departments: Record<string, number>;
+  classes: Record<string, number>;
+}
+type CodeCounter = { departments: Map<string, number>; classes: Map<string, number> };
+const countCode = (m: Map<string, number>, v: unknown) => {
+  const code = String(v ?? "").trim().toUpperCase().slice(0, 20);
+  if (code) m.set(code, (m.get(code) ?? 0) + 1);
+};
+const sorted = (m: Map<string, number>) => Object.fromEntries([...m].sort(([a], [b]) => a.localeCompare(b)));
+
+export async function sourceCodes(): Promise<SourceCodes | null> {
+  const v = (await allSettings())[SOURCE_CODES_KEY] as SourceCodes | undefined;
+  return v && typeof v === "object" && v.departments && v.classes ? v : null;
+}
+
+/** พร้อมซิงค์ = มีค่าใน .env + path ของ Fixed assets info */
+export const syncReady = (s: FixedAssetSyncSettings) => stecConfigured() && Boolean(s.paths.info);
 
 /* ---------------------------------------------------------------- แปลงแถว */
 
@@ -138,7 +165,6 @@ export interface SiteStats {
   updated: number;
   unchanged: number;
   missing: number;
-  classdepts?: number;
   error?: string;
 }
 
@@ -184,15 +210,14 @@ async function branchMap(): Promise<Map<string, number>> {
   return map;
 }
 
-async function syncSite(site: string, s: FixedAssetSyncSettings, branchId: number | null, asOf: string): Promise<SiteStats> {
+async function syncSite(site: string, s: FixedAssetSyncSettings, branchId: number | null, asOf: string, codes: CodeCounter): Promise<SiteStats> {
   const stats: SiteStats = { fetched: 0, inserted: 0, updated: 0, unchanged: 0, missing: 0 };
-  const rows = await stecReport(s.paths.depreciation, {
-    period: asOf,
-    fatype: "LR",
-    fastat: s.include_inactive ? "ADI" : "AD",
-    pSite: site,
-  });
+  const rows = await stecReport(s.paths.info, { pSite: site, fastat: s.include_inactive ? "ADI" : "AD" });
   stats.fetched = rows.length;
+  for (const r of rows) {
+    countCode(codes.departments, r.fadept);
+    countCode(codes.classes, r.faclass);
+  }
 
   const depts = new Set(s.departments.map((d) => d.toUpperCase()));
   const classes = new Set(s.classes.map((c) => c.toUpperCase()));
@@ -242,39 +267,68 @@ async function syncSite(site: string, s: FixedAssetSyncSettings, branchId: numbe
     }
   });
 
-  // รหัสหมวด-แผนก — ไม่สำเร็จไม่ทำให้ site นี้ล้ม
-  if (s.paths.classdept) {
-    try {
-      const cds = await stecReport(s.paths.classdept, { pSite: site });
-      const values = cds
-        .map((r) => [site, text(r.classdept, 30), text(r.deptdesc, 255), now] as const)
-        .filter((v) => v[1]);
-      for (let i = 0; i < values.length; i += 200) {
-        const chunk = values.slice(i, i + 200);
-        await exec(
-          `INSERT INTO fixed_asset_classdepts (site, class_dept, description, synced_at) VALUES ${chunk.map(() => "(?, ?, ?, ?)").join(", ")} AS new ON DUPLICATE KEY UPDATE description = new.description, synced_at = new.synced_at`,
-          chunk.flat(),
-        );
-      }
-      stats.classdepts = values.length;
-    } catch {
-      stats.classdepts = -1;
-    }
-  }
   return stats;
 }
 
-/** ผูกอัตโนมัติ: เลขที่ทรัพย์สินตรง asset_tag → cpu_tag → monitor_tag (กติกาเดียวกับ assetIdByNumber) */
+/**
+ * กติกาผูกอัตโนมัติ (ตามลำดับ) — เฉพาะแถวที่ยังไม่ผูก และไม่เคยผูก/ยกเลิกด้วยมือ (link_source IS NULL)
+ *   number     = Fixed asset number (fanum) ตรง "เลขที่ทรัพย์สิน" ของสินทรัพย์ (cpu_tag ของคอมพิวเตอร์ / asset_tag หมวดอื่น)
+ *   old_number = Manufacturer (mfg) ตรง "เลขที่ทรัพย์สิน (เดิม)" ของสินทรัพย์ (monitor_tag)
+ * ผูกเฉพาะเมื่อตรงสินทรัพย์ได้เครื่องเดียว — ตรงหลายเครื่อง = ข้าม (conflicts) ให้ผูกด้วยมือ
+ * 1 สินทรัพย์ผูกได้หลาย Fixed Asset (เช่น ตัวเครื่อง + จอ)
+ */
+export type LinkRule = "number" | "old_number";
+export interface LinkPlan {
+  links: { id: number; asset_id: number; rule: LinkRule }[];
+  by_rule: Record<LinkRule, number>;
+  conflicts: number;
+}
+
+const OLD_NUMBER = `NULLIF(TRIM(f.source_data->>'$.mfg'), 'null')`;
+
+export async function autoLinkPlan(): Promise<LinkPlan> {
+  const rows = await select<{ id: number; asset_id: number; rule: LinkRule }>(
+    `SELECT f.id, x.id AS asset_id, 'number' AS rule
+       FROM fixed_assets f JOIN assets x ON x.deleted_at IS NULL AND (x.cpu_tag = f.fanum OR x.asset_tag = f.fanum)
+      WHERE f.asset_id IS NULL AND f.link_source IS NULL
+     UNION
+     SELECT f.id, x.id, 'old_number'
+       FROM fixed_assets f JOIN assets x ON x.deleted_at IS NULL AND x.monitor_tag = ${OLD_NUMBER}
+      WHERE f.asset_id IS NULL AND f.link_source IS NULL AND ${OLD_NUMBER} IS NOT NULL`,
+  );
+  const found = new Map<number, Record<LinkRule, Set<number>>>();
+  for (const r of rows) {
+    const e = found.get(Number(r.id)) ?? { number: new Set<number>(), old_number: new Set<number>() };
+    e[r.rule].add(Number(r.asset_id));
+    found.set(Number(r.id), e);
+  }
+  const plan: LinkPlan = { links: [], by_rule: { number: 0, old_number: 0 }, conflicts: 0 };
+  for (const [id, e] of found) {
+    // กติกาแรกที่พบ — เลขที่ทรัพย์สินมาก่อนเลขเดิม
+    const rule: LinkRule = e.number.size ? "number" : "old_number";
+    const hits = e[rule];
+    if (hits.size !== 1) {
+      plan.conflicts++;
+      continue;
+    }
+    plan.links.push({ id, asset_id: [...hits][0], rule });
+    plan.by_rule[rule]++;
+  }
+  return plan;
+}
+
+/** ผูกตามแผน (ตอนซิงค์ / ปุ่ม "ผูกตามเลขที่ทรัพย์สิน") — คืน แผนที่ทำจริง */
+export async function applyAutoLink(): Promise<LinkPlan> {
+  const plan = await autoLinkPlan();
+  for (const l of plan.links) {
+    await exec("UPDATE fixed_assets SET asset_id = ?, link_source = 'auto' WHERE id = ? AND asset_id IS NULL AND link_source IS NULL", [l.asset_id, l.id]);
+  }
+  return plan;
+}
+
+/** จำนวนที่ผูกได้ (ใช้ในรอบซิงค์) */
 export async function autoLink(): Promise<number> {
-  const match = `x.deleted_at IS NULL AND (x.asset_tag = f.fanum OR x.cpu_tag = f.fanum OR x.monitor_tag = f.fanum)`;
-  return (
-    await exec(
-      `UPDATE fixed_assets f
-          SET f.asset_id = (SELECT x.id FROM assets x WHERE ${match} ORDER BY x.asset_tag = f.fanum DESC, x.cpu_tag = f.fanum DESC, x.id LIMIT 1),
-              f.link_source = 'auto'
-        WHERE f.asset_id IS NULL AND f.link_source IS NULL AND EXISTS (SELECT 1 FROM assets x WHERE ${match})`,
-    )
-  ).rowCount;
+  return (await applyAutoLink()).links.length;
 }
 
 /** รันการซิงค์ทั้งรอบ (รอจนเสร็จ) — runId จาก startRun() */
@@ -287,9 +341,10 @@ export async function runSync(runId: number): Promise<SyncResult> {
     if (!syncReady(s)) throw new SyncNotReadyError("not_configured");
     const branches = await branchMap();
     const asOf = localToday(config.localTimezone);
+    const codes: CodeCounter = { departments: new Map(), classes: new Map() };
     for (const site of s.sites) {
       try {
-        stats[site] = await syncSite(site, s, branches.get(site) ?? null, asOf);
+        stats[site] = await syncSite(site, s, branches.get(site) ?? null, asOf, codes);
       } catch (e) {
         stats[site] = { fetched: 0, inserted: 0, updated: 0, unchanged: 0, missing: 0, error: errorText(e) };
         // บัญชี/การเชื่อมต่อใช้ไม่ได้ = site อื่นก็ไม่ได้ — หยุดทั้งรอบ
@@ -300,6 +355,11 @@ export async function runSync(runId: number): Promise<SyncResult> {
       }
     }
     if (!fatal) linked = await autoLink();
+    // ได้ข้อมูลอย่างน้อยหนึ่งสาขา = เก็บรหัสที่พบไว้เป็นตัวเลือก (ไม่สำเร็จเลย = คงชุดเดิม)
+    if (codes.departments.size || codes.classes.size) {
+      const v: SourceCodes = { at: new Date().toISOString(), departments: sorted(codes.departments), classes: sorted(codes.classes) };
+      await putSetting(SOURCE_CODES_KEY, v, null);
+    }
   } catch (e) {
     fatal = errorText(e);
   }

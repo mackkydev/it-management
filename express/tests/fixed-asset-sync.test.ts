@@ -4,6 +4,7 @@ import {
   autoLink,
   runSync,
   saveSyncSettings,
+  sourceCodes,
   startRun,
   SYNC_DEFAULTS,
   syncFixedAssetsIfDue,
@@ -17,13 +18,11 @@ import { as, makeAsset, makeBranch, makeUser } from "./helpers.js";
 /**
  * ซิงค์ Fixed Assets จาก STEC SyteLine API (upstream จำลอง — ห้ามออกเน็ต)
  *   POST /api/v1/auth/login → { token, expiresAt }
- *   GET  <paths.depreciation>?period&fatype&fastat&pSite → { recordsets: [[row...]] }
- *   GET  <paths.classdept>?pSite                          → { recordsets: [[{ classdept, deptdesc }]] }
+ *   GET  <paths.info>?pSite&fastat → { recordsets: [[row...]] }  (ข้อ 3.27 Fixed assets info — API เดียวที่เรียก)
  */
 
-// path ตามคู่มือ STEC SyteLine API Rev 4.6 ข้อ 3.17–3.18
-const DEP = "/api/v1/reports/facurrentdepreciation";
-const CD = "/api/v1/reports/faclassdeptlist";
+// path ตามคู่มือ STEC SyteLine API ข้อ 3.27 Fixed assets info
+const INFO = "/api/v1/reports/fainfo";
 const PASSWORD = "svc-pass";
 
 type Call = { method: string; path: string; query: Record<string, string>; auth?: string };
@@ -35,25 +34,14 @@ let revoked = new Set<string>();
 const row = (site: string, fanum: string, extra: Record<string, unknown> = {}) => ({
   site,
   sitename: site === "HO" ? "สำนักงานใหญ่" : `สาขา ${site}`,
-  faclass: "OFFI",
-  fadept: "IT",
-  fatype: "Regular",
   fanum,
   fadesc: `เครื่อง ${fanum}`,
-  acqdate: "2024-04-12T00:00:00.000Z",
-  deprstartdate: "2024-04-12T00:00:00.000Z",
-  acqcost: 25000,
-  accumdepr: 1000,
-  nbv: 24000,
-  salvage: 1,
-  deprperiod: 100,
-  deprytd: 800,
-  deprmethod: "SLDAYS",
-  deprrate: 20,
-  usefullife: 5,
-  disposaldate: null,
-  falocation: null,
+  faclass: "OFFI",
+  fadept: "IT",
   fastat: "Active",
+  enduser: "ส่วนกลาง",
+  serial: null,
+  mfg: "16007-CO4401",
   recorddate: "2025-02-09T14:08:53.280Z",
   ...extra,
 });
@@ -62,7 +50,7 @@ const settings = (over: Partial<FixedAssetSyncSettings> = {}): FixedAssetSyncSet
   ...SYNC_DEFAULTS,
   sites: ["HO", "BR"],
   departments: ["IT"],
-  paths: { depreciation: DEP, classdept: CD },
+  paths: { info: INFO },
   ...over,
 });
 
@@ -96,12 +84,11 @@ beforeEach(() => {
       if (url.pathname === "/health") return reply(200, { status: "ok" });
       if (!authed) return reply(401, {});
       if (url.pathname === "/api/v1/auth/permissions") return reply(200, { appIds: [41, 42], loadedAt: "", cacheExpiresAt: "" });
-      if (url.pathname === DEP) {
+      if (url.pathname === INFO) {
         const r = reports[query.pSite];
         if (typeof r === "number") return reply(r, { error: { code: "REPORT_LIMIT_EXCEEDED", requestId: "req-123" } });
         return reply(200, { recordsets: [r ?? []] });
       }
-      if (url.pathname === CD) return reply(200, { recordsets: [[{ site: query.pSite, sitename: "", classdept: "OFFI-IT", deptdesc: "Information Technology" }]] });
       return reply(404);
     },
   });
@@ -121,30 +108,46 @@ describe("fixed asset sync", () => {
 
     const r = await sync();
     expect(r.status).toBe("ok");
-    expect(r.stats.HO).toMatchObject({ fetched: 3, inserted: 2, updated: 0, missing: 0, classdepts: 1 });
+    expect(r.stats.HO).toMatchObject({ fetched: 3, inserted: 2, updated: 0, missing: 0 });
     expect(r.stats.BR).toMatchObject({ fetched: 1, inserted: 1 });
     expect(r.linked).toBe(1);
 
     // แผนก HM ไม่อยู่ในขอบเขต
     expect(await fa("H-VEHI-01001")).toBeNull();
     const a = await fa("H-OFCO-26001");
-    expect(a).toMatchObject({ site: "HO", fa_class: "OFFI", fa_dept: "IT", fa_status: "Active", acquired_on: "2024-04-12", link_source: "auto", missing_since: null });
+    expect(a).toMatchObject({ site: "HO", fa_class: "OFFI", fa_dept: "IT", fa_status: "Active", acquired_on: null, acq_cost: null, link_source: "auto", missing_since: null });
     expect(Number(a!.branch_id)).toBe(ho);
     expect(Number(a!.asset_id)).toBe(asset.id);
-    expect(Number(a!.acq_cost)).toBe(25000);
+    expect(typeof a!.source_data === "string" ? JSON.parse(a!.source_data) : a!.source_data).toMatchObject({ enduser: "ส่วนกลาง", mfg: "16007-CO4401" });
     expect(a!.source_recorded_at).toBe("2025-02-09 14:08:53");
     expect((await fa("B-OFCO-25001"))!.branch_id).toBeNull(); // ไม่มีสาขารหัส BR
 
     // query ตามที่ portal ส่ง
-    const dep = calls.find((c) => c.path === DEP && c.query.pSite === "HO")!;
-    expect(dep.query).toMatchObject({ fatype: "LR", fastat: "AD" });
-    expect(dep.query.period).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const info = calls.find((c) => c.path === INFO && c.query.pSite === "HO")!;
+    expect(info.query).toEqual({ pSite: "HO", fastat: "AD" });
+    // เรียก API เดียว (+ login)
+    expect(new Set(calls.map((c) => c.path))).toEqual(new Set(["/api/v1/auth/login", INFO]));
     expect(calls.filter((c) => c.path === "/api/v1/auth/login")).toHaveLength(1); // token ใช้ซ้ำ
-    expect(await scalar("SELECT COUNT(*) FROM fixed_asset_classdepts")).toBe(2);
 
     const run = await first<{ status: string; finished_at: string | null }>("SELECT status, finished_at FROM fixed_asset_sync_runs WHERE id = ?", [r.run_id]);
     expect(run).toMatchObject({ status: "ok" });
     expect(run!.finished_at).not.toBeNull();
+  });
+
+  it("remembers department and class codes seen at the source, before filtering", async () => {
+    await saveSyncSettings(settings(), null);
+    expect(await sourceCodes()).toBeNull();
+    await sync();
+    // HM / VEHI ถูกกรองออก แต่ยังเป็นตัวเลือกได้; นับทุกสาขาที่ดึงสำเร็จ
+    expect(await sourceCodes()).toMatchObject({ departments: { HM: 1, IT: 3 }, classes: { INTA: 1, OFFI: 2, VEHI: 1 } });
+
+    // ไม่สำเร็จเลย = คงชุดเดิม
+    reports = { HO: 503, BR: 503 };
+    await sync();
+    expect((await sourceCodes())!.departments).toEqual({ HM: 1, IT: 3 });
+
+    const api = await as(await makeUser({ role: "super_admin" }));
+    expect((await api.get("/api/v1/fixed-assets/settings")).body.data.source_codes.classes).toEqual({ INTA: 1, OFFI: 2, VEHI: 1 });
   });
 
   it("filters by asset class when classes are selected", async () => {
@@ -154,16 +157,14 @@ describe("fixed asset sync", () => {
     expect((await select<{ fanum: string }>("SELECT fanum FROM fixed_assets ORDER BY fanum")).map((x) => x.fanum)).toEqual(["H-INSW-26002"]);
   });
 
-  it("detects changes, ignores monthly depreciation, marks missing rows and clears them when they return", async () => {
+  it("detects changes, marks missing rows and clears them when they return", async () => {
     await saveSyncSettings(settings({ sites: ["HO"] }), null);
     await sync();
 
-    // ค่าเสื่อมรายงวดเปลี่ยน = ไม่นับเป็นข้อมูลเปลี่ยน แต่ตัวเลขอัปเดต
-    reports.HO = [row("HO", "H-OFCO-26001", { accumdepr: 2000, nbv: 23000 }), row("HO", "H-INSW-26002", { faclass: "INTA", fastat: "Disposed", disposaldate: "2026-10-01T00:00:00.000Z" })];
+    reports.HO = [row("HO", "H-OFCO-26001"), row("HO", "H-INSW-26002", { faclass: "INTA", fastat: "Disposed" })];
     const r2 = await sync();
     expect(r2.stats.HO).toMatchObject({ fetched: 2, inserted: 0, updated: 1, unchanged: 1, missing: 0 });
-    expect(Number((await fa("H-OFCO-26001"))!.nbv)).toBe(23000);
-    expect(await fa("H-INSW-26002")).toMatchObject({ fa_status: "Disposed", disposed_on: "2026-10-01" });
+    expect(await fa("H-INSW-26002")).toMatchObject({ fa_status: "Disposed" });
 
     // หายจากต้นทาง → missing (ไม่ลบ) → กลับมา = ล้าง
     reports.HO = [row("HO", "H-OFCO-26001")];
@@ -258,14 +259,96 @@ describe("fixed asset routes", () => {
     expect(g.body.data.connection).toEqual({ configured: true, host: "stec.example.com", username: "it-system", has_password: true });
     expect(JSON.stringify(g.body)).not.toContain(PASSWORD);
 
-    const bad = await api.put("/api/v1/fixed-assets/settings").send({ sites: ["HO!"], classes: ["OF FI"], time: "25:00", paths: { depreciation: "reports" } });
+    const bad = await api.put("/api/v1/fixed-assets/settings").send({ sites: ["HO!"], classes: ["OF FI"], time: "25:00", paths: { info: "reports" } });
     expect(bad.status).toBe(422);
-    expect(Object.keys(bad.body.errors).sort()).toEqual(["classes", "paths.depreciation", "sites", "time"]);
+    expect(Object.keys(bad.body.errors).sort()).toEqual(["classes", "paths.info", "sites", "time"]);
 
-    const ok = await api.put("/api/v1/fixed-assets/settings").send({ enabled: true, sites: ["ho", "BR", "HO"], departments: ["it"], classes: ["offi", "INTA"], time: "02:30", paths: { depreciation: DEP, classdept: "" } });
+    const ok = await api.put("/api/v1/fixed-assets/settings").send({ enabled: true, sites: ["ho", "BR", "HO"], departments: ["it"], classes: ["offi", "INTA"], time: "02:30", paths: { info: INFO } });
     expect(ok.status).toBe(200);
     expect(ok.body.data).toMatchObject({ enabled: true, sites: ["HO", "BR"], departments: ["IT"], classes: ["OFFI", "INTA"], time: "02:30", ready: true });
     expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'settings.fixed_asset_sync'")).toBe(1);
+  });
+
+  it("link button: number → asset number, Manufacturer → old asset number, unique matches only", async () => {
+    reports = {
+      HO: [
+        row("HO", "H-OFCO-26001", { mfg: "OLD-1" }), // เลขที่ทรัพย์สินตรง (มาก่อนเลขเดิม)
+        row("HO", "H-OFCO-26002", { mfg: "OLD-2" }), // Manufacturer ตรงเลขเดิม
+        row("HO", "H-OFCO-26003", { mfg: "OLD-3" }), // เลขเดิมตรง 2 เครื่อง = ข้าม
+        row("HO", "H-OFCO-26004", { mfg: null }), // ไม่ตรงอะไร
+      ],
+    };
+    await saveSyncSettings(settings({ sites: ["HO"], enabled: false }), null);
+    // ซิงค์ก่อนมีสินทรัพย์ = ยังไม่ผูก
+    await sync();
+    expect(await scalar("SELECT COUNT(asset_id) FROM fixed_assets")).toBe(0);
+
+    const pc1 = await makeAsset({ cpu_tag: "H-OFCO-26001", monitor_tag: "OLD-2" });
+    const pc2 = await makeAsset({ cpu_tag: "X-1", monitor_tag: "OLD-2X" });
+    await makeAsset({ monitor_tag: "OLD-3" });
+    await makeAsset({ monitor_tag: "OLD-3" });
+
+    const viewer = await as(await makeUser({ role: "viewer" }));
+    expect((await viewer.get("/api/v1/fixed-assets/auto-link")).status).toBe(403);
+
+    const admin = await as(await makeUser({ role: "admin" }));
+    const preview = await admin.get("/api/v1/fixed-assets/auto-link");
+    expect(preview.body.data).toEqual({ total: 2, by_rule: { number: 1, old_number: 1 }, conflicts: 1, linked: 0, manual: 0 });
+    expect(await scalar("SELECT COUNT(asset_id) FROM fixed_assets")).toBe(0); // GET ไม่เขียน
+
+    const done = await admin.post("/api/v1/fixed-assets/auto-link");
+    expect(done.body.data).toEqual({ total: 2, by_rule: { number: 1, old_number: 1 }, conflicts: 1 });
+    expect(Number((await fa("H-OFCO-26001"))!.asset_id)).toBe(pc1.id);
+    expect(Number((await fa("H-OFCO-26002"))!.asset_id)).toBe(pc1.id); // 1 เครื่องผูกได้หลายรายการ
+    expect((await fa("H-OFCO-26003"))!.asset_id).toBeNull();
+    expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'fixed_assets.auto_linked'")).toBe(1);
+    expect(pc2.id).toBeGreaterThan(0);
+
+    // กดซ้ำ = ไม่มีอะไรเพิ่ม
+    expect((await admin.post("/api/v1/fixed-assets/auto-link")).body.data.total).toBe(0);
+
+    // ยกเลิกการผูกทั้งหมด (รวมที่ผูกด้วยมือ) → ผูกใหม่ได้
+    await exec("UPDATE fixed_assets SET asset_id = ?, link_source = 'manual' WHERE fanum = 'H-OFCO-26004'", [pc2.id]);
+    expect((await admin.get("/api/v1/fixed-assets/auto-link")).body.data).toMatchObject({ linked: 3, manual: 1 });
+    expect((await viewer.delete("/api/v1/fixed-assets/links")).status).toBe(403);
+    expect((await admin.delete("/api/v1/fixed-assets/links")).body.data).toEqual({ unlinked: 3 });
+    expect(await scalar("SELECT COUNT(*) FROM fixed_assets WHERE asset_id IS NOT NULL OR link_source IS NOT NULL")).toBe(0);
+    expect(await scalar("SELECT COUNT(*) FROM fixed_assets")).toBe(4); // ไม่ลบข้อมูล
+    expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'fixed_assets.unlinked_all'")).toBe(1);
+    expect((await admin.post("/api/v1/fixed-assets/auto-link")).body.data.total).toBe(2);
+  });
+
+  it("clears synced data (unlinked only, or everything) so it can be synced again", async () => {
+    await makeAsset({ cpu_tag: "H-OFCO-26001" });
+    await saveSyncSettings(settings(), null);
+    await sync();
+    expect(await scalar("SELECT COUNT(*) FROM fixed_assets")).toBe(3);
+
+    const viewer = await as(await makeUser({ role: "viewer" }));
+    expect((await viewer.delete("/api/v1/fixed-assets")).status).toBe(403);
+
+    const admin = await as(await makeUser({ role: "super_admin" }));
+    expect((await admin.get("/api/v1/fixed-assets/settings")).body.data.synced).toEqual({ total: 3, linked: 1 });
+
+    // กำลังซิงค์ = ลบไม่ได้
+    const runId = await startRun("manual", null);
+    expect((await admin.delete("/api/v1/fixed-assets?scope=all")).status).toBe(409);
+    await exec("UPDATE fixed_asset_sync_runs SET status = 'ok' WHERE id = ?", [runId]);
+
+    const unlinked = await admin.delete("/api/v1/fixed-assets");
+    expect(unlinked.body.data).toEqual({ scope: "unlinked", deleted: 2 });
+    expect((await select<{ fanum: string }>("SELECT fanum FROM fixed_assets")).map((x) => x.fanum)).toEqual(["H-OFCO-26001"]);
+
+    const all = await admin.delete("/api/v1/fixed-assets?scope=all");
+    expect(all.body.data).toEqual({ scope: "all", deleted: 1 });
+    expect(await scalar("SELECT COUNT(*) FROM fixed_assets")).toBe(0);
+    expect(await scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'fixed_assets.cleared'")).toBe(2);
+    expect(await scalar("SELECT COUNT(*) FROM assets")).toBe(1); // สินทรัพย์ในระบบไม่ถูกแตะ
+
+    // ซิงค์ใหม่ได้ + record date
+    await sync();
+    const r = await admin.get("/api/v1/fixed-assets?search=H-OFCO-26001");
+    expect(r.body.data[0]).toMatchObject({ record_date: "2025-02-09", asset: { cpu_tag: "H-OFCO-26001" } });
   });
 
   it("test connection reports login and appIds", async () => {
@@ -298,6 +381,16 @@ describe("fixed asset routes", () => {
     expect(runs.status).toBe(200);
     expect(runs.body.data[0]).toMatchObject({ id, trigger: "manual", status: "ok" });
     expect(runs.body.data[0].stats.HO).toMatchObject({ inserted: 2 });
+    expect(runs.body.meta).toMatchObject({ current_page: 1, last_page: 1, total: 2 });
+
+    // ประวัติแบ่งหน้าละ 10 รอบ
+    for (let i = 0; i < 10; i++) await exec("INSERT INTO fixed_asset_sync_runs (run_trigger, status, started_at) VALUES ('schedule', 'ok', UTC_TIMESTAMP())");
+    const p1 = await admin.get("/api/v1/fixed-assets/sync-runs");
+    expect(p1.body.data).toHaveLength(10);
+    expect(p1.body.meta).toMatchObject({ current_page: 1, last_page: 2, total: 12, from: 1, to: 10 });
+    const p2 = await admin.get("/api/v1/fixed-assets/sync-runs?page=2");
+    expect(p2.body.data.map((x: { id: number }) => x.id)).toContain(id);
+    expect(p2.body.meta).toMatchObject({ current_page: 2, from: 11, to: 12 });
     // admin ไม่มี settings.manage
     expect((await admin.get("/api/v1/fixed-assets/settings")).status).toBe(403);
   });

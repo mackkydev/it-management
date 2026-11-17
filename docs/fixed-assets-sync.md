@@ -13,6 +13,7 @@
 | `facurrentdepreciation` | `period` (YYYY-MM-DD), `fatype` (L/R), `fastat` (A/D/I), ช่วง class-dept, ช่วง fanum, ช่วงวันจำหน่าย, obligation type (BK/HP/LS), `pSite` | 37 ฟิลด์ (ข้อ 4) | 1,940 แถว, ~15 วินาที |
 
 - สาขา (site): HO, BR, CB, CR, DP, KK, LP, NR, PB, ST, UB
+- **2026-11-17: เปลี่ยนเป็นเรียก API เดียว = ข้อ 3.27 Fixed assets info** `/api/v1/reports/fainfo?pSite&fastat` (ฟิลด์ site, sitename, fanum, fadesc, faclass, fadept, fastat, enduser, serial, mfg, recorddate — ไม่มีตัวเงิน/ค่าเสื่อม) — รายงานค่าเสื่อม/faclassdeptlist ด้านล่างไม่ใช้แล้ว
 - คู่มือ **Rev 4.6** ข้อ 3.16–3.18 ระบุ endpoint แล้ว: `/api/v1/reports/falist?pSite`, `/faclassdeptlist?pSite`, `/facurrentdepreciation?period&pSite[&fatype&fastat&classdeptfrom/to&fanumfrom/to&disposaldatefrom/to&obligationtypefrom/to]` — pSite ≤ 8 ตัว, fanum ≤ 12 ตัว (เก็บเป็นข้อความ), ตัวเงิน decimal(23,8), query key ที่ไม่รู้จัก/ซ้ำ = 400
 - กติกาของ API (Rev 4.6): token อยู่ 24 ชม. พอดี, สิทธิ์รายงาน (appIds) cache 1 ชม., 403 = ไม่มีสิทธิ์รายงาน, เพดาน 20,000 แถว/รายงาน — **เกิน = 503 REPORT_LIMIT_EXCEEDED ไม่ตัดผลเงียบ**, timeout 60 วินาที, login จำกัด 10 ครั้ง/นาที/IP (429), error body `{ error: { code, requestId } }` (เก็บ requestId ไว้แจ้ง STEC), ห้าม trim รหัสผ่าน
 - API อ่านอย่างเดียว ไม่มี "ดึงเฉพาะที่เปลี่ยน" → ต้องดึงทั้งชุดต่อสาขา
@@ -126,7 +127,7 @@ id, trigger (schedule / manual), triggered_by NULL, started_at, finished_at, sta
   - แท็บ: ทั้งหมด / **ยังไม่ผูก** / **จำหน่ายแล้วใน SyteLine แต่ยังใช้งานในระบบเรา** / ไม่พบในต้นทาง — สองแท็บที่ต้องจัดการมีตัวเลขแดงที่แท็บ + ตัวเลขที่เมนู (`GET /menu-badges`, นับเฉพาะผู้มี `fixed_assets.link`) ตามกฎตัวเลขแจ้งเตือน
   - ตารางบนจอใหญ่ / การ์ดบนมือถือ, ส่งออก Excel (`<ConfirmDownload>`), แถบบอก "ซิงค์ล่าสุด … (ข้อมูล ณ วันที่ …)" + ปุ่มซิงค์ตอนนี้
 - **หน้ารายละเอียดสินทรัพย์**: การ์ด "ข้อมูลบัญชีจาก SyteLine" (fanum, หมวด/แผนก, วันที่ได้มา, ราคาทุน, ค่าเสื่อมสะสม, NBV, สถานะ, วันจำหน่าย) เฉพาะผู้มี `fixed_assets.view`
-- **ตั้งค่าระบบ → แท็บ "SyteLine Fixed Assets"**: สวิตช์เปิดใช้, สาขา, แผนก, เวลา, path ของรายงาน, ปุ่มทดสอบการเชื่อมต่อ, ประวัติการซิงค์ 20 รอบล่าสุด
+- **ตั้งค่าระบบ → แท็บ "SyteLine Fixed Assets"**: สวิตช์เปิดใช้, สาขา, แผนก, เวลา, path ของรายงาน, ปุ่มทดสอบการเชื่อมต่อ, ประวัติการซิงค์ (หน้าละ 10 รอบ)
 - ข้อความ th/en ทุกจุด, `loading.tsx`, โหมดมืด, ขนาดตัวอักษรตามการตั้งค่า
 
 ## 9. เทสต์ (`express/tests/fixed-asset-sync.test.ts`)

@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
-import type { FixedAssetAssetOption, FixedAssetConnectionTest, FixedAssetSyncSettings } from "@/lib/types";
+import type { FixedAssetAssetOption, FixedAssetAutoLink, FixedAssetConnectionTest, FixedAssetSyncSettings } from "@/lib/types";
 
 /** การซิงค์ Fixed Assets จาก STEC SyteLine — หน้าตั้งค่าระบบ แท็บ SyteLine (express routes/fixed-assets.ts) */
 
-export type FixedAssetSettingsInput = Omit<FixedAssetSyncSettings, "ready" | "connection">;
+export type FixedAssetSettingsInput = Omit<FixedAssetSyncSettings, "ready" | "connection" | "source_codes" | "synced">;
 
 export async function saveFixedAssetSettings(values: FixedAssetSettingsInput): Promise<ActionResult> {
   const { t } = await getI18n();
@@ -41,6 +41,59 @@ export async function startFixedAssetSync(): Promise<ActionResult> {
   }
   revalidatePath("/settings");
   return { ok: true, message: t("fixedAssetSync.started") };
+}
+
+/** ลบข้อมูลที่ซิงค์แล้วเพื่อซิงค์ใหม่ — unlinked = เฉพาะที่ยังไม่ผูก / all = ทั้งหมด (DELETE /fixed-assets) */
+export async function clearFixedAssets(scope: "unlinked" | "all"): Promise<ActionResult> {
+  const { t, fmt } = await getI18n();
+  let deleted = 0;
+  try {
+    ({ deleted } = (await apiFetch<{ data: { deleted: number } }>(`/fixed-assets?scope=${scope}`, { method: "DELETE" })).data);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) return { message: t("fixedAssetSync.running") };
+    return toActionResult(e);
+  }
+  revalidatePath("/settings");
+  revalidatePath("/fixed-assets");
+  revalidatePath("/assets", "layout");
+  return { ok: true, message: t("fixedAssetSync.cleared", { n: fmt.number(deleted) }) };
+}
+
+/** ปุ่ม "ผูกตามเลขที่ทรัพย์สิน" — ดูก่อน (GET) / ผูกจริง (POST /fixed-assets/auto-link) */
+export async function previewFixedAssetAutoLink(): Promise<{ data?: FixedAssetAutoLink } & ActionResult> {
+  try {
+    const { data } = await apiFetch<{ data: FixedAssetAutoLink }>("/fixed-assets/auto-link");
+    return { ok: true, data };
+  } catch (e) {
+    return toActionResult(e);
+  }
+}
+
+export async function applyFixedAssetAutoLink(): Promise<ActionResult> {
+  const { t, fmt } = await getI18n();
+  let total = 0;
+  try {
+    ({ total } = (await apiFetch<{ data: FixedAssetAutoLink }>("/fixed-assets/auto-link", { method: "POST" })).data);
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath("/fixed-assets");
+  revalidatePath("/assets", "layout");
+  return { ok: true, message: t("fixedAssets.autoLink.done", { n: fmt.number(total) }) };
+}
+
+/** ยกเลิกการผูกทั้งหมด (DELETE /fixed-assets/links) — ไม่ลบข้อมูลที่ซิงค์ */
+export async function unlinkAllFixedAssets(): Promise<ActionResult> {
+  const { t, fmt } = await getI18n();
+  let unlinked = 0;
+  try {
+    ({ unlinked } = (await apiFetch<{ data: { unlinked: number } }>("/fixed-assets/links", { method: "DELETE" })).data);
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath("/fixed-assets");
+  revalidatePath("/assets", "layout");
+  return { ok: true, message: t("fixedAssets.unlinkAll.done", { n: fmt.number(unlinked) }) };
 }
 
 /** ผูก / ยกเลิกการผูก (assetId = null) / กลับไปผูกอัตโนมัติ (reset) — PUT /fixed-assets/:id/link */

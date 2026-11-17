@@ -14,7 +14,9 @@ import type { MessageKey } from "@/i18n/types";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
 import type { FixedAsset, FixedAssetList, FixedAssetTab } from "@/lib/types";
+import { AutoLinkButton } from "./auto-link-button";
 import { LinkFixedAssetButton } from "./link-button";
+import { UnlinkAllButton } from "./unlink-all-button";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -22,9 +24,12 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const TABS: FixedAssetTab[] = ["all", "unlinked", "disposed_active", "missing"];
-const FILTERS = ["search", "site", "fa_class", "fa_dept", "status"] as const;
+const FILTERS = ["search", "site", "fa_class", "fa_dept", "status", "link"] as const;
+const LINK_FILTERS = ["linked", "unlinked"] as const;
 const TAB_CLS = (active: boolean) =>
   `inline-flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
+/** หัวคอลัมน์ตาราง (บรรทัดบน = ชื่อตามภาษา, บรรทัดล่าง = ชื่อฟิลด์ SyteLine) — ลำดับตาม Fixed assets info ข้อ 3.27 */
+const HEAD_COLS = ["site", "class", "dept", "fanum", "mfg", "description", "status", "endUser", "serial", "recordDate", "asset"] as const;
 const STATUS_TONE: Record<string, string> = { Active: tone.success.badge, Disposed: tone.idle.badge, Inactive: tone.warning.badge };
 
 /**
@@ -36,12 +41,15 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
   if (!has(user, "fixed_assets.view")) redirect("/dashboard");
   const tab = TABS.find((x) => x === sp.tab) ?? "all";
   const page = typeof sp.page === "string" && /^\d+$/.test(sp.page) ? sp.page : "1";
-  const filters = Object.fromEntries(FILTERS.map((k) => [k, typeof sp[k] === "string" ? String(sp[k]).slice(0, 100) : ""]).filter(([, v]) => v));
+  // แท็บ "ยังไม่ผูก" ไม่มีตัวกรองการผูก (เลือก "ผูกแล้ว" จะขัดกับแท็บจนไม่เจอรายการเลย)
+  const showLinkFilter = tab !== "unlinked";
+  const filters = Object.fromEntries(
+    FILTERS.map((k) => [k, typeof sp[k] === "string" ? String(sp[k]).slice(0, 100) : ""]).filter(([k, v]) => v && (k !== "link" || showLinkFilter)),
+  );
   const query = (extra: Record<string, string>) => new URLSearchParams({ ...filters, ...extra }).toString();
   const res = await apiFetch<FixedAssetList>(`/fixed-assets?${query({ tab, page })}`);
   const { counts, options, last_sync: lastSync } = res.meta;
   const canLink = res.meta.can_link && access("btn:fixed-assets:link");
-  const money = (v: number | null) => (v === null ? "—" : fmt.number(Number(v.toFixed(2))));
   const statusLabel = (s: string | null) => (s ? t(`fixedAssets.statuses.${s}` as MessageKey) : "—");
   const badge = (n: number) =>
     n > 0 && <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger-500 px-1.5 text-2xs font-semibold text-white">{n > 99 ? "99+" : n}</span>;
@@ -65,12 +73,16 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
         title={t("fixedAssets.title")}
         subtitle={t("fixedAssets.subtitle")}
         actions={
-          access("btn:fixed-assets:export") && (
-            <ConfirmDownload href={`/fixed-assets/export?${query({ tab })}`} className={btn.secondary}>
-              <DownloadIcon />
-              {t("fixedAssets.export")}
-            </ConfirmDownload>
-          )
+          <>
+            {res.meta.can_link && access("btn:fixed-assets:unlink-all") && <UnlinkAllButton />}
+            {res.meta.can_link && access("btn:fixed-assets:auto-link") && <AutoLinkButton />}
+            {access("btn:fixed-assets:export") && (
+              <ConfirmDownload href={`/fixed-assets/export?${query({ tab })}`} className={btn.secondary}>
+                <DownloadIcon />
+                {t("fixedAssets.export")}
+              </ConfirmDownload>
+            )}
+          </>
         }
       />
 
@@ -100,7 +112,7 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
 
       {tab !== "all" && <p className="text-sm text-muted">{t(`fixedAssets.tabHints.${tab}`)}</p>}
 
-      <Form action="/fixed-assets" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.6fr)_repeat(4,minmax(0,1fr))_auto] ${card}`}>
+      <Form action="/fixed-assets" className={`grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 ${showLinkFilter ? "xl:grid-cols-[minmax(0,1.6fr)_repeat(5,minmax(0,1fr))_auto]" : "xl:grid-cols-[minmax(0,1.6fr)_repeat(4,minmax(0,1fr))_auto]"} ${card}`}>
         <input type="hidden" name="tab" value={tab} />
         <div className="relative sm:col-span-2 xl:col-span-1">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent-300" />
@@ -123,6 +135,16 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
             ))}
           </AppSelect>
         ))}
+        {showLinkFilter && (
+          <AppSelect name="link" defaultValue={filters.link} className={input} aria-label={t("fixedAssets.allLinks")}>
+            <option value="">{t("fixedAssets.allLinks")}</option>
+            {LINK_FILTERS.map((v) => (
+              <option key={v} value={v}>
+                {t(`fixedAssets.linkFilter.${v}`)}
+              </option>
+            ))}
+          </AppSelect>
+        )}
         <SubmitButton icon={<SearchIcon />} pendingText={t("common.searching")} className={`${btn.primary} whitespace-nowrap`}>
           {t("common.search")}
         </SubmitButton>
@@ -133,27 +155,36 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
       ) : (
         <>
           {/* จอใหญ่: ตาราง */}
-          <div className={`hidden lg:block ${table.wrap}`}>
+          {/* ทุกช่องอยู่บรรทัดเดียว — เกินความกว้างเลื่อนด้วยแถบเลื่อนแนวนอน (.scroll-x) */}
+          <div className={`scroll-x hidden lg:block ${table.wrap}`}>
             <table className={table.table}>
               <thead className={table.head}>
                 <tr>
-                  <th className={table.th}>{t("fixedAssets.col.fanum")}</th>
-                  <th className={table.th}>{t("fixedAssets.col.classDept")}</th>
-                  <th className={table.th}>{t("fixedAssets.col.acquired")}</th>
-                  <th className={`${table.th} text-right`}>{t("fixedAssets.col.cost")}</th>
-                  <th className={`${table.th} text-right`}>{t("fixedAssets.col.nbv")}</th>
-                  <th className={table.th}>{t("fixedAssets.col.status")}</th>
-                  <th className={table.th}>{t("fixedAssets.col.asset")}</th>
+                  {/* ลำดับคอลัมน์ตามฟิลด์ Fixed assets info (ข้อ 3.27) */}
+                  {HEAD_COLS.map((k) => (
+                    <th key={k} className={`${table.th} whitespace-nowrap`}>
+                      <span className="block">{t(`fixedAssets.col.${k}`)}</span>
+                      {t(`fixedAssets.colSource.${k}`) !== t(`fixedAssets.col.${k}`) && (
+                        <span className="block text-2xs font-normal normal-case tracking-normal text-faint">{t(`fixedAssets.colSource.${k}`)}</span>
+                      )}
+                    </th>
+                  ))}
                   {canLink && <th className={table.th} aria-label={t("common.manage")} />}
                 </tr>
               </thead>
               <tbody className={table.body}>
                 {res.data.map((fa) => (
                   <tr key={fa.id} className={table.row}>
-                    <td className={`${table.td} max-w-80`}>
-                      <span className="font-mono text-xs text-accent-700 dark:text-accent-300">{fa.fanum}</span>
-                      <span className="text-xs text-muted"> · {fa.branch?.name ?? fa.site}</span>
-                      <span className="block">{fa.description}</span>
+                    <td className={`${table.td} whitespace-nowrap`}>
+                      {fa.site}
+                      {fa.branch && <span className="text-xs text-muted"> · {fa.branch.name}</span>}
+                    </td>
+                    <td className={`${table.td} whitespace-nowrap`}>{fa.fa_class || "—"}</td>
+                    <td className={`${table.td} whitespace-nowrap`}>{fa.fa_dept || "—"}</td>
+                    <td className={`${table.td} whitespace-nowrap font-mono text-xs text-accent-700 dark:text-accent-300`}>{fa.fanum}</td>
+                    <td className={`${table.td} whitespace-nowrap font-mono text-xs`}>{fa.mfg || "—"}</td>
+                    <td className={`${table.td} whitespace-nowrap`}>
+                      {fa.description || "—"}
                       {fa.missing_since && (
                         <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-2xs font-medium ${tone.warning.badge}`}>
                           {t("fixedAssets.missingSince", { date: fmt.date(fa.missing_since) })}
@@ -161,19 +192,14 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
                       )}
                     </td>
                     <td className={`${table.td} whitespace-nowrap`}>
-                      {fa.fa_class}-{fa.fa_dept}
-                      {fa.class_dept_desc && <span className="block text-xs text-muted">{fa.class_dept_desc}</span>}
-                    </td>
-                    <td className={`${table.td} whitespace-nowrap`}>{fa.acquired_on ? fmt.date(fa.acquired_on) : "—"}</td>
-                    <td className={`${table.td} whitespace-nowrap text-right tabular-nums`}>{money(fa.acq_cost)}</td>
-                    <td className={`${table.td} whitespace-nowrap text-right tabular-nums`}>{money(fa.nbv)}</td>
-                    <td className={`${table.td} whitespace-nowrap`}>
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[fa.fa_status ?? ""] ?? tone.idle.badge}`}>{statusLabel(fa.fa_status)}</span>
-                      {fa.disposed_on && <span className="block text-xs text-muted">{fmt.date(fa.disposed_on)}</span>}
                     </td>
-                    <td className={table.td}>{assetCell(fa)}</td>
+                    <td className={`${table.td} whitespace-nowrap`}>{fa.end_user || "—"}</td>
+                    <td className={`${table.td} whitespace-nowrap font-mono text-xs`}>{fa.serial || "—"}</td>
+                    <td className={`${table.td} whitespace-nowrap`}>{fa.record_date ? fmt.date(fa.record_date) : "—"}</td>
+                    <td className={`${table.td} whitespace-nowrap`}>{assetCell(fa)}</td>
                     {canLink && (
-                      <td className={`${table.td} text-right`}>
+                      <td className={`${table.td} whitespace-nowrap text-right`}>
                         <LinkFixedAssetButton fa={fa} compact />
                       </td>
                     )}
@@ -190,18 +216,29 @@ export default async function FixedAssetsPage({ searchParams }: PageProps<"/fixe
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <span className="font-mono text-xs text-accent-700 dark:text-accent-300">{fa.fanum}</span>
-                    <span className="text-xs text-muted"> · {fa.branch?.name ?? fa.site}</span>
+                    <span className="text-xs text-muted"> · {fa.site}{fa.branch ? ` (${fa.branch.name})` : ""}</span>
                     <p className="font-medium">{fa.description}</p>
+                    {fa.missing_since && (
+                  <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-2xs font-medium ${tone.warning.badge}`}>
+                    {t("fixedAssets.missingSince", { date: fmt.date(fa.missing_since) })}
+                  </span>
+                )}
                   </div>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[fa.fa_status ?? ""] ?? tone.idle.badge}`}>{statusLabel(fa.fa_status)}</span>
                 </div>
                 <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
-                  <dt className="text-muted">{t("fixedAssets.col.classDept")}</dt>
-                  <dd>{fa.fa_class}-{fa.fa_dept}</dd>
-                  <dt className="text-muted">{t("fixedAssets.col.cost")}</dt>
-                  <dd className="tabular-nums">{money(fa.acq_cost)}</dd>
-                  <dt className="text-muted">{t("fixedAssets.col.nbv")}</dt>
-                  <dd className="tabular-nums">{money(fa.nbv)}</dd>
+                  <dt className="text-muted">{t("fixedAssets.col.class")}</dt>
+                  <dd>{fa.fa_class || "—"}</dd>
+                  <dt className="text-muted">{t("fixedAssets.col.dept")}</dt>
+                  <dd>{fa.fa_dept || "—"}</dd>
+                  <dt className="text-muted">{t("fixedAssets.col.mfg")}</dt>
+                  <dd className="break-all">{fa.mfg || "—"}</dd>
+                  <dt className="text-muted">{t("fixedAssets.col.endUser")}</dt>
+                  <dd className="break-words">{fa.end_user || "—"}</dd>
+                  <dt className="text-muted">{t("fixedAssets.col.serial")}</dt>
+                  <dd className="break-all font-mono text-xs">{fa.serial || "—"}</dd>
+                  <dt className="text-muted">{t("fixedAssets.col.recordDate")}</dt>
+                  <dd>{fa.record_date ? fmt.date(fa.record_date) : "—"}</dd>
                 </dl>
                 <div className="flex items-end justify-between gap-3 border-t border-line pt-2">
                   <div className="min-w-0">{assetCell(fa)}</div>

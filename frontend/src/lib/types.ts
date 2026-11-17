@@ -1910,9 +1910,13 @@ export interface FixedAssetSyncSettings {
   classes: string[];
   include_inactive: boolean;
   time: string;
-  paths: { depreciation: string; classdept: string };
+  paths: { info: string };
   ready: boolean;
   connection: { configured: boolean; host: string | null; username: string | null; has_password: boolean };
+  /** รหัสแผนก / หมวดที่พบในต้นทางรอบซิงค์ล่าสุด (รหัส → จำนวนรายการ) — null = ยังไม่เคยซิงค์สำเร็จ */
+  source_codes: { at: string; departments: Record<string, number>; classes: Record<string, number> } | null;
+  /** จำนวนข้อมูลที่ซิงค์แล้ว / ที่ผูกกับสินทรัพย์ในระบบแล้ว */
+  synced: { total: number; linked: number };
 }
 
 export interface FixedAssetSyncSiteStats {
@@ -1921,7 +1925,6 @@ export interface FixedAssetSyncSiteStats {
   updated: number;
   unchanged: number;
   missing: number;
-  classdepts?: number;
   error?: string;
 }
 
@@ -1934,6 +1937,17 @@ export interface FixedAssetSyncRun {
   started_at: string;
   finished_at: string | null;
   triggered_by: string | null;
+}
+
+/** ผลดูก่อน / ผลผูกตามเลขที่ทรัพย์สิน (GET|POST /fixed-assets/auto-link) */
+export interface FixedAssetAutoLink {
+  total: number;
+  by_rule: { number: number; old_number: number };
+  /** เลขตรงสินทรัพย์มากกว่า 1 เครื่อง = ข้าม (ผูกด้วยมือ) */
+  conflicts: number;
+  /** ที่ผูกอยู่ตอนนี้ / ในนั้นผูกด้วยมือ (มีใน GET เท่านั้น) */
+  linked?: number;
+  manual?: number;
 }
 
 export interface FixedAssetConnectionTest {
@@ -1975,6 +1989,12 @@ export interface FixedAsset {
   changed_at: string | null;
   link_source: "auto" | "manual" | null;
   linked_by: string | null;
+  /** จาก Fixed assets info (ข้อ 3.27) */
+  end_user: string | null;
+  serial: string | null;
+  /** recorddate ของ SyteLine (YYYY-MM-DD) */
+  record_date: string | null;
+  mfg: string | null;
   asset: { id: string; asset_tag: string; cpu_tag: string | null; name: string | null; status: string | null } | null;
 }
 

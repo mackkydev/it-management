@@ -21,7 +21,7 @@ async function fa(attrs: Record<string, unknown>) {
     acq_cost: 25000,
     accum_depr: 1000,
     nbv: 24000,
-    source_data: JSON.stringify({ fanum: attrs.fanum, glacctasset: "1209011" }),
+    source_data: JSON.stringify({ fanum: attrs.fanum, glacctasset: "1209011", enduser: "สมชาย ใจดี", serial: "SN-001", mfg: null }),
     row_hash: "x".repeat(64),
     as_of: "2026-11-16",
     first_synced_at: now,
@@ -79,6 +79,16 @@ describe("fixed assets list", () => {
     expect(search.body.data.map((r: { id: number }) => r.id)).toEqual([ids.linked]); // ค้นจากชื่อสินทรัพย์ที่ผูก
     const filtered = await admin.get("/api/v1/fixed-assets?fa_class=INTA&site=HO");
     expect(filtered.body.data.map((r: { id: number }) => r.id)).toEqual([ids.unlinked]);
+
+    // ตัวกรองการผูก: linked = มี asset_id / unlinked = ยังไม่ผูก (รวมที่จำหน่าย/หายจากต้นทาง)
+    const byLink = async (v: string) =>
+      (await admin.get(`/api/v1/fixed-assets?link=${v}`)).body.data.map((r: { id: number; asset: unknown }) => !!r.asset);
+    const onlyLinked = await byLink("linked");
+    expect(onlyLinked.length).toBeGreaterThan(0);
+    expect(onlyLinked.every(Boolean)).toBe(true);
+    const onlyUnlinked = await byLink("unlinked");
+    expect(onlyUnlinked.length).toBeGreaterThan(0);
+    expect(onlyUnlinked.some(Boolean)).toBe(false);
   });
 
   it("menu badge = unlinked + disposed but still active, only for fixed_assets.link", async () => {
@@ -94,6 +104,11 @@ describe("fixed assets list", () => {
     const admin = await as(await makeUser({ role: "admin" }));
     const r = await admin.get(`/api/v1/fixed-assets/${ids.linked}`);
     expect(r.body.data.source_data).toMatchObject({ glacctasset: "1209011" });
+    // ฟิลด์จาก Fixed assets info (ข้อ 3.27) — JSON null = null
+    expect(r.body.data).toMatchObject({ end_user: "สมชาย ใจดี", serial: "SN-001", mfg: null });
+    // ค้นด้วยผู้ใช้ / Serial ได้
+    expect((await admin.get("/api/v1/fixed-assets?search=SN-001")).body.data.length).toBeGreaterThan(0);
+    expect((await admin.get("/api/v1/fixed-assets?search=สมชาย")).body.data.length).toBeGreaterThan(0);
     expect((await admin.get("/api/v1/fixed-assets/99999")).status).toBe(404);
   });
 });
@@ -153,6 +168,11 @@ describe("linking", () => {
     await wb.xlsx.load(r.body as never);
     const ws = wb.getWorksheet("FA")!;
     expect(ws.rowCount).toBe(2); // หัว + 1 แถว (เฉพาะแท็บยังไม่ผูก)
-    expect(ws.getRow(2).getCell(3).value).toBe("H-INSW-26002");
+    // ลำดับคอลัมน์ตามที่ฝ่าย IT ใช้
+    expect((ws.getRow(1).values as unknown[]).slice(1, 11)).toEqual([
+      "Site", "Asset class", "Asset department", "Fixed asset number", "Manufacturer",
+      "Fixed asset description", "Asset status", "End user", "Serial number", "Record date",
+    ]);
+    expect(ws.getRow(2).getCell(4).value).toBe("H-INSW-26002");
   });
 });

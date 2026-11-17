@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import { Router, type Request } from "express";
 import { config } from "../config.js";
-import { first, isUuid, likeEscape, scalar, select, update } from "../db.js";
+import { exec, first, isUuid, likeEscape, lockNamed, scalar, select, transaction, update } from "../db.js";
 import { me, pageParam, shortMeta } from "../http.js";
 import { authorize, HttpError, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
@@ -11,13 +11,17 @@ import { can } from "../models/user.js";
 import { audit } from "../services/audit.js";
 import { FA_FROM, FA_TABS, faCount, type FaTab } from "../services/fixed-assets.js";
 import {
+  applyAutoLink,
   autoLink,
+  autoLinkPlan,
+  type LinkPlan,
   PATH_RE,
   runSync,
   saveSyncSettings,
   SITE_RE,
   startRun,
   syncReady,
+  sourceCodes,
   syncSettings,
   SyncRunningError,
   TIME_RE,
@@ -46,7 +50,18 @@ const CODE_RE = /^[A-Z0-9_-]{1,20}$/;
 
 async function settingsJson() {
   const s = await syncSettings();
-  return { data: { ...s, ready: syncReady(s), connection: stecPublicInfo() } };
+  // source_codes = รหัสแผนก/หมวดที่พบในต้นทางรอบซิงค์ล่าสุด (null = ยังไม่เคยซิงค์สำเร็จ)
+  const counts = await first<{ total: number; linked: number }>("SELECT COUNT(*) AS total, COUNT(asset_id) AS linked FROM fixed_assets");
+  return {
+    data: {
+      ...s,
+      ready: syncReady(s),
+      connection: stecPublicInfo(),
+      source_codes: await sourceCodes(),
+      // จำนวนข้อมูลที่ซิงค์แล้ว (ปุ่มลบเพื่อซิงค์ใหม่)
+      synced: { total: Number(counts?.total ?? 0), linked: Number(counts?.linked ?? 0) },
+    },
+  };
 }
 
 fixedAssetRoutes.get("/fixed-assets/settings", async (req, res) => {
@@ -70,13 +85,8 @@ fixedAssetRoutes.put("/fixed-assets/settings", async (req, res) => {
   const time = typeof b.time === "string" ? b.time.trim() : before.time;
   if (!TIME_RE.test(time)) errors.time = t("eam.fixed_asset.time_invalid");
   const paths = (b.paths ?? {}) as Record<string, unknown>;
-  const path = (k: "depreciation" | "classdept") => {
-    const v = paths[k] === undefined ? before.paths[k] : String(paths[k] ?? "").trim();
-    if (v && (!PATH_RE.test(v) || v.length > 255)) errors[`paths.${k}`] = t("eam.fixed_asset.path_invalid");
-    return v;
-  };
-  const depreciation = path("depreciation");
-  const classdept = path("classdept");
+  const info = paths.info === undefined ? before.paths.info : String(paths.info ?? "").trim();
+  if (info && (!PATH_RE.test(info) || info.length > 255)) errors["paths.info"] = t("eam.fixed_asset.path_invalid");
   if (Object.keys(errors).length) throw ValidationError.withMessages(errors);
 
   const next: FixedAssetSyncSettings = {
@@ -86,7 +96,7 @@ fixedAssetRoutes.put("/fixed-assets/settings", async (req, res) => {
     classes: classes!,
     include_inactive: b.include_inactive === undefined ? before.include_inactive : bool(b.include_inactive),
     time,
-    paths: { depreciation, classdept },
+    paths: { info },
   };
   await saveSyncSettings(next, me(req).id);
   await audit(req, { action: "settings.fixed_asset_sync", subjectType: "app_settings", subjectId: "fixed_asset_sync", before, after: next });
@@ -116,8 +126,12 @@ fixedAssetRoutes.post("/fixed-assets/sync", async (req, res) => {
   res.status(202).json({ data: { run_id: runId } });
 });
 
+/** ประวัติการซิงค์ — หน้าละ 10 รอบ (?page=) ใหม่สุดก่อน */
+const RUNS_PER_PAGE = 10;
 fixedAssetRoutes.get("/fixed-assets/sync-runs", async (req, res) => {
   authorize(can(me(req), "fixed_assets.sync") || can(me(req), "settings.manage"));
+  const page = pageParam(req);
+  const total = Number((await scalar<number>("SELECT COUNT(*) FROM fixed_asset_sync_runs")) ?? 0);
   const rows = await select<{
     id: number;
     run_trigger: string;
@@ -130,7 +144,7 @@ fixedAssetRoutes.get("/fixed-assets/sync-runs", async (req, res) => {
   }>(
     `SELECT r.id, r.run_trigger, r.status, r.stats, r.error, r.started_at, r.finished_at, u.name AS by_name
        FROM fixed_asset_sync_runs r LEFT JOIN users u ON u.id = r.triggered_by
-      ORDER BY r.id DESC LIMIT 20`,
+      ORDER BY r.id DESC LIMIT ${RUNS_PER_PAGE} OFFSET ${(page - 1) * RUNS_PER_PAGE}`,
   );
   res.json({
     data: rows.map((r) => ({
@@ -143,7 +157,74 @@ fixedAssetRoutes.get("/fixed-assets/sync-runs", async (req, res) => {
       finished_at: iso(r.finished_at),
       triggered_by: r.by_name,
     })),
+    meta: shortMeta(total, page, RUNS_PER_PAGE, rows.length),
   });
+});
+
+/**
+ * ปุ่ม "ผูกตามเลขที่ทรัพย์สิน" (fixed_assets.link) — กติกาใน autoLinkPlan (services/fixed-asset-sync.ts)
+ *   GET  = ดูก่อนว่าจะผูกได้กี่รายการ (ไม่เขียนข้อมูล)   POST = ผูกจริง + audit fixed_assets.auto_linked
+ */
+const linkSummary = (p: LinkPlan) => ({ total: p.links.length, by_rule: p.by_rule, conflicts: p.conflicts });
+/** จำนวนที่ผูกอยู่ (ปุ่มยกเลิกการผูกทั้งหมด) */
+const linkedCounts = async () => {
+  const r = await first<{ linked: number; manual: number }>(
+    "SELECT COUNT(asset_id) AS linked, COALESCE(SUM(asset_id IS NOT NULL AND link_source = 'manual'), 0) AS \"manual\" FROM fixed_assets",
+  );
+  return { linked: Number(r?.linked ?? 0), manual: Number(r?.manual ?? 0) };
+};
+
+fixedAssetRoutes.get("/fixed-assets/auto-link", async (req, res) => {
+  authorize(can(me(req), "fixed_assets.link"));
+  res.json({ data: { ...linkSummary(await autoLinkPlan()), ...(await linkedCounts()) } });
+});
+
+/**
+ * ยกเลิกการผูกทั้งหมด (fixed_assets.link) — ล้าง asset_id + link_source (รวมที่ผูกด้วยมือ) ให้กด "ผูกตามเลขที่ทรัพย์สิน" ใหม่ได้
+ * ไม่ลบข้อมูลที่ซิงค์ และไม่แตะสินทรัพย์ในระบบ — audit fixed_assets.unlinked_all
+ */
+fixedAssetRoutes.delete("/fixed-assets/links", async (req, res) => {
+  authorize(can(me(req), "fixed_assets.link"));
+  const unlinked = await transaction(async () => {
+    await lockNamed("fixed-asset-sync");
+    return (
+      await exec("UPDATE fixed_assets SET asset_id = NULL, link_source = NULL, linked_by = NULL WHERE asset_id IS NOT NULL OR link_source IS NOT NULL")
+    ).rowCount;
+  });
+  await audit(req, { action: "fixed_assets.unlinked_all", subjectType: "fixed_assets", subjectId: "all", after: { unlinked } });
+  res.json({ data: { unlinked } });
+});
+
+fixedAssetRoutes.post("/fixed-assets/auto-link", async (req, res) => {
+  authorize(can(me(req), "fixed_assets.link"));
+  const plan = await transaction(async () => {
+    await lockNamed("fixed-asset-sync"); // ไม่ทับกับรอบซิงค์ที่กำลังผูก
+    return applyAutoLink();
+  });
+  const data = linkSummary(plan);
+  await audit(req, { action: "fixed_assets.auto_linked", subjectType: "fixed_assets", subjectId: "auto", after: data });
+  res.json({ data });
+});
+
+/**
+ * ลบข้อมูลที่ซิงค์มาแล้ว เพื่อซิงค์ใหม่ (fixed_assets.sync) — ไม่แตะ assets / ประวัติการซิงค์
+ *   ?scope=unlinked (ตั้งต้น) = เฉพาะแถวที่ยังไม่ผูกกับสินทรัพย์ในระบบ
+ *   ?scope=all = ทั้งหมด รวมที่ผูกแล้ว (การผูกด้วยมือหายด้วย — ซิงค์รอบหน้าผูกอัตโนมัติใหม่)
+ * กำลังซิงค์อยู่ = 409, audit fixed_assets.cleared
+ */
+fixedAssetRoutes.delete("/fixed-assets", async (req, res) => {
+  syncGuard(req);
+  const scope = req.query.scope === "all" ? "all" : "unlinked";
+  const deleted = await transaction(async () => {
+    await lockNamed("fixed-asset-sync");
+    const running = await scalar<number>(
+      "SELECT id FROM fixed_asset_sync_runs WHERE status = 'running' AND started_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 MINUTE) LIMIT 1",
+    );
+    if (running) throw new HttpError(409, trans(req.locale, "eam.fixed_asset.running"));
+    return (await exec(`DELETE FROM fixed_assets${scope === "all" ? "" : " WHERE asset_id IS NULL"}`)).rowCount;
+  });
+  await audit(req, { action: "fixed_assets.cleared", subjectType: "fixed_assets", subjectId: scope, after: { scope, deleted } });
+  res.json({ data: { scope, deleted } });
 });
 
 /* ================================================================ ระยะ 2: รายการ / ผูกกับสินทรัพย์ */
@@ -187,12 +268,20 @@ interface FaRow {
   asset_name: string | null;
   asset_status: string | null;
   linked_by_name: string | null;
+  end_user: string | null;
+  source_recorded_at: string | null;
+  serial_no: string | null;
+  mfg: string | null;
 }
 
-const SELECT = `f.id, f.site, f.site_name, f.branch_id, b.name AS branch_name, f.fanum, f.description, f.fa_class, f.fa_dept, cd.description AS class_dept_desc,
+/** ฟิลด์จาก Fixed assets info (ข้อ 3.27) ที่ไม่มีคอลัมน์ของตัวเอง — อ่านจาก source_data (JSON null → NULL) */
+const SRC = (k: string) => `NULLIF(TRIM(f.source_data->>'$.${k}'), 'null')`;
+
+const SELECT = `f.id, f.site, f.site_name, f.branch_id, b.name AS branch_name, f.fanum, f.description, f.fa_class, f.fa_dept, cd.description AS class_dept_desc, f.source_recorded_at,
   f.fa_type, f.fa_status, f.fa_location, f.acquired_on, f.depr_start_on, f.disposed_on, f.acq_cost, f.accum_depr, f.nbv, f.salvage,
   f.depr_method, f.depr_rate, f.useful_life, f.as_of, f.missing_since, f.first_synced_at, f.synced_at, f.changed_at, f.link_source,
-  a.uuid AS asset_uuid, a.asset_tag, a.cpu_tag AS asset_cpu_tag, a.name AS asset_name, a.status AS asset_status, lu.name AS linked_by_name`;
+  a.uuid AS asset_uuid, a.asset_tag, a.cpu_tag AS asset_cpu_tag, a.name AS asset_name, a.status AS asset_status, lu.name AS linked_by_name,
+  ${SRC("enduser")} AS end_user, ${SRC("serial")} AS serial_no, ${SRC("mfg")} AS mfg`;
 const FROM = `${FA_FROM} LEFT JOIN users lu ON lu.id = f.linked_by`;
 
 const money = (v: string | number | null) => (v === null ? null : Number(v));
@@ -226,23 +315,28 @@ const faJson = (r: FaRow) => ({
   changed_at: iso(r.changed_at),
   link_source: r.link_source,
   linked_by: r.linked_by_name,
+  end_user: r.end_user || null,
+  /** recorddate ของ SyteLine (เวลาท้องถิ่นของต้นทาง) — วันที่อย่างเดียว */
+  record_date: r.source_recorded_at ? String(r.source_recorded_at).slice(0, 10) : null,
+  serial: r.serial_no || null,
+  mfg: r.mfg || null,
   asset: r.asset_uuid ? { id: r.asset_uuid, asset_tag: r.asset_tag, cpu_tag: r.asset_cpu_tag, name: r.asset_name, status: r.asset_status } : null,
 });
 
 const param = (src: Record<string, unknown>, k: string, max = 100) => (typeof src[k] === "string" ? String(src[k]).trim().slice(0, max) : "");
 
-/** ตัวกรองแถวเดียว (หน้ารายการ + ส่งออก): tab / search / site / fa_class / fa_dept / status */
+/** ตัวกรองแถวเดียว (หน้ารายการ + ส่งออก): tab / search / site / fa_class / fa_dept / status / link */
 function filters(src: Record<string, unknown>): { tab: FaTab; where: string[]; params: unknown[] } {
   const tab = (Object.keys(FA_TABS) as FaTab[]).find((k) => k === src.tab) ?? "all";
   const where: string[] = [FA_TABS[tab]];
   const params: unknown[] = [];
   const search = param(src, "search");
   if (search) {
-    // ทุกคำต้องพบ — เลขที่ / ชื่อ / ที่ตั้ง / รหัส-ชื่อสินทรัพย์ที่ผูก
+    // ทุกคำต้องพบ — เลขที่ / ชื่อ / ที่ตั้ง / ผู้ใช้ / Serial / รหัส-ชื่อสินทรัพย์ที่ผูก
     for (const word of search.split(/\s+/).slice(0, 5)) {
       const like = `%${likeEscape(word)}%`;
-      where.push("(f.fanum LIKE ? OR f.description LIKE ? OR f.fa_location LIKE ? OR a.asset_tag LIKE ? OR a.cpu_tag LIKE ? OR a.name LIKE ?)");
-      params.push(like, like, like, like, like, like);
+      where.push(`(f.fanum LIKE ? OR f.description LIKE ? OR f.fa_location LIKE ? OR ${SRC("enduser")} LIKE ? OR ${SRC("serial")} LIKE ? OR a.asset_tag LIKE ? OR a.cpu_tag LIKE ? OR a.name LIKE ?)`);
+      params.push(like, like, like, like, like, like, like, like);
     }
   }
   for (const [k, col] of [["site", "f.site"], ["fa_class", "f.fa_class"], ["fa_dept", "f.fa_dept"], ["status", "f.fa_status"]] as const) {
@@ -252,6 +346,10 @@ function filters(src: Record<string, unknown>): { tab: FaTab; where: string[]; p
       params.push(v);
     }
   }
+  // การผูกกับสินทรัพย์ในระบบ: linked = ผูกแล้ว / unlinked = ยังไม่ผูก (ไม่ดูว่าจำหน่าย/หายจากต้นทาง — ต่างจากแท็บ unlinked)
+  const link = param(src, "link", 10);
+  if (link === "linked") where.push("f.asset_id IS NOT NULL");
+  else if (link === "unlinked") where.push("f.asset_id IS NULL");
   return { tab, where, params };
 }
 
@@ -301,19 +399,18 @@ fixedAssetRoutes.post("/fixed-assets/export", async (req, res) => {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(h("sheet", "Fixed assets"));
   ws.columns = [
-    { header: "Site", key: "site", width: 8 },
+    // ลำดับตามที่ฝ่าย IT ใช้ (ฟิลด์ของ Fixed assets info ข้อ 3.27)
+    { header: h("site", "Site"), key: "site", width: 8 },
+    { header: h("class", "Asset class"), key: "fa_class", width: 10 },
+    { header: h("dept", "Asset department"), key: "fa_dept", width: 10 },
+    { header: h("fanum", "Fixed asset number"), key: "fanum", width: 18 },
+    { header: h("mfg", "Manufacturer"), key: "mfg", width: 18 },
+    { header: h("description", "Fixed asset description"), key: "description", width: 40 },
+    { header: h("status", "Asset status"), key: "fa_status", width: 12 },
+    { header: h("endUser", "End user"), key: "end_user", width: 30 },
+    { header: h("serial", "Serial number"), key: "serial", width: 20 },
+    { header: h("recordDate", "Record date"), key: "record_date", width: 12 },
     { header: h("branch", "Branch"), key: "branch", width: 18 },
-    { header: h("fanum", "Asset no."), key: "fanum", width: 16 },
-    { header: h("description", "Description"), key: "description", width: 40 },
-    { header: h("class", "Class"), key: "fa_class", width: 8 },
-    { header: h("dept", "Dept"), key: "fa_dept", width: 8 },
-    { header: h("status", "Status"), key: "fa_status", width: 10 },
-    { header: h("acquired", "Acquired"), key: "acquired_on", width: 12 },
-    { header: h("cost", "Cost"), key: "acq_cost", width: 14 },
-    { header: h("accum", "Accumulated depreciation"), key: "accum_depr", width: 16 },
-    { header: h("nbv", "Net book value"), key: "nbv", width: 14 },
-    { header: h("disposed", "Disposed"), key: "disposed_on", width: 12 },
-    { header: h("location", "Location"), key: "fa_location", width: 20 },
     { header: h("asset", "Linked asset"), key: "asset", width: 30 },
     { header: h("asOf", "As of"), key: "as_of", width: 12 },
   ];
@@ -322,7 +419,6 @@ fixedAssetRoutes.post("/fixed-assets/export", async (req, res) => {
   for (const r of rows.map(faJson)) {
     ws.addRow({ ...r, branch: r.branch?.name ?? "", asset: r.asset ? `${r.asset.cpu_tag || r.asset.asset_tag} ${r.asset.name ?? ""}`.trim() : "" });
   }
-  for (const k of ["acq_cost", "accum_depr", "nbv"]) ws.getColumn(k).numFmt = "#,##0.00";
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", `attachment; filename="fixed-assets-${localToday(config.localTimezone)}.xlsx"`);
   res.send(Buffer.from(await wb.xlsx.writeBuffer()));

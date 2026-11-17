@@ -1,15 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { saveFixedAssetSettings, startFixedAssetSync, testFixedAssetConnection } from "@/app/actions/fixed-assets";
+import { clearFixedAssets, saveFixedAssetSettings, startFixedAssetSync, testFixedAssetConnection } from "@/app/actions/fixed-assets";
+import { useConfirm } from "@/components/dialog-provider";
 import { ChipList } from "@/components/chip-list";
-import { CheckCircleIcon, DatabaseIcon, ResetIcon, SaveIcon, SpinnerIcon, AlertIcon } from "@/components/icons";
+import { CheckCircleIcon, DatabaseIcon, ResetIcon, SaveIcon, SpinnerIcon, AlertIcon, TrashIcon } from "@/components/icons";
 import { ResultToast } from "@/components/toast";
 import { alert, btn, card, input, inputError, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { FixedAssetConnectionTest, FixedAssetSyncRun, FixedAssetSyncSettings } from "@/lib/types";
 
-/** รหัสหมวดสินทรัพย์ (faclass) ที่พบในรายงานของ SyteLine — กดเพื่อเพิ่มเร็ว (พิมพ์รหัสอื่นเองได้) */
+/** รหัสหมวดสินทรัพย์ (faclass) ที่รู้จักชื่อ — ใช้เป็นตัวเลือกเมื่อยังไม่เคยซิงค์ (หลังซิงค์ใช้รหัสที่พบจริงจาก source_codes) */
 const CLASS_SUGGESTIONS = ["OFFI", "INTA", "STEQ", "SIMA", "MACH", "VEHI", "LINV", "ROLV", "BLDG", "LAND", "UTIL"] as const;
 const CODE_RE = /^[A-Z0-9_-]{1,20}$/;
 const SITE_RE = /^[A-Z0-9]{1,8}$/;
@@ -20,14 +21,26 @@ const RUN_TONE = { ok: tone.success.badge, partial: tone.warning.badge, failed: 
  * ตั้งค่าระบบ → SyteLine Fixed Assets: สวิตช์ซิงค์อัตโนมัติ, path ของรายงาน, ขอบเขต (สาขา / แผนก / หมวด), ทดสอบการเชื่อมต่อ, ซิงค์ตอนนี้, ประวัติ
  * บัญชี/รหัสผ่านของ API ตั้งใน .env ของ API เท่านั้น — หน้านี้แสดงแค่ว่าตั้งแล้วหรือยัง
  */
-export function FixedAssetSync({ initial, runs, canSync }: { initial: FixedAssetSyncSettings; runs: FixedAssetSyncRun[]; canSync: boolean }) {
+export function FixedAssetSync({
+  initial,
+  runs,
+  canSync,
+  pager,
+}: {
+  initial: FixedAssetSyncSettings;
+  runs: FixedAssetSyncRun[];
+  canSync: boolean;
+  /** แถบเปลี่ยนหน้าของประวัติการซิงค์ (หน้าละ 10 รอบ — server component) */
+  pager?: React.ReactNode;
+}) {
   const { t, fmt } = useI18n();
   const [v, setV] = useState(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [result, setResult] = useState<{ ok?: boolean; message?: string } | null>(null);
   const [test, setTest] = useState<FixedAssetConnectionTest | null>(null);
   const [pending, start] = useTransition();
-  const [busy, setBusy] = useState<"save" | "test" | "sync" | null>(null);
+  const [busy, setBusy] = useState<"save" | "test" | "sync" | "clear_unlinked" | "clear_all" | null>(null);
+  const confirm = useConfirm();
 
   /** ล้าง error ของช่องทันทีเมื่อผู้ใช้แก้ */
   const clearError = (key: string) =>
@@ -40,12 +53,12 @@ export function FixedAssetSync({ initial, runs, canSync }: { initial: FixedAsset
     setV({ ...v, [k]: value });
     clearError(k);
   };
-  const setPath = (k: "depreciation" | "classdept", value: string) => {
-    setV({ ...v, paths: { ...v.paths, [k]: value } });
-    clearError(`paths.${k}`);
+  const setPath = (value: string) => {
+    setV({ ...v, paths: { info: value } });
+    clearError("paths.info");
   };
 
-  const run = (kind: "save" | "test" | "sync", fn: () => Promise<void>) =>
+  const run = (kind: NonNullable<typeof busy>, fn: () => Promise<void>) =>
     start(async () => {
       setBusy(kind);
       try {
@@ -77,6 +90,19 @@ export function FixedAssetSync({ initial, runs, canSync }: { initial: FixedAsset
       else setResult(res);
     });
 
+  /** ลบข้อมูลที่ซิงค์แล้ว (ถามยืนยันพร้อมจำนวน) แล้วกดซิงค์ใหม่ได้ */
+  const clear = async (scope: "unlinked" | "all") => {
+    const { total, linked } = initial.synced;
+    const n = scope === "all" ? total : total - linked;
+    const msg = scope === "all"
+      ? t("fixedAssetSync.clearAllConfirm", { n: fmt.number(n), linked: fmt.number(linked) })
+      : t("fixedAssetSync.clearUnlinkedConfirm", { n: fmt.number(n) });
+    if (!(await confirm(msg, { confirmText: t("common.delete") }))) return;
+    run(scope === "all" ? "clear_all" : "clear_unlinked", async () => {
+      setResult(await clearFixedAssets(scope));
+    });
+  };
+
   const syncNow = () =>
     run("sync", async () => {
       setResult(await startFixedAssetSync());
@@ -92,6 +118,39 @@ export function FixedAssetSync({ initial, runs, canSync }: { initial: FixedAsset
   const field = (k: string) => (errors[k] ? `${input} ${inputError}` : input);
   const label = "mb-1 block text-sm font-medium";
   const conn = v.connection;
+  const known = (c: string): c is (typeof CLASS_SUGGESTIONS)[number] => (CLASS_SUGGESTIONS as readonly string[]).includes(c);
+
+  /** ตัวเลือกจากรอบซิงค์ล่าสุด (รหัส + จำนวนรายการ) — กดเพื่อเพิ่ม; ยังไม่เคยซิงค์ = fallback */
+  const suggestions = (
+    key: "departments" | "classes",
+    found: Record<string, number> | undefined,
+    fallback: readonly string[],
+  ) => {
+    const selected = v[key];
+    const list = found ? Object.entries(found).sort(([, a], [, b]) => b - a) : fallback.map((c) => [c, null] as const);
+    const rest = list.filter(([c]) => !selected.includes(c));
+    if (rest.length === 0) return null;
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-muted">{t("fixedAssetSync.quickAdd")}</span>
+        {rest.map(([c, n]) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => set(key, [...selected, c])}
+            className="cursor-pointer rounded-full bg-subtle px-2.5 py-0.5 text-xs hover:bg-accent-100 hover:text-accent-900 dark:hover:bg-accent-400/15 dark:hover:text-accent-100"
+          >
+            + {c}
+            {key === "classes" && known(c) && <span className="text-muted"> {t(`fixedAssetSync.classNames.${c}`)}</span>}
+            {n !== null && <span className="text-muted"> ({fmt.number(n)})</span>}
+          </button>
+        ))}
+      </div>
+    );
+  };
+  const codesNote = v.source_codes
+    ? t("fixedAssetSync.codesFrom", { at: fmt.dateTime(v.source_codes.at) })
+    : t("fixedAssetSync.codesNotYet");
 
   return (
     <div className="space-y-5">
@@ -165,32 +224,18 @@ export function FixedAssetSync({ initial, runs, canSync }: { initial: FixedAsset
         </div>
 
         <fieldset disabled={pending} className="space-y-4 disabled:opacity-60">
-          {/* path ของรายงาน — ยืนยันกับฝ่าย IT ของ STEC */}
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div>
-              <label htmlFor="fa-path-dep" className={label}>{t("fixedAssetSync.pathDepreciation")}</label>
-              <input
-                id="fa-path-dep"
-                value={v.paths.depreciation}
-                onChange={(e) => setPath("depreciation", e.target.value)}
-                placeholder="/api/v1/reports/..."
-                className={field("paths.depreciation")}
-              />
-              {err("paths.depreciation")}
-              <p className="mt-1 text-xs text-muted">{t("fixedAssetSync.pathDepreciationHint")}</p>
-            </div>
-            <div>
-              <label htmlFor="fa-path-cd" className={label}>{t("fixedAssetSync.pathClassdept")}</label>
-              <input
-                id="fa-path-cd"
-                value={v.paths.classdept}
-                onChange={(e) => setPath("classdept", e.target.value)}
-                placeholder="/api/v1/reports/..."
-                className={field("paths.classdept")}
-              />
-              {err("paths.classdept")}
-              <p className="mt-1 text-xs text-muted">{t("fixedAssetSync.pathClassdeptHint")}</p>
-            </div>
+          {/* path ของ API Fixed assets info (คู่มือข้อ 3.27) — API เดียวที่เรียก */}
+          <div className="lg:max-w-xl">
+            <label htmlFor="fa-path-info" className={label}>{t("fixedAssetSync.pathInfo")}</label>
+            <input
+              id="fa-path-info"
+              value={v.paths.info}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder="/api/v1/reports/fainfo"
+              className={field("paths.info")}
+            />
+            {err("paths.info")}
+            <p className="mt-1 text-xs text-muted">{t("fixedAssetSync.pathInfoHint")}</p>
           </div>
 
           {/* ขอบเขตข้อมูล */}
@@ -218,7 +263,9 @@ export function FixedAssetSync({ initial, runs, canSync }: { initial: FixedAsset
                 validate={code(CODE_RE, v.departments)}
               />
               {err("departments")}
+              {suggestions("departments", v.source_codes?.departments, [])}
               <p className="mt-1 text-xs text-muted">{t("fixedAssetSync.departmentsHint")}</p>
+              <p className="mt-1 text-xs text-muted">{codesNote}</p>
             </div>
             <div>
               <p className={label}>{t("fixedAssetSync.classes")}</p>
@@ -231,20 +278,9 @@ export function FixedAssetSync({ initial, runs, canSync }: { initial: FixedAsset
                 validate={code(CODE_RE, v.classes)}
               />
               {err("classes")}
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-muted">{t("fixedAssetSync.quickAdd")}</span>
-                {CLASS_SUGGESTIONS.filter((c) => !v.classes.includes(c)).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => set("classes", [...v.classes, c])}
-                    className="cursor-pointer rounded-full bg-subtle px-2.5 py-0.5 text-xs hover:bg-accent-100 hover:text-accent-900 dark:hover:bg-accent-400/15 dark:hover:text-accent-100"
-                  >
-                    + {c} <span className="text-muted">{t(`fixedAssetSync.classNames.${c}`)}</span>
-                  </button>
-                ))}
-              </div>
+              {suggestions("classes", v.source_codes?.classes, CLASS_SUGGESTIONS)}
               <p className="mt-1 text-xs text-muted">{t("fixedAssetSync.classesHint")}</p>
+              <p className="mt-1 text-xs text-muted">{codesNote}</p>
             </div>
           </div>
 
@@ -269,7 +305,7 @@ export function FixedAssetSync({ initial, runs, canSync }: { initial: FixedAsset
           </div>
         </fieldset>
 
-        {v.enabled && !v.paths.depreciation && <p className={alert.warning}>{t("fixedAssetSync.needPath")}</p>}
+        {v.enabled && !v.paths.info &&<p className={alert.warning}>{t("fixedAssetSync.needPath")}</p>}
 
         <div className="flex flex-wrap justify-end gap-2">
           {canSync && (
@@ -285,7 +321,44 @@ export function FixedAssetSync({ initial, runs, canSync }: { initial: FixedAsset
         </div>
       </section>
 
-      {/* ประวัติการซิงค์ 20 รอบล่าสุด */}
+      {/* ลบข้อมูลที่ซิงค์แล้ว เพื่อซิงค์ใหม่ (fixed_assets.sync) — ไม่แตะสินทรัพย์ในระบบ / ประวัติการซิงค์ */}
+      {canSync && (
+        <section className={`space-y-3 p-4 sm:p-6 ${card}`}>
+          <div>
+            <h2 className="flex items-center gap-2 font-semibold">
+              <TrashIcon className="text-danger-500" />
+              {t("fixedAssetSync.clearTitle")}
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              {t("fixedAssetSync.clearHint", { total: fmt.number(initial.synced.total), linked: fmt.number(initial.synced.linked) })}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => clear("unlinked")}
+              disabled={pending || initial.synced.total - initial.synced.linked === 0}
+              aria-busy={busy === "clear_unlinked"}
+              className={btn.secondary}
+            >
+              {busy === "clear_unlinked" ? <SpinnerIcon /> : <TrashIcon />}
+              {t("fixedAssetSync.clearUnlinked", { n: fmt.number(initial.synced.total - initial.synced.linked) })}
+            </button>
+            <button
+              type="button"
+              onClick={() => clear("all")}
+              disabled={pending || initial.synced.total === 0}
+              aria-busy={busy === "clear_all"}
+              className={btn.danger}
+            >
+              {busy === "clear_all" ? <SpinnerIcon /> : <TrashIcon />}
+              {t("fixedAssetSync.clearAll", { n: fmt.number(initial.synced.total) })}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* ประวัติการซิงค์ — หน้าละ 10 รอบ */}
       <section className={`space-y-3 p-4 sm:p-6 ${card}`}>
         <h2 className="font-semibold">{t("fixedAssetSync.history")}</h2>
         {runs.length === 0 ? (
@@ -337,6 +410,7 @@ export function FixedAssetSync({ initial, runs, canSync }: { initial: FixedAsset
             </table>
           </div>
         )}
+        {pager}
       </section>
     </div>
   );

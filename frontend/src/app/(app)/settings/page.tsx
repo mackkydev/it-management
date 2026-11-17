@@ -15,11 +15,12 @@ import {
   ShieldIcon,
 } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
+import { Pagination } from "@/components/pagination";
 import { card } from "@/components/ui";
 import { getBranding, getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { has, getCurrentUser, getUiConfig } from "@/lib/auth";
-import type { AppSettings, FixedAssetSyncRun, FixedAssetSyncSettings, PermissionCatalog, SystemPolicy } from "@/lib/types";
+import type { AppSettings, FixedAssetSyncRun, FixedAssetSyncSettings, Paginated, PermissionCatalog, SystemPolicy } from "@/lib/types";
 import { FixedAssetSync } from "./fixed-asset-sync";
 import { LogoCard } from "./logo-card";
 import { SecurityForm } from "./security-form";
@@ -111,11 +112,21 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
       break;
     case "syteline": {
       // Fixed Assets จาก STEC SyteLine — ตั้งค่า (settings.manage) + ซิงค์/ประวัติ (fixed_assets.sync)
+      // ประวัติการซิงค์หน้าละ 10 รอบ (?page=)
+      const runPage = Math.max(1, Number.parseInt(String(params.page ?? "1"), 10) || 1);
       const [fa, runs] = await Promise.all([
         apiFetch<{ data: FixedAssetSyncSettings }>("/fixed-assets/settings"),
-        apiFetch<{ data: FixedAssetSyncRun[] }>("/fixed-assets/sync-runs"),
+        apiFetch<Paginated<FixedAssetSyncRun>>(`/fixed-assets/sync-runs?page=${runPage}`),
       ]);
-      body = <FixedAssetSync key={JSON.stringify(fa.data)} initial={fa.data} runs={runs.data} canSync={has(user, "fixed_assets.sync")} />;
+      body = (
+        <FixedAssetSync
+          key={JSON.stringify(fa.data)}
+          initial={fa.data}
+          runs={runs.data}
+          canSync={has(user, "fixed_assets.sync")}
+          pager={<Pagination meta={runs.meta} href={(n: number) => `/settings?tab=syteline&page=${n}`} />}
+        />
+      );
       break;
     }
   }

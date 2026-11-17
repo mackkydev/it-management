@@ -2,7 +2,7 @@ import { getI18n } from "@/i18n/server";
 import { apiFile } from "@/lib/api";
 import { getCurrentUser, has } from "@/lib/auth";
 
-const FILTER_KEYS = ["tab", "search", "site", "fa_class", "fa_dept", "status"] as const;
+const FILTER_KEYS = ["tab", "search", "site", "fa_class", "fa_dept", "status", "link"] as const;
 
 /**
  * GET /fixed-assets/export?ตัวกรองเดียวกับหน้ารายการ → Excel จาก API (POST /fixed-assets/export)
@@ -17,18 +17,17 @@ export async function GET(req: Request) {
     ...filters,
     headers: {
       sheet: t("fixedAssets.title"),
+      site: t("fixedAssets.col.site"),
       branch: t("fixedAssets.col.branch"),
+      recordDate: t("fixedAssets.col.recordDate"),
       fanum: t("fixedAssets.col.fanum"),
       description: t("fixedAssets.col.description"),
       class: t("fixedAssets.col.class"),
       dept: t("fixedAssets.col.dept"),
       status: t("fixedAssets.col.status"),
-      acquired: t("fixedAssets.col.acquired"),
-      cost: t("fixedAssets.col.cost"),
-      accum: t("fixedAssets.col.accum"),
-      nbv: t("fixedAssets.col.nbv"),
-      disposed: t("fixedAssets.col.disposed"),
-      location: t("fixedAssets.col.location"),
+      endUser: t("fixedAssets.col.endUser"),
+      serial: t("fixedAssets.col.serial"),
+      mfg: t("fixedAssets.col.mfg"),
       asset: t("fixedAssets.col.asset"),
       asOf: t("fixedAssets.col.asOf"),
     },

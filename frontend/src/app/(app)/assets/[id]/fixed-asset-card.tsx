@@ -20,7 +20,6 @@ export async function FixedAssetCard({ assetId }: { assetId: string }) {
       .catch(() => [] as FixedAsset[]),
   ]);
   if (rows.length === 0) return null;
-  const money = (v: number | null) => (v === null ? "—" : fmt.money(v));
 
   return (
     <section className={`space-y-4 p-4 sm:p-6 ${card}`}>
@@ -57,36 +56,20 @@ export async function FixedAssetCard({ assetId }: { assetId: string }) {
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-muted">{t("fixedAssets.col.acquired")}</dt>
-              <dd className="mt-0.5 font-medium">{fa.acquired_on ? fmt.date(fa.acquired_on) : "—"}</dd>
+              <dt className="text-xs text-muted">{t("fixedAssets.col.endUser")}</dt>
+              <dd className="mt-0.5 break-words font-medium">{fa.end_user || "—"}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted">{t("fixedAssets.col.cost")}</dt>
-              <dd className="mt-0.5 font-medium tabular-nums">{money(fa.acq_cost)}</dd>
+              <dt className="text-xs text-muted">{t("fixedAssets.col.serial")}</dt>
+              <dd className="mt-0.5 break-all font-mono text-xs font-medium">{fa.serial || "—"}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted">{t("fixedAssets.col.accum")}</dt>
-              <dd className="mt-0.5 font-medium tabular-nums">{money(fa.accum_depr)}</dd>
+              <dt className="text-xs text-muted">{t("fixedAssets.col.mfg")}</dt>
+              <dd className="mt-0.5 break-all font-medium">{fa.mfg || "—"}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted">{t("fixedAssets.col.nbv")}</dt>
-              <dd className="mt-0.5 font-medium tabular-nums">{money(fa.nbv)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted">{t("fixedAssets.card.depreciation")}</dt>
-              <dd className="mt-0.5 font-medium">
-                {[fa.depr_rate !== null ? `${fmt.number(fa.depr_rate)}%` : null, fa.depr_method, fa.useful_life !== null ? t("fixedAssets.card.years", { n: fmt.number(fa.useful_life) }) : null]
-                  .filter(Boolean)
-                  .join(" · ") || "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted">{t("fixedAssets.col.disposed")}</dt>
-              <dd className="mt-0.5 font-medium">{fa.disposed_on ? fmt.date(fa.disposed_on) : "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted">{t("fixedAssets.col.location")}</dt>
-              <dd className="mt-0.5 font-medium">{fa.fa_location || "—"}</dd>
+              <dt className="text-xs text-muted">{t("fixedAssets.col.recordDate")}</dt>
+              <dd className="mt-0.5 font-medium">{fa.record_date ? fmt.date(fa.record_date) : "—"}</dd>
             </div>
           </dl>
         </div>
