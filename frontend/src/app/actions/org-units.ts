@@ -7,7 +7,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 
 /** แผนก / ฝ่าย (ข้อมูลหลัก) — สิทธิ์ org.manage (API ตรวจซ้ำ) */
 export type OrgTable = "departments" | "divisions" | "contract_categories" | "asset_category" | "computer_type" | "computer_spec" | "brand" | "vault_category" | "meeting_purpose" | "meeting_equipment" | "zoom_account" | "vendor_type" | "vehicle_purpose" | "vehicle_extra" | "vehicle_type" | "vehicle_fuel";
-export type OrgResult = ActionResult<"name" | "sort_order">;
+export type OrgResult = ActionResult<"name" | "sort_order" | "code" | "name_en">;
 
 const TABLES: OrgTable[] = ["departments", "divisions", "contract_categories", "asset_category", "computer_type", "computer_spec", "brand", "vault_category", "meeting_purpose", "meeting_equipment", "zoom_account", "vendor_type", "vehicle_purpose", "vehicle_extra", "vehicle_type", "vehicle_fuel"];
 /** path ของ API และหน้าเว็บ (หมวดหมู่สัญญาใช้ขีดกลาง) */
@@ -36,7 +36,17 @@ const validId = (id: unknown): id is number => Number.isInteger(id) && (id as nu
 export async function saveOrgUnit(
   table: OrgTable,
   id: number | null,
-  v: { name: string; is_active: boolean; sort_order: number; division_id?: number | null; department_ids?: number[] },
+  v: {
+    name: string;
+    code?: string;
+    name_en?: string;
+    is_active: boolean;
+    sort_order: number;
+    division_id?: number | null;
+    department_ids?: number[];
+    /** แผนกจากหน้าแท็บเดียว: ฝ่ายชื่อเดียวกันเปลี่ยนตาม */
+    mirror_division?: boolean;
+  },
 ): Promise<OrgResult> {
   const { t } = await getI18n();
   if (!TABLES.includes(table) || (id !== null && !validId(id))) return { message: t("common.saveFailed") };
@@ -45,11 +55,14 @@ export async function saveOrgUnit(
       method: id ? "PUT" : "POST",
       body: JSON.stringify({
         name: v.name.trim(),
+        // ฝ่าย/แผนก: ตัวย่อ + ชื่ออังกฤษ (ว่าง = ล้าง)
+        ...(table === "departments" || table === "divisions" ? { code: v.code?.trim() || null, name_en: v.name_en?.trim() || null } : {}),
         is_active: v.is_active,
         sort_order: v.sort_order,
         ...(table === "departments" ? { division_id: v.division_id ?? null } : {}),
         // ฝ่าย: แผนกที่อยู่ในฝ่ายนี้ (ไม่ส่ง = ไม่แตะ)
         ...(table === "divisions" && v.department_ids ? { department_ids: v.department_ids.map(Number) } : {}),
+        ...(table === "departments" && v.mirror_division ? { mirror_division: true } : {}),
       }),
     });
   } catch (e) {
@@ -59,11 +72,11 @@ export async function saveOrgUnit(
   return { ok: true, message: t("orgUnits.saved") };
 }
 
-export async function deleteOrgUnit(table: OrgTable, id: number): Promise<OrgResult> {
+export async function deleteOrgUnit(table: OrgTable, id: number, mirrorDivision = false): Promise<OrgResult> {
   const { t } = await getI18n();
   if (!TABLES.includes(table) || !validId(id)) return { message: t("common.saveFailed") };
   try {
-    await apiFetch(`${PATH[table]}/${id}`, { method: "DELETE" });
+    await apiFetch(`${PATH[table]}/${id}${table === "departments" && mirrorDivision ? "?mirror_division=1" : ""}`, { method: "DELETE" });
   } catch (e) {
     const r = await toActionResult<"name" | "sort_order">(e);
     return { ...r, message: r.errors?.name ?? r.message };
@@ -74,7 +87,7 @@ export async function deleteOrgUnit(table: OrgTable, id: number): Promise<OrgRes
 
 export type OrgImportResult = { ok: true; created: number; updated: number } | { ok: false; message: string; rows: { row: number; message: string }[] };
 
-/** นำเข้าฝ่าย + แผนกจาก Excel (multipart: file) */
+/** นำเข้าฝ่าย + แผนก (multipart: file — ไฟล์ Unit Code .csv/.txt/.xlsx หรือ Excel 2 แผ่นแบบเดิม) */
 export async function importOrgUnits(form: FormData): Promise<OrgImportResult> {
   const { t } = await getI18n();
   const file = form.get("file");

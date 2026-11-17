@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { assignVehicle } from "@/app/actions/vehicles";
 import { AppSelect } from "@/components/app-select";
-import { useAlert, useConfirm } from "@/components/dialog-provider";
+import { useAlert } from "@/components/dialog-provider";
 import { CheckCircleIcon, EyeIcon, GaugeIcon, PencilIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
 import { btn, card, input, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { IDLE_TONE } from "@/lib/booking";
 import type { Vehicle, VehicleBooking } from "@/lib/types";
 import { VehicleDialog } from "./vehicle-dialog";
+import { VehiclePickerModal } from "./vehicle-picker-modal";
 import { overlaps, periodText, toneOf } from "./vehicle-utils";
 
 /**
@@ -22,10 +23,10 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
   const { t, fmt } = useI18n();
   const router = useRouter();
   const showAlert = useAlert();
-  const confirm = useConfirm();
   const [selected, setSelected] = useState<VehicleBooking | null>(null);
   const [choice, setChoice] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
+  const [picker, setPicker] = useState<{ booking: VehicleBooking; initial: number | null; message?: string; error?: string } | null>(null);
   const [, start] = useTransition();
 
   const toneFor = (b: VehicleBooking) => (b.vehicle ? toneOf(vehicles, b.vehicle.id) : IDLE_TONE);
@@ -65,15 +66,34 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
     const value = choice[b.id] ?? (b.vehicle ? String(b.vehicle.id) : "");
     setSaving(b.id);
     start(async () => {
-      let res = await assignVehicle(b.id, value ? Number(value) : null);
-      // รถที่เลือกติดการจองอื่น → ถามแล้วสลับรถกับรายการนั้น
-      if (res.swap && (await confirm(`${res.message}\n\n${t("swap.confirm")}`, { danger: false }))) res = await assignVehicle(b.id, Number(value), true);
+      const res = await assignVehicle(b.id, value ? Number(value) : null);
       setSaving(null);
-      if (res.swap) return;
-      if (!res.ok) return void (await showAlert(res.errors?.vehicle_id ?? res.message ?? t("common.saveFailed")));
-      router.refresh();
+      if (res.ok) return router.refresh();
+      // รถที่เลือกไม่ว่าง → กล่องรายชื่อรถทั้งหมด (เลือกคันที่ไม่ว่าง = สลับ / ดึงรถมา)
+      if (value && (res.swap || res.errors?.vehicle_id)) return setPicker({ booking: b, initial: Number(value), message: res.swap ? res.message : res.errors?.vehicle_id });
+      await showAlert(res.errors?.vehicle_id ?? res.message ?? t("common.saveFailed"));
     });
   };
+  // เลือกจากกล่องรายชื่อรถ = ยืนยันแล้ว (swap: true — API สลับรถ หรือดึงรถจากการจองที่ใช้อยู่)
+  const assignFromPicker = (vehicleId: number) => {
+    if (!picker) return;
+    const b = picker.booking;
+    setSaving(b.id);
+    start(async () => {
+      const res = await assignVehicle(b.id, vehicleId, true);
+      setSaving(null);
+      if (res.ok) {
+        setPicker(null);
+        setChoice((c) => ({ ...c, [b.id]: String(vehicleId) }));
+        return router.refresh();
+      }
+      setPicker((p) => (p ? { ...p, error: res.errors?.vehicle_id ?? res.message ?? t("common.saveFailed") } : p));
+    });
+  };
+  // รถถูกดึงไปให้การจองอื่น ยังไม่ได้จัดรถใหม่ = กรอบแดงเตือน
+  const bumped = (b: VehicleBooking) => mode === "dispatch" && Boolean(b.vehicle_bumped);
+  const bumpedNote = (b: VehicleBooking) =>
+    bumped(b) ? <span className="mt-1 block text-xs font-medium text-danger-600 dark:text-danger-300">{t("vehicle.dispatch.bumped")}</span> : null;
   const assignControl = (b: VehicleBooking) => {
     const value = choice[b.id] ?? (b.vehicle ? String(b.vehicle.id) : "");
     const others = busy.filter((x) => x.id !== b.id && x.vehicle);
@@ -138,7 +158,7 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
           </thead>
           <tbody className={table.body}>
             {items.map((b) => (
-              <tr key={b.id} className={table.row}>
+              <tr key={b.id} className={`${table.row} ${bumped(b) ? "outline-2 -outline-offset-2 outline-danger-500" : ""}`}>
                 <td className={`${table.td} whitespace-nowrap`}>
                   <Link href={`/vehicles/day/${b.start_on}`} className="cursor-pointer font-medium hover:text-accent-600 dark:hover:text-accent-300">
                     {periodText(b, fmt.date)}
@@ -154,6 +174,7 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
                 </td>
                 <td className={table.td}>
                   {mode === "dispatch" && b.can_assign && !b.can_approve ? assignControl(b) : vehicleCell(b)}
+                  {bumpedNote(b)}
                   {mileage(b)}
                 </td>
                 {mode === "dispatch" && (
@@ -173,7 +194,7 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
 
       <ul className="space-y-3 md:hidden">
         {items.map((b) => (
-          <li key={b.id} className={`space-y-2 p-4 ${card}`}>
+          <li key={b.id} className={`space-y-2 p-4 ${card} ${bumped(b) ? "ring-2 ring-danger-500" : ""}`}>
             <div className="flex items-start justify-between gap-2">
               <p className="min-w-0 font-medium">{b.details}</p>
               {status(b)}
@@ -181,12 +202,26 @@ export function VehicleBookingList({ items, vehicles, mode, busy = [] }: { items
             <p className="text-sm">{periodText(b, fmt.date)}</p>
             {mode === "dispatch" && <p className="text-xs text-muted">{[b.user.name, b.branch?.name].filter(Boolean).join(" · ")}</p>}
             {mode === "dispatch" && b.can_assign && !b.can_approve ? assignControl(b) : vehicleCell(b)}
+            {bumpedNote(b)}
             {mileage(b)}
             {actions(b)}
           </li>
         ))}
       </ul>
 
+      {picker && (
+        <VehiclePickerModal
+          booking={picker.booking}
+          vehicles={vehicles}
+          busy={busy}
+          initial={picker.initial}
+          message={picker.message}
+          error={picker.error}
+          pending={saving === picker.booking.id}
+          onPick={assignFromPicker}
+          onClose={() => setPicker(null)}
+        />
+      )}
       {selected && (
         <VehicleDialog
           booking={selected}

@@ -5,8 +5,8 @@
  */
 export const MASTER_DATA = {
   branches: { href: "/branches", perm: "branches.manage", label: "nav.branches" },
-  divisions: { href: "/org-units?tab=divisions", perm: "org.manage", label: "masterData.divisions" },
-  departments: { href: "/org-units?tab=departments", perm: "org.manage", label: "masterData.departments" },
+  divisions: { href: "/org-units", perm: "org.manage", label: "masterData.divisions" },
+  departments: { href: "/org-units", perm: "org.manage", label: "masterData.departments" },
   locations: { href: "/locations", perm: "locations.manage", label: "nav.locations" },
   vendors: { href: "/vendors", perm: "vendors.manage", label: "nav.vendors" },
   contract_categories: { href: "/dropdowns?tab=contract_categories", perm: "contracts.categories", label: "dropdowns.tabs.contract_categories" },

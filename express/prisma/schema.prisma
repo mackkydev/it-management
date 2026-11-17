@@ -1193,6 +1193,10 @@ model audit_logs {
 model departments {
   id          BigInt     @id @default(autoincrement())
   name        String     @unique(map: "departments_name_unique") @db.VarChar(100)
+  /// ตัวย่อ (Unit Code ของ SyteLine) — ไม่บังคับ ถ้ามีห้ามซ้ำ
+  code        String?    @unique(map: "departments_code_unique") @db.VarChar(20)
+  /// ชื่ออังกฤษ (name = ชื่อไทย)
+  name_en     String?    @db.VarChar(150)
   is_active   Boolean    @default(true)
   sort_order  Int        @default(0) @db.SmallInt
   /// ฝ่ายที่สังกัด (ไม่บังคับ)
@@ -1208,6 +1212,10 @@ model departments {
 model divisions {
   id          BigInt        @id @default(autoincrement())
   name        String        @unique(map: "divisions_name_unique") @db.VarChar(100)
+  /// ตัวย่อ (Unit Code ของ SyteLine) — ไม่บังคับ ถ้ามีห้ามซ้ำ
+  code        String?       @unique(map: "divisions_code_unique") @db.VarChar(20)
+  /// ชื่ออังกฤษ (name = ชื่อไทย)
+  name_en     String?       @db.VarChar(150)
   is_active   Boolean       @default(true)
   sort_order  Int           @default(0) @db.SmallInt
   created_at  DateTime?     @db.DateTime(0)
@@ -1503,6 +1511,8 @@ model vehicle_bookings {
   status                 String                   @default("confirmed") @db.VarChar(20)
   assigned_by            BigInt?
   assigned_at            DateTime?                @db.DateTime(0)
+  /// รถถูกผู้จัดคิวดึงไปให้การจองอื่น (ยังไม่ได้จัดรถใหม่) — ล้างเมื่อจัดรถให้แล้ว
+  vehicle_bumped_at      DateTime?                @db.DateTime(0)
   cancelled_at           DateTime?                @db.DateTime(0)
   cancelled_by           BigInt?
   /// การอนุมัติโดยผู้จัดคิวรถ: status pending (รออนุมัติ) → confirmed (อนุมัติ) / rejected (ไม่อนุมัติ + เหตุผล)

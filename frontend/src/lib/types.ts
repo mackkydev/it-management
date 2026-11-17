@@ -839,6 +839,9 @@ export type AnnouncementLevel = (typeof ANNOUNCEMENT_LEVELS)[number];
 export interface OrgUnit {
   id: number;
   name: string;
+  /** ฝ่าย/แผนก: ตัวย่อ (Unit Code) + ชื่ออังกฤษ */
+  code?: string | null;
+  name_en?: string | null;
   is_active: boolean;
   sort_order: number;
   users_count?: number;
@@ -1540,6 +1543,8 @@ export interface VehicleBooking {
   id: string;
   /** mileage = เลขไมล์ล่าสุดของคัน (เลขไมล์เริ่มต้นตอนบันทึก) */
   vehicle: { id: number; name: string; plate_no: string | null; mileage?: number | null } | null;
+  /** รถถูกผู้จัดคิวดึงไปให้การจองอื่น ยังไม่ได้จัดรถใหม่ (หน้าจัดคิวกรอบแดง) */
+  vehicle_bumped?: boolean;
   /** สาขาที่ขอใช้รถ (ยังไม่ระบุรถ = ผู้จัดคิวของสาขานี้เลือกรถ) */
   branch: { id: number; name: string } | null;
   user: { id: number; name: string };

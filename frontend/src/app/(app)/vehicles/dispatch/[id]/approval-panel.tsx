@@ -9,6 +9,7 @@ import { AlertIcon, CheckCircleIcon, SpinnerIcon, XIcon } from "@/components/ico
 import { alert, btn, card, input, inputError, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { Vehicle, VehicleBooking, VehicleDriver } from "@/lib/types";
+import { VehiclePickerModal } from "../../vehicle-picker-modal";
 import { overlaps } from "../../vehicle-utils";
 
 /**
@@ -26,6 +27,7 @@ export function ApprovalPanel({ booking, vehicles, others, drivers }: { booking:
   const [errors, setErrors] = useState<{ vehicle_id?: string; driver_id?: string; reason?: string }>({});
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
+  const [picker, setPicker] = useState<{ message?: string; error?: string } | null>(null);
   const [, start] = useTransition();
 
   const taken = (id: number) => others.some((x) => x.vehicle?.id === id && (x.status === "pending" || x.status === "confirmed") && overlaps(x, booking));
@@ -38,14 +40,29 @@ export function ApprovalPanel({ booking, vehicles, others, drivers }: { booking:
     if (!(await confirm(t("vehicle.approval.confirmApprove", { vehicle: chosen.name }), { danger: false }))) return;
     setBusy("approve");
     start(async () => {
-      let res = await approveVehicleBooking(booking.id, chosen.id, false, driver);
-      // รถที่เลือกติดการจองอื่น → ถามแล้วสลับรถกับรายการนั้น
-      if (res.swap && (await confirm(`${res.message}\n\n${t("swap.confirm")}`, { danger: false }))) res = await approveVehicleBooking(booking.id, chosen.id, true, driver);
+      const res = await approveVehicleBooking(booking.id, chosen.id, false, driver);
       setBusy(null);
       if (res.ok) return router.push("/vehicles/dispatch?done=approved");
-      if (res.swap) return;
+      // รถที่เลือกไม่ว่าง → กล่องรายชื่อรถทั้งหมด (เลือกคันที่ไม่ว่าง = สลับ / ดึงรถมา)
+      if (res.swap || (res.errors?.vehicle_id && !res.errors?.driver_id)) return setPicker({ message: res.swap ? res.message : res.errors?.vehicle_id });
       setErrors({ vehicle_id: res.errors?.vehicle_id, driver_id: res.errors?.driver_id });
       setMessage(res.errors?.vehicle_id || res.errors?.driver_id ? "" : (res.errors?.status ?? res.message ?? ""));
+    });
+  };
+  // เลือกจากกล่องรายชื่อรถ = ยืนยันแล้ว (swap: true — API สลับรถ หรือดึงรถจากการจองที่ใช้อยู่)
+  const approveWith = (id: number) => {
+    const driver = booking.needs_driver ? Number(driverId) || null : null;
+    setBusy("approve");
+    start(async () => {
+      const res = await approveVehicleBooking(booking.id, id, true, driver);
+      setBusy(null);
+      if (res.ok) return router.push("/vehicles/dispatch?done=approved");
+      setVehicleId(String(id));
+      if (res.errors?.driver_id) {
+        setPicker(null);
+        return setErrors({ driver_id: res.errors.driver_id });
+      }
+      setPicker((p) => ({ message: p?.message, error: res.errors?.vehicle_id ?? res.errors?.status ?? res.message ?? t("common.saveFailed") }));
     });
   };
   const reject = async () => {
@@ -64,6 +81,26 @@ export function ApprovalPanel({ booking, vehicles, others, drivers }: { booking:
   return (
     <section className={`space-y-4 p-4 sm:p-5 ${card}`}>
       <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${tone.warning.badge}`}>{t("vehicle.booking.statuses.pending")}</span>
+      {/* รถของการจองนี้ถูกดึงไปให้การจองอื่น — ต้องจัดรถใหม่ */}
+      {booking.vehicle_bumped && (
+        <p className={alert.error}>
+          <AlertIcon className="shrink-0" />
+          {t("vehicle.dispatch.bumped")}
+        </p>
+      )}
+      {picker && (
+        <VehiclePickerModal
+          booking={booking}
+          vehicles={vehicles}
+          busy={others}
+          initial={chosen?.id ?? null}
+          message={picker.message}
+          error={picker.error}
+          pending={busy === "approve"}
+          onPick={approveWith}
+          onClose={() => setPicker(null)}
+        />
+      )}
       {message && (
         <p role="alert" className={alert.error}>
           <AlertIcon className="shrink-0" />

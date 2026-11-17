@@ -404,6 +404,8 @@ interface BookingRow {
   id: number;
   uuid: string;
   vehicle_id: number | null;
+  /** รถถูกผู้จัดคิวดึงไปให้การจองอื่น (ยังไม่ได้จัดรถใหม่) */
+  vehicle_bumped_at: string | null;
   vehicle_name: string | null;
   plate_no: string | null;
   vehicle_mileage: number | null;
@@ -490,6 +492,8 @@ async function bookingsJson(rows: BookingRow[], u: UserRow) {
       id: r.uuid,
       // mileage = เลขไมล์ล่าสุดของคัน (ใช้เป็นเลขไมล์เริ่มต้นตอนบันทึก)
       vehicle: r.vehicle_id ? { id: Number(r.vehicle_id), name: r.vehicle_name ?? "", plate_no: r.plate_no, mileage: numOrNull(r.vehicle_mileage) } : null,
+      // รถถูกผู้จัดคิวดึงไปให้การจองอื่น ยังไม่ได้จัดรถใหม่ (หน้าจัดคิวกรอบแดง)
+      vehicle_bumped: !r.vehicle_id && r.vehicle_bumped_at !== null && isActive(r),
       branch: r.branch_id ? { id: Number(r.branch_id), name: r.branch_name ?? "" } : null,
       user: { id: Number(r.user_id), name: r.user_name ?? "" },
       department: r.department,
@@ -707,7 +711,7 @@ async function clashesOn(vehicleId: number, v: Span, except: number[]): Promise<
     `${BOOKING_SELECT} WHERE m.vehicle_id = ? AND m.status IN ('pending', 'confirmed') AND m.deleted_at IS NULL
         AND m.start_on <= ? AND m.end_on >= ?
         AND CONCAT(m.start_on, ' ', m.start_time) < ? AND CONCAT(m.end_on, ' ', m.end_time) > ?${ids.length ? " AND m.id NOT IN (?)" : ""}
-      ORDER BY m.start_on, m.start_time LIMIT 5`,
+      ORDER BY m.start_on, m.start_time LIMIT 20`,
     [vehicleId, v.end_on, v.start_on, endAt(v), startAt(v), ...(ids.length ? [ids] : [])],
   );
 }
@@ -721,43 +725,66 @@ async function assertFree(req: Request, vehicleId: number, v: Span, except: numb
 }
 
 /**
- * สลับรถ: ผู้จัดคิวเลือกรถ A ให้การจองนี้ (เดิมรถ B) แต่รถ A ติดการจองอื่น 1 รายการ → รายการนั้นเปลี่ยนเป็นรถ B
- * สลับได้เมื่อ: ชนรายการเดียว, การจองนี้มีรถเดิม, ผู้จัดคิวจัดการรายการนั้นได้ (สาขา), รายการนั้นยังไม่ถึงเวลาใช้รถและยังไม่บันทึกเลขไมล์,
- * และรถเดิมว่างสำหรับช่วงของรายการนั้น — ไม่ได้ = 422 รถไม่ว่างเหมือนเดิม
+ * ผู้จัดคิวเลือกรถ A ให้การจองนี้ แต่รถ A ติดการจองอื่น → ย้ายรถ (ต้องยืนยัน)
+ * - swap = ชนรายการเดียว + การจองนี้มีรถเดิม B ที่ว่างช่วงของรายการนั้น → รายการนั้นได้รถ B แทน
+ * - take = นอกนั้น (การจองนี้ยังไม่มีรถ / รถเดิมไม่ว่าง / ชนหลายรายการ) → ดึงรถมา รายการที่ชนกลายเป็น "ยังไม่มีรถ" + รออนุมัติ
+ *   (vehicle_bumped_at — หน้าจัดคิวกรอบแดงเตือนให้จัดรถใหม่)
+ * ทำได้เมื่อทุกรายการที่ชน: ผู้จัดคิวจัดการได้ (สาขา), ยังไม่ถึงเวลาใช้รถ, ยังไม่บันทึกเลขไมล์ — ไม่ได้ = 422 รถไม่ว่างเหมือนเดิม
  * ยังไม่ยืนยัน (swap ไม่ส่ง) = 409 code swap_available + รายละเอียด (หน้าเว็บถามยืนยันแล้วส่งซ้ำพร้อม swap: true)
  */
-async function swapCandidate(req: Request, s: ScopeOf, b: BookingRow, vehicleId: number, confirmed: boolean): Promise<BookingRow | null> {
+type VehicleMove = { mode: "swap" | "take"; others: BookingRow[] };
+async function swapCandidate(req: Request, s: ScopeOf, b: BookingRow, vehicleId: number, confirmed: boolean): Promise<VehicleMove | null> {
   const span = spanOf(b);
   const clashes = await clashesOn(vehicleId, span, [Number(b.id)]);
   if (!clashes.length) return null;
+  const movable = clashes.every((o) => managesBooking(s, o) && startAt(o) > localNow() && o.end_mileage === null);
+  if (!movable) await assertFree(req, vehicleId, span, Number(b.id));
   const from = numOrNull(b.vehicle_id);
   const other = clashes[0];
-  const swappable =
-    clashes.length === 1 &&
-    from !== null &&
-    from !== vehicleId &&
-    managesBooking(s, other) &&
-    startAt(other) > localNow() &&
-    other.end_mileage === null &&
-    (await clashesOn(from, spanOf(other), [Number(b.id), Number(other.id)])).length === 0;
-  if (!swappable) await assertFree(req, vehicleId, span, Number(b.id));
+  const swap =
+    clashes.length === 1 && from !== null && from !== vehicleId && (await clashesOn(from, spanOf(other), [Number(b.id), Number(other.id)])).length === 0;
+  const mode = swap ? "swap" : "take";
   if (!confirmed) {
-    const swap = { id: other.uuid, owner: other.user_name ?? "-", period: periodText(other), vehicle: other.vehicle_name ?? "", to_vehicle: b.vehicle_name ?? "" };
-    throw new HttpError(409, t(req, "eam.vehicle.swap_available", swap), {}, { code: "swap_available", swap });
+    const offer = {
+      id: other.uuid,
+      owner: clashes.map((o) => o.user_name ?? "-").join(", "),
+      period: periodText(other),
+      vehicle: other.vehicle_name ?? "",
+      to_vehicle: b.vehicle_name ?? "",
+      mode,
+      count: clashes.length,
+    };
+    throw new HttpError(409, t(req, mode === "swap" ? "eam.vehicle.swap_available" : "eam.vehicle.take_available", offer), {}, { code: "swap_available", swap: offer });
   }
-  return other;
+  return { mode, others: clashes };
 }
 
-/** ย้ายรายการที่ถูกสลับไปใช้รถเดิมของการจองนี้ (ใน transaction หลัง lock ทั้งสองคัน — ตรวจว่างซ้ำ) */
-async function applySwap(req: Request, u: UserRow, b: BookingRow, other: BookingRow, now: string) {
-  const from = numOrNull(b.vehicle_id)!;
-  await assertFree(req, from, spanOf(other), [Number(b.id), Number(other.id)]);
-  await update(
-    "vehicle_bookings",
-    { vehicle_id: from, start_mileage: await currentMileage(from), end_mileage: null, assigned_by: u.id, assigned_at: now, updated_at: now },
-    "id = ?",
-    [other.id],
-  );
+/** ย้ายรถของรายการที่ชน (ใน transaction หลัง lock ทั้งสองคัน): swap = ไปใช้รถเดิมของการจองนี้ (ตรวจว่างซ้ำ) / take = ไม่มีรถ + รออนุมัติ */
+async function applySwap(req: Request, u: UserRow, b: BookingRow, move: VehicleMove, now: string) {
+  if (move.mode === "swap") {
+    const from = numOrNull(b.vehicle_id)!;
+    const other = move.others[0];
+    await assertFree(req, from, spanOf(other), [Number(b.id), Number(other.id)]);
+    await update(
+      "vehicle_bookings",
+      { vehicle_id: from, start_mileage: await currentMileage(from), end_mileage: null, assigned_by: u.id, assigned_at: now, vehicle_bumped_at: null, updated_at: now },
+      "id = ?",
+      [other.id],
+    );
+    return;
+  }
+  for (const o of move.others) {
+    await update(
+      "vehicle_bookings",
+      {
+        vehicle_id: null, start_mileage: null, end_mileage: null, assigned_by: null, assigned_at: null, vehicle_bumped_at: now,
+        ...(o.status === "confirmed" ? { status: "pending", approved_by: null, approved_at: null } : {}),
+        updated_at: now,
+      },
+      "id = ?",
+      [o.id],
+    );
+  }
 }
 
 /** lock หลายคันเรียงตามเลข (กัน deadlock เมื่อสลับรถ 2 คัน) */
@@ -765,17 +792,19 @@ async function lockVehicles(...ids: (number | null)[]) {
   for (const id of [...new Set(ids.filter((x): x is number => x !== null))].sort((a, z) => a - z)) await lockNamed(lockKey(id));
 }
 
-/** หลังสลับรถ: audit + แจ้งเจ้าของรายการที่ถูกสลับ (อนุมัติแล้วเท่านั้น — รออนุมัติยังไม่แจ้ง) */
-async function afterSwap(req: Request, u: UserRow, b: BookingRow, other: BookingRow) {
-  const moved = await reload(Number(other.id));
-  await audit(req, {
-    action: "vehicle_booking.swapped",
-    subjectType: "vehicle_booking",
-    subjectId: other.id,
-    before: { vehicle_id: numOrNull(other.vehicle_id) },
-    after: { vehicle_id: numOrNull(moved.vehicle_id), swapped_with: b.uuid },
-  });
-  if (moved.status === "confirmed" && Number(moved.user_id) !== u.id) await notifyOwner(u, moved, "assigned");
+/** หลังย้ายรถ: audit + แจ้งเจ้าของรายการที่ถูกย้าย (เฉพาะที่อนุมัติแล้ว — รออนุมัติยังไม่แจ้ง) */
+async function afterSwap(req: Request, u: UserRow, b: BookingRow, move: VehicleMove) {
+  for (const other of move.others) {
+    const moved = await reload(Number(other.id));
+    await audit(req, {
+      action: move.mode === "swap" ? "vehicle_booking.swapped" : "vehicle_booking.vehicle_taken",
+      subjectType: "vehicle_booking",
+      subjectId: other.id,
+      before: { vehicle_id: numOrNull(other.vehicle_id), status: other.status },
+      after: { vehicle_id: numOrNull(moved.vehicle_id), status: moved.status, [move.mode === "swap" ? "swapped_with" : "taken_by"]: b.uuid },
+    });
+    if (other.status === "confirmed" && Number(moved.user_id) !== u.id) await notifyOwner(u, moved, move.mode === "swap" ? "assigned" : "updated");
+  }
 }
 
 const lockKey = (vehicleId: number) => `vehicle:${vehicleId}`;
@@ -937,18 +966,19 @@ vehicleRoutes.put("/vehicle-bookings/:uuid/vehicle", async (req, res) => {
   if (!(await vehicleOk(s, vehicleId, numOrNull(b.vehicle_id)))) throw ValidationError.withMessages({ vehicle_id: t(req, "eam.vehicle.vehicle_invalid") });
   const startMileage = vehicleId && (b.start_mileage === null || numOrNull(b.vehicle_id) !== vehicleId) ? await currentMileage(vehicleId) : numOrNull(b.start_mileage);
   // รถที่เลือกติดการจองอื่น → สลับรถกับรายการนั้น (ต้องยืนยัน swap: true)
-  const other = vehicleId ? await swapCandidate(req, s, b, vehicleId, bool(data.swap)) : null;
+  const move = vehicleId ? await swapCandidate(req, s, b, vehicleId, bool(data.swap)) : null;
   await transaction(async () => {
     if (vehicleId) {
       await lockVehicles(vehicleId, numOrNull(b.vehicle_id));
-      if (other) await applySwap(req, u, b, other, nowDb());
-      await assertFree(req, vehicleId, spanOf(b), [Number(b.id), Number(other?.id ?? 0)]);
+      if (move) await applySwap(req, u, b, move, nowDb());
+      await assertFree(req, vehicleId, spanOf(b), [Number(b.id), ...(move?.others.map((o) => Number(o.id)) ?? [])]);
     }
     await update(
       "vehicle_bookings",
       {
         vehicle_id: vehicleId, start_mileage: vehicleId ? startMileage : null, end_mileage: vehicleId ? b.end_mileage : null,
         assigned_by: vehicleId ? u.id : null, assigned_at: vehicleId ? nowDb() : null,
+        ...(vehicleId ? { vehicle_bumped_at: null } : {}),
         ...(!vehicleId && b.status === "confirmed" ? { status: "pending", approved_by: null, approved_at: null } : {}),
         updated_at: nowDb(),
       },
@@ -958,7 +988,7 @@ vehicleRoutes.put("/vehicle-bookings/:uuid/vehicle", async (req, res) => {
   });
   const after = await reload(Number(b.id));
   await audit(req, { action: "vehicle_booking.assigned", subjectType: "vehicle_booking", subjectId: b.id, before: { vehicle_id: numOrNull(b.vehicle_id) }, after: { vehicle_id: vehicleId, start_mileage: startMileage } });
-  if (other) await afterSwap(req, u, b, other);
+  if (move) await afterSwap(req, u, b, move);
   if (after.status === "confirmed") await notifyOwner(u, after, "assigned");
   else if (b.status === "confirmed") await notifyDispatchers(u, after);
   const [json] = await bookingsJson([after], u);
@@ -990,12 +1020,12 @@ vehicleRoutes.post("/vehicle-bookings/:uuid/approve", async (req, res) => {
   const changed = vehicleId !== numOrNull(b.vehicle_id);
   const startMileage = changed || b.start_mileage === null ? await currentMileage(vehicleId) : numOrNull(b.start_mileage);
   // รถที่เลือกติดการจองอื่น → สลับรถกับรายการนั้นพร้อมอนุมัติ (ต้องยืนยัน swap: true)
-  const other = await swapCandidate(req, s, b, vehicleId, bool(data.swap));
+  const move = await swapCandidate(req, s, b, vehicleId, bool(data.swap));
   const now = nowDb();
   await transaction(async () => {
     await lockVehicles(vehicleId, numOrNull(b.vehicle_id));
-    if (other) await applySwap(req, u, b, other, now);
-    await assertFree(req, vehicleId, spanOf(b), [Number(b.id), Number(other?.id ?? 0)]);
+    if (move) await applySwap(req, u, b, move, now);
+    await assertFree(req, vehicleId, spanOf(b), [Number(b.id), ...(move?.others.map((o) => Number(o.id)) ?? [])]);
     // ล็อกแถวแล้วตรวจสถานะซ้ำ (กันผู้จัดคิว 2 คนกดพร้อมกัน / ผู้จองยกเลิกพอดี)
     const locked = await first<{ status: string }>("SELECT status FROM vehicle_bookings WHERE id = ? FOR UPDATE", [b.id]);
     if (locked?.status !== "pending") throw ValidationError.withMessages({ status: t(req, "eam.vehicle.not_pending") });
@@ -1007,7 +1037,7 @@ vehicleRoutes.post("/vehicle-bookings/:uuid/approve", async (req, res) => {
     await update(
       "vehicle_bookings",
       {
-        status: "confirmed", vehicle_id: vehicleId, driver_id: driverId, start_mileage: startMileage, approved_by: u.id, approved_at: now,
+        status: "confirmed", vehicle_id: vehicleId, driver_id: driverId, start_mileage: startMileage, approved_by: u.id, approved_at: now, vehicle_bumped_at: null,
         ...(changed ? { assigned_by: u.id, assigned_at: now } : {}),
         updated_at: now,
       },
@@ -1017,7 +1047,7 @@ vehicleRoutes.post("/vehicle-bookings/:uuid/approve", async (req, res) => {
   });
   const after = await reload(Number(b.id));
   await audit(req, { action: "vehicle_booking.approved", subjectType: "vehicle_booking", subjectId: b.id, before: { status: b.status, vehicle_id: numOrNull(b.vehicle_id) }, after: { status: "confirmed", vehicle_id: vehicleId, driver_id: driverId } });
-  if (other) await afterSwap(req, u, b, other);
+  if (move) await afterSwap(req, u, b, move);
   await resolveRequested(after);
   await notifyOwner(u, after, "approved");
   const [json] = await bookingsJson([after], u);

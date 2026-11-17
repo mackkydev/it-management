@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
-import { first, scalar } from "../src/db.js";
+import { exec, first, insert, scalar } from "../src/db.js";
+import { nowDb } from "../src/lib/time.js";
 import type { UserRow } from "../src/models/user.js";
 import { as, fakeImage, guest, makeUser } from "./helpers.js";
 
@@ -102,7 +103,7 @@ describe("division ↔ departments + Excel import", () => {
     expect(deps.find((d) => d.name === "ธุรการ")?.division).toBeNull();
     expect((await admin.get("/api/v1/divisions?include_inactive=1")).body.data.find((d: { name: string }) => d.name === "ฝ่ายผลิต").is_active).toBe(false);
 
-    // template: 2 แผ่น เติมข้อมูลในระบบ + dropdown ฝ่าย
+    // template: แผ่นเดียว Unit Code | Description | ชื่อไทย (เติมข้อมูลในระบบ — ฝ่าย/แผนกชื่อซ้ำกันแสดงครั้งเดียว)
     const tpl = await admin.get("/api/v1/org-units/import-template").buffer(true).parse((res, cb) => {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
@@ -110,9 +111,78 @@ describe("division ↔ departments + Excel import", () => {
     });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(tpl.body);
-    expect(wb.worksheets.slice(0, 2).map((w) => w.name)).toEqual(["ฝ่าย", "แผนก"]);
-    expect(wb.worksheets[1].getCell("B2").dataValidation?.type).toBe("list");
+    expect(wb.worksheets[0].name).toBe("หน่วยงาน");
+    expect([1, 2, 3].map((c) => wb.worksheets[0].getRow(1).getCell(c).value)).toEqual(["Unit Code", "Description", "ชื่อไทย"]);
     expect((await (await as(await makeUser())).post("/api/v1/org-units/import").attach("file", await book([], []), "o.xlsx")).status).toBe(403);
+  });
+
+  it("imports the SyteLine Unit Code list (UTF-16 tab file) as both divisions and departments", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }));
+    await insert("departments", { name: "เทคโนโลยีสาระสนเทศ", is_active: true, sort_order: 0, created_at: nowDb(), updated_at: nowDb() });
+    // ฝ่ายเดิมตั้งชื่อเป็นตัวย่อ ("AF") = จับคู่ด้วยตัวย่อ ไม่เปลี่ยนชื่อ
+    await insert("divisions", { name: "AF", is_active: true, sort_order: 0, created_at: nowDb(), updated_at: nowDb() });
+    const utf16 = (text: string) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")]);
+    const file = (lines: string[]) => utf16(["Unit Code\tDescription\t", ...lines].join("\r\n") + "\r\n");
+
+    // ตัวย่อซ้ำในไฟล์ = ไม่บันทึกเลย
+    const dup = await admin.post("/api/v1/org-units/import").attach("file", file(["IS\tISO\tควบคุมคุณภาพ", "IS\tISO 2\tมาตรฐาน"]), "u.csv");
+    expect(dup.status).toBe(422);
+    expect(dup.body.rows[0].row).toBe(3);
+    expect(await scalar("SELECT COUNT(*) FROM divisions WHERE code IS NOT NULL")).toBe(0);
+
+    // ชื่อไทยซ้ำ (ตัวย่อต่างกัน) = แถวหลังเติมตัวย่อท้ายชื่อ
+    const same = await admin.post("/api/v1/org-units/import").attach("file", file(["IS\tISO\tควบคุมคุณภาพ", "QC\tFactory-Quality Control\tควบคุมคุณภาพ"]), "u.csv");
+    expect(same.status).toBe(200);
+    expect(await scalar("SELECT name FROM departments WHERE code = 'QC'")).toBe("ควบคุมคุณภาพ (QC)");
+    expect(await scalar("SELECT name FROM divisions WHERE code = 'IS'")).toBe("ควบคุมคุณภาพ");
+    await exec("DELETE FROM departments WHERE code IN ('IS', 'QC')");
+    await exec("DELETE FROM divisions WHERE code IN ('IS', 'QC')");
+
+    const ok = await admin
+      .post("/api/v1/org-units/import")
+      .attach("file", file(["AF\tAccounting and Financial\tบัญชีและการเงินสำนักงานใหญ่", "IT\tInformation and Communication Technology\tเทคโนโลยีสาระสนเทศ", "LO\tLogistic\t"]), "u.csv");
+    expect(ok.status).toBe(200);
+    expect(ok.body.data).toEqual({ created: 4, updated: 2 }); // ฝ่าย 2 ใหม่ + ฝ่าย "AF" เดิม, แผนก 2 ใหม่ + แผนก IT เดิมได้ตัวย่อ
+    expect(await scalar("SELECT name FROM divisions WHERE code = 'AF'")).toBe("AF");
+    const deps = (await admin.get("/api/v1/departments?include_inactive=1")).body.data as { name: string; code: string; name_en: string; division: { name: string } | null }[];
+    expect(deps.find((d) => d.code === "IT")).toMatchObject({ name: "เทคโนโลยีสาระสนเทศ", name_en: "Information and Communication Technology", division: { name: "เทคโนโลยีสาระสนเทศ" } });
+    expect(deps.find((d) => d.code === "LO")?.name).toBe("Logistic"); // ไม่มีชื่อไทย = ชื่ออังกฤษ
+    const divs = (await admin.get("/api/v1/divisions?include_inactive=1")).body.data as { code: string }[];
+    expect(divs.map((d) => d.code).sort()).toEqual(["AF", "IT", "LO"]);
+
+    // นำเข้าซ้ำ = อัปเดต (ไม่เพิ่ม)
+    const again = await admin.post("/api/v1/org-units/import").attach("file", file(["AF\tAccounting & Finance\tบัญชีและการเงินสำนักงานใหญ่"]), "u.txt");
+    expect(again.body.data).toEqual({ created: 0, updated: 2 });
+    expect(await scalar("SELECT name_en FROM divisions WHERE code = 'AF'")).toBe("Accounting & Finance");
+  });
+
+  it("single tab: a department saved with mirror_division keeps the same-named division in step", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }));
+    const c = await admin.post("/api/v1/departments").send({ name: "จัดซื้อ", code: "PC", name_en: "Procurement", mirror_division: true });
+    expect(c.status).toBe(201);
+    expect(c.body.data.division).toMatchObject({ name: "จัดซื้อ" });
+    expect(await scalar("SELECT CONCAT(code, '|', name_en) FROM divisions WHERE name = 'จัดซื้อ'")).toBe("PC|Procurement");
+
+    const user = await makeUser({ division: "จัดซื้อ" });
+    const u = await admin.put(`/api/v1/departments/${c.body.data.id}`).send({ name: "จัดซื้อกลาง", code: "PC", is_active: false, mirror_division: true });
+    expect(u.status).toBe(200);
+    expect(await scalar("SELECT CONCAT(name, '|', is_active) FROM divisions WHERE code = 'PC'")).toBe("จัดซื้อกลาง|0");
+    expect(await scalar("SELECT division FROM users WHERE id = ?", [user.id])).toBe("จัดซื้อกลาง");
+
+    // ฝ่ายคู่กันยังมีผู้ใช้ = ลบไม่ได้
+    expect((await admin.delete(`/api/v1/departments/${c.body.data.id}?mirror_division=1`)).status).toBe(422);
+    await exec("UPDATE users SET division = NULL WHERE id = ?", [user.id]);
+    expect((await admin.delete(`/api/v1/departments/${c.body.data.id}?mirror_division=1`)).status).toBe(204);
+    expect(await scalar("SELECT COUNT(*) FROM divisions WHERE code = 'PC'")).toBe(0);
+  });
+
+  it("saves code and English name on a unit; codes are unique", async () => {
+    const admin = await as(await makeUser({ role: "super_admin" }));
+    const a = await admin.post("/api/v1/departments").send({ name: "ขนส่ง", code: "LO", name_en: "Logistic" });
+    expect(a.status).toBe(201);
+    expect(a.body.data).toMatchObject({ code: "LO", name_en: "Logistic" });
+    expect((await admin.post("/api/v1/departments").send({ name: "ขนส่งสาขา", code: "LO" })).status).toBe(422);
+    expect((await admin.post("/api/v1/departments").send({ name: "ขนส่ง 2", code: "L O" })).status).toBe(422);
   });
 });
 

@@ -12,16 +12,29 @@ import type { OrgUnit } from "@/lib/types";
 import { useConfirm } from "@/components/dialog-provider";
 import { AppSelect } from "@/components/app-select";
 
-type Draft = { name: string; is_active: boolean; sort_order: string; division_id: string; department_ids: number[] };
-const EMPTY: Draft = { name: "", is_active: true, sort_order: "0", division_id: "", department_ids: [] };
+type Draft = { name: string; code: string; name_en: string; is_active: boolean; sort_order: string; division_id: string; department_ids: number[] };
+const EMPTY: Draft = { name: "", code: "", name_en: "", is_active: true, sort_order: "0", division_id: "", department_ids: [] };
 const ICON_BTN = "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
 const LABEL = "mb-1 block text-xs font-medium text-muted";
 
 /**
- * จัดการแผนก / ฝ่าย แบบแก้ในแถว — เพิ่มด้านบน, แก้ไข/ลบในตาราง, นำเข้า Excel (ฝ่าย + แผนก ไฟล์เดียว)
+ * จัดการแผนก / ฝ่าย แบบแก้ในแถว — เพิ่มด้านบน, แก้ไข/ลบในตาราง, นำเข้าไฟล์ Unit Code (ตัวย่อ | ชื่ออังกฤษ | ชื่อไทย = ทั้งฝ่ายและแผนก)
  * แผนก: เลือกฝ่ายที่สังกัด (divisions) · ฝ่าย: เลือกแผนกที่อยู่ในฝ่ายนี้ (departments) — ไม่บังคับทั้งสองทาง
  */
-export function OrgUnitManager({ table, items, divisions, departments }: { table: OrgTable; items: OrgUnit[]; divisions?: OrgUnit[]; departments?: OrgUnit[] }) {
+export function OrgUnitManager({
+  table,
+  items,
+  divisions,
+  departments,
+  mirrorDivision = false,
+}: {
+  table: OrgTable;
+  items: OrgUnit[];
+  divisions?: OrgUnit[];
+  departments?: OrgUnit[];
+  /** หน้า ฝ่ายและแผนก แท็บเดียว: แผนก = ฝ่ายชื่อเดียวกัน (API ปรับฝ่ายคู่กันให้) */
+  mirrorDivision?: boolean;
+}) {
   const { t, fmt } = useI18n();
   const confirm = useConfirm();
   const router = useRouter();
@@ -31,12 +44,14 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [pending, start] = useTransition();
+  // ฝ่าย/แผนก มีตัวย่อ (Unit Code) + ชื่ออังกฤษ — name = ชื่อไทย
+  const isOrg = table === "departments" || table === "divisions";
 
   const open = (u: OrgUnit | null) => {
     setEditing(u ? u.id : "new");
     setDraft(
       u
-        ? { name: u.name, is_active: u.is_active, sort_order: String(u.sort_order), division_id: u.division ? String(u.division.id) : "", department_ids: (u.departments ?? []).map((d) => d.id) }
+        ? { name: u.name, code: u.code ?? "", name_en: u.name_en ?? "", is_active: u.is_active, sort_order: String(u.sort_order), division_id: u.division ? String(u.division.id) : "", department_ids: (u.departments ?? []).map((d) => d.id) }
         : EMPTY,
     );
     setError("");
@@ -45,21 +60,23 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
     start(async () => {
       const res = await saveOrgUnit(table, editing === "new" ? null : editing, {
         name: draft.name,
+        ...(isOrg ? { code: draft.code, name_en: draft.name_en } : {}),
         is_active: draft.is_active,
         sort_order: Number(draft.sort_order) || 0,
         ...(divisions ? { division_id: draft.division_id ? Number(draft.division_id) : null } : {}),
         ...(departments ? { department_ids: draft.department_ids } : {}),
+        ...(mirrorDivision ? { mirror_division: true } : {}),
       });
       if (res.ok) {
         setEditing(null);
         router.refresh();
-      } else setError(res.errors?.name ?? res.errors?.sort_order ?? res.message ?? "");
+      } else setError(res.errors?.name ?? res.errors?.code ?? res.errors?.name_en ?? res.errors?.sort_order ?? res.message ?? "");
       setFeedback({ ok: Boolean(res.ok), text: res.message ?? "" });
     });
   const remove = async (u: OrgUnit) => {
     if (!(await confirm(t("orgUnits.confirmDelete", { name: u.name })))) return;
     start(async () => {
-      const res = await deleteOrgUnit(table, u.id);
+      const res = await deleteOrgUnit(table, u.id, mirrorDivision);
       setFeedback({ ok: Boolean(res.ok), text: res.message ?? "" });
       if (res.ok) router.refresh();
     });
@@ -72,9 +89,27 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
   const editor = (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-3">
+        {isOrg && (
+          <div className="w-28">
+            <label className={LABEL} htmlFor="org-code">
+              {t("orgUnits.code")}
+            </label>
+            <input
+              id="org-code"
+              value={draft.code}
+              maxLength={20}
+              onChange={(e) => {
+                setDraft((d) => ({ ...d, code: e.target.value.toUpperCase() }));
+                setError("");
+              }}
+              aria-describedby="org-code-hint"
+              className={`${input} font-mono`}
+            />
+          </div>
+        )}
         <div className="min-w-48 flex-1">
           <label className={LABEL} htmlFor="org-name">
-            {t("orgUnits.name")}
+            {isOrg ? t("orgUnits.nameTh") : t("orgUnits.name")}
           </label>
           <input
             id="org-name"
@@ -89,6 +124,24 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
             className={`${input} ${error ? inputError : ""}`}
           />
         </div>
+        {isOrg && (
+          <div className="min-w-48 flex-1">
+            <label className={LABEL} htmlFor="org-name-en">
+              {t("orgUnits.nameEn")}
+            </label>
+            <input
+              id="org-name-en"
+              value={draft.name_en}
+              maxLength={150}
+              onChange={(e) => {
+                setDraft((d) => ({ ...d, name_en: e.target.value }));
+                setError("");
+              }}
+              onKeyDown={(e) => e.key === "Enter" && save()}
+              className={input}
+            />
+          </div>
+        )}
         {divisions && (
           <div className="w-56">
             <span className={LABEL}>{t("orgUnits.division")}</span>
@@ -134,6 +187,11 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
       </div>
       {error && <p className="text-xs font-medium text-red-500">{error}</p>}
       <p className="text-xs text-muted">{t("orgUnits.sortHint")}</p>
+      {isOrg && (
+        <p id="org-code-hint" className="text-xs text-muted">
+          {t("orgUnits.codeHint")}
+        </p>
+      )}
       {departments && (
         <div>
           <span className={LABEL}>{t("orgUnits.departmentsInDivision")}</span>
@@ -173,7 +231,7 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => open(null)} className={btn.primary}>
               <PlusIcon />
-              {t(`orgUnits.${table}.add`)}
+              {t(mirrorDivision ? "orgUnits.units.add" : `orgUnits.${table}.add`)}
             </button>
             {/* นำเข้า Excel เฉพาะฝ่าย/แผนก */}
             {(table === "departments" || table === "divisions") && (
@@ -187,7 +245,7 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
       </section>
 
       {items.length === 0 ? (
-        <div className={`p-10 text-center text-muted ${card}`}>{t(`orgUnits.${table}.empty`)}</div>
+        <div className={`p-10 text-center text-muted ${card}`}>{t(mirrorDivision ? "orgUnits.units.empty" : `orgUnits.${table}.empty`)}</div>
       ) : (
         <ul className={`divide-y divide-line overflow-hidden ${card}`}>
           {items.map((u) => (
@@ -207,7 +265,9 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
                     <span className="w-10 text-xs tabular-nums text-faint">{u.sort_order}</span>
                   </Tooltip>
                   <span className="flex flex-1 flex-wrap items-center gap-2 font-medium">
+                    {u.code && <span className="rounded-md bg-subtle px-1.5 py-0.5 font-mono text-xs text-muted">{u.code}</span>}
                     {u.name}
+                    {u.name_en && <span className="text-xs font-normal text-muted">{u.name_en}</span>}
                     {divisions && (
                       <span className={`rounded-full px-2 py-0.5 text-xs font-normal ${u.division ? tone.info.badge : "text-faint"}`}>
                         {u.division ? u.division.name : t("orgUnits.noDivision")}
@@ -255,7 +315,7 @@ export function OrgUnitManager({ table, items, divisions, departments }: { table
   );
 }
 
-/** นำเข้าฝ่าย + แผนกจาก Excel (ไฟล์เดียว 2 แผ่น) — ดาวน์โหลด template ที่มีข้อมูลปัจจุบันไปแก้ แล้วอัปโหลดกลับ */
+/** นำเข้าฝ่าย + แผนก — ไฟล์ Unit Code ของ SyteLine (.csv/.txt) หรือ template .xlsx ที่มีข้อมูลปัจจุบัน */
 function OrgImportDialog({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   const confirm = useConfirm();
@@ -304,7 +364,7 @@ function OrgImportDialog({ onClose }: { onClose: () => void }) {
             ref={inputRef}
             id="org-file"
             type="file"
-            accept=".xlsx"
+            accept=".csv,.txt,.xlsx"
             onChange={(e) => {
               setFile(e.target.files?.[0] ?? null);
               setResult(null);
