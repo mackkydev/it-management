@@ -178,3 +178,26 @@ export async function saveTicketHelpers(id: string, helperIds: number[]): Promis
     return toActionResult(e);
   }
 }
+
+/** ฟอร์มแจ้งงาน 1.2: เลขสินทรัพย์ที่พิมพ์มีในระบบไหม (null = ไม่พบ — ยังส่งใบได้ ฝ่าย IT จะเพิ่มข้อมูลให้) */
+export async function lookupAssetNumber(no: string): Promise<{ asset_tag: string; cpu_tag: string | null; name: string; brand: string | null; model: string | null } | null> {
+  const value = no.trim();
+  if (!value) return null;
+  return (await apiFetch<{ data: { asset_tag: string; cpu_tag: string | null; name: string; brand: string | null; model: string | null } | null }>(`/tickets/asset-lookup?no=${encodeURIComponent(value)}`)).data;
+}
+
+export type AssetMatch = { asset_tag: string; cpu_tag: string | null; name: string; brand: string | null; model: string | null };
+
+/** ฟอร์มแจ้งงาน 1.2: สินทรัพย์ที่ตรงกับที่พิมพ์ในช่องรหัสสินทรัพย์ (≥ 2 ตัวอักษร, ≤ 10 รายการ) */
+export async function searchAssetNumbers(q: string): Promise<AssetMatch[]> {
+  const value = q.trim();
+  if (value.length < 2) return [];
+  return (await apiFetch<{ data: AssetMatch[] }>(`/tickets/asset-search?q=${encodeURIComponent(value)}`)).data;
+}
+
+/** ฟอร์มแจ้งงาน 1.1: รายชื่อที่ตรงกับที่พิมพ์ (คู่ชื่อไทย/อังกฤษ) */
+export async function searchPersonNames(q: string): Promise<{ th: string; en: string }[]> {
+  const value = q.trim();
+  if (!value) return [];
+  return (await apiFetch<{ data: { th: string; en: string }[] }>(`/tickets/person-names?q=${encodeURIComponent(value)}`)).data;
+}

@@ -24,6 +24,7 @@ export async function GET(req: Request) {
       action: t("audit.col.action"),
       subject: t("audit.col.subject"),
       changes: t("audit.changes"),
+      device: t("audit.col.device"),
       system: t("audit.system"),
     },
   };

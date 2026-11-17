@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { acceptZoomBooking, acknowledgeZoomBooking } from "@/app/actions/zoom";
+import { acceptZoomBooking } from "@/app/actions/zoom";
 import { useAlert } from "@/components/dialog-provider";
 import { CheckCircleIcon, ExternalLinkIcon, EyeIcon, PencilIcon, SpinnerIcon } from "@/components/icons";
 import { btn, card, table } from "@/components/ui";
@@ -34,7 +34,6 @@ export function ZoomList({ items, mode }: { items: ZoomBooking[]; mode: "mine" |
     });
   };
   const accept = (z: ZoomBooking) => act(z, acceptZoomBooking, "accepted");
-  const acknowledge = (z: ZoomBooking) => act(z, acknowledgeZoomBooking, "acknowledged");
 
   /** ผลของการจอง: ลิงก์ (ส่งแล้ว) / เหตุผล (แจ้งกลับ) / ผู้รับงาน */
   const outcome = (z: ZoomBooking) => (
@@ -54,18 +53,12 @@ export function ZoomList({ items, mode }: { items: ZoomBooking[]; mode: "mine" |
   );
   const actions = (z: ZoomBooking) => (
     <div className="flex flex-wrap justify-end gap-1.5">
-      {/* ส่งลิงก์แล้ว: คัดลอกข้อความเชิญไว้ส่งต่อ */}
+      {/* ส่งลิงก์แล้ว: ผู้จองกดรับก่อน แล้วจึงคัดลอกข้อความเชิญได้ / ฝ่าย IT คัดลอกได้เลย */}
       {z.status === "confirmed" && <CopyShare booking={z} small />}
       {mode === "manage" && z.can_accept && (
         <button type="button" onClick={() => accept(z)} disabled={accepting !== null} className={`${btn.primary} ${btn.sm} whitespace-nowrap`}>
           {accepting === z.id ? <SpinnerIcon width={14} height={14} /> : <CheckCircleIcon width={14} height={14} />}
           {t("zoom.actions.accept")}
-        </button>
-      )}
-      {mode === "mine" && z.can_acknowledge && (
-        <button type="button" onClick={() => acknowledge(z)} disabled={accepting !== null} className={`${btn.primary} ${btn.sm} whitespace-nowrap`}>
-          {accepting === z.id ? <SpinnerIcon width={14} height={14} /> : <CheckCircleIcon width={14} height={14} />}
-          {t("zoom.actions.acknowledge")}
         </button>
       )}
       {mode === "mine" && z.can_edit && z.status === "needs_change" && (

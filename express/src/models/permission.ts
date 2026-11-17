@@ -28,6 +28,7 @@ export const MODULES = [
   { key: "assets", group: "assets", name_th: "สินทรัพย์", name_en: "Assets" },
   { key: "locations", group: "assets", name_th: "สถานที่", name_en: "Locations" },
   { key: "licenses", group: "assets", name_th: "การติดตั้ง License", name_en: "License installations" },
+  { key: "fixed_assets", group: "assets", name_th: "Fixed Assets (SyteLine)", name_en: "Fixed assets (SyteLine)" },
   { key: "users", group: "users", name_th: "ผู้ใช้", name_en: "Users" },
   { key: "branches", group: "users", name_th: "สาขา", name_en: "Branches" },
   { key: "org", group: "users", name_th: "แผนกและฝ่าย", name_en: "Departments and divisions" },
@@ -116,6 +117,10 @@ const DEFS: Def[] = [
   { key: "assets.license_key", module: "assets", action: "other", name_th: "เปิดดู license key", name_en: "Reveal license keys", defaults: MANAGERS_IT },
   { key: "locations.view", module: "locations", action: "view", name_th: "เปิดหน้ารายการสถานที่ (ช่องเลือกสถานที่ในฟอร์มใช้ได้ทุกคน)", name_en: "Open the location list (location pickers work for everyone)", defaults: ["admin", "executive", "division_manager", "manager", "viewer"] },
   { key: "locations.manage", module: "locations", action: "manage", name_th: "เพิ่ม/แก้ไขสถานที่", name_en: "Add / edit locations", defaults: MANAGERS, from: "assets.manage" },
+  // Fixed Assets จาก SyteLine (สำเนาอ่านอย่างเดียว) — docs/fixed-assets-sync.md
+  { key: "fixed_assets.view", module: "fixed_assets", action: "view", name_th: "ดู Fixed Assets จาก SyteLine (ราคาทุน / มูลค่าตามบัญชี)", name_en: "View SyteLine fixed assets (cost / net book value)", defaults: ["admin"] },
+  { key: "fixed_assets.link", module: "fixed_assets", action: "update", name_th: "ผูก / ยกเลิกการผูก Fixed Asset กับสินทรัพย์", name_en: "Link / unlink fixed assets to assets", defaults: ["admin"] },
+  { key: "fixed_assets.sync", module: "fixed_assets", action: "manage", name_th: "ซิงค์ Fixed Assets จาก SyteLine และดูประวัติการซิงค์", name_en: "Sync fixed assets from SyteLine and view sync history", defaults: ["admin"] },
   { key: "locations.delete", module: "locations", action: "delete", name_th: "ลบสถานที่", name_en: "Delete locations", defaults: ["admin"] },
   { key: "licenses.install", module: "licenses", action: "manage", name_th: "บันทึก/ถอนการติดตั้ง license", name_en: "Record / remove license installations", defaults: MANAGERS_IT },
 

@@ -3,13 +3,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ClickableRow } from "@/components/clickable-row";
-import { KeyIcon, PlusIcon } from "@/components/icons";
+import { KeyIcon, MonitorIcon, PlusIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { LinkPendingIcon } from "@/components/pending";
 import { btn, card, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { canCreateAssets, canViewAssets, canViewLicenses, getAccess, getCurrentUser } from "@/lib/auth";
+import { canCreateAssets, canViewAssets, canViewLicenses, getAccess, getCurrentUser, has } from "@/lib/auth";
 import type { LicenseSummary } from "@/lib/types";
 import { UsageBar } from "../../license-installations/usage-bar";
 import { groupUsage, licenseGroupKey } from "../license-card";
@@ -33,7 +33,8 @@ export default async function LicenseGroupPage({ searchParams }: { searchParams:
   const [first] = items;
   const showAssets = canViewAssets(user);
   const canCreate = canCreateAssets(user) && can("btn:licenses:create");
-  const addHref = `/licenses/new?${new URLSearchParams({ type: first.software_type, name: first.name.slice(0, 255) })}` as Route;
+  // เพิ่มใบใหม่ = คัดลอกข้อมูลจากใบแรกของกลุ่ม (แก้ key / S/N ได้)
+  const addHref = `/licenses/new?from=${first.id}` as Route;
 
   const devices = (l: LicenseSummary) =>
     l.devices.length === 0 ? (
@@ -66,6 +67,15 @@ export default async function LicenseGroupPage({ searchParams }: { searchParams:
       fmt.date(l.expires_at)
     );
   const seats = (l: LicenseSummary) => (l.seats === null ? t("licenses.group.unlimited") : `${fmt.number(l.used)} / ${fmt.number(l.seats)}`);
+  // ผูกเครื่องแยกทีละ License (seat นับตามใบนั้น)
+  const canInstall = has(user, "licenses.install");
+  const install = (l: LicenseSummary) =>
+    canInstall && (
+      <Link href={`/license-installations?license=${l.id}`} className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap text-xs font-medium text-accent-700 hover:underline dark:text-accent-300">
+        <MonitorIcon width={13} height={13} />
+        {t("licenses.group.install")}
+      </Link>
+    );
   const tag = (l: LicenseSummary) => (
     <Link href={`/licenses/${l.id}`} className="cursor-pointer font-mono text-sm font-medium text-accent-700 hover:underline dark:text-accent-300">
       {l.license_no ?? "-"}
@@ -101,6 +111,7 @@ export default async function LicenseGroupPage({ searchParams }: { searchParams:
               <th className={table.th}>{t("licenses.group.expires")}</th>
               <th className={table.th}>{t("licenses.group.seats")}</th>
               <th className={table.th}>{t("licenses.group.devices")}</th>
+              {canInstall && <th className={table.th} aria-label={t("licenses.group.install")} />}
             </tr>
           </thead>
           <tbody className={table.body}>
@@ -112,6 +123,7 @@ export default async function LicenseGroupPage({ searchParams }: { searchParams:
                 <td className={`${table.td} whitespace-nowrap`}>{expiry(l)}</td>
                 <td className={`${table.td} whitespace-nowrap tabular-nums`}>{seats(l)}</td>
                 <td className={table.td}>{devices(l)}</td>
+                {canInstall && <td className={`${table.td} text-right`}>{install(l)}</td>}
               </ClickableRow>
             ))}
           </tbody>
@@ -131,6 +143,7 @@ export default async function LicenseGroupPage({ searchParams }: { searchParams:
               <p className="text-xs text-muted">{t("licenses.group.devices")}</p>
               {devices(l)}
             </div>
+            {canInstall && <div className="flex justify-end border-t border-line pt-2">{install(l)}</div>}
           </ClickableRow>
         ))}
       </ul>

@@ -77,6 +77,8 @@ function detect(): InstallState {
     (navigator as Navigator & { standalone?: boolean }).standalone === true;
   // เปิดจากไอคอนแอป = ติดตั้งแล้วแน่นอน — จำไว้ให้แท็บเบราว์เซอร์ (Android ใช้ storage ร่วมกับ Chrome)
   if (standalone) writeStorage(INSTALLED_KEY, "1");
+  // บอกเซิร์ฟเวอร์ว่าเปิดจากแอปหรือเบราว์เซอร์ (บันทึกการทำงานแสดงอุปกรณ์ที่ใช้) — PWA_COOKIE ใน lib/api.ts
+  document.cookie = standalone ? "eam_pwa=1; path=/; max-age=31536000; samesite=lax" : "eam_pwa=; path=/; max-age=0; samesite=lax";
   return {
     platform: ios ? "ios" : android ? "android" : null,
     otherBrowser: inApp || (ios && /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua)),

@@ -12,6 +12,7 @@ import { CustodianPicker } from "../assets/custodian-picker";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
 import { PasswordInput } from "@/components/password-input";
+import { MasterDataSelect } from "@/components/master-data-select";
 
 type Field = keyof UserFormValues;
 type Errors = Partial<Record<Field, string>>;
@@ -63,6 +64,8 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
     role: user?.role ?? "viewer",
     job_title: user?.job_title ?? "",
     is_it_head: user?.is_it_head ?? false,
+    is_it_staff: user?.is_it_staff ?? false,
+    is_it_manager: user?.is_it_manager ?? false,
     is_active: user?.is_active ?? true,
     password: "",
     password_confirmation: "",
@@ -265,14 +268,16 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
             {field(
               "branch_id",
               t("users.form.branch"),
-              <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
-                <option value="">{t("users.form.noBranch")}</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </AppSelect>,
+              <MasterDataSelect source="branches">
+                <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
+                  <option value="">{t("users.form.noBranch")}</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>,
             )}
             {field(
               "supervisor_id",
@@ -311,22 +316,36 @@ export function UserForm({ user, isSelf = false, canDelete = false, branches, ro
             </div>
           </div>
 
-          {/* เจ้าหน้าที่ IT ดูจากแผนก/ฝ่าย — ผู้จัดการฝ่าย IT เป็นหน้าที่เฉพาะคน จึงกำหนดที่นี่ (ไม่ให้สิทธิ์เพิ่ม) */}
-          <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl bg-subtle p-3">
-            <input
-              type="checkbox"
-              checked={values.is_it_head}
-              onChange={(e) => {
-                setValues((v) => ({ ...v, is_it_head: e.target.checked }));
-                setErrors((prev) => ({ ...prev, is_it_head: "" }));
-              }}
-              className="mt-0.5 h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
-            />
-            <span>
-              <span className="block text-sm font-medium">{t("users.form.itHead")}</span>
-              <span className="block text-xs text-muted">{t("users.form.itHeadHint")}</span>
-            </span>
-          </label>
+          {/* หน้าที่ในฝ่าย IT (ไม่ให้สิทธิ์เพิ่ม) — บรรทัดเดียวกัน: ผู้จัดการฝ่าย IT / ผู้จัดการแผนก IT / เจ้าหน้าที่ IT
+              ผู้แจ้งงานเลือกได้เฉพาะเจ้าหน้าที่ IT ที่ไม่ได้ติ๊กผู้จัดการ (IT_STAFF_OPTION_WHERE ฝั่ง API) */}
+          <div className="mt-4 rounded-xl bg-subtle p-3">
+            <p className="text-sm font-medium">{t("users.form.itRoles")}</p>
+            <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+              {(
+                [
+                  ["is_it_head", "users.form.itHead"],
+                  ["is_it_manager", "users.form.itManager"],
+                  ["is_it_staff", "users.form.itStaff"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={values[key]}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setValues((v) => ({ ...v, [key]: checked }));
+                      setErrors((prev) => ({ ...prev, [key]: "" }));
+                    }}
+                    className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+                  />
+                  {t(label)}
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted">{t("users.form.itHeadHint")}</p>
+            <p className="text-xs text-muted">{t("users.form.itRolesHint")}</p>
+          </div>
         </section>
 
       </fieldset>
@@ -374,14 +393,16 @@ function OrgSelect({
 }) {
   const known = options.some((o) => o.name.toLowerCase() === value.trim().toLowerCase());
   return (
-    <AppSelect id={id} name={id} value={value} onChange={onChange} className={className}>
-      <option value="">{placeholder}</option>
-      {value && !known && <option value={value}>{value}</option>}
-      {options.map((o) => (
-        <option key={o.id} value={o.name}>
-          {o.name}
-        </option>
-      ))}
-    </AppSelect>
+    <MasterDataSelect source={id === "department" ? "departments" : "divisions"}>
+      <AppSelect id={id} name={id} value={value} onChange={onChange} className={className}>
+        <option value="">{placeholder}</option>
+        {value && !known && <option value={value}>{value}</option>}
+        {options.map((o) => (
+          <option key={o.id} value={o.name}>
+            {o.name}
+          </option>
+        ))}
+      </AppSelect>
+    </MasterDataSelect>
   );
 }

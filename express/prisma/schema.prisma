@@ -20,24 +20,24 @@ model app_settings {
 /// ประกาศจากฝ่าย IT ที่แสดงบนหน้า login (ไม่ต้อง login ก็เห็น) — level: info | warning | danger
 /// แสดงเมื่อ is_active และอยู่ในช่วง starts_on–ends_on (null = ไม่จำกัด) เรียงตาม sort_order
 model announcements {
-  id         BigInt    @id @default(autoincrement())
-  title      String    @db.VarChar(200)
-  body       String?   @db.Text
-  level      String    @default("info") @db.VarChar(20)
-  is_active  Boolean   @default(true)
-  starts_on  DateTime? @db.Date
-  ends_on    DateTime? @db.Date
-  sort_order Int       @default(0) @db.SmallInt
+  id             BigInt               @id @default(autoincrement())
+  title          String               @db.VarChar(200)
+  body           String?              @db.Text
+  level          String               @default("info") @db.VarChar(20)
+  is_active      Boolean              @default(true)
+  starts_on      DateTime?            @db.Date
+  ends_on        DateTime?            @db.Date
+  sort_order     Int                  @default(0) @db.SmallInt
   /// การทำซ้ำ: none (ตามช่วงวันที่) / daily / weekly (repeat_weekday 0 = อาทิตย์) / monthly (repeat_day) / yearly (repeat_day + repeat_month)
-  repeat_mode    String  @default("none") @db.VarChar(10)
-  repeat_weekday Int?    @db.TinyInt
-  repeat_day     Int?    @db.TinyInt
-  repeat_month   Int?    @db.TinyInt
-  files      announcement_files[]
-  created_by BigInt?
-  created_at DateTime? @db.DateTime(0)
-  updated_at DateTime? @db.DateTime(0)
-  users      users?    @relation(fields: [created_by], references: [id], onDelete: SetNull, map: "announcements_created_by_foreign")
+  repeat_mode    String               @default("none") @db.VarChar(10)
+  repeat_weekday Int?                 @db.TinyInt
+  repeat_day     Int?                 @db.TinyInt
+  repeat_month   Int?                 @db.TinyInt
+  files          announcement_files[]
+  created_by     BigInt?
+  created_at     DateTime?            @db.DateTime(0)
+  updated_at     DateTime?            @db.DateTime(0)
+  users          users?               @relation(fields: [created_by], references: [id], onDelete: SetNull, map: "announcements_created_by_foreign")
 
   @@index([is_active, sort_order], map: "announcements_is_active_sort_order_index")
 }
@@ -299,8 +299,9 @@ model asset_user_logs {
 }
 
 model assets {
+  fixed_assets                     fixed_assets[]
   repair_orders                    repair_orders[]
-  id                             BigInt                  @id @default(autoincrement())
+  id                               BigInt                  @id @default(autoincrement())
   uuid                             String                  @unique(map: "assets_uuid_unique") @db.Char(36)
   asset_tag                        String                  @unique(map: "assets_asset_tag_unique") @db.VarChar(50)
   name                             String                  @db.VarChar(255)
@@ -375,6 +376,7 @@ model assets {
 }
 
 model branches {
+  fixed_assets                                             fixed_assets[]
   licenses                                                 licenses[]
   id                                                       BigInt                  @id @default(autoincrement())
   code                                                     String                  @unique(map: "branches_code_unique") @db.VarChar(30)
@@ -467,6 +469,10 @@ model contracts {
   notify_enabled        Boolean              @default(true)
   notified_for_end_date DateTime?            @db.Date
   notified_at           DateTime?            @db.DateTime(0)
+  /// วันที่แจ้งเตือนที่กำหนดเอง (JSON array "YYYY-MM-DD" ≤ 10 วัน, ≤ end_date) — เพิ่มจาก notify_days_before
+  notify_dates          Json?
+  /// วันที่แจ้งเตือนกำหนดเองล่าสุดที่แจ้งไปแล้ว (แก้ notify_dates = ตั้งเป็นเมื่อวาน)
+  notified_for_date     DateTime?            @db.Date
   notes                 String?              @db.Text
   branch_id             BigInt?
   /// หมวดหมู่สัญญา (ไม่บังคับ)
@@ -478,6 +484,7 @@ model contracts {
   branches              branches?            @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "contracts_branch_id_foreign")
   contract_categories   contract_categories? @relation(fields: [category_id], references: [id], onUpdate: Restrict, map: "contracts_category_id_foreign")
   users                 users?               @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "contracts_created_by_foreign")
+  files                 contract_files[]
 
   @@index([branch_id], map: "contracts_branch_id_index")
   @@index([category_id], map: "contracts_category_id_index")
@@ -572,18 +579,18 @@ model it_ticket_attachments {
 }
 
 model it_ticket_events {
-  id           BigInt                  @id @default(autoincrement())
-  it_ticket_id BigInt
-  user_id      BigInt?
-  action       String                  @db.VarChar(30)
-  comment      String?                 @db.Text
-  created_at   DateTime                @default(now()) @db.DateTime(0)
-  it_tickets   it_tickets              @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_events_it_ticket_id_foreign")
-  attachments  it_ticket_attachments[]
-  users        users?                  @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "it_ticket_events_user_id_foreign")
+  id              BigInt                  @id @default(autoincrement())
+  it_ticket_id    BigInt
+  user_id         BigInt?
+  action          String                  @db.VarChar(30)
+  comment         String?                 @db.Text
+  created_at      DateTime                @default(now()) @db.DateTime(0)
+  it_tickets      it_tickets              @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_events_it_ticket_id_foreign")
+  attachments     it_ticket_attachments[]
+  users           users?                  @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "it_ticket_events_user_id_foreign")
   /// รายการส่งซ่อมของเหตุการณ์ repair_sent / repair_returned (ลิงก์ในประวัติใบงาน)
   repair_order_id BigInt?
-  repair_orders   repair_orders?       @relation(fields: [repair_order_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "it_ticket_events_repair_order_id_foreign")
+  repair_orders   repair_orders?          @relation(fields: [repair_order_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "it_ticket_events_repair_order_id_foreign")
 
   @@index([repair_order_id], map: "it_ticket_events_repair_order_id_index")
   @@index([it_ticket_id, created_at], map: "it_ticket_events_it_ticket_id_created_at_index")
@@ -621,7 +628,7 @@ model it_ticket_parts {
 }
 
 model it_tickets {
-  repair_orders repair_orders[]
+  repair_orders                        repair_orders[]
   id                                   BigInt                     @id @default(autoincrement())
   uuid                                 String                     @unique(map: "it_tickets_uuid_unique") @db.Char(36)
   ticket_no                            String                     @unique(map: "it_tickets_ticket_no_unique") @db.VarChar(30)
@@ -792,7 +799,7 @@ model notifications {
   read_at         DateTime? @db.DateTime(0)
   created_at      DateTime? @db.DateTime(0)
   updated_at      DateTime? @db.DateTime(0)
-  /// รหัสเรื่องของแจ้งเตือน = คอลัมน์ที่ฐานข้อมูลคำนวณจาก data (GENERATED STORED — ticket_id / leave_id / vehicle_booking_id / loan_id / vpn_id / zoom_booking_id) ห้ามเขียนค่าเอง
+  /// รหัสเรื่องของแจ้งเตือน = คอลัมน์ที่ฐานข้อมูลคำนวณจาก data (GENERATED STORED — ticket_id / leave_id / vehicle_booking_id / loan_id / vpn_id / zoom_booking_id / repair_order_id) ห้ามเขียนค่าเอง
   subject_ref     String?   @db.VarChar(64)
 
   @@index([subject_ref, read_at], map: "notifications_subject_ref_read_at_index")
@@ -839,18 +846,21 @@ model sessions {
 }
 
 model users {
+  fixed_assets_linked                                      fixed_assets[]            @relation("fixed_assets_linked_by")
+  fixed_asset_sync_runs                                    fixed_asset_sync_runs[]
   repair_orders_sent                                       repair_orders[]            @relation("repair_orders_sent_by")
   repair_orders_received                                   repair_orders[]            @relation("repair_orders_received_by")
   repair_orders_created                                    repair_orders[]            @relation("repair_orders_created_by")
   repair_orders_cancelled                                  repair_orders[]            @relation("repair_orders_cancelled_by")
   repair_order_files                                       repair_order_files[]
   vendor_files                                             vendor_files[]
+  contract_files                                           contract_files[]
   announcement_files                                       announcement_files[]
   policy_files                                             policy_files[]
   policy_versions                                          policy_versions[]
   other_policies                                           other_policies[]
   other_policy_files                                       other_policy_files[]
-  licenses_cancelled                                      licenses[]                 @relation("licenses_cancelled_byTousers")
+  licenses_cancelled                                       licenses[]                 @relation("licenses_cancelled_byTousers")
   licenses_created                                         licenses[]                 @relation("licenses_created_byTousers")
   licenses_updated                                         licenses[]                 @relation("licenses_updated_byTousers")
   license_files                                            license_files[]
@@ -870,6 +880,8 @@ model users {
   supervisor_id                                            BigInt?
   is_it_staff                                              Boolean                    @default(false)
   is_it_head                                               Boolean                    @default(false)
+  /// ผู้จัดการแผนก IT (ไม่ให้สิทธิ์ — ไม่อยู่ในรายชื่อเจ้าหน้าที่ IT ที่ผู้แจ้งเลือก)
+  is_it_manager                                            Boolean                    @default(false)
   email_verified_at                                        DateTime?                  @db.DateTime(0)
   /// hash รหัสผ่าน — ใช้เฉพาะ LOCAL (API User ไม่เก็บรหัสผ่านใด ๆ = null; CHECK users_local_password_check)
   password                                                 String?                    @db.VarChar(255)
@@ -1166,6 +1178,8 @@ model audit_logs {
   before       Json?
   after        Json?
   ip           String?  @db.VarChar(45)
+  /// เบราว์เซอร์/อุปกรณ์ของผู้ใช้ (หน้าเว็บส่งต่อใน X-Client-Agent, ลงท้าย " [pwa]" = เปิดจากแอปที่ติดตั้ง)
+  user_agent   String?  @db.VarChar(255)
   created_at   DateTime @default(now()) @db.DateTime(0)
   actor        users?   @relation(fields: [actor_id], references: [id], onDelete: SetNull, map: "audit_logs_actor_id_foreign")
 
@@ -1533,10 +1547,18 @@ model vehicle_booking_extras {
 model equipment_loans {
   id                  BigInt    @id @default(autoincrement())
   uuid                String    @unique(map: "equipment_loans_uuid_unique") @db.Char(36)
-  asset_id            BigInt
+  /// NULL = คำขอที่เจ้าหน้าที่ IT ยังไม่เลือกเครื่อง (migration 20261213090000_loan_prepare_return)
+  asset_id            BigInt?
   user_id             BigInt
   department          String?   @db.VarChar(255)
   purpose             String    @db.Text
+  /// อุปกรณ์เสริมที่ให้ยืม (key ใน LOAN_ACCESSORIES) / ที่ตรวจรับคืนแล้ว
+  accessories          Json?
+  returned_accessories Json?
+  /// รูปตอนส่งมอบ / รับคืน [{ id, path, size, stage }]
+  photos               Json?
+  /// ผู้ยืมกดคืนเครื่อง (รอเจ้าหน้าที่ IT ยืนยันรับคืน)
+  return_requested_at  DateTime? @db.DateTime(0)
   note                String?   @db.Text
   start_on            DateTime  @db.Date
   start_time          String    @db.VarChar(5)
@@ -1553,7 +1575,7 @@ model equipment_loans {
   cancelled_by        BigInt?
   created_at          DateTime? @db.DateTime(0)
   updated_at          DateTime? @db.DateTime(0)
-  assets              assets    @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "equipment_loans_asset_id_foreign")
+  assets              assets?   @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "equipment_loans_asset_id_foreign")
   users               users     @relation("equipment_loans_user", fields: [user_id], references: [id], onUpdate: Restrict, map: "equipment_loans_user_id_foreign")
   handed_by_user      users?    @relation("equipment_loans_handed", fields: [handed_out_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "equipment_loans_handed_out_by_foreign")
   returned_by_user    users?    @relation("equipment_loans_returned", fields: [returned_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "equipment_loans_returned_by_foreign")
@@ -1621,6 +1643,16 @@ model vpn_loans {
   ended_at             DateTime?    @db.DateTime(0)
   ended_by             BigInt?
   end_note             String?      @db.Text
+  /// ผู้จัดการฝ่าย IT อนุมัติการมอบบัญชี (migration 20261214090000_vpn_approval_revoke)
+  approved_by          BigInt?
+  approved_at          DateTime?    @db.DateTime(0)
+  /// ผู้ขอกด "ได้รับแล้ว" (ปิดใบแจ้งงาน) — ก่อนนี้ดูรหัสไม่ได้
+  received_at          DateTime?    @db.DateTime(0)
+  /// เจ้าหน้าที่ IT เรียกคืนรหัส — ผู้ใช้ดูชื่อผู้ใช้ / รหัสผ่านไม่ได้อีก
+  revoked_at           DateTime?    @db.DateTime(0)
+  revoked_by           BigInt?
+  /// แจ้งเตือนหมดอายุล่าสุดวันที่ (หมดอายุแล้วแจ้งทุกวันจนกว่าจะต่ออายุ)
+  expired_notified_on  DateTime?    @db.Date
   created_at           DateTime?    @db.DateTime(0)
   updated_at           DateTime?    @db.DateTime(0)
   user                 users        @relation("vpn_loans_user", fields: [user_id], references: [id], onUpdate: Restrict, map: "vpn_loans_user_id_foreign")
@@ -1639,18 +1671,18 @@ model vpn_loans {
 
 /// การยอมรับนโยบายของระบบ (app_settings.system_policy) — 1 แถวต่อผู้ใช้ต่อเวอร์ชัน
 model policy_acceptances {
-  id          BigInt   @id @default(autoincrement())
-  user_id     BigInt
-  version     Int
-  accepted_at DateTime @db.DateTime(0)
-  ip          String?  @db.VarChar(45)
-  user_agent  String?  @db.VarChar(255)
+  id             BigInt    @id @default(autoincrement())
+  user_id        BigInt
+  version        Int
+  accepted_at    DateTime  @db.DateTime(0)
+  ip             String?   @db.VarChar(45)
+  user_agent     String?   @db.VarChar(255)
   /// ชื่อ-สกุลที่ประทับตอนยอมรับ
-  name_stamp  String?  @db.VarChar(255)
+  name_stamp     String?   @db.VarChar(255)
   /// สำเนาลายเซ็นของเอกสาร — ยังไม่มีลายเซ็นตอนยอมรับ = เติมเมื่อผู้ใช้อัปโหลด (saveSignature)
-  signature_path String? @db.VarChar(255)
+  signature_path String?   @db.VarChar(255)
   signature_at   DateTime? @db.DateTime(0)
-  users       users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "policy_acceptances_user_id_foreign")
+  users          users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "policy_acceptances_user_id_foreign")
 
   @@unique([user_id, version], map: "policy_acceptances_user_version_unique")
   @@index([version], map: "policy_acceptances_version_index")
@@ -1681,9 +1713,10 @@ model zoom_bookings {
   meeting_id         String?           @db.VarChar(50)
   passcode           String?           @db.VarChar(50)
   /// บัญชี ZOOM ที่ฝ่าย IT ใช้ (ข้อมูล Drop Down list zoom_account เก็บเป็นข้อความ)
-  zoom_account String? @db.VarChar(100)
+  zoom_account       String?           @db.VarChar(100)
   confirmed_by       BigInt?
   confirmed_at       DateTime?         @db.DateTime(0)
+  link_received_at   DateTime?         @db.DateTime(0)
   reject_reason      String?           @db.VarChar(1000)
   rejected_by        BigInt?
   rejected_at        DateTime?         @db.DateTime(0)
@@ -1771,18 +1804,37 @@ model announcement_files {
 
 /// เนื้อหานโยบายของแต่ละฉบับ — เอกสารการยอมรับแสดงเนื้อหาของฉบับที่ผู้ใช้ยอมรับ
 model policy_versions {
-  version      Int            @id
-  title        String         @default("") @db.VarChar(200)
+  version      Int             @id
+  /// เรื่องของนโยบาย — ฉบับที่คัดลอกมาอยู่เรื่องเดียวกัน
+  group_id     BigInt
+  title        String          @default("") @db.VarChar(200)
   sections     Json
-  created_at   DateTime?      @db.DateTime(0)
+  created_at   DateTime?       @db.DateTime(0)
   /// เคยตั้งเป็นฉบับที่แสดงให้ผู้ใช้แล้ว (null = ร่าง)
-  published_at DateTime?      @db.DateTime(0)
+  published_at DateTime?       @db.DateTime(0)
   created_by   BigInt?
-  updated_at   DateTime?      @db.DateTime(0)
-  users        users?         @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "policy_versions_created_by_foreign")
+  updated_at   DateTime?       @db.DateTime(0)
+  users        users?          @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "policy_versions_created_by_foreign")
   files        policy_files[]
+  policy_group policy_groups   @relation("policy_group_versions", fields: [group_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "policy_versions_group_id_foreign")
+  shown_in     policy_groups[] @relation("policy_group_current")
 
   @@index([created_by], map: "policy_versions_created_by_index")
+  @@index([group_id], map: "policy_versions_group_id_index")
+}
+
+/// เรื่องของนโยบายที่ต้องยอมรับ — แสดงได้หลายเรื่องพร้อมกัน เรียงตาม sort_order (ลำดับที่ให้ยอมรับ)
+model policy_groups {
+  id              BigInt            @id @default(autoincrement())
+  sort_order      Int               @default(0)
+  /// ฉบับที่แสดงให้ผู้ใช้ (null = ไม่แสดง)
+  current_version Int?
+  created_at      DateTime?         @db.DateTime(0)
+  updated_at      DateTime?         @db.DateTime(0)
+  versions        policy_versions[] @relation("policy_group_versions")
+  current         policy_versions?  @relation("policy_group_current", fields: [current_version], references: [version], onDelete: Restrict, onUpdate: Restrict, map: "policy_groups_current_version_foreign")
+
+  @@index([current_version], map: "policy_groups_current_version_index")
 }
 
 /// ไฟล์แนบของนโยบายแต่ละฉบับ — เปิดดูได้ตอนอ่านนโยบาย
@@ -1808,6 +1860,8 @@ model other_policies {
   id          BigInt               @id @default(autoincrement())
   title       String               @db.VarChar(200)
   description String?              @db.Text
+  /// หัวข้อ + รายละเอียด [{title, body}] เหมือนนโยบายที่ต้องยอมรับ
+  sections    Json?
   sort_order  Int                  @default(0)
   is_active   Boolean              @default(true)
   created_by  BigInt?
@@ -1856,48 +1910,58 @@ model vendor_files {
 
 /// รายการส่งซ่อม: ส่งเครื่องให้ vendor (sent) → รับคืน (returned) — item_no / item_name = สำเนาตอนส่ง
 model repair_orders {
-  id             BigInt               @id @default(autoincrement())
-  uuid           String               @unique(map: "repair_orders_uuid_unique") @db.Char(36)
-  asset_id       BigInt?
-  ticket_id      BigInt?
-  item_no        String?              @db.VarChar(100)
-  item_name      String               @db.VarChar(255)
+  id                     BigInt               @id @default(autoincrement())
+  uuid                   String               @unique(map: "repair_orders_uuid_unique") @db.Char(36)
+  asset_id               BigInt?
+  ticket_id              BigInt?
+  item_no                String?              @db.VarChar(100)
+  item_name              String               @db.VarChar(255)
   /// รายละเอียดอาการเสีย
-  symptom        String               @db.Text
+  symptom                String               @db.Text
   /// รายละเอียดอุปกรณ์เพิ่มเติม (ไม่บังคับ)
-  item_details   String?              @db.Text
+  item_details           String?              @db.Text
   /// เลขที่เอกสาร (ไม่บังคับ)
-  document_no    String?              @db.VarChar(100)
+  document_no            String?              @db.VarChar(100)
   /// S/N ที่กรอกเองเมื่อสินทรัพย์ไม่มี S/N (หรือไม่ได้ผูกสินทรัพย์) — ไม่เขียนกลับไปที่สินทรัพย์
-  item_serial    String?              @db.VarChar(100)
-  vendor_id      BigInt
+  item_serial            String?              @db.VarChar(100)
+  vendor_id              BigInt
   /// วันเวลาที่ส่งซ่อม เวลาไทย
-  sent_on        DateTime             @db.Date
-  sent_time      String               @db.VarChar(5)
-  sent_by_id     BigInt
-  status         String               @default("sent") @db.VarChar(20)
-  returned_at    DateTime?            @db.DateTime(0)
-  received_by_id BigInt?
-  return_note    String?              @db.Text
+  sent_on                DateTime             @db.Date
+  sent_time              String               @db.VarChar(5)
+  /// ผู้ส่งซ่อม (เจ้าของอุปกรณ์) ที่เลือกจากผู้ใช้ในระบบ — พิมพ์ชื่อเอง = NULL (ดู sender_name)
+  sent_by_id             BigInt?
+  /// ชื่อผู้ส่งซ่อม (เจ้าของอุปกรณ์) ที่พิมพ์ — แถวเดิม NULL = ใช้ชื่อของ sent_by_id
+  sender_name            String?              @db.VarChar(255)
+  /// แจ้งเตือนตามงาน: จำนวนวันหลังวันที่ส่งซ่อม (ตั้งต้น 7) — follow_up_on = sent_on + follow_up_days (GENERATED STORED ห้ามเขียนเอง)
+  follow_up_days         Int                  @default(7) @db.SmallInt
+  follow_up_on           DateTime?            @db.Date
+  /// แจ้งที่กระดิ่งแล้วสำหรับวันกำหนดใด
+  follow_up_notified_for DateTime?            @db.Date
+  status                 String               @default("sent") @db.VarChar(20)
+  returned_at            DateTime?            @db.DateTime(0)
+  received_by_id         BigInt?
+  return_note            String?              @db.Text
   /// สถานะสินทรัพย์ก่อนส่งซ่อม — รับคืน / ยกเลิก = กลับเป็นค่านี้
-  asset_prev_status String?           @db.VarChar(20)
-  cancelled_at   DateTime?            @db.DateTime(0)
-  cancelled_by_id BigInt?
-  cancel_reason  String?              @db.Text
-  created_by     BigInt
-  created_at     DateTime?            @db.DateTime(0)
-  updated_at     DateTime?            @db.DateTime(0)
-  assets         assets?              @relation(fields: [asset_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "repair_orders_asset_id_foreign")
-  it_tickets     it_tickets?          @relation(fields: [ticket_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "repair_orders_ticket_id_foreign")
-  vendors        vendors              @relation(fields: [vendor_id], references: [id], onUpdate: Restrict, map: "repair_orders_vendor_id_foreign")
-  sent_by        users                @relation("repair_orders_sent_by", fields: [sent_by_id], references: [id], onUpdate: Restrict, map: "repair_orders_sent_by_id_foreign")
-  received_by    users?               @relation("repair_orders_received_by", fields: [received_by_id], references: [id], onUpdate: Restrict, map: "repair_orders_received_by_id_foreign")
-  cancelled_by   users?               @relation("repair_orders_cancelled_by", fields: [cancelled_by_id], references: [id], onUpdate: Restrict, map: "repair_orders_cancelled_by_id_foreign")
-  creator        users                @relation("repair_orders_created_by", fields: [created_by], references: [id], onUpdate: Restrict, map: "repair_orders_created_by_foreign")
-  files          repair_order_files[]
-  events         it_ticket_events[]
+  asset_prev_status      String?              @db.VarChar(20)
+  cancelled_at           DateTime?            @db.DateTime(0)
+  cancelled_by_id        BigInt?
+  cancel_reason          String?              @db.Text
+  created_by             BigInt
+  created_at             DateTime?            @db.DateTime(0)
+  updated_at             DateTime?            @db.DateTime(0)
+  assets                 assets?              @relation(fields: [asset_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "repair_orders_asset_id_foreign")
+  it_tickets             it_tickets?          @relation(fields: [ticket_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "repair_orders_ticket_id_foreign")
+  vendors                vendors              @relation(fields: [vendor_id], references: [id], onUpdate: Restrict, map: "repair_orders_vendor_id_foreign")
+  sent_by                users?               @relation("repair_orders_sent_by", fields: [sent_by_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "repair_orders_sent_by_id_foreign")
+  received_by            users?               @relation("repair_orders_received_by", fields: [received_by_id], references: [id], onUpdate: Restrict, map: "repair_orders_received_by_id_foreign")
+  cancelled_by           users?               @relation("repair_orders_cancelled_by", fields: [cancelled_by_id], references: [id], onUpdate: Restrict, map: "repair_orders_cancelled_by_id_foreign")
+  creator                users                @relation("repair_orders_created_by", fields: [created_by], references: [id], onUpdate: Restrict, map: "repair_orders_created_by_foreign")
+  files                  repair_order_files[]
+  parts                  repair_order_parts[]
+  events                 it_ticket_events[]
 
   @@index([status, sent_on], map: "repair_orders_status_sent_on_index")
+  @@index([status, follow_up_on], map: "repair_orders_status_follow_up_on_index")
   @@index([asset_id], map: "repair_orders_asset_id_index")
   @@index([ticket_id], map: "repair_orders_ticket_id_index")
   @@index([vendor_id], map: "repair_orders_vendor_id_index")
@@ -1908,6 +1972,18 @@ model repair_orders {
 }
 
 /// เอกสาร/รูปของรายการส่งซ่อม — kind: send (ใบส่งซ่อม) / return (ตอนรับคืน)
+/// อะไหล่ที่ร้านเปลี่ยน (กรอกตอนรับเครื่องคืน) — บันทึกผลใบแจ้งซ่อมดึงไปเติมรายการอะไหล่
+model repair_order_parts {
+  id              BigInt        @id @default(autoincrement())
+  repair_order_id BigInt
+  name            String        @db.VarChar(255)
+  quantity        Int           @default(1)
+  created_at      DateTime?     @db.DateTime(0)
+  repair_orders   repair_orders @relation(fields: [repair_order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "repair_order_parts_repair_order_id_foreign")
+
+  @@index([repair_order_id], map: "repair_order_parts_repair_order_id_index")
+}
+
 model repair_order_files {
   id              BigInt        @id @default(autoincrement())
   repair_order_id BigInt
@@ -1924,4 +2000,102 @@ model repair_order_files {
 
   @@index([repair_order_id], map: "repair_order_files_repair_order_id_index")
   @@index([uploaded_by], map: "repair_order_files_uploaded_by_index")
+}
+
+/// เอกสารแนบของสัญญา vendor (ไฟล์ละ ≤ 5MB ≤ 10 ไฟล์ต่อครั้ง) — ไฟล์เก็บที่ contracts/{id}/
+model contract_files {
+  id            BigInt    @id @default(autoincrement())
+  contract_id   BigInt
+  original_name String    @db.VarChar(255)
+  path          String    @db.VarChar(255)
+  mime          String    @db.VarChar(100)
+  size          Int
+  uploaded_by   BigInt?
+  created_at    DateTime? @db.DateTime(0)
+  updated_at    DateTime? @db.DateTime(0)
+  contracts     contracts @relation(fields: [contract_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "contract_files_contract_id_foreign")
+  users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "contract_files_uploaded_by_foreign")
+
+  @@index([contract_id], map: "contract_files_contract_id_index")
+  @@index([uploaded_by], map: "contract_files_uploaded_by_index")
+}
+
+/// Fixed Assets จาก STEC SyteLine API — สำเนาอ่านอย่างเดียว 1 แถวต่อ (site, fanum) — services/fixed-asset-sync.ts
+model fixed_assets {
+  id                 BigInt    @id @default(autoincrement())
+  site               String    @db.VarChar(10)
+  fanum              String    @db.VarChar(50)
+  branch_id          BigInt?
+  site_name          String?   @db.VarChar(255)
+  description        String?   @db.VarChar(500)
+  fa_class           String?   @db.VarChar(20)
+  fa_dept            String?   @db.VarChar(20)
+  fa_type            String?   @db.VarChar(20)
+  fa_status          String?   @db.VarChar(20)
+  fa_location        String?   @db.VarChar(255)
+  acquired_on        DateTime? @db.Date
+  depr_start_on      DateTime? @db.Date
+  disposed_on        DateTime? @db.Date
+  acq_cost           Decimal?  @db.Decimal(18, 2)
+  accum_depr         Decimal?  @db.Decimal(18, 2)
+  nbv                Decimal?  @db.Decimal(18, 2)
+  salvage            Decimal?  @db.Decimal(18, 2)
+  depr_method        String?   @db.VarChar(20)
+  depr_rate          Decimal?  @db.Decimal(9, 4)
+  useful_life        Int?
+  /// แถวเต็มจากรายงาน (ทุกฟิลด์)
+  source_data        Json
+  /// SHA-256 ของข้อมูลที่ไม่ใช่ตัวเลขค่าเสื่อมรายงวด — ตรวจว่าเปลี่ยนจริง
+  row_hash           String    @db.Char(64)
+  source_recorded_at DateTime? @db.DateTime(0)
+  /// period ที่ใช้ดึง (ตัวเลขค่าเสื่อม ณ วันนั้น)
+  as_of              DateTime  @db.Date
+  asset_id           BigInt?
+  /// auto | manual — manual = การซิงค์ไม่เปลี่ยนการผูก
+  link_source        String?   @db.VarChar(10)
+  linked_by          BigInt?
+  /// ไม่พบในการดึงครั้งล่าสุด (ไม่ลบแถว)
+  missing_since      DateTime? @db.DateTime(0)
+  first_synced_at    DateTime  @db.DateTime(0)
+  synced_at          DateTime  @db.DateTime(0)
+  changed_at         DateTime? @db.DateTime(0)
+  branches           branches? @relation(fields: [branch_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fixed_assets_branch_id_foreign")
+  assets             assets?   @relation(fields: [asset_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fixed_assets_asset_id_foreign")
+  linker             users?    @relation("fixed_assets_linked_by", fields: [linked_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fixed_assets_linked_by_foreign")
+
+  @@unique([site, fanum], map: "fixed_assets_site_fanum_unique")
+  @@index([fanum], map: "fixed_assets_fanum_index")
+  @@index([asset_id], map: "fixed_assets_asset_id_index")
+  @@index([branch_id], map: "fixed_assets_branch_id_index")
+  @@index([linked_by], map: "fixed_assets_linked_by_index")
+  @@index([fa_status], map: "fixed_assets_fa_status_index")
+}
+
+model fixed_asset_classdepts {
+  id          BigInt   @id @default(autoincrement())
+  site        String   @db.VarChar(10)
+  class_dept  String   @db.VarChar(30)
+  description String?  @db.VarChar(255)
+  synced_at   DateTime @db.DateTime(0)
+
+  @@unique([site, class_dept], map: "fixed_asset_classdepts_site_class_dept_unique")
+}
+
+/// ประวัติการซิงค์ Fixed Assets — ห้ามแก้/ลบผ่าน API
+model fixed_asset_sync_runs {
+  id           BigInt    @id @default(autoincrement())
+  /// schedule | manual
+  run_trigger  String    @db.VarChar(10)
+  triggered_by BigInt?
+  /// running | ok | partial | failed
+  status       String    @default("running") @db.VarChar(10)
+  /// { [site]: { fetched, inserted, updated, unchanged, missing, error? } }
+  stats        Json?
+  error        String?   @db.Text
+  started_at   DateTime  @db.DateTime(0)
+  finished_at  DateTime? @db.DateTime(0)
+  users        users?    @relation(fields: [triggered_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fixed_asset_sync_runs_triggered_by_foreign")
+
+  @@index([started_at], map: "fixed_asset_sync_runs_started_at_index")
+  @@index([triggered_by], map: "fixed_asset_sync_runs_triggered_by_index")
 }

@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 import { exec, first, insert, scalar, select, update } from "../db.js";
 import { trans, type Locale } from "../lib/i18n.js";
 import { dateOnly, iso, localToday, nowDb } from "../lib/time.js";
-import { can, type UserRow } from "../models/user.js";
+import { can, isSuperAdmin, type UserRow } from "../models/user.js";
 import { audit } from "./audit.js";
 import { markNoticesRead, notifyUsers } from "./notifications.js";
 import { usersWithPermissions } from "./permissions.js";
+import { closers, VPN_REQUEST_TICKET_TYPE } from "./ticket-workflow.js";
 
 /**
  * ยืม VPN — บัญชี VPN = รายการในคลังบัญชี/รหัสผ่าน (credentials) หมวด VPN (category = 'vpn' — collation ไม่สนตัวพิมพ์ จึงตรงกับ "VPN" ด้วย)
@@ -19,13 +20,31 @@ export const VPN_CATEGORY = "vpn";
  * ขอใช้ VPN = ใบแจ้งงานเรื่อง "อื่นๆ" หัวข้อนี้ (ตัวเลือกในฟอร์มเสมอ) + ช่วงวันที่ → vpn_loans สถานะ requested ผูก ticket_id
  * ผู้ดูแลเห็นคำขอหลังหัวหน้าอนุมัติใบงานแล้ว (เหมือนคิวงาน IT) แล้วมอบบัญชีที่หน้า จัดการ VPN
  */
-export const VPN_REQUEST_TYPE = "ขอใช้งาน VPN";
+export const VPN_REQUEST_TYPE = VPN_REQUEST_TICKET_TYPE;
 export const isVpnRequestType = (type: unknown, typeOther: unknown) =>
   type === "other" && typeof typeOther === "string" && typeOther.trim().toLowerCase() === VPN_REQUEST_TYPE.toLowerCase();
 /** คำขอที่ผู้ดูแลเห็น/มอบได้: ขอตรง (ไม่มีใบงาน) หรือใบงานผ่านหัวหน้าแล้ว — ใช้คู่กับ VPN_SELECT (alias t = it_tickets) */
 export const REQUEST_VISIBLE = "(v.ticket_id IS NULL OR t.status NOT IN ('pending_supervisor', 'approval_requested'))";
 /** สถานะที่ถือบัญชีอยู่ (บัญชีนี้ให้คนอื่นไม่ได้) */
 export const HOLDING = ["active", "renewal_requested", "cancel_requested"] as const;
+/** สถานะที่จองบัญชีไว้ (ถือบัญชี + มอบแล้วรอผู้จัดการฝ่าย IT อนุมัติ) — ใช้กันมอบบัญชีซ้ำ */
+export const RESERVING = [...HOLDING, "pending_approval"] as const;
+/** SQL: ไม่ใช่ใบขอใช้ VPN (alias t = it_tickets) — ตัดออกจากตัวเลขเมนูคิวงาน IT */
+export const NOT_VPN_REQUEST_SQL = `NOT (t.type = 'other' AND t.type_other <=> '${VPN_REQUEST_TYPE.replace(/'/g, "''")}')`;
+
+/**
+ * ผู้อนุมัติการมอบ VPN = ผู้จัดการฝ่าย IT (ผู้อนุมัติผลใบงาน — closers) ไม่มี = ผู้มีสิทธิ์อนุมัติผลทั้งหมด
+ * exceptId = ผู้มอบ (ไม่อนุมัติงานตัวเองเมื่อมีคนอื่น — กติกาเดียวกับ closersFor) — ไม่เหลือใคร = ผู้มีสิทธิ์อนุมัติผลคนอื่น → ยังไม่มี = รายชื่อเดิม
+ */
+export async function vpnApproverIds(exceptId: number | null = null): Promise<number[]> {
+  const base = (await closers()).map((p) => Number(p.id));
+  if (exceptId === null) return base;
+  const others = base.filter((id) => id !== exceptId);
+  if (others.length) return others;
+  const any = (await usersWithPermissions(["it_tickets.close"])).map((p) => Number(p.id)).filter((id) => id !== exceptId);
+  return any.length ? any : base;
+}
+export const isVpnApprover = async (u: UserRow) => isSuperAdmin(u) || (await vpnApproverIds()).includes(u.id);
 
 export const managesVpn = (u: UserRow) => can(u, "loans.manage");
 export const vpnManagerIds = async () => (await usersWithPermissions(["loans.manage"])).map((x) => Number(x.id));
@@ -62,13 +81,19 @@ export interface VpnLoanRow {
   ended_at: string | null;
   ended_name: string | null;
   end_note: string | null;
+  approved_by: number | null;
+  approved_name: string | null;
+  approved_at: string | null;
+  received_at: string | null;
+  revoked_at: string | null;
+  expired_notified_on: string | null;
   created_at: string | null;
 }
 
 export const VPN_SELECT = `SELECT v.*, u.name AS user_name, c.title AS credential_title, c.username AS credential_username, c.url AS credential_url,
-    a.name AS assigned_name, e.name AS ended_name, t.uuid AS ticket_uuid, t.ticket_no, t.status AS ticket_status
+    a.name AS assigned_name, e.name AS ended_name, ap.name AS approved_name, t.uuid AS ticket_uuid, t.ticket_no, t.status AS ticket_status
   FROM vpn_loans v LEFT JOIN users u ON u.id = v.user_id LEFT JOIN credentials c ON c.id = v.credential_id
-  LEFT JOIN users a ON a.id = v.assigned_by LEFT JOIN users e ON e.id = v.ended_by LEFT JOIN it_tickets t ON t.id = v.ticket_id`;
+  LEFT JOIN users a ON a.id = v.assigned_by LEFT JOIN users e ON e.id = v.ended_by LEFT JOIN users ap ON ap.id = v.approved_by LEFT JOIN it_tickets t ON t.id = v.ticket_id`;
 
 export const loadVpnLoan = (where: string, params: unknown[]) => first<VpnLoanRow>(`${VPN_SELECT} WHERE ${where}`, params);
 
@@ -78,13 +103,16 @@ export function daysLeft(expiresOn: string | null, today = localToday()): number
   return Math.round((Date.parse(`${dateOnly(expiresOn)}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
 }
 
-export function vpnJson(r: VpnLoanRow, u: UserRow) {
+/** opts.approver = ผู้ดูเป็นผู้อนุมัติการมอบ VPN (isVpnApprover — คำนวณครั้งเดียวต่อ request) */
+export function vpnJson(r: VpnLoanRow, u: UserRow, opts: { approver?: boolean } = {}) {
   const mine = Number(r.user_id) === u.id;
   const manage = managesVpn(u);
   const left = daysLeft(r.expires_on);
   const holding = (HOLDING as readonly string[]).includes(r.status);
   const expired = holding && left !== null && left < 0;
   const waitingApproval = Boolean(r.ticket_id) && r.ticket_status === "pending_supervisor";
+  const received = Boolean(r.received_at);
+  const revoked = Boolean(r.revoked_at);
   return {
     id: r.uuid,
     user: { id: Number(r.user_id), name: r.user_name ?? "" },
@@ -92,9 +120,16 @@ export function vpnJson(r: VpnLoanRow, u: UserRow) {
     purpose: r.purpose,
     requested_from: dateOnly(r.requested_from),
     requested_until: dateOnly(r.requested_until),
-    status: r.status as "requested" | "active" | "renewal_requested" | "cancel_requested" | "ended" | "rejected" | "cancelled",
+    status: r.status as "requested" | "pending_approval" | "active" | "renewal_requested" | "cancel_requested" | "ended" | "rejected" | "cancelled",
+    approved_by: r.approved_name,
+    approved_at: iso(r.approved_at),
+    received_at: iso(r.received_at),
+    revoked_at: iso(r.revoked_at),
     // ชื่อบัญชี / ชื่อผู้ใช้ VPN ไม่ใช่ความลับ — รหัสผ่านต้องกดเปิดดู (POST /vpn-loans/:uuid/reveal)
-    account: r.credential_id && (mine || manage) ? { id: Number(r.credential_id), title: r.credential_title ?? "", username: r.credential_username, url: r.credential_url } : null,
+    // ผู้ใช้เห็นชื่อผู้ใช้ VPN หลังกดได้รับแล้ว และยังไม่ถูกเรียกคืน
+    account: r.credential_id && (mine || manage)
+      ? { id: Number(r.credential_id), title: r.credential_title ?? "", username: manage || (received && !revoked) ? r.credential_username : null, url: r.credential_url }
+      : null,
     assigned_by: r.assigned_name,
     assigned_at: iso(r.assigned_at),
     start_on: dateOnly(r.start_on),
@@ -114,9 +149,15 @@ export function vpnJson(r: VpnLoanRow, u: UserRow) {
     created_at: iso(r.created_at),
     // ขอผ่านใบแจ้งงาน = ยกเลิก/แก้ที่ใบแจ้งงาน
     can_cancel: mine && r.status === "requested" && !r.ticket_id,
-    can_choose: mine && r.status === "active",
-    can_reveal: mine && holding && !expired && r.credential_id !== null,
+    // ผู้ขอกด "ได้รับแล้ว" หลังผู้จัดการฝ่าย IT อนุมัติ → ปิดใบแจ้งงาน + ปุ่มดูชื่อผู้ใช้ / รหัสผ่าน
+    can_receive: mine && holding && !received && !revoked,
+    // ต่ออายุ / แจ้งถูกล็อก / ไม่ต่ออายุ — หลังได้รับแล้ว (หมดอายุแล้วก็ยังขอต่ออายุได้)
+    can_choose: mine && r.status === "active" && received && !revoked,
+    can_reveal: mine && holding && received && !revoked && !expired && r.credential_id !== null,
     can_assign: manage && r.status === "requested" && waitingApproval === false,
+    can_approve: Boolean(opts.approver) && r.status === "pending_approval",
+    // เรียกคืนรหัส (ผู้ใช้ดูชื่อผู้ใช้ / รหัสผ่านไม่ได้อีก)
+    can_revoke: manage && holding && !revoked,
     // ขอผ่านใบแจ้งงาน: ปฏิเสธที่ใบงาน (บันทึกผล "ดำเนินการไม่ได้") เพื่อให้ใบงานกับคำขอตรงกัน
     can_reject: manage && r.status === "requested" && !r.ticket_id,
     can_edit: manage && holding,
@@ -153,7 +194,7 @@ export async function applyVpnTicketOutcome(ticketId: number, outcome: "complete
     const now = nowDb();
     let event: string;
     if (outcome === "completed" && r.status === "renewal_requested") {
-      await update("vpn_loans", { status: "active", expires_on: dateOnly(r.renew_until), reminded_for: null, expired_notified_for: null, updated_at: now }, "id = ?", [r.id]);
+      await update("vpn_loans", { status: "active", expires_on: dateOnly(r.renew_until), reminded_for: null, expired_notified_for: null, expired_notified_on: null, updated_at: now }, "id = ?", [r.id]);
       event = "renewed";
     } else if (outcome === "completed") {
       await update("vpn_loans", { status: "ended", ended_at: now, ended_by: actor.id, end_note: r.ticket_no, updated_at: now }, "id = ?", [r.id]);
@@ -169,24 +210,61 @@ export async function applyVpnTicketOutcome(ticketId: number, outcome: "complete
   }
 }
 
-/** ตัวเลขเมนู: /loans/vpn = คำขอรอมอบ + หมดอายุแล้วยังไม่จัดการ (ผู้ดูแล), /loans/mine = VPN ของฉันที่ถึงช่วงต้องเลือก ต่ออายุ / เลิกใช้ */
+/**
+ * ตัวเลขเมนู (+ ตัวเลขแท็บ key แบบ `href?status=…`):
+ *   /loans/mine + /loans/vpn/request = VPN ของฉันที่ต้องทำ: ถึงช่วงต้องเลือก ต่ออายุ / เลิกใช้ (รวมหมดอายุ) + อนุมัติแล้วรอกด "ได้รับแล้ว"
+ *   /loans/vpn (ผู้ดูแล) = คำขอรอมอบ + หมดอายุแล้วยังไม่จัดการ (+ รออนุมัติ เมื่อเป็นผู้อนุมัติ) — แท็บ requested / approval / expiring
+ */
 export async function vpnBadges(u: UserRow): Promise<Record<string, number>> {
   const today = localToday();
-  const out: Record<string, number> = {
-    "/loans/mine": Number(
-      await scalar("SELECT COUNT(*) FROM vpn_loans v WHERE v.user_id = ? AND v.status = 'active' AND DATE_SUB(v.expires_on, INTERVAL v.notify_days_before DAY) <= ?", [u.id, today]),
+  const mine = Number(
+    await scalar(
+      `SELECT COUNT(*) FROM vpn_loans v WHERE v.user_id = ? AND v.revoked_at IS NULL AND (
+         (v.status = 'active' AND v.received_at IS NOT NULL AND DATE_SUB(v.expires_on, INTERVAL v.notify_days_before DAY) <= ?)
+         OR (v.status IN (?) AND v.received_at IS NULL))`,
+      [u.id, today, HOLDING],
     ),
-  };
+  );
+  const out: Record<string, number> = { "/loans/mine": mine, "/loans/vpn/request": mine };
   if (managesVpn(u)) {
-    out["/loans/vpn"] = Number(
-      await scalar(
-        `SELECT COUNT(*) FROM vpn_loans v LEFT JOIN it_tickets t ON t.id = v.ticket_id
-          WHERE (v.status = 'requested' AND ${REQUEST_VISIBLE}) OR (v.status = 'active' AND v.expires_on < ?)`,
-        [today],
-      ),
-    );
+    const requested = Number(await scalar(`SELECT COUNT(*) FROM vpn_loans v LEFT JOIN it_tickets t ON t.id = v.ticket_id WHERE v.status = 'requested' AND ${REQUEST_VISIBLE}`));
+    const expired = Number(await scalar("SELECT COUNT(*) FROM vpn_loans v WHERE v.status IN (?) AND v.revoked_at IS NULL AND v.expires_on < ?", [HOLDING, today]));
+    const approval = (await isVpnApprover(u)) ? Number(await scalar("SELECT COUNT(*) FROM vpn_loans v WHERE v.status = 'pending_approval'")) : 0;
+    out["/loans/vpn"] = requested + expired + approval;
+    out["/loans/vpn?status=requested"] = requested;
+    out["/loans/vpn?status=approval"] = approval;
+    out["/loans/vpn?status=expiring"] = expired;
   }
   return out;
+}
+
+/* ---------------------------------------------------------------- ใบแจ้งงานขอใช้ VPN ↔ การมอบบัญชี (เรียกจากหน้าใบงาน) */
+
+/** ผู้จัดการฝ่าย IT อนุมัติผลใบขอใช้ VPN ที่หน้าใบแจ้งงาน → การมอบบัญชีอนุมัติแล้ว (แจ้งผู้ขอ) */
+export async function vpnTicketApproved(ticketId: number, actor: UserRow): Promise<void> {
+  const r = await loadVpnLoan("v.ticket_id = ? AND v.status = 'pending_approval'", [ticketId]);
+  if (!r) return;
+  const now = nowDb();
+  await update("vpn_loans", { status: "active", approved_by: actor.id, approved_at: now, updated_at: now }, "id = ?", [r.id]);
+  await audit({ user: { id: actor.id } }, { action: "vpn_loan.approved", subjectType: "vpn_loan", subjectId: r.id, after: { ticket_id: ticketId } });
+  await markNoticesRead("vpn_id", r.uuid, { events: ["approval_requested"] });
+  await notifyUsers([Number(r.user_id)], "vpn.assigned", vpnNotice((await loadVpnLoan("v.id = ?", [r.id]))!, "assigned", actor.name));
+}
+
+/** ผู้จัดการฝ่าย IT ส่งใบขอใช้ VPN กลับให้แก้ไข → การมอบบัญชีกลับเป็นคำขอ (บัญชีว่าง) แจ้งผู้มอบ */
+export async function vpnTicketReturned(ticketId: number, actor: UserRow, note: string | null): Promise<void> {
+  const r = await loadVpnLoan("v.ticket_id = ? AND v.status = 'pending_approval'", [ticketId]);
+  if (!r) return;
+  await update("vpn_loans", { status: "requested", credential_id: null, assigned_at: null, start_on: null, expires_on: null, updated_at: nowDb() }, "id = ?", [r.id]);
+  await audit({ user: { id: actor.id } }, { action: "vpn_loan.approval_returned", subjectType: "vpn_loan", subjectId: r.id, after: { ticket_id: ticketId, note } });
+  await markNoticesRead("vpn_id", r.uuid, { events: ["approval_requested"] });
+  const ids = [Number(r.assigned_by ?? 0)].filter((x) => x && x !== actor.id);
+  if (ids.length) await notifyUsers(ids, "vpn.approval_returned", vpnNotice(r, "approval_returned", actor.name, { note }));
+}
+
+/** ผู้ขอกดรับงานที่ใบแจ้งงาน / ปิดงานอัตโนมัติ = ได้รับ VPN แล้ว */
+export async function vpnTicketReceived(ticketId: number): Promise<void> {
+  await exec("UPDATE vpn_loans SET received_at = ? WHERE ticket_id = ? AND status IN (?) AND received_at IS NULL", [nowDb(), ticketId, HOLDING]);
 }
 
 /**
@@ -208,22 +286,23 @@ export async function notifyVpnExpiry(): Promise<number> {
     await exec("UPDATE vpn_loans SET reminded_for = expires_on WHERE id = ?", [r.id]);
     sent++;
   }
+  // หมดอายุแล้ว (ยังถือบัญชี ไม่ถูกเรียกคืน) → แจ้งผู้ใช้ + ผู้ดูแล ทุกวันจนกว่าจะต่ออายุ / สิ้นสุด (แจ้งเตือนของวันก่อนอ่านแล้ว)
   const expired = await select<VpnLoanRow>(
-    `${VPN_SELECT} WHERE v.status = 'active' AND v.expires_on < ? AND (v.expired_notified_for IS NULL OR v.expired_notified_for <> v.expires_on)`,
-    [today],
+    `${VPN_SELECT} WHERE v.status IN (?) AND v.revoked_at IS NULL AND v.expires_on < ? AND (v.expired_notified_on IS NULL OR v.expired_notified_on < ?)`,
+    [HOLDING, today, today],
   );
   const managers = expired.length ? await vpnManagerIds() : [];
   for (const r of expired) {
-    await markNoticesRead("vpn_id", r.uuid, { events: ["expiring"] });
+    await markNoticesRead("vpn_id", r.uuid, { events: ["expiring", "expired"] });
     await notifyUsers([...new Set([Number(r.user_id), ...managers])], "vpn.expired", vpnNotice(r, "expired", null));
-    await exec("UPDATE vpn_loans SET expired_notified_for = expires_on WHERE id = ?", [r.id]);
+    await exec("UPDATE vpn_loans SET expired_notified_for = expires_on, expired_notified_on = ? WHERE id = ?", [today, r.id]);
     sent++;
   }
   return sent;
 }
 
 /** ข้อความเรื่องของใบแจ้งงาน (ใช้ทดสอบ / แสดงผล) */
-export const vpnTicketSubject = (choice: "renew" | "cancel", locale: Locale) => trans(locale, `eam.vpn.ticket_${choice}`);
+export const vpnTicketSubject = (choice: "renew" | "cancel" | "locked", locale: Locale) => trans(locale, `eam.vpn.ticket_${choice}`);
 
 /* ---------------------------------------------------------------- ขอใช้ผ่านใบแจ้งงาน */
 
@@ -273,11 +352,14 @@ export async function closeVpnRequest(ticketId: number, status: "rejected" | "ca
   await markNoticesRead("vpn_id", r.uuid, { events: ["requested"] });
 }
 
-/** ใบงานขอใช้ VPN ผ่านหัวหน้าแล้ว → แจ้งผู้ดูแล VPN (ยกเว้นผู้รับงานของใบ ซึ่งได้แจ้งเตือนใบงานอยู่แล้ว) */
+/**
+ * ใบงานขอใช้ VPN ผ่านหัวหน้าแล้ว → แจ้งผู้ดูแล VPN + เจ้าหน้าที่ที่ผู้ขอเลือก (แจ้งเตือนใบงานฝั่ง IT ของใบนี้ไม่ส่ง —
+ * ฝั่ง IT เห็นที่เมนู VPN อย่างเดียว: ticket-workflow notify ตัดผู้รับฝั่ง IT ของใบขอใช้ VPN)
+ */
 export async function announceVpnRequest(ticketId: number, assigneeId: number | null): Promise<void> {
   const r = await loadVpnLoan("v.ticket_id = ? AND v.status = 'requested'", [ticketId]);
   if (!r) return;
-  const ids = (await vpnManagerIds()).filter((x) => x !== Number(r.user_id) && x !== assigneeId);
+  const ids = [...new Set([...(await vpnManagerIds()), ...(assigneeId ? [assigneeId] : [])])].filter((x) => x !== Number(r.user_id));
   if (ids.length) await notifyUsers(ids, "vpn.requested", vpnNotice(r, "requested", r.user_name, { requested_until: dateOnly(r.requested_until) }));
 }
 

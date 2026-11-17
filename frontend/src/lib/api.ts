@@ -3,6 +3,7 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getPrefs } from "@/lib/prefs-server";
+import { PWA_MARK } from "@/lib/user-agent";
 
 /**
  * ตัวเรียก Laravel API — ทำงานบนฝั่ง server เท่านั้น
@@ -10,6 +11,9 @@ import { getPrefs } from "@/lib/prefs-server";
  * - token เก็บใน httpOnly cookie (JavaScript ฝั่ง browser อ่านไม่ได้ ป้องกัน XSS ขโมย token)
  */
 export const TOKEN_COOKIE = "eam_token";
+
+/** cookie: เปิดจากแอปที่ติดตั้ง (PWA) — ตั้งจากเบราว์เซอร์ใน install-prompt.tsx */
+export const PWA_COOKIE = "eam_pwa";
 
 const API_URL = process.env.API_URL ?? "http://127.0.0.1:8020/api/v1";
 
@@ -22,6 +26,17 @@ async function clientIp(): Promise<string | null> {
   const h = await headers();
   const ip = h.get("x-real-ip")?.trim() || h.get("x-forwarded-for")?.split(",").pop()?.trim() || "";
   return /^[0-9a-f.:]{2,45}$/i.test(ip) ? ip : null;
+}
+
+/**
+ * เบราว์เซอร์/อุปกรณ์ของผู้ใช้ — API ได้รับคำขอจาก Next.js จึงต้องส่ง User-Agent ของผู้ใช้ต่อให้ (X-Client-Agent, เก็บใน audit_logs)
+ * cookie eam_pwa = เปิดจากแอปที่ติดตั้ง (components/install-prompt.tsx) → ต่อท้าย " [pwa]"
+ */
+async function clientAgent(): Promise<string | null> {
+  const ua = (await headers()).get("user-agent")?.trim();
+  if (!ua) return null;
+  const pwa = (await cookies()).get(PWA_COOKIE)?.value === "1";
+  return (pwa ? `${ua.slice(0, 255 - PWA_MARK.length)}${PWA_MARK}` : ua).slice(0, 255);
 }
 
 /** body ของ 428 จาก API → ข้อมูลสำหรับช่องยืนยันตัวตน (รหัสผ่าน / PIN กลาง) */
@@ -43,6 +58,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const token = (await cookies()).get(TOKEN_COOKIE)?.value;
   const { locale } = await getPrefs();
   const ip = await clientIp();
+  const agent = await clientAgent();
   // FormData (อัปโหลดไฟล์) ต้องให้ fetch ตั้ง Content-Type + boundary เอง
   const isForm = typeof FormData !== "undefined" && init.body instanceof FormData;
 
@@ -54,6 +70,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       ...(isForm ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(ip ? { "X-Forwarded-For": ip } : {}),
+      ...(agent ? { "X-Client-Agent": agent } : {}),
       ...init.headers,
     },
     cache: "no-store", // ข้อมูลเฉพาะผู้ใช้ ห้าม cache ข้ามผู้ใช้
@@ -85,12 +102,14 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 export async function apiFile(path: string, init: RequestInit = {}): Promise<Response> {
   const token = (await cookies()).get(TOKEN_COOKIE)?.value;
   const ip = await clientIp();
+  const agent = await clientAgent();
   return fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
       Accept: "*/*",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(ip ? { "X-Forwarded-For": ip } : {}),
+      ...(agent ? { "X-Client-Agent": agent } : {}),
       ...init.headers,
     },
     cache: "no-store",

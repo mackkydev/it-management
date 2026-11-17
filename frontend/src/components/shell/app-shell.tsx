@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, MonitorIcon, MenuIcon, SettingsIcon, UserIcon, XIcon } from "@/components/icons";
+import { AccessProvider } from "@/components/access-context";
 import { LinkPendingIcon } from "@/components/pending";
 import { usePrefs } from "@/components/prefs-provider";
 import { Tooltip } from "@/components/tooltip";
@@ -90,11 +91,11 @@ function Logo() {
   const isNew = useNewVersion();
   return (
     <Tooltip label={t("about.openHint")}>
-    <Link href="/about" className="group flex cursor-pointer items-center gap-2 font-semibold text-ink">
+    <Link href="/about" className="group flex min-w-0 cursor-pointer items-center gap-2 font-semibold text-ink">
       <LogoMark />
-      <span className="leading-tight">
+      <span className="min-w-0 leading-tight">
         <span className="flex items-center gap-1.5 whitespace-nowrap">
-          {t("app.name")}
+          <span className="min-w-0 truncate">{t("app.name")}</span>
           <span
             className={`relative shrink-0 rounded-full px-1.5 py-px text-3xs font-semibold leading-4 ring-1 ring-inset transition-colors ${
               isNew
@@ -278,7 +279,7 @@ function SidebarFooter({ user, onNavigate, settings = "inline" }: { user: User; 
   const menuId = useId();
 
   return (
-    <div className="border-t border-line pt-3">
+    <div>
       <Collapse open={open} id={menuId}>
         <div className="pb-2">
           {/* key: ปิดเมนูบัญชีแล้วรีเซ็ตสถานะ → แผงการตั้งค่าปิดตาม (เนื้อหายังอยู่ให้ animation ย่อทำงาน) */}
@@ -352,7 +353,7 @@ function CollapsedFooter({ user }: { user: User }) {
   useDismiss(ref, open, () => setOpen(false));
 
   return (
-    <div ref={ref} className="flex justify-center border-t border-line pt-3">
+    <div ref={ref} className="flex justify-center">
       <Tooltip label={`${user.name} · ${t(`roles.${user.role}`)}`} disabled={open}>
         <button
           type="button"
@@ -385,6 +386,10 @@ function CollapsedFooter({ user }: { user: User }) {
   );
 }
 
+/** แถบบน/ล่างของเมนูด้านข้าง: พื้นเดียวกับเมนู คั่นด้วยเส้น — แถบล่างเลื่อนในตัวเองเมื่อเมนูบัญชีขยายจนสูงเกินจอ */
+const SIDEBAR_TOP = "shrink-0 border-b border-line py-3";
+const SIDEBAR_BOTTOM = "max-h-[70vh] shrink-0 overflow-y-auto border-t border-line py-3";
+
 /** sidebar บนจอใหญ่ — ย่อ/ขยายได้ (จำค่าไว้ใน cookie) */
 function DesktopSidebar({ groups, user }: { groups: NavGroup[]; user: User }) {
   const { t } = useI18n();
@@ -393,34 +398,37 @@ function DesktopSidebar({ groups, user }: { groups: NavGroup[]; user: User }) {
   const toggle = () => set("sidebar", collapsed ? "expanded" : "collapsed");
 
   const toggleLabel = collapsed ? t("nav.expand") : t("nav.collapse");
-
-  // ปุ่มย่อ/ขยายวางคร่อมเส้นขอบขวา — อยู่นอก aside (aside มี overflow-x-hidden จะตัดปุ่มทิ้ง)
+  // ปุ่มย่อ/ขยาย = วงกลมคร่อมเส้นขอบขวา ระดับแถวโลโก้/กระดิ่งในแถบบน (py-3 + h-11 → กึ่งกลางที่ 34px)
+  // อยู่นอก aside เพราะ aside มี overflow-hidden จะตัดปุ่มทิ้ง
   return (
     <div className="sticky top-0 z-20 hidden h-screen shrink-0 lg:flex">
       <aside
         data-flyout-edge=""
-        className={`flex h-full flex-col gap-5 overflow-y-auto overflow-x-hidden border-r border-line bg-surface transition-[width,padding] duration-200 ease-out ${
-          collapsed ? "w-[76px] px-2 py-4" : "w-72 p-4"
-        }`}
+        className={`flex h-full flex-col overflow-hidden border-r border-line bg-surface transition-[width] duration-200 ease-out ${collapsed ? "w-[76px]" : "w-72"}`}
       >
+        {/* แถบบน + แถบล่างอยู่กับที่ เลื่อนเฉพาะรายการเมนูตรงกลาง */}
         {collapsed ? (
-          <div className="flex flex-col items-center gap-2">
+          <div className={`${SIDEBAR_TOP} flex flex-col items-center gap-2 px-2`}>
             <CollapsedLogo />
             <NotificationBell size="lg" />
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-1">
+          <div className={`${SIDEBAR_TOP} flex items-center justify-between gap-1 px-4`}>
             <Logo />
             <NotificationBell size="lg" />
           </div>
         )}
 
-        <div className="flex-1">{collapsed ? <CollapsedNav groups={groups} /> : <SidebarNav groups={groups} />}</div>
+        <div className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-4 ${collapsed ? "px-2" : "px-4"}`}>
+          {collapsed ? <CollapsedNav groups={groups} /> : <SidebarNav groups={groups} />}
+        </div>
 
-        {collapsed ? <CollapsedFooter user={user} /> : <SidebarFooter user={user} settings="flyout" />}
+        <div className={`${SIDEBAR_BOTTOM} ${collapsed ? "px-2" : "px-4"}`}>
+          {collapsed ? <CollapsedFooter user={user} /> : <SidebarFooter user={user} settings="flyout" />}
+        </div>
       </aside>
 
-      <span className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2">
+      <span className="absolute right-0 top-[34px] -translate-y-1/2 translate-x-1/2">
         <Tooltip label={toggleLabel}>
           <button
             type="button"
@@ -449,20 +457,22 @@ function MobileDrawer({ open, onClose, groups, user }: { open: boolean; onClose:
       <aside
         role="dialog"
         aria-modal="true"
-        className={`absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col gap-4 overflow-y-auto bg-surface p-4 shadow-xl transition-transform duration-200 ${
+        className={`absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col overflow-hidden bg-surface shadow-xl transition-transform duration-200 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex items-center justify-between">
+        <div className={`${SIDEBAR_TOP} flex items-center justify-between px-4`}>
           <Logo />
           <button type="button" onClick={onClose} className={`${btn.secondary} ${btn.sm} px-2`} aria-label={t("common.closeMenu")}>
             <XIcon width={16} height={16} />
           </button>
         </div>
-        <div className="flex-1">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <SidebarNav groups={groups} onNavigate={onClose} />
         </div>
-        <SidebarFooter user={user} onNavigate={onClose} />
+        <div className={`${SIDEBAR_BOTTOM} px-4`}>
+          <SidebarFooter user={user} onNavigate={onClose} />
+        </div>
       </aside>
     </div>
   );
@@ -617,7 +627,9 @@ export function AppShell({ layout, user, uiConfig, children }: { layout: Layout;
   const main = (
     <main className="w-full min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
       <RouteGuard user={user} uiConfig={uiConfig}>
-        {children}
+        <AccessProvider user={user} uiConfig={uiConfig}>
+          {children}
+        </AccessProvider>
       </RouteGuard>
     </main>
   );

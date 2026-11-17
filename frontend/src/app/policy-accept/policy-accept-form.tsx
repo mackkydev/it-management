@@ -1,20 +1,39 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { logout } from "@/app/actions/auth";
 import { acceptPolicy } from "@/app/actions/policy";
 import { useConfirm } from "@/components/dialog-provider";
 import { AlertIcon, CheckCircleIcon, ChevronDownIcon, LogoutIcon, SpinnerIcon } from "@/components/icons";
+import { CHANGED_TEXT, NewBadge, PolicyAttachments, PolicyBody } from "@/components/policy-content";
 import { alert, btn, card } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import type { PolicySection } from "@/lib/types";
+import { sectionChanges } from "@/lib/text-diff";
+import type { PolicyFile, PolicySection } from "@/lib/types";
 
 /**
  * หัวข้อนโยบายแบบกดเปิดอ่าน (accordion) ในกล่องเลื่อน — ติ๊กยอมรับได้เมื่อเปิดอ่านครบทุกหัวข้อ และเลื่อนลงจนสุดกล่อง
  * accepted = ยอมรับแล้ว (อ่านอย่างเดียว ไม่มีช่องยอมรับ), boxClassName = ความสูงของกล่องเลื่อน (ตั้งต้นไม่เกิน 60% ของจอ)
+ * previous = หัวข้อของฉบับก่อนหน้า → หัวข้อที่เปลี่ยนมีป้าย NEW จนกว่าจะเปิดอ่าน และข้อความที่เพิ่ม/แก้เป็นสีแดง
+ * files = เอกสารแนบท้ายประกาศ (ต่อท้ายหัวข้อสุดท้ายในกล่องเลื่อน)
  */
-export function PolicyAcceptForm({ sections, version, accepted, boxClassName = "max-h-[60vh]" }: { sections: PolicySection[]; version: number; accepted: boolean; boxClassName?: string }) {
+export function PolicyAcceptForm({
+  sections,
+  previous,
+  files = [],
+  version,
+  accepted,
+  boxClassName = "max-h-[60vh]",
+}: {
+  sections: PolicySection[];
+  previous?: PolicySection[] | null;
+  files?: PolicyFile[];
+  version: number;
+  accepted: boolean;
+  boxClassName?: string;
+}) {
   const { t } = useI18n();
+  const changes = useMemo(() => sectionChanges(sections, previous), [sections, previous]);
   const confirm = useConfirm();
   const [open, setOpen] = useState<Set<number>>(() => new Set(sections.length === 1 ? [0] : []));
   const [read, setRead] = useState<Set<number>>(() => new Set(sections.length === 1 ? [0] : []));
@@ -74,10 +93,16 @@ export function PolicyAcceptForm({ sections, version, accepted, boxClassName = "
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
+      {changes.some((c) => c.status !== "same") && (
+        <p className="shrink-0 text-xs text-muted">
+          {t("policyPage.changedHint")}
+        </p>
+      )}
       <div ref={boxRef} className={`overflow-y-auto p-2 sm:p-3 ${boxClassName} ${card}`}>
         <ol className="space-y-2">
           {sections.map((s, i) => {
             const isOpen = open.has(i);
+            const change = changes[i];
             return (
               <li key={i} className="rounded-xl ring-1 ring-line">
                 <button
@@ -90,7 +115,9 @@ export function PolicyAcceptForm({ sections, version, accepted, boxClassName = "
                   <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent-100 text-xs font-semibold text-accent-800 dark:bg-accent-400/15 dark:text-accent-300">
                     {i + 1}
                   </span>
-                  <span className="min-w-0 flex-1 font-medium">{s.title}</span>
+                  <span className={`min-w-0 flex-1 font-medium ${change.titleChanged ? CHANGED_TEXT : ""}`}>{s.title}</span>
+                  {/* หัวข้อที่เปลี่ยนจากฉบับก่อนหน้า: ป้าย NEW จนกว่าจะเปิดอ่าน */}
+                  {change.status !== "same" && !accepted && !read.has(i) && <NewBadge />}
                   {/* ยอมรับแล้ว = อ่านครบแล้ว */}
                   {(accepted || read.has(i)) && (
                     <span className="flex shrink-0 items-center gap-1 text-xs text-success-700 dark:text-success-300">
@@ -102,13 +129,18 @@ export function PolicyAcceptForm({ sections, version, accepted, boxClassName = "
                 </button>
                 {isOpen && (
                   <div id={`policy-section-${i}`} className="border-t border-line px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap">
-                    {s.body}
+                    <PolicyBody parts={change.body} />
                   </div>
                 )}
               </li>
             );
           })}
         </ol>
+        {files.length > 0 && (
+          <div className="mt-3">
+            <PolicyAttachments files={files} />
+          </div>
+        )}
         <div ref={endRef} className="h-1" aria-hidden="true" />
       </div>
 

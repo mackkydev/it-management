@@ -10,6 +10,7 @@ import { ResultToast } from "@/components/toast";
 import { btn, card, input, inputError, table, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { BranchChoices, VehicleDriver } from "@/lib/types";
+import { MasterDataSelect } from "@/components/master-data-select";
 
 const EMPTY = (choices: BranchChoices): DriverValues => ({ name: "", nickname: "", branch_id: choices.defaultId ? String(choices.defaultId) : "", is_active: true });
 
@@ -90,9 +91,11 @@ export function DriverManager({ drivers, choices, canCreate }: { drivers: Vehicl
           <label htmlFor="driver-branch" className="mb-1 block text-sm font-medium">
             {t("vehicle.drivers.branch")}
           </label>
-          <AppSelect id="driver-branch" value={v.branch_id} onValueChange={(x) => set("branch_id", x)} className={`${input} ${errors.branch_id ? inputError : ""}`}>
-            {branchOptions}
-          </AppSelect>
+          <MasterDataSelect source="branches">
+            <AppSelect id="driver-branch" value={v.branch_id} onValueChange={(x) => set("branch_id", x)} className={`${input} ${errors.branch_id ? inputError : ""}`}>
+              {branchOptions}
+            </AppSelect>
+          </MasterDataSelect>
           {errors.branch_id && <p className="mt-1 text-xs text-red-500">{errors.branch_id}</p>}
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-sm lg:mt-6 lg:h-[42px]">

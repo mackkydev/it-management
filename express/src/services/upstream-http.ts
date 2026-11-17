@@ -27,6 +27,8 @@ export interface UpstreamHttpRequest {
   timeoutMs: number;
   maxRedirects: number;
   allowedHosts: string[];
+  /** ขนาด response สูงสุด (byte) — ไม่ระบุ = 1MB */
+  maxBytes?: number;
 }
 
 export interface UpstreamHttpResponse {
@@ -164,7 +166,7 @@ function httpsTransport(req: UpstreamHttpRequest & { guard: (address: string, ho
         let size = 0;
         res.on("data", (c: Buffer) => {
           size += c.length;
-          if (size > MAX_BODY) r.destroy(new UpstreamError("too_large"));
+          if (size > (req.maxBytes ?? MAX_BODY)) r.destroy(new UpstreamError("too_large"));
           else chunks.push(c);
         });
         res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString("utf8") }));

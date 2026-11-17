@@ -7,7 +7,7 @@ import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { ApiError, apiFetch } from "@/lib/api";
 import type { RepairLookupItem } from "@/lib/types";
 
-export type RepairOrderResult = ActionResult<"item" | "symptom" | "item_details" | "document_no" | "serial_number" | "vendor_id" | "sent_on" | "sent_time" | "sent_by_id" | "return_note" | "status" | "files" | "reason">;
+export type RepairOrderResult = ActionResult<"item" | "symptom" | "item_details" | "document_no" | "serial_number" | "vendor_id" | "sent_on" | "sent_time" | "sent_by_id" | "item_name" | "return_note" | "status" | "files" | "reason">;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -79,4 +79,15 @@ export async function returnRepairOrder(id: string, form: FormData): Promise<Rep
   revalidatePath("/it/repair-orders");
   revalidatePath(`/it/repair-orders/${id}`);
   return { ok: true };
+}
+
+/** ช่องผู้ส่งซ่อม (เจ้าของอุปกรณ์): ผู้ใช้ที่ชื่อ / อีเมล / แผนก ตรงกับที่พิมพ์ */
+export async function searchRepairPeople(q: string): Promise<{ id: number; name: string; department: string | null }[]> {
+  const query = new URLSearchParams({ q: String(q).slice(0, 100) });
+  try {
+    return (await apiFetch<{ data: { id: number; name: string; department: string | null }[] }>(`/repair-orders/people?${query}`)).data;
+  } catch (e) {
+    if (e instanceof ApiError) return [];
+    throw e;
+  }
 }

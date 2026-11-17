@@ -2,9 +2,11 @@ import { config } from "../config.js";
 import { syncDueConnections } from "../services/directory-sync.js";
 import { notifyExpiring } from "./notify-expiring.js";
 import { notifyOverdueLoans } from "../routes/loans.js";
+import { notifyRepairFollowUps } from "../routes/repair-orders.js";
 import { autoCloseTickets } from "../routes/tickets.js";
 import { expireZoomBookings } from "../routes/zoom.js";
 import { notifyVpnExpiry } from "../services/vpn-loans.js";
+import { syncFixedAssetsIfDue } from "../services/fixed-asset-sync.js";
 
 /**
  * ตั้งเวลารันงานรายวันใน process ของ API (แทน `php artisan schedule:work`)
@@ -70,6 +72,9 @@ export function startScheduler(): void {
       // จอง ZOOM ที่เลยเวลาโดยยังไม่ได้ส่งลิงก์ → ยกเลิก (ใบงานไม่นับ KPI)
       const z = await expireZoomBookings();
       if (z) console.info(`[scheduler] zoom bookings expired: ${z}`);
+      // รายการส่งซ่อมถึงกำหนดตามงานแล้วยังไม่รับคืน → แจ้งผู้ตามงานครั้งเดียวต่อวันกำหนด
+      const r = await notifyRepairFollowUps();
+      if (r) console.info(`[scheduler] repair order follow-ups: notified ${r}`);
     } catch (e) {
       console.error("[scheduler] overdue equipment loans failed", e);
     } finally {
@@ -91,6 +96,21 @@ export function startScheduler(): void {
       console.error("[scheduler] api-user directory sync failed", e);
     } finally {
       syncing = false;
+    }
+  }, 5 * 60_000).unref();
+
+  // Fixed Assets จาก SyteLine — วันละครั้งตามเวลาที่ตั้ง (ตรวจทุก 5 นาที, ไม่ซ้อนรอบ — startRun กันซ้ำข้าม process อีกชั้น)
+  let faSyncing = false;
+  setInterval(async () => {
+    if (faSyncing) return;
+    faSyncing = true;
+    try {
+      const r = await syncFixedAssetsIfDue();
+      if (r) console.info(`[scheduler] fixed-asset sync #${r.run_id}: ${r.status}`);
+    } catch (e) {
+      console.error("[scheduler] fixed-asset sync failed", e);
+    } finally {
+      faSyncing = false;
     }
   }, 5 * 60_000).unref();
 }

@@ -12,12 +12,12 @@ import { apiFile } from "@/lib/api";
  *   <a href="/files/kpi/export?from=2025-10&to=2025-12&user_id=3">   (KPI ฝ่าย IT เป็น Excel — ส่งต่อเฉพาะ from/to/user_id ที่ผ่านรูปแบบ)
  *   <a href="/files/leave/export?scope=all&year=2026">   (รายงานการลา Excel), /files/leave/{uuid}/files/{id} (ใบรับรองแพทย์), /files/leave/{uuid}/signature/requester|approver
  *   <a href="/files/holidays/import-template">   (template วันหยุดบริษัท)
- *   <img src="/files/meeting-rooms/{id}/images/{imageId}">   (รูปห้องประชุม), /files/vehicles/{id}/images/{imageId} (รูปรถ)
- *   <a href="/files/repair-orders/{uuid}/files/{id}">   (เอกสาร/รูปของรายการส่งซ่อม — เฉพาะ repair_orders.view), /files/vendors/{id}/files/{fileId} (เอกสารบริษัท — เฉพาะ vendors.manage), /files/announcements/{id}/files/{fileId} (รูปหน้าปก / เอกสารแนบของประกาศ)
+ *   <img src="/files/meeting-rooms/{id}/images/{imageId}">   (รูปห้องประชุม), /files/vehicles/{id}/images/{imageId} (รูปรถ), /files/loans/{uuid}/photos/{id} (รูปตอนส่งมอบ/รับคืนโน้ตบุ๊ก)
+ *   <a href="/files/repair-orders/{uuid}/files/{id}">   (เอกสาร/รูปของรายการส่งซ่อม — เฉพาะ repair_orders.view), /files/vendors/{id}/files/{fileId} (เอกสารบริษัท — เฉพาะ vendors.manage), /files/contracts/{id}/files/{fileId} (เอกสารแนบสัญญา — contracts.view / update), /files/announcements/{id}/files/{fileId} (รูปหน้าปก / เอกสารแนบของประกาศ)
  * อนุญาตเฉพาะ path ของไฟล์ — กันไม่ให้ใช้เป็น proxy เรียก API อื่น
  */
 const ALLOWED =
-  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/export|kpi\/export|assets\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/icon|leave\/export|leave\/[0-9a-f-]{36}\/files\/\d+|leave\/[0-9a-f-]{36}\/signature\/(requester|approver)|holidays\/import-template|org-units\/import-template|meeting-rooms\/\d+\/images\/\d+|vehicles\/\d+\/images\/\d+|repair-orders\/[0-9a-f-]{36}\/files\/\d+|vendors\/\d+\/files\/\d+|announcements\/\d+\/files\/\d+|policy\/documents\/\d+\/signature|policy\/files\/\d+|policy\/public\/files\/\d+|policy\/others\/\d+\/files\/\d+)$/i;
+  /^(tickets\/[0-9a-f-]{36}\/files\/(attachment|part|requester-signature|staff-signature|it-head-signature)(\/\d+)?|auth\/me\/signature|branding\/logo|assets\/import-template|assets\/export|kpi\/export|assets\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/files\/\d+|licenses\/[0-9a-f-]{36}\/icon|leave\/export|leave\/[0-9a-f-]{36}\/files\/\d+|leave\/[0-9a-f-]{36}\/signature\/(requester|approver)|holidays\/import-template|org-units\/import-template|meeting-rooms\/\d+\/images\/\d+|vehicles\/\d+\/images\/\d+|loans\/[0-9a-f-]{36}\/photos\/\d+|repair-orders\/[0-9a-f-]{36}\/files\/\d+|vendors\/\d+\/files\/\d+|contracts\/\d+\/files\/\d+|announcements\/\d+\/files\/\d+|policy\/documents\/\d+\/signature|policy\/files\/\d+|policy\/public\/files\/\d+|policy\/others\/\d+\/files\/\d+)$/i;
 
 export async function GET(req: Request, ctx: RouteContext<"/files/[...path]">) {
   const { path } = await ctx.params;

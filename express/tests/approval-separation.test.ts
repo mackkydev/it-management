@@ -144,7 +144,7 @@ describe("managers approve their own tickets by default (no approver chosen)", (
 
   it("choosing an approver still sends it to that person; staff without approve_own keep the normal route", async () => {
     const branch = await makeBranch({ code: "PICK" });
-    const boss = await makeUser({ role: "admin", branch_id: branch }); // ตำแหน่งสูงกว่าผู้จัดการ
+    const boss = await makeUser({ role: "division_manager", branch_id: branch }); // ตำแหน่งสูงกว่าผู้จัดการ (admin / super_admin เลือกเป็นผู้อนุมัติไม่ได้)
     const managerUser = await makeUser({ role: "manager", branch_id: branch });
     const it_ = await makeUser({ is_it_staff: true });
     const created = await (await as(managerUser)).post("/api/v1/tickets").send({ type: "install", branch_id: branch, details: "x", approver_id: boss.id, assignee_id: it_.id });

@@ -15,6 +15,7 @@ import { SuggestInput } from "@/components/suggest-input";
 import { alert, btn, card, input as inputBase, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { TFunction } from "@/i18n/types";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { addToIsoDate, LICENSE_MAX_YEARS, licenseExpiryAfter, licenseYears, localToday } from "@/lib/date";
 import {
   LICENSE_BILLINGS,
@@ -249,14 +250,16 @@ export function LicenseForm({
             {field(
               "brand",
               t("assets.form.brand"),
-              <OptionPicker
-                id="brand"
-                options={brands.map((b) => ({ value: b, label: b }))}
-                value={values.brand}
-                onChange={(v) => setField("brand", v)}
-                onAdd={(name) => quickAddOption("brand", name)}
-                className={cls("brand")}
-              />,
+              <MasterDataSelect source="brand">
+                <OptionPicker
+                  id="brand"
+                  options={brands.map((b) => ({ value: b, label: b }))}
+                  value={values.brand}
+                  onChange={(v) => setField("brand", v)}
+                  onAdd={(name) => quickAddOption("brand", name)}
+                  className={cls("brand")}
+                />
+              </MasterDataSelect>,
             )}
             {field(
               "model",
@@ -267,19 +270,23 @@ export function LicenseForm({
             {field(
               "branch_id",
               t("assets.form.branch"),
-              <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
-                <option value="">{t("common.none")}</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </AppSelect>,
+              <MasterDataSelect source="branches">
+                <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
+                  <option value="">{t("common.none")}</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>,
             )}
             {field(
               "location_id",
               t("assets.form.location"),
-              <LocationPicker id="location_id" locations={locations} value={values.location_id} onChange={(id) => setField("location_id", id)} className={cls("location_id")} />,
+              <MasterDataSelect source="locations">
+                <LocationPicker id="location_id" locations={locations} value={values.location_id} onChange={(id) => setField("location_id", id)} className={cls("location_id")} />
+              </MasterDataSelect>,
             )}
           </div>
         </section>

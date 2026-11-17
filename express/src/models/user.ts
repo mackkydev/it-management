@@ -56,6 +56,8 @@ export interface UserRow {
   job_title?: string | null;
   is_it_staff: boolean;
   is_it_head: boolean;
+  /** ผู้จัดการแผนก IT (migration 20261203090000) */
+  is_it_manager?: boolean;
   /** hash รหัสผ่าน — เฉพาะ LOCAL; API User = null เสมอ (ระบบต้นทางเป็นเจ้าของ credential) */
   password: string | null;
   /** ไฟล์ลายเซ็นที่อัปโหลด (relative ใน FILES_ROOT) */

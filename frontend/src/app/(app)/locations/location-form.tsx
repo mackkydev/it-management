@@ -10,6 +10,7 @@ import type { TFunction } from "@/i18n/types";
 import { LOCATION_TYPES, type Location, type LocationFormValues } from "@/lib/types";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
+import { MasterDataSelect } from "@/components/master-data-select";
 
 type Field = keyof LocationFormValues;
 type Errors = Partial<Record<Field, string>>;
@@ -156,14 +157,16 @@ export function LocationForm({ locations, branches, location, canDelete = false 
           {field(
             "branch_id",
             t("locations.form.branch"),
-            <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
-              <option value="">{t("locations.form.noBranch")}</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </AppSelect>,
+            <MasterDataSelect source="branches">
+              <AppSelect id="branch_id" name="branch_id" value={values.branch_id} onChange={onChange} className={cls("branch_id")}>
+                <option value="">{t("locations.form.noBranch")}</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </AppSelect>
+            </MasterDataSelect>,
           )}
           {field(
             "parent_id",

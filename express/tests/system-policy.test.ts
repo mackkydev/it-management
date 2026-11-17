@@ -10,9 +10,17 @@ const SECTIONS = [
 ];
 type Api = Awaited<ReturnType<typeof as>>;
 
-/** เพิ่มฉบับใหม่ + ตั้งเป็นฉบับที่แสดง */
+/** เพิ่มนโยบายเรื่องใหม่ + ตั้งเป็นฉบับที่แสดง */
 async function publish(root: Api, sections = SECTIONS, title = "นโยบายทดสอบ"): Promise<number> {
   const version = (await root.post("/api/v1/policy/versions").send({ title, sections })).body.data.version as number;
+  expect((await root.put(`/api/v1/policy/versions/${version}/default`)).status).toBe(200);
+  return version;
+}
+/** ออกฉบับใหม่ของเรื่องเดิม (คัดลอกฉบับที่ประกาศล่าสุด หรือ from) แล้วตั้งเป็นฉบับที่แสดง */
+async function revise(root: Api, sections = SECTIONS, title = "นโยบายทดสอบ", from?: number): Promise<number> {
+  const source = from ?? Number(await scalar("SELECT MAX(version) FROM policy_versions WHERE published_at IS NOT NULL"));
+  const version = (await root.post(`/api/v1/policy/versions/${source}/duplicate`)).body.data.version as number;
+  expect((await root.put(`/api/v1/policy/versions/${version}`).send({ title, sections })).status).toBe(200);
   expect((await root.put(`/api/v1/policy/versions/${version}/default`)).status).toBe(200);
   return version;
 }
@@ -32,7 +40,7 @@ describe("system policy acceptance", () => {
     expect((await (await as(await makeUser({ role: "admin" }))).post("/api/v1/policy/versions").send({ title: "x", sections: SECTIONS })).status).toBe(403);
     expect(Object.keys((await enable(root)).body.errors)).toEqual(["sections"]);
     expect(await publish(root)).toBe(1);
-    expect((await enable(root)).body.data).toMatchObject({ enabled: true, version: 1, sections: SECTIONS });
+    expect((await enable(root)).body.data).toMatchObject({ enabled: true, display: "after_login", pace: "all" });
     expect(await first("SELECT 1 FROM audit_logs WHERE action = 'policy.default_changed'")).toBeTruthy();
 
     // ยังไม่ยอมรับ: ใช้งานอื่นไม่ได้ (403 policy_required) — อ่านนโยบาย / ข้อมูลตัวเอง ได้
@@ -40,7 +48,7 @@ describe("system policy acceptance", () => {
     const blocked = await api.get("/api/v1/tickets");
     expect(blocked.status).toBe(403);
     expect(blocked.body.code).toBe("policy_required");
-    expect((await api.get("/api/v1/policy")).body).toMatchObject({ active: true, accepted_at: null, data: { version: 1, title: "นโยบายทดสอบ", sections: SECTIONS } });
+    expect((await api.get("/api/v1/policy")).body).toMatchObject({ active: true, required: [1], data: { items: [{ version: 1, title: "นโยบายทดสอบ", sections: SECTIONS, accepted_at: null, previous: null }] } });
 
     // ยอมรับฉบับเก่า/ผิด = 422, ยอมรับฉบับที่แสดงอยู่ = บันทึกวันเวลา + audit
     expect((await api.post("/api/v1/policy/accept").send({ version: 2 })).status).toBe(422);
@@ -56,7 +64,7 @@ describe("system policy acceptance", () => {
 
     // ตั้งฉบับใหม่ = ต้องยอมรับอีกครั้ง
     await root.post("/api/v1/policy/accept").send({ version: 1 });
-    expect(await publish(root)).toBe(2);
+    expect(await revise(root)).toBe(2);
     expect((await api.get("/api/v1/tickets")).body.code).toBe("policy_required");
     expect((await api.post("/api/v1/policy/accept").send({ version: 1 })).status).toBe(422);
     await api.post("/api/v1/policy/accept").send({ version: 2 });
@@ -86,17 +94,17 @@ describe("system policy acceptance", () => {
     expect((await guest().get("/api/v1/policy/public")).body.data).toBeNull();
 
     const on = await enable(root);
-    expect(on.body.data).toMatchObject({ enabled: true, display: "after_login", sections: SECTIONS });
+    expect(on.body.data).toMatchObject({ enabled: true, display: "after_login" });
     await root.post("/api/v1/policy/accept").send({ version: 1 });
     expect(await first("SELECT 1 FROM audit_logs WHERE action = 'settings.policy_options'")).toBeTruthy();
     // แสดงหลัง login = ไม่เปิดเผยให้คนที่ยังไม่ login
     expect((await guest().get("/api/v1/policy/public")).body.data).toBeNull();
 
     await enable(root, "login");
-    expect((await guest().get("/api/v1/policy/public")).body.data).toMatchObject({ version: 1, sections: SECTIONS, files: [] });
+    expect((await guest().get("/api/v1/policy/public")).body.data).toMatchObject({ items: [{ version: 1, sections: SECTIONS, files: [] }] });
     // เปลี่ยนฉบับไม่ทับตัวเลือกการแสดง
-    await publish(root);
-    expect((await root.get("/api/v1/policy")).body.data).toMatchObject({ enabled: true, display: "login", version: 2 });
+    await revise(root);
+    expect((await root.get("/api/v1/policy")).body.data).toMatchObject({ enabled: true, display: "login", items: [{ version: 2 }] });
     // แสดงที่หน้า login ก็ยังต้องมีการยอมรับจริงก่อนใช้งาน
     expect((await (await as(await makeUser())).get("/api/v1/tickets")).body.code).toBe("policy_required");
   });
@@ -143,7 +151,7 @@ describe("system policy acceptance", () => {
     // ฉบับที่แสดงอยู่: แก้แล้วผู้ใช้เห็นทันที, ลบไม่ได้
     await root.put("/api/v1/policy/versions/1/default");
     await root.put("/api/v1/policy/versions/1").send({ title: "นโยบาย IT 2569", sections: SECTIONS });
-    expect((await root.get("/api/v1/policy")).body.data).toMatchObject({ version: 1, sections: SECTIONS });
+    expect((await root.get("/api/v1/policy")).body.data.items).toMatchObject([{ version: 1, sections: SECTIONS }]);
     expect(Object.keys((await root.put("/api/v1/policy/versions/1").send({ title: "x", sections: [] })).body.errors)).toEqual(["sections"]);
     expect((await root.delete("/api/v1/policy/versions/1")).status).toBe(422);
     expect((await staff.get(`/api/v1/policy/files/${file.id}`)).status).toBe(200);
@@ -166,34 +174,32 @@ describe("system policy acceptance", () => {
     // ลบเลขสูงสุดแล้ว เลขไม่ถูกใช้ซ้ำกับฉบับที่มีผู้ยอมรับ
     const list = (await root.get("/api/v1/policy/versions")).body;
     expect(list.data.map((v: { version: number; is_default: boolean }) => [v.version, v.is_default])).toEqual([[2, true], [1, false]]);
+    // คัดลอก = เรื่องเดียวกัน, ร่างว่างที่ลบไปแล้วลบเรื่องด้วย
+    expect(new Set(list.data.map((v: { group_id: number }) => v.group_id)).size).toBe(1);
+    expect(list.groups).toMatchObject([{ current_version: 2 }]);
     expect((await root.post("/api/v1/policy/versions").send({ title: "ฉบับสาม", sections: [] })).body.data.version).toBe(3);
   });
 
-  it("previous version: the published one right before the shown one, drafts are skipped", async () => {
+  it("previous version: the published one right before the shown one of the same policy, drafts are skipped", async () => {
     const root = await as(await makeUser({ role: "super_admin" }));
     const staff = await as(await makeUser());
-    await enable(root).catch(() => null);
-    expect((await root.get("/api/v1/policy/previous")).body.data).toBeNull();
+    const previous = async () => ((await staff.get("/api/v1/policy")).body.data.items as { previous: unknown }[])[0]?.previous ?? null;
 
     await publish(root, SECTIONS, "ฉบับแรก");
     await enable(root);
     await root.post("/api/v1/policy/accept").send({ version: 1 });
     await staff.post("/api/v1/policy/accept").send({ version: 1 });
-    expect((await staff.get("/api/v1/policy/previous")).body.data).toBeNull();
+    expect(await previous()).toBeNull();
 
     // ร่างที่ไม่เคยประกาศใช้ไม่นับ
     await root.post("/api/v1/policy/versions").send({ title: "ร่าง", sections: SECTIONS });
     const file = (await root.post("/api/v1/policy/versions/1/files").attach("files[]", Buffer.from("x"), "a.txt")).status;
     expect(file).toBe(422); // มีผู้ยอมรับแล้ว แนบเพิ่มไม่ได้
-    const latest = await publish(root, [SECTIONS[1]], "ฉบับล่าสุด");
+    const latest = await revise(root, [SECTIONS[1]], "ฉบับล่าสุด", 1);
     expect(latest).toBe(3);
     await root.post("/api/v1/policy/accept").send({ version: 3 });
     await staff.post("/api/v1/policy/accept").send({ version: 3 });
-    expect((await staff.get("/api/v1/policy/previous")).body.data).toMatchObject({ version: 1, title: "ฉบับแรก", sections: SECTIONS, files: [] });
-
-    // ปิดใช้งาน = ไม่มีให้ดู
-    await root.put("/api/v1/policy/options").send({ enabled: false, display: "after_login" });
-    expect((await staff.get("/api/v1/policy/previous")).body.data).toBeNull();
+    expect(await previous()).toMatchObject({ version: 1, title: "ฉบับแรก", sections: SECTIONS, files: [] });
   });
 
   it("acceptance list per version: names, pending users, former staff kept as evidence", async () => {
@@ -218,7 +224,7 @@ describe("system policy acceptance", () => {
     expect(row(pending.id)?.accepted_at).toBeNull();
     expect(row(left.id)?.accepted_at).toBeTruthy();
     // ฉบับใหม่นับแยก
-    await publish(root);
+    await revise(root);
     await root.post("/api/v1/policy/accept").send({ version: 2 });
     expect((await root.get("/api/v1/policy/versions/2/acceptances")).body.accepted).toBe(1);
     expect((await root.get("/api/v1/policy/versions/99/acceptances")).status).toBe(404);
@@ -236,7 +242,7 @@ describe("system policy acceptance", () => {
 
     // ยังไม่ยอมรับก็อ่านไฟล์ได้ และ GET /policy คืนรายการไฟล์
     expect((await staff.get("/api/v1/tickets")).body.code).toBe("policy_required");
-    expect((await staff.get("/api/v1/policy")).body.data.files[0].id).toBe(file.id);
+    expect((await staff.get("/api/v1/policy")).body.data.items[0].files[0].id).toBe(file.id);
     const read = await staff.get(`/api/v1/policy/files/${file.id}`);
     expect(read.status).toBe(200);
     expect(read.text).toBe("ประกาศ");
@@ -245,13 +251,13 @@ describe("system policy acceptance", () => {
     expect((await guest().get(`/api/v1/policy/public/files/${file.id}`)).status).toBe(404);
     expect((await guest().get(`/api/v1/policy/files/${file.id}`).set("Accept", "application/json")).status).toBe(401);
     await enable(root, "login");
-    expect((await guest().get("/api/v1/policy/public")).body.data.files[0].url).toBe(`/policy/public/files/${file.id}`);
+    expect((await guest().get("/api/v1/policy/public")).body.data.items[0].files[0].url).toBe(`/policy/public/files/${file.id}`);
     expect((await guest().get(`/api/v1/policy/public/files/${file.id}`)).status).toBe(200);
 
     // เปลี่ยนฉบับที่แสดง = ไฟล์ของฉบับเดิมไม่เปิดสู่สาธารณะอีก แต่ผู้ใช้ที่ login ยังเปิดได้
-    await publish(root);
+    await revise(root);
     expect((await guest().get(`/api/v1/policy/public/files/${file.id}`)).status).toBe(404);
-    expect((await guest().get("/api/v1/policy/public")).body.data.files).toEqual([]);
+    expect((await guest().get("/api/v1/policy/public")).body.data.items[0].files.map((f: { id: number }) => f.id)).not.toContain(file.id);
     expect((await staff.get(`/api/v1/policy/files/${file.id}`)).status).toBe(200);
     await root.post("/api/v1/policy/accept").send({ version: 2 });
     await staff.post("/api/v1/policy/accept").send({ version: 2 });
@@ -288,7 +294,7 @@ describe("system policy acceptance", () => {
     // เปลี่ยนชื่อภายหลัง + ออกฉบับใหม่ = เอกสารเดิมคงชื่อและเนื้อหาตอนยอมรับ
     await exec("UPDATE users SET name = 'ชื่อใหม่' WHERE id = ?", [owner.id]);
     const v2 = [{ title: "ฉบับใหม่", body: "ข้อความใหม่" }];
-    await publish(root, v2);
+    await revise(root, v2);
     await root.post("/api/v1/policy/accept").send({ version: 2 });
     expect((await root.get(`/api/v1/policy/documents/${owner.id}`)).body.data).toMatchObject({ version: 1, sections: SECTIONS, name_stamp: "สมชาย ใจดี" });
     await exec("UPDATE users SET name = 'สมชาย ใจดี' WHERE id = ?", [owner.id]);
@@ -319,10 +325,59 @@ describe("system policy acceptance", () => {
     // เปลี่ยนลายเซ็นทีหลัง = เอกสารที่เซ็นแล้วไม่เปลี่ยน; ยอมรับเมื่อมีลายเซ็นอยู่แล้ว = ประทับทันที
     await api.put("/api/v1/auth/me/signature").attach("signature", await realImage(), "sig2.png");
     expect(await scalar("SELECT signature_path FROM policy_acceptances WHERE user_id = ? AND version = 2", [owner.id])).toBe(paths);
-    await publish(root);
+    await revise(root);
     await root.post("/api/v1/policy/accept").send({ version: 3 });
     await api.post("/api/v1/policy/accept").send({ version: 3 });
     expect((await api.get(`/api/v1/policy/documents/${owner.id}`)).body.data).toMatchObject({ version: 3, signature_url: `/policy/documents/${owner.id}/signature` });
+  });
+
+  it("several policies: shown in the chosen order, all at once or one a day, and a policy can be hidden", async () => {
+    const root = await as(await makeUser({ role: "super_admin" }));
+    const staff = await makeUser();
+    const api = await as(staff);
+    const a = await publish(root, SECTIONS, "เรื่อง A");
+    const b = await publish(root, SECTIONS, "เรื่อง B");
+    const c = await publish(root, SECTIONS, "เรื่อง C");
+    await enable(root);
+    for (const v of [a, b, c]) await root.post("/api/v1/policy/accept").send({ version: v });
+
+    // จัดลำดับ: C → A → B (เรื่องที่ไม่ได้ส่งมาต่อท้าย)
+    const groups = (await root.get("/api/v1/policy/versions")).body.groups as { id: number; current_version: number }[];
+    const groupOf = (v: number) => groups.find((g) => g.current_version === v)!.id;
+    expect((await api.put("/api/v1/policy/groups/order").send({ ids: [groupOf(c)] })).status).toBe(403);
+    expect((await root.put("/api/v1/policy/groups/order").send({ ids: [groupOf(c), groupOf(a)] })).status).toBe(200);
+    expect(await first("SELECT 1 FROM audit_logs WHERE action = 'policy.order_changed'")).toBeTruthy();
+
+    // ทั้งหมดวันเดียว: ต้องยอมรับครบทุกเรื่องตามลำดับ
+    expect((await api.get("/api/v1/policy")).body.required).toEqual([c, a, b]);
+    expect((await api.post("/api/v1/policy/accept").send({ version: c })).body.required).toEqual([a, b]);
+    expect((await api.get("/api/v1/tickets")).body.code).toBe("policy_required");
+    expect((await api.get("/api/v1/auth/me")).body.data).toMatchObject({ policy_required: true, policy_accepted_at: null });
+
+    // วันละเรื่อง: ยอมรับไปแล้ววันนี้ = ใช้งานได้, วันถัดไปเรื่องถัดไปตามลำดับ
+    expect((await root.put("/api/v1/policy/options").send({ enabled: true, display: "after_login", pace: "sideways" })).status).toBe(422);
+    expect((await root.put("/api/v1/policy/options").send({ enabled: true, display: "after_login", pace: "daily" })).body.data).toMatchObject({ pace: "daily" });
+    expect((await api.get("/api/v1/tickets")).status).toBe(200);
+    expect((await api.get("/api/v1/policy")).body.required).toEqual([]);
+    const yesterday = async () => exec("UPDATE policy_acceptances SET accepted_at = DATE_SUB(accepted_at, INTERVAL 1 DAY) WHERE user_id = ?", [staff.id]);
+    await yesterday();
+    expect((await api.get("/api/v1/policy")).body.required).toEqual([a]);
+    expect((await api.get("/api/v1/tickets")).body.code).toBe("policy_required");
+    expect((await api.post("/api/v1/policy/accept").send({ version: a })).body.required).toEqual([]);
+    expect((await api.get("/api/v1/tickets")).status).toBe(200);
+    await yesterday();
+    expect((await api.get("/api/v1/policy")).body.required).toEqual([b]);
+
+    // เลิกแสดงเรื่อง B = ไม่ต้องยอมรับ, ยอมรับเรื่องที่ไม่ได้แสดงไม่ได้
+    expect((await root.delete(`/api/v1/policy/groups/${groupOf(b)}/current`)).status).toBe(204);
+    expect((await api.get("/api/v1/policy")).body).toMatchObject({ required: [], data: { items: [{ version: c }, { version: a }] } });
+    expect((await api.post("/api/v1/policy/accept").send({ version: b })).status).toBe(422);
+    expect((await api.get("/api/v1/auth/me")).body.data.policy_accepted_at).toBeTruthy();
+    // ฉบับที่ไม่ได้แสดงแล้วลบได้ถ้ายังไม่มีผู้ยอมรับ — ลบฉบับสุดท้าย = เรื่องหายจากลำดับ
+    expect((await root.delete(`/api/v1/policy/versions/${b}`)).status).toBe(422);
+    const d = (await root.post("/api/v1/policy/versions").send({ title: "เรื่อง D", sections: SECTIONS })).body.data.version as number;
+    expect((await root.delete(`/api/v1/policy/versions/${d}`)).status).toBe(204);
+    expect(((await root.get("/api/v1/policy/versions")).body.groups as unknown[]).length).toBe(3);
   });
 });
 
@@ -340,13 +395,15 @@ describe("other policies", () => {
     expect((await root.post("/api/v1/policy/others").send({ title: "" })).status).toBe(422);
     expect((await send(root.post("/api/v1/policy/others"), form).attach("files[]", Buffer.from([0x4d, 0x5a, 0x90, 0, 3, 0, 0, 0, 255]), "virus.exe")).status).toBe(422);
 
-    const created = await send(root.post("/api/v1/policy/others"), form).attach("files[]", Buffer.from("เอกสาร"), "เอกสาร.txt");
+    const sectioned = { ...form, "sections[0][title]": "หัวข้อหนึ่ง", "sections[0][body]": "รายละเอียดหนึ่ง" };
+    expect((await send(root.post("/api/v1/policy/others"), { ...form, "sections[0][title]": "ไม่มีรายละเอียด" })).status).toBe(422);
+    const created = await send(root.post("/api/v1/policy/others"), sectioned).attach("files[]", Buffer.from("เอกสาร"), "เอกสาร.txt");
     expect(created.status).toBe(201);
     const { id, files } = created.body.data as { id: number; files: { id: number; name: string; url: string }[] };
     expect(files[0]).toMatchObject({ name: "เอกสาร.txt", url: `/policy/others/${id}/files/${files[0].id}` });
 
     const seen = await staff.get("/api/v1/policy/others");
-    expect(seen.body.data).toMatchObject([{ id, title: "นโยบายความปลอดภัย", description: "สำหรับพนักงาน" }]);
+    expect(seen.body.data).toMatchObject([{ id, title: "นโยบายความปลอดภัย", description: "สำหรับพนักงาน", sections: [{ title: "หัวข้อหนึ่ง", body: "รายละเอียดหนึ่ง" }] }]);
     expect((await staff.get(`/api/v1${files[0].url}`)).text).toBe("เอกสาร");
     expect((await guest().get(`/api/v1${files[0].url}`).set("Accept", "application/json")).status).toBe(401);
     expect((await staff.get("/api/v1/policy/others?all=1")).status).toBe(403);

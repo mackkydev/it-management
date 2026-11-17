@@ -1,8 +1,9 @@
 import { insert } from "../db.js";
+import { clientAgent, normalizeIp } from "../lib/client.js";
 import { nowDb } from "../lib/time.js";
 
 /**
- * audit_logs — ใคร / เมื่อไร / อะไร / ก่อน-หลัง / IP
+ * audit_logs — ใคร / เมื่อไร / อะไร / ก่อน-หลัง / IP / เบราว์เซอร์-อุปกรณ์ (user_agent)
  * key ที่เป็นความลับ (secret / token / รหัสผ่าน) ถูกตัดออกเสมอ — ห้ามมี credential ใน log
  */
 const SENSITIVE = /^(auth_secret|secret|password|password_confirmation|current_password|token|access_token|refresh_token)$/i;
@@ -23,8 +24,8 @@ export interface AuditEntry {
   after?: unknown;
 }
 
-/** ผู้กระทำ: request ของ Express หรือ { ip, user } ที่ประกอบเอง (เช่น ตอน JIT provisioning) */
-export type AuditActor = { ip?: string; user?: { id: number } };
+/** ผู้กระทำ: request ของ Express หรือ { ip, agent, user } ที่ประกอบเอง (เช่น ตอน login / JIT provisioning) */
+export type AuditActor = { ip?: string; agent?: string | null; user?: { id: number }; get?: (name: string) => unknown };
 
 export async function audit(req: AuditActor, entry: AuditEntry): Promise<void> {
   await insert("audit_logs", {
@@ -34,7 +35,8 @@ export async function audit(req: AuditActor, entry: AuditEntry): Promise<void> {
     subject_id: entry.subjectId === undefined || entry.subjectId === null ? null : String(entry.subjectId),
     before: entry.before === undefined ? null : JSON.stringify(redact(entry.before)),
     after: entry.after === undefined ? null : JSON.stringify(redact(entry.after)),
-    ip: req.ip ?? null,
+    ip: normalizeIp(req.ip),
+    user_agent: req.agent !== undefined ? req.agent : clientAgent(req),
     created_at: nowDb(),
   });
 }

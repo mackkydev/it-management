@@ -286,13 +286,15 @@ describe("IT tickets", () => {
   });
 
   it("form options and it-staff", async () => {
+    const listed = await makeUser({ name: "IT Dept Staff", department: "IT", is_it_staff: true });
     const api = await as(staff);
     const opts = await api.get("/api/v1/tickets/form-options");
     expect(opts.body.data.branches).toEqual([{ id: branch, code: "KKN", name: "ขอนแก่น" }]);
-    expect(opts.body.data.it_staff.map((u: { name: string }) => u.name)).toEqual(["IT", "IT Head"]);
+    // รายการ = แผนก/ฝ่าย IT และติ๊กเจ้าหน้าที่ IT (ไม่รวมผู้จัดการฝ่าย IT / คนที่ติ๊กแต่ไม่อยู่แผนก IT)
+    expect(opts.body.data.it_staff.map((u: { name: string }) => u.name)).toEqual(["IT Dept Staff"]);
     // "ขอใช้งาน VPN" อยู่หน้าสุดเสมอ (ฟอร์มถามช่วงวันที่ใช้)
     expect(opts.body.data.other_types).toEqual(["ขอใช้งาน VPN", "งานออกแบบ"]);
-    expect((await api.get("/api/v1/it-staff")).body.data).toContainEqual({ id: itHead.id, name: "IT Head", is_it_head: true });
+    expect((await api.get("/api/v1/it-staff")).body.data).toEqual([{ id: listed.id, name: "IT Dept Staff" }]);
   });
 
   it("users in the IT department are IT staff: listed, assignable and can accept", async () => {
@@ -300,7 +302,7 @@ describe("IT tickets", () => {
     await makeUser({ name: "Inactive IT", department: "IT", is_active: false });
     const api = await as(staff);
     const names = (await api.get("/api/v1/tickets/form-options")).body.data.it_staff.map((u: { name: string }) => u.name);
-    expect(names).toEqual(["Dept IT", "IT", "IT Head"]);
+    expect(names).toEqual([]); // แผนก IT ที่ไม่ได้ติ๊กเจ้าหน้าที่ IT ไม่ขึ้นในรายการ แต่ยังรับงานได้
 
     const base = { type: "other", type_other: "ทดสอบ", branch_id: branch, details: "x", signature: SIG };
     const bad = await api.post("/api/v1/tickets").send({ ...base, assignee_id: chief.id });

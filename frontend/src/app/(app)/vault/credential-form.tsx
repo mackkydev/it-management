@@ -10,6 +10,7 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { CREDENTIAL_CATEGORIES, isBuiltinCategory, type Branch, type Credential, type CredentialAccessOptions } from "@/lib/types";
 import { HelperPicker } from "../tickets/[id]/helpers-card";
+import { MasterDataSelect } from "@/components/master-data-select";
 
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
@@ -135,15 +136,17 @@ export function CredentialForm({
         {field(
           "category",
           t("vault.form.category"),
-          <OptionPicker
-            id="category"
-            options={categoryOptions}
-            value={v.category}
-            onChange={(value) => set("category", value)}
-            onAdd={(name) => quickAddOption("vault_category", name)}
-            maxLength={30}
-            className={cls("category")}
-          />,
+          <MasterDataSelect source="vault_category">
+            <OptionPicker
+              id="category"
+              options={categoryOptions}
+              value={v.category}
+              onChange={(value) => set("category", value)}
+              onAdd={(name) => quickAddOption("vault_category", name)}
+              maxLength={30}
+              className={cls("category")}
+            />
+          </MasterDataSelect>,
           true,
         )}
         {field("url", t("vault.form.url"), <input id="url" value={v.url} maxLength={500} onChange={(e) => set("url", e.target.value)} className={`${cls("url")} font-mono`} />, false, t("vault.form.urlHint"), true)}
@@ -199,14 +202,16 @@ export function CredentialForm({
         {field(
           "branch_id",
           t("vault.form.branch"),
-          <AppSelect id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
-            <option value="">{t("common.none")}</option>
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </AppSelect>,
+          <MasterDataSelect source="branches">
+            <AppSelect id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
+              <option value="">{t("common.none")}</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </AppSelect>
+          </MasterDataSelect>,
         )}
         {field("expires_at", t("vault.form.expiresAt"), <DateInput id="expires_at" value={v.expires_at} onChange={(d) => set("expires_at", d)} className={cls("expires_at")} />)}
         {field("notes", t("vault.form.notes"), <textarea id="notes" rows={3} maxLength={5000} value={v.notes} onChange={(e) => set("notes", e.target.value)} className={cls("notes")} />, false, undefined, true)}

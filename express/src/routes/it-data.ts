@@ -1,3 +1,4 @@
+import { normalizeIp } from "../lib/client.js";
 import { Router, type Request } from "express";
 import { config } from "../config.js";
 import { exec, first, insert, isUuid, likeEscape, scalar, select, transaction, update } from "../db.js";
@@ -5,7 +6,9 @@ import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans, type Locale } from "../lib/i18n.js";
 import { decryptVaultNullable, encryptVaultNullable } from "../services/vault-crypto.js";
 import { limits } from "../lib/rate-limit.js";
-import { dateOnly, diffInDays, fromDbDate, iso, localToday, nowDb } from "../lib/time.js";
+import { addDays, dateOnly, fromDbDate, iso, localToday, nowDb, toDbDate } from "../lib/time.js";
+import { deleteStored, readStored } from "../services/ticket-files.js";
+import { CONTRACT_EXPIRING_SQL, CONTRACT_FILE_RULE, CONTRACT_FILES_MAX, CONTRACT_NOTIFY_DATES_MAX, contractExpiringParams, contractFileJson, contractFilesOf, contractStatus, notifyDatesOf, saveContractFiles, uploadsOf, type ContractFileRow } from "../services/contracts.js";
 import { bool, custom, exists, int, makeHash, regex, unique, validate } from "../lib/validator.js";
 import { twoFactorGroups } from "../services/two-factor.js";
 import { audit } from "../services/audit.js";
@@ -269,6 +272,7 @@ itDataRoutes.put("/settings", async (req, res) => {
       contract_notify_days: ["sometimes", "integer", "min:1", "max:365"],
       credential_notify_days: ["sometimes", "integer", "min:1", "max:365"],
       license_notify_days: ["sometimes", "integer", "min:1", "max:365"],
+      vpn_notify_days: ["sometimes", "integer", "min:0", "max:60"],
       ticket_auto_close_days: ["sometimes", "integer", "min:0", "max:90"],
       ticket_flow: ["sometimes", "in:approval_first,it_first"],
       notify_emails: ["sometimes", "array", "max:20"],
@@ -335,6 +339,7 @@ itDataRoutes.put("/settings", async (req, res) => {
   if ("contract_notify_days" in data) values.contract_notify_days = int(data.contract_notify_days);
   if ("credential_notify_days" in data) values.credential_notify_days = int(data.credential_notify_days);
   if ("license_notify_days" in data) values.license_notify_days = int(data.license_notify_days);
+  if ("vpn_notify_days" in data) values.vpn_notify_days = int(data.vpn_notify_days);
   if ("ticket_auto_close_days" in data) values.ticket_auto_close_days = int(data.ticket_auto_close_days);
   if ("ticket_flow" in data) values.ticket_flow = String(data.ticket_flow);
   if ("ticket_other_types" in data) {
@@ -690,7 +695,7 @@ async function credentialInput(req: Request, partial: boolean, currentReauth?: b
 }
 
 async function logAccess(req: Request, credentialId: number, action: string) {
-  await insert("credential_access_logs", { credential_id: credentialId, user_id: me(req).id, action, ip: req.ip ?? null, created_at: nowDb() });
+  await insert("credential_access_logs", { credential_id: credentialId, user_id: me(req).id, action, ip: normalizeIp(req.ip), created_at: nowDb() });
 }
 
 itDataRoutes.get("/credentials", async (req, res) => {
@@ -846,35 +851,27 @@ interface ContractRow {
   id: number; title: string; vendor_name: string; contract_no: string | null; start_date: string; end_date: string;
   amount: string | null; contact_name: string | null; contact_email: string | null; contact_phone: string | null;
   notify_days_before: number | null; notify_enabled: number; notified_at: string | null; notes: string | null;
+  notify_dates?: unknown;
   branch_id: number | null; b_id?: number | null; b_name?: string | null;
   category_id?: number | null; cat_name?: string | null; cat_key?: string | null;
 }
 
-/** จำนวนวันที่เหลือ / สถานะ — เหมือน Contract::daysLeft() / status() */
 /**
- * ตัวเลขเมนู /contracts + แท็บ "ใกล้หมดอายุ" = สัญญาที่ถึงช่วงแจ้งเตือนแล้วแต่ยังไม่หมด (เงื่อนไขเดียวกับ status expiring / summary.expiring)
+ * ตัวเลขเมนู /contracts + แท็บ "ใกล้หมดอายุ" = สัญญาที่ถึงช่วงแจ้งเตือนแล้ว (N วันก่อนหมด หรือวันแจ้งเตือนที่กำหนดเอง) แต่ยังไม่หมด
+ * (เงื่อนไขเดียวกับ status expiring / summary.expiring — CONTRACT_EXPIRING_SQL ใน services/contracts.ts)
  * — ผู้แก้ไขสัญญาได้ (contracts.update) เท่านั้น; ต่ออายุ (แก้วันสิ้นสุด) แล้วหายเอง
  */
 export async function expiringContractCount(u: UserRow): Promise<number> {
   if (!can(u, "contracts.update")) return 0;
-  const today = localToday();
   return Number(
     await scalar(
-      `SELECT COUNT(*) FROM contracts c WHERE c.deleted_at IS NULL AND c.end_date >= CAST(? AS DATE)
-         AND c.end_date <= DATE_ADD(CAST(? AS DATE), INTERVAL COALESCE(c.notify_days_before, ?) DAY)`,
-      [today, today, Number(await getSetting("contract_notify_days"))],
+      `SELECT COUNT(*) FROM contracts c WHERE c.deleted_at IS NULL AND ${CONTRACT_EXPIRING_SQL}`,
+      contractExpiringParams(localToday(), Number(await getSetting("contract_notify_days"))),
     ),
   );
 }
 
-export function contractStatus(c: Pick<ContractRow, "end_date" | "notify_days_before">, defaultDays: number, today = new Date()) {
-  const daysLeft = diffInDays(today, fromDbDate(c.end_date));
-  const notifyDays = c.notify_days_before ?? defaultDays;
-  const status = daysLeft < 0 ? "expired" : daysLeft <= notifyDays ? "expiring" : "active";
-  return { daysLeft, notifyDays, status } as const;
-}
-
-function contractJson(c: ContractRow, defaultDays: number, withBranch: boolean) {
+function contractJson(c: ContractRow, defaultDays: number, withBranch: boolean, files: ContractFileRow[]) {
   const s = contractStatus(c, defaultDays);
   return {
     id: c.id,
@@ -889,6 +886,8 @@ function contractJson(c: ContractRow, defaultDays: number, withBranch: boolean) 
     contact_phone: c.contact_phone,
     notify_days_before: c.notify_days_before,
     effective_notify_days: s.notifyDays,
+    notify_dates: s.dates,
+    next_notify_date: s.nextDate,
     notify_enabled: Boolean(Number(c.notify_enabled)),
     notified_at: iso(c.notified_at),
     notes: c.notes,
@@ -897,6 +896,7 @@ function contractJson(c: ContractRow, defaultDays: number, withBranch: boolean) 
     category: c.category_id ? { id: Number(c.category_id), name: c.cat_name ?? "", key: c.cat_key ?? null } : null,
     days_left: s.daysLeft,
     status: s.status,
+    files: files.filter((f) => Number(f.contract_id) === Number(c.id)).map(contractFileJson),
   };
 }
 
@@ -909,8 +909,16 @@ async function loadContract(id: number): Promise<ContractRow> {
   return c;
 }
 
-async function contractInput(req: Request, partial: boolean) {
-  const s = partial ? ["sometimes"] : [];
+const contractWithFiles = async (c: ContractRow) =>
+  contractJson(c, Number(await getSetting("contract_notify_days")), true, await contractFilesOf([Number(c.id)]));
+
+/**
+ * รับ JSON หรือ multipart: files[] (ไฟล์ละ ≤ 5MB ≤ 10 ไฟล์), remove_file_ids[] (แก้ไข), notify_dates[] วันที่แจ้งเตือนที่กำหนดเอง
+ * (≤ 10 วัน ไม่เกินวันสิ้นสุด — multipart ส่ง notify_dates = "" เพื่อล้าง)
+ */
+async function contractInput(req: Request, current: ContractRow | null) {
+  const s = current ? ["sometimes"] : [];
+  const t = (key: string, p?: Record<string, string | number>) => trans(req.locale, `eam.contract.${key}`, p);
   const data = await validate(
     req.input,
     {
@@ -925,11 +933,17 @@ async function contractInput(req: Request, partial: boolean) {
       contact_phone: ["sometimes", "nullable", "string", "max:50"],
       notify_days_before: ["sometimes", "nullable", "integer", "min:1", "max:365"],
       notify_enabled: ["sometimes", "boolean"],
+      notify_dates: ["sometimes", "nullable", "array", `max:${CONTRACT_NOTIFY_DATES_MAX}`],
+      "notify_dates.*": ["required", "date", regex(/^\d{4}-\d{2}-\d{2}$/)],
       notes: ["sometimes", "nullable", "string", "max:5000"],
       branch_id: ["sometimes", "nullable", "integer", exists("branches", "id", "deleted_at IS NULL")],
       category_id: ["sometimes", "nullable", "integer", exists("contract_categories", "id")],
+      files: ["nullable", "array", `max:${CONTRACT_FILES_MAX}`],
+      "files.*": CONTRACT_FILE_RULE,
+      remove_file_ids: ["nullable", "array"],
+      "remove_file_ids.*": ["integer"],
     },
-    { locale: req.locale },
+    { locale: req.locale, messages: { "notify_dates.max": t("notify_dates_max", { max: CONTRACT_NOTIFY_DATES_MAX }) } },
   );
   const out: Record<string, unknown> = {};
   for (const key of ["title", "vendor_name", "contract_no", "contact_name", "contact_email", "contact_phone", "notes"]) if (key in data) out[key] = data[key];
@@ -939,7 +953,22 @@ async function contractInput(req: Request, partial: boolean) {
   if ("notify_enabled" in data) out.notify_enabled = bool(data.notify_enabled);
   if ("branch_id" in data) out.branch_id = int(data.branch_id);
   if ("category_id" in data) out.category_id = int(data.category_id);
-  return out;
+
+  // วันที่แจ้งเตือนที่กำหนดเอง: ไม่เกินวันสิ้นสุด (ของใหม่ หรือของเดิมเมื่อไม่ได้ส่งมา)
+  const endDate = String(out.end_date ?? dateOnly(current?.end_date ?? null) ?? "");
+  const before = notifyDatesOf(current?.notify_dates);
+  let dates = "notify_dates" in data ? notifyDatesOf(data.notify_dates ? Object.values(data.notify_dates as Record<string, unknown>) : []) : before;
+  // ต่ออายุ (เปลี่ยนวันสิ้นสุด) = ทิ้งวันแจ้งเตือนที่ถึงแล้ว (รวมวันนี้) — ไม่งั้นสัญญาค้างสถานะใกล้หมดอายุ
+  const renewed = Boolean(current && out.end_date && out.end_date !== dateOnly(current.end_date));
+  if (renewed) dates = dates.filter((d) => d > localToday());
+  if (endDate && dates.some((d) => d > endDate)) throw ValidationError.withMessages({ notify_dates: t("notify_date_after_end") });
+  if ("notify_dates" in data || renewed) {
+    out.notify_dates = dates.length ? JSON.stringify(dates) : null; // array ใน db.ts = รายการ IN (?) จึงส่งเป็นข้อความ JSON
+    // เปลี่ยนวันที่ = เริ่มนับใหม่จากวันนี้ (วันที่ที่ผ่านไปแล้วไม่แจ้งย้อนหลัง)
+    if (dates.join() !== before.join()) out.notified_for_date = toDbDate(addDays(fromDbDate(localToday()), -1));
+  }
+  const removeIds = Object.values((data.remove_file_ids ?? {}) as Record<string, unknown>).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  return { out, files: uploadsOf(data.files), removeIds };
 }
 
 /** GET /contracts?status=active|expiring|expired&search=&branch_id=&category_id= (+ summary, default_notify_days) */
@@ -974,11 +1003,13 @@ itDataRoutes.get("/contracts", async (req, res) => {
     params.push(int(f.category_id));
   }
   const rows = await select<ContractRow>(`SELECT ${CONTRACT_SELECT} WHERE ${where.join(" AND ")} ORDER BY c.end_date`, params);
-  // สถานะขึ้นกับจำนวนวันแจ้งเตือนของแต่ละสัญญา จึงกรองหลังคำนวณ
-  const list = rows.map((c) => contractJson(c, defaultDays, true)).filter((c) => !f.status || c.status === f.status);
+  // สถานะขึ้นกับจำนวนวัน/วันที่แจ้งเตือนของแต่ละสัญญา จึงกรองหลังคำนวณ
+  const shown = rows.filter((c) => !f.status || contractStatus(c, defaultDays).status === f.status);
+  const files = await contractFilesOf(shown.map((c) => Number(c.id)));
+  const list = shown.map((c) => contractJson(c, defaultDays, true, files));
 
   const summary = { active: 0, expiring: 0, expired: 0 };
-  for (const c of await select<ContractRow>("SELECT end_date, notify_days_before FROM contracts WHERE deleted_at IS NULL")) {
+  for (const c of await select<ContractRow>("SELECT end_date, notify_days_before, notify_dates FROM contracts WHERE deleted_at IS NULL")) {
     summary[contractStatus(c, defaultDays).status]++;
   }
   res.json({ data: list, summary, default_notify_days: defaultDays });
@@ -987,23 +1018,52 @@ itDataRoutes.get("/contracts", async (req, res) => {
 itDataRoutes.get("/contracts/:id", async (req, res) => {
   const c = await loadContract(routeId(req));
   contracts(req, "view", "update");
-  res.json({ data: contractJson(c, Number(await getSetting("contract_notify_days")), true) });
+  res.json({ data: await contractWithFiles(c) });
+});
+
+/** GET /contracts/{id}/files/{fileId}[?download=1] — pdf/รูป/ข้อความเปิดดูในเบราว์เซอร์ได้ ไฟล์อื่นดาวน์โหลด */
+itDataRoutes.get("/contracts/:id/files/:fileId", async (req, res) => {
+  const c = await loadContract(routeId(req));
+  contracts(req, "view", "update");
+  const file = /^\d+$/.test(String(req.params.fileId))
+    ? await first<ContractFileRow>("SELECT * FROM contract_files WHERE id = ? AND contract_id = ?", [Number(req.params.fileId), c.id])
+    : null;
+  if (!file) throw notFound();
+  const stored = await readStored(file.path);
+  const inline = !("download" in req.query) && /^(application\/pdf|image\/(jpeg|png|gif|webp)|text\/plain)$/.test(file.mime);
+  const ascii = file.original_name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  res.setHeader("Content-Type", file.mime === "text/plain" ? "text/plain; charset=UTF-8" : file.mime);
+  res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${ascii}"; filename*=utf-8''${encodeURIComponent(file.original_name)}`);
+  res.send(stored.data);
 });
 
 itDataRoutes.post("/contracts", async (req, res) => {
   contracts(req, "create");
-  const out = await contractInput(req, false);
-  const now = nowDb();
-  const id = await insert("contracts", { notify_enabled: true, ...out, created_by: me(req).id, created_at: now, updated_at: now });
-  res.status(201).json({ data: contractJson(await loadContract(id), Number(await getSetting("contract_notify_days")), true) });
+  const u = me(req);
+  const { out, files } = await contractInput(req, null);
+  const id = await transaction(async () => {
+    const now = nowDb();
+    const contractId = await insert("contracts", { notify_enabled: true, ...out, created_by: u.id, created_at: now, updated_at: now });
+    await saveContractFiles(contractId, files, u.id);
+    return contractId;
+  });
+  res.status(201).json({ data: await contractWithFiles(await loadContract(id)) });
 });
 
 async function updateContract(req: Request, res: import("express").Response) {
   const current = await loadContract(routeId(req));
   contracts(req, "update");
-  const out = await contractInput(req, true);
-  await update("contracts", { ...out, updated_at: nowDb() }, "id = ?", [current.id]);
-  res.json({ data: contractJson(await loadContract(current.id), Number(await getSetting("contract_notify_days")), true) });
+  const u = me(req);
+  const { out, files, removeIds } = await contractInput(req, current);
+  let removed: ContractFileRow[] = [];
+  await transaction(async () => {
+    await update("contracts", { ...out, updated_at: nowDb() }, "id = ?", [current.id]);
+    removed = removeIds.length ? await select<ContractFileRow>("SELECT * FROM contract_files WHERE contract_id = ? AND id IN (?)", [current.id, removeIds]) : [];
+    if (removed.length) await exec("DELETE FROM contract_files WHERE id IN (?)", [removed.map((f) => f.id)]);
+    await saveContractFiles(Number(current.id), files, u.id);
+  });
+  for (const f of removed) await deleteStored(f.path);
+  res.json({ data: await contractWithFiles(await loadContract(Number(current.id))) });
 }
 itDataRoutes.put("/contracts/:id", updateContract);
 itDataRoutes.patch("/contracts/:id", updateContract);

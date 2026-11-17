@@ -1,28 +1,30 @@
 import { Router, type Request } from "express";
-import { exec, first, insert, scalar, select } from "../db.js";
+import { exec, first, insert, scalar, select, transaction } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
+import { forgetCached } from "../lib/request-cache.js";
 import { iso, nowDb } from "../lib/time.js";
 import { UploadedFile } from "../lib/uploaded-file.js";
 import { validate, type Rule } from "../lib/validator.js";
 import { me } from "../http.js";
 import { can } from "../models/user.js";
 import { audit } from "../services/audit.js";
-import { putSetting } from "../services/settings.js";
 import { MAX_POLICY_SECTIONS, parseSections, POLICY_MANAGE, policyFileJson, policyFilesOf, systemPolicy, type PolicyFileRow, type PolicySection } from "../services/system-policy.js";
 import { deleteStored, randomString, readStored, storeUploadIn, writeStored } from "../services/ticket-files.js";
 
 /**
- * นโยบายแต่ละฉบับ (policy.manage) — ฉบับที่แสดงให้ผู้ใช้ = app_settings.system_policy.version
- *   GET    /policy/versions                     ทุกฉบับ + จำนวนผู้ยอมรับ + ไฟล์แนบ
- *   POST   /policy/versions                     เพิ่มฉบับใหม่ { title, sections }
+ * นโยบายที่ต้องยอมรับ แยกเป็นเรื่อง (policy_groups) แต่ละเรื่องมีหลายฉบับ (policy.manage)
+ *   GET    /policy/versions                     ทุกฉบับ + จำนวนผู้ยอมรับ + ไฟล์แนบ + groups (ลำดับ / ฉบับที่แสดงของแต่ละเรื่อง)
+ *   POST   /policy/versions                     เพิ่มนโยบายเรื่องใหม่ (ฉบับแรก) { title, sections }
  *   GET    /policy/versions/{v}
  *   PUT    /policy/versions/{v}                 แก้ { title, sections } — มีผู้ยอมรับแล้ว = แก้ได้เฉพาะชื่อ
- *   POST   /policy/versions/{v}/duplicate       คัดลอกเนื้อหา + ไฟล์แนบเป็นฉบับใหม่
- *   PUT    /policy/versions/{v}/default         ตั้งเป็นฉบับที่แสดงให้ผู้ใช้
- *   DELETE /policy/versions/{v}                 ลบไม่ได้ถ้าเป็นฉบับที่แสดงอยู่ หรือมีผู้ยอมรับแล้ว
+ *   POST   /policy/versions/{v}/duplicate       คัดลอกเนื้อหา + ไฟล์แนบเป็นฉบับใหม่ของเรื่องเดียวกัน
+ *   PUT    /policy/versions/{v}/default         ตั้งเป็นฉบับที่แสดงให้ผู้ใช้ของเรื่องนั้น
+ *   DELETE /policy/versions/{v}                 ลบไม่ได้ถ้าเป็นฉบับที่แสดงอยู่ หรือมีผู้ยอมรับแล้ว (ฉบับสุดท้ายของเรื่อง = ลบเรื่องด้วย)
  *   POST   /policy/versions/{v}/files, DELETE /policy/versions/{v}/files/{id}  ไฟล์แนบ — มีผู้ยอมรับแล้ว = แก้ไม่ได้
  *   GET    /policy/versions/{v}/acceptances     ผู้ใช้ + วันที่ยอมรับฉบับนี้
+ *   PUT    /policy/groups/order                 ลำดับที่ให้ยอมรับ { ids: [groupId...] }
+ *   DELETE /policy/groups/{id}/current          เลิกแสดงเรื่องนี้ให้ผู้ใช้ (ฉบับและการยอมรับเดิมยังอยู่)
  */
 export const policyVersionRoutes = Router();
 
@@ -31,6 +33,8 @@ const FILES_MAX = 10;
 
 interface VersionRow {
   version: number;
+  group_id: number;
+  current_version: number | null;
   title: string;
   sections: unknown;
   created_at: string | null;
@@ -40,20 +44,27 @@ interface VersionRow {
   accepted: number;
 }
 
-const SELECT = `v.version, v.title, v.sections, v.created_at, v.published_at, v.updated_at, u.name AS creator,
+interface GroupRow {
+  id: number;
+  sort_order: number;
+  current_version: number | null;
+}
+
+const SELECT = `v.version, v.group_id, g.current_version, v.title, v.sections, v.created_at, v.published_at, v.updated_at, u.name AS creator,
   (SELECT COUNT(*) FROM policy_acceptances a WHERE a.version = v.version) AS accepted
-  FROM policy_versions v LEFT JOIN users u ON u.id = v.created_by`;
+  FROM policy_versions v JOIN policy_groups g ON g.id = v.group_id LEFT JOIN users u ON u.id = v.created_by`;
 
 const manage = (req: Request) => authorize(can(me(req), POLICY_MANAGE));
 
-const json = (r: VersionRow, files: PolicyFileRow[], defaultVersion: number) => {
+const json = (r: VersionRow, files: PolicyFileRow[]) => {
   const version = Number(r.version);
   const accepted = Number(r.accepted);
   return {
     version,
+    group_id: Number(r.group_id),
     title: r.title,
     sections: parseSections(r.sections),
-    is_default: version === defaultVersion,
+    is_default: r.current_version !== null && Number(r.current_version) === version,
     published_at: iso(r.published_at),
     created_at: iso(r.created_at),
     updated_at: iso(r.updated_at),
@@ -74,7 +85,7 @@ async function findRow(req: Request): Promise<VersionRow> {
 
 const respond = async (version: number) => {
   const row = (await first<VersionRow>(`SELECT ${SELECT} WHERE v.version = ?`, [version]))!;
-  return json(row, await policyFilesOf([version]), (await systemPolicy()).version);
+  return json(row, await policyFilesOf([version]));
 };
 
 const validatedContent = async (req: Request): Promise<{ title: string; sections: PolicySection[] }> => {
@@ -99,13 +110,21 @@ const validatedContent = async (req: Request): Promise<{ title: string; sections
 
 /** เลขฉบับถัดไป — นับรวมฉบับที่ถูกลบไม่ได้ เลขจึงไม่ซ้ำกับการยอมรับเดิม */
 async function nextVersion(): Promise<number> {
-  const [versions, accepted, current] = await Promise.all([scalar("SELECT MAX(version) FROM policy_versions"), scalar("SELECT MAX(version) FROM policy_acceptances"), systemPolicy()]);
-  return Math.max(Number(versions ?? 0), Number(accepted ?? 0), current.version) + 1;
+  const [versions, accepted] = await Promise.all([scalar("SELECT MAX(version) FROM policy_versions"), scalar("SELECT MAX(version) FROM policy_acceptances")]);
+  return Math.max(Number(versions ?? 0), Number(accepted ?? 0)) + 1;
 }
 
-const insertVersion = async (version: number, title: string, sections: PolicySection[], userId: number) => {
+const insertVersion = async (version: number, groupId: number, title: string, sections: PolicySection[], userId: number) => {
   const now = nowDb();
-  await exec("INSERT INTO policy_versions (version, title, sections, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", [version, title, JSON.stringify(sections), userId, now, now]);
+  await exec("INSERT INTO policy_versions (version, group_id, title, sections, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+    version,
+    groupId,
+    title,
+    JSON.stringify(sections),
+    userId,
+    now,
+    now,
+  ]);
 };
 
 const lockedError = (req: Request, field: string) => ValidationError.withMessages({ [field]: trans(req.locale, "eam.policy.version_locked") });
@@ -114,16 +133,30 @@ policyVersionRoutes.get("/policy/versions", async (req, res) => {
   manage(req);
   const rows = await select<VersionRow>(`SELECT ${SELECT} ORDER BY v.version DESC`);
   const files = await policyFilesOf(rows.map((r) => Number(r.version)));
+  const groups = await select<GroupRow>("SELECT id, sort_order, current_version FROM policy_groups ORDER BY sort_order, id");
   const p = await systemPolicy();
-  res.json({ data: rows.map((r) => json(r, files, p.version)), enabled: p.enabled, display: p.display });
+  res.json({
+    data: rows.map((r) => json(r, files)),
+    groups: groups.map((g) => ({ id: Number(g.id), sort_order: Number(g.sort_order), current_version: g.current_version === null ? null : Number(g.current_version) })),
+    enabled: p.enabled,
+    display: p.display,
+    pace: p.pace,
+  });
 });
 
 policyVersionRoutes.post("/policy/versions", async (req, res) => {
   manage(req);
   const u = me(req);
   const { title, sections } = await validatedContent(req);
-  const version = await nextVersion();
-  await insertVersion(version, title, sections, u.id);
+  const version = await transaction(async () => {
+    const now = nowDb();
+    // เรื่องใหม่ต่อท้ายลำดับ
+    const order = Number((await scalar("SELECT MAX(sort_order) FROM policy_groups")) ?? 0) + 1;
+    const groupId = await insert("policy_groups", { sort_order: order, created_at: now, updated_at: now });
+    const next = await nextVersion();
+    await insertVersion(next, groupId, title, sections, u.id);
+    return next;
+  });
   await audit(req, { action: "policy.version_created", subjectType: "policy", subjectId: version, after: { title, titles: sections.map((s) => s.title) } });
   res.status(201).json({ data: await respond(version) });
 });
@@ -141,12 +174,9 @@ policyVersionRoutes.put("/policy/versions/:version", async (req, res) => {
   const before = parseSections(row.sections);
   const changed = JSON.stringify(before) !== JSON.stringify(sections);
   if (changed && Number(row.accepted) > 0) throw lockedError(req, "sections");
-  const p = await systemPolicy();
-  const isDefault = p.version === version;
-  if (isDefault && !sections.length) throw ValidationError.withMessages({ sections: trans(req.locale, "eam.policy.sections_required") });
+  if (Number(row.current_version) === version && !sections.length) throw ValidationError.withMessages({ sections: trans(req.locale, "eam.policy.sections_required") });
   await exec("UPDATE policy_versions SET title = ?, sections = ?, updated_at = ? WHERE version = ?", [title, JSON.stringify(sections), nowDb(), version]);
-  // ฉบับที่แสดงอยู่: ให้ผู้ใช้เห็นเนื้อหาล่าสุด
-  if (isDefault && changed) await putSetting("system_policy", { ...p, sections, updated_at: iso(nowDb()) }, me(req).id);
+  forgetCached("policy:");
   await audit(req, { action: "policy.version_updated", subjectType: "policy", subjectId: version, before: { title: row.title, titles: before.map((s) => s.title) }, after: { title, titles: sections.map((s) => s.title) } });
   res.json({ data: await respond(version) });
 });
@@ -156,7 +186,7 @@ policyVersionRoutes.post("/policy/versions/:version/duplicate", async (req, res)
   const u = me(req);
   const row = await findRow(req);
   const version = await nextVersion();
-  await insertVersion(version, row.title, parseSections(row.sections), u.id);
+  await insertVersion(version, Number(row.group_id), row.title, parseSections(row.sections), u.id);
   // ไฟล์แต่ละฉบับแยกกันจริง: ลบไฟล์ของฉบับหนึ่งต้องไม่กระทบอีกฉบับ
   const now = nowDb();
   for (const f of await policyFilesOf([Number(row.version)])) {
@@ -166,7 +196,7 @@ policyVersionRoutes.post("/policy/versions/:version/duplicate", async (req, res)
     await writeStored(path, stored.data);
     await insert("policy_files", { version, original_name: f.original_name, path, mime: f.mime, size: f.size, uploaded_by: u.id, created_at: now, updated_at: now });
   }
-  await audit(req, { action: "policy.version_duplicated", subjectType: "policy", subjectId: version, after: { from: Number(row.version) } });
+  await audit(req, { action: "policy.version_duplicated", subjectType: "policy", subjectId: version, after: { from: Number(row.version), group: Number(row.group_id) } });
   res.status(201).json({ data: await respond(version) });
 });
 
@@ -174,13 +204,12 @@ policyVersionRoutes.put("/policy/versions/:version/default", async (req, res) =>
   manage(req);
   const row = await findRow(req);
   const version = Number(row.version);
-  const sections = parseSections(row.sections);
-  if (!sections.length) throw ValidationError.withMessages({ sections: trans(req.locale, "eam.policy.default_required_sections") });
-  const before = await systemPolicy();
+  if (!parseSections(row.sections).length) throw ValidationError.withMessages({ sections: trans(req.locale, "eam.policy.default_required_sections") });
   const now = nowDb();
   await exec("UPDATE policy_versions SET published_at = COALESCE(published_at, ?) WHERE version = ?", [now, version]);
-  await putSetting("system_policy", { ...before, version, sections, updated_at: iso(now) }, me(req).id);
-  await audit(req, { action: "policy.default_changed", subjectType: "policy", subjectId: version, before: { version: before.version }, after: { version } });
+  await exec("UPDATE policy_groups SET current_version = ?, updated_at = ? WHERE id = ?", [version, now, row.group_id]);
+  forgetCached("policy:");
+  await audit(req, { action: "policy.default_changed", subjectType: "policy", subjectId: version, before: { version: row.current_version === null ? null : Number(row.current_version) }, after: { version, group: Number(row.group_id) } });
   res.json({ data: await respond(version) });
 });
 
@@ -188,11 +217,15 @@ policyVersionRoutes.delete("/policy/versions/:version", async (req, res) => {
   manage(req);
   const row = await findRow(req);
   const version = Number(row.version);
-  if ((await systemPolicy()).version === version) throw ValidationError.withMessages({ version: trans(req.locale, "eam.policy.delete_default") });
+  if (Number(row.current_version) === version) throw ValidationError.withMessages({ version: trans(req.locale, "eam.policy.delete_default") });
   if (Number(row.accepted) > 0) throw ValidationError.withMessages({ version: trans(req.locale, "eam.policy.delete_accepted") });
   const files = await policyFilesOf([version]);
-  await exec("DELETE FROM policy_files WHERE version = ?", [version]);
-  await exec("DELETE FROM policy_versions WHERE version = ?", [version]);
+  await transaction(async () => {
+    await exec("DELETE FROM policy_files WHERE version = ?", [version]);
+    await exec("DELETE FROM policy_versions WHERE version = ?", [version]);
+    // ฉบับสุดท้ายของเรื่อง = ลบเรื่องด้วย
+    if (!(await first("SELECT 1 FROM policy_versions WHERE group_id = ?", [row.group_id]))) await exec("DELETE FROM policy_groups WHERE id = ?", [row.group_id]);
+  });
   for (const f of files) await deleteStored(f.path);
   await audit(req, { action: "policy.version_deleted", subjectType: "policy", subjectId: version, before: { title: row.title } });
   res.status(204).end();
@@ -257,4 +290,38 @@ policyVersionRoutes.get("/policy/versions/:version/acceptances", async (req, res
     accepted: rows.filter((r) => r.accepted_at).length,
     total: rows.length,
   });
+});
+
+const findGroup = async (req: Request): Promise<GroupRow> => {
+  const row = /^\d+$/.test(String(req.params.id)) ? await first<GroupRow>("SELECT id, sort_order, current_version FROM policy_groups WHERE id = ?", [Number(req.params.id)]) : null;
+  if (!row) throw notFound();
+  return row;
+};
+
+policyVersionRoutes.put("/policy/groups/order", async (req, res) => {
+  manage(req);
+  const data = await validate(req.input, { ids: ["required", "array", "min:1"], "ids.*": ["required", "integer"] }, { locale: req.locale });
+  const ids = [...new Set(Object.values(data.ids as Record<string, unknown>).map(Number))];
+  const existing = await select<{ id: number }>("SELECT id FROM policy_groups ORDER BY sort_order, id");
+  const known = new Set(existing.map((g) => Number(g.id)));
+  // เรื่องที่ไม่ได้ส่งมา (เพิ่มระหว่างจัดลำดับ) ต่อท้ายตามลำดับเดิม
+  const order = [...ids.filter((id) => known.has(id)), ...existing.map((g) => Number(g.id)).filter((id) => !ids.includes(id))];
+  const now = nowDb();
+  await transaction(async () => {
+    for (const [i, id] of order.entries()) await exec("UPDATE policy_groups SET sort_order = ?, updated_at = ? WHERE id = ?", [i + 1, now, id]);
+  });
+  forgetCached("policy:");
+  await audit(req, { action: "policy.order_changed", subjectType: "policy", subjectId: "groups", before: { ids: existing.map((g) => Number(g.id)) }, after: { ids: order } });
+  res.json({ data: order });
+});
+
+policyVersionRoutes.delete("/policy/groups/:id/current", async (req, res) => {
+  manage(req);
+  const group = await findGroup(req);
+  if (group.current_version !== null) {
+    await exec("UPDATE policy_groups SET current_version = NULL, updated_at = ? WHERE id = ?", [nowDb(), group.id]);
+    forgetCached("policy:");
+    await audit(req, { action: "policy.group_hidden", subjectType: "policy", subjectId: Number(group.current_version), before: { version: Number(group.current_version) }, after: { version: null, group: Number(group.id) } });
+  }
+  res.status(204).end();
 });

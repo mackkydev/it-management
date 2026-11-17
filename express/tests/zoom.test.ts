@@ -372,3 +372,67 @@ describe("zoom bookings", () => {
     expect((await api.get(`/api/v1/zoom-bookings/${addedId}`)).body.data.status).toBe("cancelled");
   });
 });
+
+describe("zoom bookings: requester receives the link", () => {
+  it("after IT sends the link the booker presses 'got the link' once: IT is notified, a new link asks again", async () => {
+    const { requester, it1, api, itApi } = await people();
+    const id = (await api.post("/api/v1/zoom-bookings").send(booking())).body.data.id as string;
+    await itApi.post(`/api/v1/zoom-bookings/${id}/accept`);
+    // ยังไม่ส่งลิงก์ = กดรับไม่ได้
+    expect((await api.post(`/api/v1/zoom-bookings/${id}/received`)).status).toBe(422);
+
+    const linked = await itApi.post(`/api/v1/zoom-bookings/${id}/link`).send(LINK);
+    expect(linked.body.data).toMatchObject({ status: "confirmed", link_received_at: null });
+    expect((await api.get(`/api/v1/zoom-bookings/${id}`)).body.data.can_receive_link).toBe(true);
+    // ฝ่าย IT / คนอื่นกดแทนผู้จองไม่ได้
+    expect((await itApi.post(`/api/v1/zoom-bookings/${id}/received`)).status).toBe(403);
+
+    const got = await api.post(`/api/v1/zoom-bookings/${id}/received`);
+    expect(got.status).toBe(200);
+    expect(got.body.data.link_received_at).toBeTruthy();
+    expect(Number(await notices(it1.id, "link_received"))).toBe(1);
+    // กดซ้ำ = คัดลอกอย่างเดียว ไม่แจ้งซ้ำ
+    expect((await api.post(`/api/v1/zoom-bookings/${id}/received`)).status).toBe(200);
+    expect(Number(await notices(it1.id, "link_received"))).toBe(1);
+    expect(Number(await scalar("SELECT COUNT(*) FROM notifications WHERE notifiable_id = ? AND read_at IS NULL AND data LIKE '%\"event\":\"confirmed\"%'", [requester.id]))).toBe(0);
+
+    // แก้ลิงก์ = ต้องกดรับใหม่
+    const updated = await itApi.post(`/api/v1/zoom-bookings/${id}/link`).send({ meeting_link: "https://zoom.us/j/777" });
+    expect(updated.body.data.link_received_at).toBeNull();
+  });
+});
+
+describe("zoom bookings: one 'receive' press", () => {
+  it("receiving before approval closes the ticket as soon as the IT manager approves; receiving after approval closes it at once; the ticket shows topic + date, not the link", async () => {
+    const { requester, api, itApi, headApi } = await people();
+    await signature(headApi);
+    const book = async () => {
+      const id = (await api.post("/api/v1/zoom-bookings").send(booking())).body.data.id as string;
+      await itApi.post(`/api/v1/zoom-bookings/${id}/accept`);
+      await itApi.post(`/api/v1/zoom-bookings/${id}/link`).send(LINK);
+      return id;
+    };
+
+    // ใบงาน: หัวข้อประชุม + วันที่ ไม่มีลิงก์
+    const a = await book();
+    const ticketA = await first<{ repair_details: string | null; solution?: string | null }>("SELECT t.* FROM zoom_bookings z JOIN it_tickets t ON t.id = z.ticket_id WHERE z.uuid = ?", [a]);
+    const text = JSON.stringify(ticketA);
+    expect(text).toContain("STEC,ประชุม");
+    expect(text).not.toContain("zoom.us/j/123456");
+
+    // กดรับก่อนอนุมัติ → อนุมัติแล้วปิดใบงานทันที (ผู้จองไม่ต้องกดซ้ำ)
+    await api.post(`/api/v1/zoom-bookings/${a}/received`);
+    expect((await headApi.post(`/api/v1/zoom-bookings/${a}/approve`)).status).toBe(200);
+    expect((await ticketOf(a))?.status).toBe("completed");
+    expect(Number(await notices(requester.id, "head_approved"))).toBe(0);
+
+    // อนุมัติก่อน แล้วผู้จองกดรับ = ปิดใบงานในครั้งเดียว
+    const b = await book();
+    await headApi.post(`/api/v1/zoom-bookings/${b}/approve`);
+    expect((await ticketOf(b))?.status).toBe("pending_requester");
+    const got = await api.post(`/api/v1/zoom-bookings/${b}/received`);
+    expect(got.status).toBe(200);
+    expect((await ticketOf(b))?.status).toBe("completed");
+    expect(got.body.data.link_received_at).toBeTruthy();
+  });
+});

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { PrintDocument } from "@/components/document-template";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
-import type { PolicyDocument, SystemPolicy } from "@/lib/types";
+import type { PolicyDocument, PolicyOverview } from "@/lib/types";
 
 /** ?version= ต้องเป็นตัวเลข — ไม่ระบุ = ฉบับล่าสุดที่ยอมรับ */
 const versionOf = (value: string | string[] | undefined) => (typeof value === "string" && /^\d+$/.test(value) ? value : null);
@@ -29,15 +29,18 @@ export async function generateMetadata({ params, searchParams }: PageProps<"/pol
 /**
  * เอกสารยอมรับนโยบาย A4 (นอกเมนูหลัก — พิมพ์ / บันทึก PDF จากเบราว์เซอร์)
  *   /policy-print/{userId}[?version=] = ของผู้ใช้คนนั้น: ประทับชื่อ-สกุลเมื่อยอมรับแล้ว + ลายเซ็นเมื่อผู้ใช้มีลายเซ็น
- *   /policy-print/blank    = แบบฟอร์มเปล่าของฉบับปัจจุบัน ไว้เซ็นบนกระดาษ
+ *   /policy-print/blank[?version=] = แบบฟอร์มเปล่าของฉบับที่แสดงอยู่ (ไม่ระบุ = เรื่องแรกตามลำดับ) ไว้เซ็นบนกระดาษ
  */
 export default async function PolicyPrintPage({ params, searchParams }: PageProps<"/policy-print/[id]">) {
   const { id } = await params;
   if (id !== "blank" && !/^\d+$/.test(id)) notFound();
   const { t, fmt } = await getI18n();
-  const doc = id === "blank" ? null : await loadDocument(id, versionOf((await searchParams).version));
-  const policy = doc ? null : (await apiFetch<{ data: SystemPolicy }>("/policy")).data;
+  const asked = versionOf((await searchParams).version);
+  const doc = id === "blank" ? null : await loadDocument(id, asked);
+  const items = doc ? [] : (await apiFetch<PolicyOverview>("/policy")).data.items;
+  const policy = doc ? null : (items.find((i) => String(i.version) === asked) ?? items[0] ?? null);
   const version = doc?.version ?? policy?.version ?? 0;
+  const title = doc?.title ?? policy?.title ?? "";
   const sections = doc?.sections ?? policy?.sections ?? [];
   const row = (label: string, value: string | null) => (
     <tr>
@@ -50,6 +53,7 @@ export default async function PolicyPrintPage({ params, searchParams }: PageProp
     <PrintDocument>
         <header className="text-center">
           <h1 className="text-xl font-bold">{doc ? t("policyDoc.title") : t("policyDoc.blankTitle")}</h1>
+          {title && <p className="font-semibold">{title}</p>}
           {version > 0 && <p className="text-sm text-gray-600">{t("policyDoc.version", { version })}</p>}
         </header>
 

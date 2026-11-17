@@ -11,6 +11,7 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { BranchChoices, MeetingRoom } from "@/lib/types";
 import { imageUrl } from "../meeting-utils";
+import { MasterDataSelect } from "@/components/master-data-select";
 
 const MAX_IMAGES = 4;
 const MAX_BYTES = 1024 * 1024;
@@ -134,14 +135,16 @@ export function RoomForm({ room: initialRoom, choices }: { room: MeetingRoom | n
         </div>
         <div>
           {label("branch_id", t("meeting.rooms.branch"))}
-          <AppSelect id="branch_id" value={v.branch_id} onValueChange={(x) => set("branch_id", x)} className={cls("branch_id")}>
-            {choices.allowShared && <option value="">{t("meeting.rooms.noBranch")}</option>}
-            {choices.branches.map((b) => (
-              <option key={b.id} value={String(b.id)}>
-                {b.name}
-              </option>
-            ))}
-          </AppSelect>
+          <MasterDataSelect source="branches">
+            <AppSelect id="branch_id" value={v.branch_id} onValueChange={(x) => set("branch_id", x)} className={cls("branch_id")}>
+              {choices.allowShared && <option value="">{t("meeting.rooms.noBranch")}</option>}
+              {choices.branches.map((b) => (
+                <option key={b.id} value={String(b.id)}>
+                  {b.name}
+                </option>
+              ))}
+            </AppSelect>
+          </MasterDataSelect>
           {err("branch_id")}
         </div>
         <div>

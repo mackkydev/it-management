@@ -773,6 +773,23 @@ body,
   }
 }
 
+/* ---------- พื้นช่องวันหยุดในปฏิทินทุกหน้า (dayOffClass ใน components/days-off.ts) ----------
+ * .cal-sat = วันเสาร์ (ฟ้าอ่อน), .cal-sun = วันอาทิตย์ (แดงอ่อน), .cal-holiday = วันหยุดบริษัท (แดงเข้มกว่าวันอาทิตย์ + ชื่อวันหยุด)
+ * — ตัวเลขวันที่สีเข้มขึ้นให้เห็นชัด
+ */
+.cal-sat { background-color: color-mix(in oklab, var(--color-sky-100) 75%, transparent); }
+.cal-sun { background-color: color-mix(in oklab, var(--color-red-50) 90%, transparent); }
+.cal-holiday { background-color: color-mix(in oklab, var(--color-red-100) 85%, transparent); }
+.dark .cal-sat { background-color: color-mix(in oklab, var(--color-sky-400) 12%, transparent); }
+.dark .cal-sun { background-color: color-mix(in oklab, var(--color-red-400) 9%, transparent); }
+.dark .cal-holiday { background-color: color-mix(in oklab, var(--color-red-400) 16%, transparent); }
+.cal-sat .cal-daynum { color: var(--color-sky-700); }
+.dark .cal-sat .cal-daynum { color: var(--color-sky-300); }
+.cal-sun .cal-daynum { color: var(--color-red-600); }
+.dark .cal-sun .cal-daynum { color: var(--color-red-300); }
+.cal-holiday .cal-daynum { color: var(--color-danger-700); }
+.dark .cal-holiday .cal-daynum { color: var(--color-danger-300); }
+
 /* ---------- สีแยกโน้ตบุ๊กในหน้า ยืมโน้ตบุ๊ก (categorical — ไม่ใช่สีสถานะ) ----------
  * .loan-dev-N (N = 0–7 ตามลำดับอุปกรณ์ — loanColorOf ใน app/(app)/loans/loan-utils.ts): พื้น + ตัวอักษร + สีขอบ (ring) ตามโหมดสว่าง/มืด
  */
@@ -792,3 +809,28 @@ body,
 .dark .loan-dev-5 { background-color: color-mix(in oklab, var(--color-lime-400) 24%, transparent); color: var(--color-lime-100); --tw-ring-color: color-mix(in oklab, var(--color-lime-400) 50%, transparent); }
 .dark .loan-dev-6 { background-color: color-mix(in oklab, var(--color-fuchsia-400) 24%, transparent); color: var(--color-fuchsia-100); --tw-ring-color: color-mix(in oklab, var(--color-fuchsia-400) 50%, transparent); }
 .dark .loan-dev-7 { background-color: color-mix(in oklab, var(--color-indigo-400) 24%, transparent); color: var(--color-indigo-100); --tw-ring-color: color-mix(in oklab, var(--color-indigo-400) 50%, transparent); }
+
+/*
+ * ตารางกว้างเลื่อนแนวนอน — แถบเลื่อนหนา สีธีม (เช่น รายการ Fixed Assets ที่หัวคอลัมน์ / ข้อมูลอยู่บรรทัดเดียว)
+ * Firefox ใช้ scrollbar-color, Chrome / Edge ใช้ ::-webkit-scrollbar
+ */
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: auto;
+  scrollbar-color: var(--ui-accent-500) var(--subtle);
+}
+.scroll-x::-webkit-scrollbar {
+  height: 12px;
+}
+.scroll-x::-webkit-scrollbar-track {
+  background: var(--subtle);
+  border-radius: 9999px;
+}
+.scroll-x::-webkit-scrollbar-thumb {
+  background: var(--ui-accent-500);
+  border-radius: 9999px;
+  border: 2px solid var(--subtle);
+}
+.scroll-x::-webkit-scrollbar-thumb:hover {
+  background: var(--ui-accent-600);
+}

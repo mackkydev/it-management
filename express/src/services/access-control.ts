@@ -1,3 +1,4 @@
+import { clientAgent, normalizeIp } from "../lib/client.js";
 import type { Request } from "express";
 import { select } from "../db.js";
 import { trans, type Locale } from "../lib/i18n.js";
@@ -136,8 +137,8 @@ export type LoginMethod = "password" | "two_factor" | "recovery_code" | "api";
  */
 export async function notifySuperAdminLogin(req: Request, user: UserRow, method: LoginMethod): Promise<void> {
   if (user.role !== SUPER_ADMIN_GROUP) return;
-  const ip = req.ip ?? null;
-  await audit({ user, ip: req.ip }, { action: "auth.super_admin_login", subjectType: "user", subjectId: user.id, after: { method, ip } });
+  const ip = normalizeIp(req.ip);
+  await audit({ user, ip: req.ip, agent: clientAgent(req) }, { action: "auth.super_admin_login", subjectType: "user", subjectId: user.id, after: { method, ip } });
   const ids = (await select<{ id: number }>("SELECT id FROM users WHERE role = ? AND is_active = true AND id <> ?", [SUPER_ADMIN_GROUP, user.id])).map((r) => Number(r.id));
   if (ids.length) await notifyUsers(ids, "App\\Notifications\\SuperAdminLogin", { kind: "super_admin_login", subject_id: user.id, subject: user.name, method, ip });
 }

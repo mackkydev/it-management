@@ -1,6 +1,7 @@
+import { clientAgent } from "../lib/client.js";
 import { Router } from "express";
 import { config } from "../config.js";
-import { first, select, update } from "../db.js";
+import { first, scalar, select, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import type { UploadedFile } from "../lib/uploaded-file.js";
 import { trans } from "../lib/i18n.js";
@@ -74,7 +75,7 @@ loginRoutes.post("/auth/login", limits.login, async (req, res) => {
 /** บันทึกการเข้าสู่ระบบ + เวลาเข้าล่าสุด — super_admin มีแถว auth.super_admin_login จาก notifySuperAdminLogin แล้ว */
 const auditLogin = async (req: import("express").Request, user: UserRow, method: LoginMethod) => {
   await update("users", { last_login_at: nowDb() }, "id = ?", [user.id]);
-  if (user.role !== "super_admin") await audit({ user, ip: req.ip }, { action: "auth.login", subjectType: "user", subjectId: user.id, after: { method } });
+  if (user.role !== "super_admin") await audit({ user, ip: req.ip, agent: clientAgent(req) }, { action: "auth.login", subjectType: "user", subjectId: user.id, after: { method } });
 };
 
 /** ออก token ของเรา (รูปแบบ response เดียวกับ /auth/login เดิม) — method = วิธียืนยันตัวตน (แจ้งเตือนเมื่อ super_admin เข้าสู่ระบบ) */
@@ -104,7 +105,7 @@ async function challengeUser(req: import("express").Request, purpose: "verify" |
   return user;
 }
 
-const actorOf = (req: import("express").Request, user: UserRow) => ({ user, ip: req.ip });
+const actorOf = (req: import("express").Request, user: UserRow) => ({ user, ip: req.ip, agent: clientAgent(req) });
 
 /** POST /auth/login/2fa/setup { challenge } — ผู้ดูแลระบบที่ถูกบังคับ 2FA: secret + QR สำหรับสแกน */
 loginRoutes.post("/auth/login/2fa/setup", limits.twoFactor, async (req, res) => {
@@ -147,6 +148,19 @@ loginRoutes.post("/auth/login/2fa", limits.twoFactor, async (req, res) => {
     await audit(actorOf(req, user), { action: "two_factor.recovery_used", subjectType: "user", subjectId: user.id, after: { left: recoveryCodesLeft((await findUser(user.id))!) } });
   } else if (!data.code || !(await verifyUserTotp(user, String(data.code)))) return fail();
   res.json(await issueLogin(req, user, String(data.device_name), data.recovery_code ? "recovery_code" : "two_factor"));
+});
+
+/**
+ * GET /system-status — สถานะระบบสำหรับป้ายบนหน้า login (ไม่ต้อง login): ฐานข้อมูลตอบได้ = ok / ไม่ได้ = down
+ * คืนแค่สถานะ ไม่มีรายละเอียด error — ไม่เขียนข้อมูล
+ */
+loginRoutes.get("/system-status", async (_req, res) => {
+  try {
+    await scalar("SELECT 1");
+    res.json({ data: { database: "ok" } });
+  } catch {
+    res.status(503).json({ data: { database: "down" } });
+  }
 });
 
 /* ---------------------------------------------------------------- API User (login ผ่านระบบต้นทาง) */

@@ -27,6 +27,8 @@ function toPayload(v: UserFormValues, isCreate: boolean) {
     role: v.role,
     job_title: v.job_title.trim() || null,
     is_it_head: v.is_it_head,
+    is_it_staff: v.is_it_staff,
+    is_it_manager: v.is_it_manager,
     ...(isCreate && v.groups?.length ? { groups: v.groups } : {}),
     is_active: v.is_active,
     branch_id: v.branch_id ? Number(v.branch_id) : null,

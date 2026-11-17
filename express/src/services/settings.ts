@@ -10,6 +10,8 @@ import { nowDb } from "../lib/time.js";
 export const DEFAULTS = {
   contract_notify_days: 30,
   credential_notify_days: 14,
+  // ยืม VPN: แจ้งเตือนผู้ใช้ล่วงหน้ากี่วันก่อนหมดอายุ (ค่าตั้งต้นของฟอร์มมอบรหัส VPN — routes/vpn-loans.ts)
+  vpn_notify_days: 7,
   license_notify_days: 30,
   notify_emails: [] as string[],
   ticket_other_types: ["งานออกแบบ"],
@@ -23,6 +25,9 @@ export const DEFAULTS = {
   // โลโก้ระบบ (routes/branding.ts) — null = ใช้ icon เดิม
   logo_path: null as string | null,
   logo_version: null as string | null,
+  // ชื่อระบบ + ข้อความใต้ชื่อ (routes/branding.ts) — ว่าง = ใช้ข้อความตั้งต้นจากไฟล์แปลของหน้าเว็บ
+  brand_name: "" as string,
+  brand_tagline: "" as string,
   // การป้องกันตอนเปิดดูรหัสผ่าน / License key (services/secret-guard.ts) — null = ค่าเริ่มต้น
   secret_guard: null as unknown,
   // ค่าเดิมก่อนมีรายกลุ่ม (true = super_admin + admin) — อ่านอย่างเดียวเมื่อยังไม่ตั้ง two_factor_groups

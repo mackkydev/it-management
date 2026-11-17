@@ -32,8 +32,8 @@ export function LoanList({ items, showBorrower = false }: { items: Loan[]; showB
             {items.map((l) => (
               <tr key={l.id} onClick={() => setSelected(l)} className={`${table.row} cursor-pointer`}>
                 <td className={table.td}>
-                  <span className="font-mono text-xs font-semibold text-accent-700 dark:text-accent-300">{l.asset.asset_tag}</span>
-                  <span className="block text-sm">{l.asset.name}</span>
+                  <span className="font-mono text-xs font-semibold text-accent-700 dark:text-accent-300">{l.asset?.asset_tag ?? "-"}</span>
+                  <span className="block text-sm">{l.asset?.name ?? t("loan.board.noDevice")}</span>
                 </td>
                 {showBorrower && (
                   <td className={table.td}>
@@ -60,8 +60,8 @@ export function LoanList({ items, showBorrower = false }: { items: Loan[]; showB
             <button type="button" onClick={() => setSelected(l)} className={`block w-full cursor-pointer space-y-1.5 p-4 text-left ${card}`}>
               <span className="flex items-start justify-between gap-2">
                 <span className="min-w-0">
-                  <span className="font-mono text-xs font-semibold text-accent-700 dark:text-accent-300">{l.asset.asset_tag}</span>
-                  <span className="block font-medium">{l.asset.name}</span>
+                  <span className="font-mono text-xs font-semibold text-accent-700 dark:text-accent-300">{l.asset?.asset_tag ?? "-"}</span>
+                  <span className="block font-medium">{l.asset?.name ?? t("loan.board.noDevice")}</span>
                 </span>
                 <LoanStatusBadge loan={l} />
               </span>

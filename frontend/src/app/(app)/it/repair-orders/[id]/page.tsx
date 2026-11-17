@@ -90,7 +90,7 @@ export default async function RepairOrderPage({ params }: PageProps<"/it/repair-
                 {r.item_no ?? r.item_name}
               </Link>
             ) : (
-              (r.item_no ?? "—")
+              (r.item_no ?? (r.manual ? t("repairOrders.form.kindManual") : "—"))
             )}
           </Item>
           <Item label={t("repairOrders.form.itemName")}>{r.item_name}</Item>
@@ -119,14 +119,34 @@ export default async function RepairOrderPage({ params }: PageProps<"/it/repair-
               {r.vendor.contact_name} · {r.vendor.contact_phone}
             </span>
           </Item>
-          <Item label={t("repairOrders.col.sent")}>
+          <Item label={t("repairOrders.form.sentOn")}>
             {fmt.date(r.sent_on)} {r.sent_time}
-            <span className="block text-xs text-muted">{r.sent_by.name}</span>
           </Item>
+          <Item label={t("repairOrders.form.sentBy")}>{r.sent_by.name}</Item>
+          <Item label={t("repairOrders.form.recorder")}>{r.created_by.name}</Item>
+          {r.status === "sent" && (
+            <Item label={t("repairOrders.form.followUpOn")}>
+              {fmt.date(r.follow_up_on)}
+              <span className="ml-1 text-xs text-muted">({t("repairOrders.form.followUpDays")}: {r.follow_up_days})</span>
+              {r.follow_up_due && <span className={`ml-2 inline-block rounded-full px-2 py-0.5 text-2xs font-medium ${tone.danger.badge}`}>{t("repairOrders.form.followUpDue")}</span>}
+            </Item>
+          )}
           {r.document_no && <Item label={t("repairOrders.form.documentNo")}>{r.document_no}</Item>}
           {r.item_details && (
             <Item label={t("repairOrders.form.itemDetails")} wide>
               {r.item_details}
+            </Item>
+          )}
+          {/* อะไหล่ที่ร้านเปลี่ยน (กรอกตอนรับคืน) */}
+          {(r.parts ?? []).length > 0 && (
+            <Item label={t("repairOrders.return.parts")} wide>
+              <ol className="list-decimal space-y-0.5 pl-5">
+                {(r.parts ?? []).map((p, i) => (
+                  <li key={i}>
+                    {p.name} <span className="text-muted">× {p.quantity}</span>
+                  </li>
+                ))}
+              </ol>
             </Item>
           )}
           <Files files={r.files.filter((f) => f.kind === "send")} label={t("repairOrders.form.files")} />

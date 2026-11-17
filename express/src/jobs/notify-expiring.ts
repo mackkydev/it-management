@@ -4,11 +4,12 @@ import { trans, type Locale } from "../lib/i18n.js";
 import { addDays, dateOnly, diffInDays, displayDate, fromDbDate, nowDb, startOfUtcDay, toDbDate } from "../lib/time.js";
 import { sendMail } from "../services/mail.js";
 import { EXPIRING_DIGEST, notifyUsers } from "../services/notifications.js";
+import { contractNotifyDue } from "../services/contracts.js";
 import { getSetting } from "../services/settings.js";
 
 /**
  * แจ้งเตือนรายการใกล้หมดอายุ — เหมือนคำสั่ง `php artisan it:notify-expiring`
- * - สัญญา: เหลือ ≤ N วัน (N ของสัญญา หรือค่าเริ่มต้นในหน้าตั้งค่า)
+ * - สัญญา: เหลือ ≤ N วัน (N ของสัญญา หรือค่าเริ่มต้นในหน้าตั้งค่า) หรือถึงวันแจ้งเตือนที่กำหนดเองของสัญญา (notify_dates)
  * - บัญชี/รหัสผ่าน: เหลือ ≤ credential_notify_days วัน
  * - software license: เหลือ ≤ N วัน (N ของ license หรือ license_notify_days)
  * แจ้งครั้งเดียวต่อวันหมดอายุ (ต่ออายุแล้ววันหมดอายุเปลี่ยน → แจ้งใหม่ได้)
@@ -30,22 +31,21 @@ export async function notifyExpiring(opts: { dryRun?: boolean; today?: Date } = 
   const today = startOfUtcDay(opts.today ?? new Date());
   const yesterday = toDbDate(addDays(today, -1));
   const items: ExpiringItem[] = [];
-  const contractIds: Array<{ id: number; end_date: string }> = [];
+  const contractIds: Array<{ id: number; end_date: string | null; notify_date: string | null }> = [];
   const credentialIds: Array<{ id: number; expires_at: string }> = [];
   const licenseIds: Array<{ id: number; expires_at: string }> = [];
 
   const defaultDays = Number(await getSetting("contract_notify_days"));
-  const contracts = await select<{ id: number; title: string; vendor_name: string; end_date: string; notify_days_before: number | null; notified_for_end_date: string | null }>(
-    "SELECT id, title, vendor_name, end_date, notify_days_before, notified_for_end_date FROM contracts WHERE deleted_at IS NULL AND notify_enabled = true AND end_date >= ?",
+  const contracts = await select<{ id: number; title: string; vendor_name: string; end_date: string; notify_days_before: number | null; notify_dates: unknown; notified_for_end_date: string | null; notified_for_date: string | null }>(
+    "SELECT id, title, vendor_name, end_date, notify_days_before, notify_dates, notified_for_end_date, notified_for_date FROM contracts WHERE deleted_at IS NULL AND notify_enabled = true AND end_date >= ?",
     [yesterday],
   );
+  // ถึงช่วง N วันก่อนหมด (ครั้งเดียวต่อวันสิ้นสุด) หรือถึงวันแจ้งเตือนที่กำหนดเอง (ครั้งเดียวต่อวันที่ตั้งไว้) — services/contracts.ts
   for (const c of contracts) {
-    const left = diffInDays(today, fromDbDate(c.end_date));
-    const already = c.notified_for_end_date !== null && dateOnly(c.notified_for_end_date) === dateOnly(c.end_date);
-    if (left <= (c.notify_days_before ?? defaultDays) && !already) {
-      items.push({ type: "contract", title: c.title, sub: c.vendor_name, date: dateOnly(c.end_date)!, days_left: left });
-      contractIds.push({ id: c.id, end_date: dateOnly(c.end_date)! });
-    }
+    const due = contractNotifyDue(c, defaultDays, today);
+    if (!due.byDays && !due.dueDate) continue;
+    items.push({ type: "contract", title: c.title, sub: c.vendor_name, date: dateOnly(c.end_date)!, days_left: due.daysLeft });
+    contractIds.push({ id: c.id, end_date: due.byDays ? dateOnly(c.end_date)! : null, notify_date: due.dueDate });
   }
 
   const credentialDays = Number(await getSetting("credential_notify_days"));
@@ -90,7 +90,9 @@ export async function notifyExpiring(opts: { dryRun?: boolean; today?: Date } = 
   );
   await notifyUsers(recipients.map((r) => r.id), EXPIRING_DIGEST, { kind: "expiring", count: items.length, items: items.slice(0, 10) });
 
-  for (const c of contractIds) await update("contracts", { notified_for_end_date: c.end_date, notified_at: nowDb() }, "id = ?", [c.id]);
+  for (const c of contractIds) {
+    await update("contracts", { notified_for_end_date: c.end_date ?? undefined, notified_for_date: c.notify_date ?? undefined, notified_at: nowDb() }, "id = ?", [c.id]);
+  }
   for (const c of credentialIds) await update("credentials", { notified_for_expires_at: c.expires_at }, "id = ?", [c.id]);
   for (const l of licenseIds) await update("licenses", { notified_for_expires_at: l.expires_at }, "id = ?", [l.id]);
 

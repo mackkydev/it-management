@@ -4,14 +4,24 @@ import Link from "next/link";
 import { useState, useTransition, type ReactNode } from "react";
 import { deleteContract, saveContract, type ContractPayload } from "@/app/actions/it-data";
 import { DateInput } from "@/components/date-input";
-import { AlertIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { AlertIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon, XIcon } from "@/components/icons";
+import { DocumentLink } from "@/components/document-viewer";
+import { DocumentPicker } from "@/components/file-pickers";
+import { Tooltip } from "@/components/tooltip";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { Branch, Contract } from "@/lib/types";
 import { AppSelect } from "@/components/app-select";
+import { MasterDataSelect } from "@/components/master-data-select";
 import { useConfirm } from "@/components/dialog-provider";
 import { OptionPicker } from "@/components/option-picker";
 import { quickAddContractCategory } from "@/app/actions/dropdowns";
+
+/** เอกสารแนบต่อครั้ง / วันที่แจ้งเตือนที่กำหนดเอง — ตรงกับ CONTRACT_FILES_MAX / CONTRACT_NOTIFY_DATES_MAX ของ API */
+const FILES_MAX = 10;
+const NOTIFY_DATES_MAX = 10;
+/** รวมไฟล์ที่แนบครั้งเดียว — ต่ำกว่า serverActions.bodySizeLimit (45mb) ใน next.config.ts */
+const FILES_TOTAL_MAX = 40 * 1024 * 1024;
 
 /** canDelete = มีสิทธิ์ contracts.delete (API ตรวจซ้ำ) */
 export function ContractForm({
@@ -43,6 +53,7 @@ export function ContractForm({
     contact_phone: contract?.contact_phone ?? "",
     notify_enabled: contract?.notify_enabled ?? true,
     notify_days_before: contract?.notify_days_before ? String(contract.notify_days_before) : "",
+    notify_dates: contract?.notify_dates ?? [],
     notes: contract?.notes ?? "",
     branch_id: contract?.branch_id ? String(contract.branch_id) : "",
     category_id: contract?.category ? String(contract.category.id) : "",
@@ -50,6 +61,9 @@ export function ContractForm({
   // หมวดหมู่ที่ปิดใช้งานแล้วแต่สัญญานี้ยังใช้อยู่ — ยังแสดงให้เห็น/คงค่าเดิมได้
   const categoryOptions =
     contract?.category && !categories.some((c) => c.id === contract.category!.id) ? [...categories, contract.category] : categories;
+  const [files, setFiles] = useState<File[]>([]);
+  const [removed, setRemoved] = useState<number[]>([]);
+  const existing = contract?.files.filter((f) => !removed.includes(f.id)) ?? [];
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [pending, start] = useTransition();
@@ -67,6 +81,8 @@ export function ContractForm({
     if (!v.start_date) e.start_date = t("contracts.validate.startDate");
     if (!v.end_date) e.end_date = t("contracts.validate.endDate");
     else if (v.start_date && v.end_date < v.start_date) e.end_date = t("contracts.validate.endBeforeStart");
+    if (files.reduce((n, f) => n + f.size, 0) > FILES_TOTAL_MAX) e.files = t("contracts.validate.filesTotal", { max: "40" });
+    if (v.notify_enabled && v.end_date && v.notify_dates.some((d) => d && d > v.end_date)) e.notify_dates = t("contracts.validate.notifyDateAfterEnd");
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -75,7 +91,10 @@ export function ContractForm({
     if (!validate()) return;
     setAction("save");
     start(async () => {
-      const res = await saveContract(contract?.id ?? null, v);
+      const fd = new FormData();
+      files.forEach((f) => fd.append("files[]", f));
+      removed.forEach((id) => fd.append("remove_file_ids[]", String(id)));
+      const res = await saveContract(contract?.id ?? null, v, fd);
       if (res) {
         setErrors(Object.fromEntries(Object.entries(res.errors ?? {}).map(([k, m]) => [k, m ?? ""])));
         setMessage(res.message ?? "");
@@ -124,6 +143,54 @@ export function ContractForm({
     </section>
   );
 
+  const setDate = (i: number, d: string) =>
+    set(
+      "notify_dates",
+      v.notify_dates.map((x, j) => (j === i ? d : x)),
+    );
+  const notifyDates = (
+    <div className="sm:col-span-2">
+      <p className="mb-1 text-sm font-medium">{t("contracts.form.notifyDates")}</p>
+      {v.notify_dates.length > 0 && (
+        <ul className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {v.notify_dates.map((d, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <DateInput
+                id={`notify_date_${i}`}
+                value={d}
+                max={v.end_date || undefined}
+                onChange={(x) => setDate(i, x)}
+                aria-label={t("contracts.form.notifyDateN", { n: String(i + 1) })}
+                className={`${cls("notify_dates")} flex-1`}
+              />
+              <Tooltip label={t("contracts.form.removeNotifyDate")}>
+                <button
+                  type="button"
+                  onClick={() => set("notify_dates", v.notify_dates.filter((_, j) => j !== i))}
+                  aria-label={t("contracts.form.removeNotifyDate")}
+                  className={`${btn.secondary} ${btn.icon} shrink-0`}
+                >
+                  <XIcon width={14} height={14} />
+                </button>
+              </Tooltip>
+            </li>
+          ))}
+        </ul>
+      )}
+      {v.notify_dates.length < NOTIFY_DATES_MAX && (
+        <button type="button" onClick={() => set("notify_dates", [...v.notify_dates, ""])} className={`${btn.soft} ${btn.sm}`}>
+          <PlusIcon width={13} height={13} />
+          {t("contracts.form.addNotifyDate")}
+        </button>
+      )}
+      {errors.notify_dates ? (
+        <p className="mt-1 text-xs font-medium text-red-500">{errors.notify_dates}</p>
+      ) : (
+        <p className="mt-1 text-xs text-muted">{t("contracts.form.notifyDatesHint", { max: String(NOTIFY_DATES_MAX) })}</p>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-5">
       {message && (
@@ -149,28 +216,67 @@ export function ContractForm({
             {field(
               "category_id",
               t("contracts.form.category"),
-              <OptionPicker
-                id="category_id"
-                options={categoryOptions.map((c) => ({ value: String(c.id), label: c.key ? t(`vault.categories.${c.key as "other"}`) : c.name }))}
-                value={v.category_id}
-                onChange={(value) => set("category_id", value)}
-                onAdd={quickAddContractCategory}
-                className={cls("category_id")}
-              />,
+              <MasterDataSelect source="contract_categories">
+                <OptionPicker
+                  id="category_id"
+                  options={categoryOptions.map((c) => ({ value: String(c.id), label: c.key ? t(`vault.categories.${c.key as "other"}`) : c.name }))}
+                  value={v.category_id}
+                  onChange={(value) => set("category_id", value)}
+                  onAdd={quickAddContractCategory}
+                  className={cls("category_id")}
+                />
+              </MasterDataSelect>,
             )}
             {field(
               "branch_id",
               t("contracts.form.branch"),
-              <AppSelect id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
-                <option value="">{t("common.none")}</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </AppSelect>,
+              <MasterDataSelect source="branches">
+                <AppSelect id="branch_id" value={v.branch_id} onChange={(e) => set("branch_id", e.target.value)} className={cls("branch_id")}>
+                  <option value="">{t("common.none")}</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>,
             )}
             {field("notes", t("contracts.form.notes"), <textarea id="notes" rows={3} maxLength={5000} value={v.notes} onChange={(e) => set("notes", e.target.value)} className={cls("notes")} />, { wide: true })}
+            <div className="sm:col-span-2">
+              <p className="mb-1 text-sm font-medium">{t("contracts.form.files")}</p>
+              {existing.length > 0 && (
+                <ul className="mb-2 space-y-1.5">
+                  {existing.map((f) => (
+                    <li key={f.id} className="flex items-center gap-2 rounded-xl bg-subtle px-3 py-2 text-sm">
+                      <DocumentLink href={`/files${f.url}`} name={f.name} className="min-w-0 flex-1 cursor-pointer truncate hover:underline">
+                        {f.name}
+                      </DocumentLink>
+                      <span className="shrink-0 text-xs text-muted">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
+                      <Tooltip label={t("contracts.form.removeFile")}>
+                        <button
+                          type="button"
+                          onClick={() => setRemoved((x) => [...x, f.id])}
+                          aria-label={t("contracts.form.removeFileNamed", { name: f.name })}
+                          className="cursor-pointer rounded-lg p-1 text-faint transition-colors hover:bg-surface hover:text-danger-500"
+                        >
+                          <XIcon width={14} height={14} />
+                        </button>
+                      </Tooltip>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <DocumentPicker
+                files={files}
+                onChange={(f) => {
+                  setFiles(f);
+                  setErrors((e) => ({ ...e, files: "" }));
+                }}
+                max={FILES_MAX}
+                onError={(m) => setErrors((e) => ({ ...e, files: m }))}
+              />
+              {errors.files && <p className="mt-1 text-xs font-medium text-red-500">{errors.files}</p>}
+            </div>
           </>,
         )}
         {section(
@@ -205,6 +311,7 @@ export function ContractForm({
                 />,
                 { hint: t("contracts.form.notifyDaysHint", { days: String(defaultNotifyDays) }) },
               )}
+            {v.notify_enabled && notifyDates}
           </>,
         )}
       </fieldset>

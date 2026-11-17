@@ -70,6 +70,12 @@ export async function cancelZoomBooking(id: string): Promise<Result> {
   return post(id, "cancel", null, t("zoom.done.cancelled"));
 }
 
+/** ผู้จองรับลิงก์ (คัดลอกข้อความเชิญแล้ว) → แจ้งผู้รับงาน */
+export async function receiveZoomLink(id: string): Promise<Result> {
+  const { t } = await getI18n();
+  return post(id, "received", null, t("zoom.share.received"));
+}
+
 /** ฝ่าย IT รับงาน */
 export async function acceptZoomBooking(id: string): Promise<Result> {
   const { t } = await getI18n();

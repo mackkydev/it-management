@@ -2,21 +2,39 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
-import { removeLogo, uploadLogo } from "@/app/actions/branding";
-import { MonitorIcon, SpinnerIcon, TrashIcon, UploadIcon } from "@/components/icons";
+import { removeLogo, saveBranding, uploadLogo } from "@/app/actions/branding";
+import { MonitorIcon, SaveIcon, SpinnerIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import { ResultToast } from "@/components/toast";
-import { btn, card } from "@/components/ui";
+import { btn, card, input } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { useConfirm } from "@/components/dialog-provider";
 
-/** โลโก้ระบบ: แสดงหน้าชื่อ IT-SYSTEM ในเมนู — ไม่มีรูป = icon เดิม */
-export function LogoCard({ version }: { version: string | null }) {
+/** ชื่อระบบ + ข้อความใต้ชื่อ + โลโก้ (แสดงในเมนูและหน้า login) — ไม่มีรูป = icon เดิม, ชื่อว่าง = ค่าเริ่มต้น */
+export function LogoCard({
+  version,
+  brand,
+  defaults,
+}: {
+  version: string | null;
+  brand: { name: string; tagline: string };
+  defaults: { name: string; tagline: string };
+}) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, start] = useTransition();
+  const [name, setName] = useState(brand.name);
+  const [tagline, setTagline] = useState(brand.tagline);
+
+  const onSaveName = () =>
+    start(async () => {
+      const res = await saveBranding({ name, tagline });
+      const firstError = res.errors ? Object.values(res.errors)[0] : undefined;
+      setResult({ ok: Boolean(res.ok), text: firstError ?? res.message ?? "" });
+      if (res.ok) router.refresh();
+    });
 
   const onPick = (file: File | undefined) => {
     if (!file) return;
@@ -44,6 +62,26 @@ export function LogoCard({ version }: { version: string | null }) {
     <section className={`p-4 sm:p-6 ${card}`}>
       <h2 className="font-semibold">{t("logo.title")}</h2>
       <p className="mt-1 text-sm text-muted">{t("logo.hint")}</p>
+      <div className="mt-4 grid items-start gap-4 sm:grid-cols-[1fr_1fr_auto]">
+        <div>
+          <label htmlFor="brand-name" className="mb-1 block text-sm font-medium">
+            {t("logo.name")}
+          </label>
+          <input id="brand-name" value={name} maxLength={30} placeholder={defaults.name} onChange={(e) => setName(e.target.value)} className={input} />
+          <p className="mt-1 text-xs text-muted">{t("logo.blankHint")}</p>
+        </div>
+        <div>
+          <label htmlFor="brand-tagline" className="mb-1 block text-sm font-medium">
+            {t("logo.tagline")}
+          </label>
+          <input id="brand-tagline" value={tagline} maxLength={60} placeholder={defaults.tagline} onChange={(e) => setTagline(e.target.value)} className={input} />
+          <p className="mt-1 text-xs text-muted">{t("logo.blankHint")}</p>
+        </div>
+        <button type="button" onClick={onSaveName} disabled={pending} className={`${btn.primary} disabled:cursor-not-allowed disabled:opacity-60 sm:mt-6`}>
+          {pending ? <SpinnerIcon /> : <SaveIcon />}
+          {t("common.save")}
+        </button>
+      </div>
       <div className="mt-4 flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-3 rounded-xl px-4 py-3 ring-1 ring-line">
           {version ? (
@@ -54,7 +92,10 @@ export function LogoCard({ version }: { version: string | null }) {
               <MonitorIcon width={19} height={19} />
             </span>
           )}
-          <span className="font-semibold">{t("app.name")}</span>
+          <span className="leading-tight">
+            <span className="block font-semibold">{name.trim() || defaults.name}</span>
+            <span className="block text-xs text-muted">{tagline.trim() || defaults.tagline}</span>
+          </span>
           {!version && <span className="text-xs text-muted">({t("logo.none")})</span>}
         </div>
         <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} />

@@ -8,6 +8,7 @@ import { AlertIcon, LockIcon, SpinnerIcon } from "@/components/icons";
 import { btn, card, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { LoginActivity } from "@/lib/types";
+import { describeAgent } from "@/lib/user-agent";
 
 /**
  * ประวัติการเข้าสู่ระบบ: เข้าล่าสุด / รหัสผิดกี่ครั้ง / ล็อกล่าสุด + ปลดล็อก (users.unlock — ตั้งต้น admin ขึ้นไป, audit)
@@ -68,7 +69,11 @@ export function LoginLockStatus({ userId, until, activity, canUnlock }: { userId
         )}
       </div>
       <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        {stat(t("users.loginLock.lastLogin"), when(activity.last_login_at))}
+        {stat(
+          t("users.loginLock.lastLogin"),
+          when(activity.last_login_at),
+          [activity.last_login_ip, describeAgent(activity.last_login_agent, t)].filter(Boolean).join(" · ") || null,
+        )}
         {stat(t("users.loginLock.failures"), t("users.loginLock.failuresCount", { count: fmt.number(activity.failures) }))}
         {stat(t("users.loginLock.lastFailed"), when(activity.last_failed_at))}
         {stat(t("users.loginLock.lastLocked"), when(activity.last_locked_at), lockNote)}

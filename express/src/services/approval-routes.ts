@@ -1,6 +1,6 @@
 import { first, insert, select } from "../db.js";
 import { nowDb } from "../lib/time.js";
-import { rolesAbove, type UserRow } from "../models/user.js";
+import { ROLE_RANK, rolesAbove, type UserRow } from "../models/user.js";
 
 /**
  * สายอนุมัติใบแจ้งงาน — เหมือน App\Services\ApprovalRouteResolver ของ Laravel
@@ -119,17 +119,22 @@ export async function planFor(user: UserRow): Promise<ApprovalPlan> {
 }
 
 /**
- * ผู้อนุมัติที่ผู้แจ้งเลือกได้: เปิดใช้งาน มีสาขา และตำแหน่งสูงกว่าผู้แจ้ง (ไม่รวมตัวเอง)
- * ฟอร์มกรองตามสาขาที่เลือกอีกชั้น — branchId = ตรวจเฉพาะสาขานั้น
+ * ผู้อนุมัติที่ผู้แจ้งเลือกได้ (ฟอร์มแจ้งงาน + ตรวจตอนบันทึก): เปิดใช้งาน, **สาขาเดียวกับผู้แจ้ง** (`users.branch_id` — ไม่ขึ้นกับสาขาที่เลือกในใบ),
+ * ตำแหน่ง**ผู้จัดการขึ้นไป** (`ROLE_RANK` ≥ manager) และสูงกว่าผู้แจ้ง (ไม่รวมตัวเอง) — ผู้แจ้งไม่มีสาขา = ไม่มีให้เลือก
+ * ยกเว้น super_admin / admin (`APPROVER_EXCLUDED_ROLES`) และผู้ที่ติ๊กเจ้าหน้าที่ IT (`is_it_staff`)
  */
-export async function approverCandidates(user: UserRow, branchId?: number): Promise<Array<Person & { branch_id: number; role: string }>> {
-  const roles = rolesAbove(user.role);
+export const APPROVER_EXCLUDED_ROLES = ["super_admin", "admin"];
+
+export async function approverCandidates(user: UserRow): Promise<Array<Person & { branch_id: number; role: string }>> {
+  if (!user.branch_id) return [];
+  const roles = rolesAbove(user.role).filter((r) => ROLE_RANK[r] >= ROLE_RANK.manager && !APPROVER_EXCLUDED_ROLES.includes(r));
   if (roles.length === 0) return [];
-  const params: unknown[] = [user.id, ...roles];
-  let sql = `SELECT id, name, branch_id, role FROM users
-             WHERE is_active = true AND branch_id IS NOT NULL AND id <> ? AND role IN (${roles.map(() => "?").join(", ")})`;
-  if (branchId !== undefined) (sql += " AND branch_id = ?"), params.push(branchId);
-  return select(`${sql} ORDER BY name, id`, params);
+  return select(
+    `SELECT id, name, branch_id, role FROM users
+      WHERE is_active = true AND branch_id = ? AND id <> ? AND role IN (?) AND is_it_staff = false
+      ORDER BY name, id`,
+    [user.branch_id, user.id, roles],
+  );
 }
 
 /** ผู้แจ้งเลือกผู้อนุมัติเอง → แทนผู้อนุมัติของขั้นแรกที่ต้องอนุมัติ (ขั้นถัดไปตามสายเดิม); ไม่มีสาย = ผู้อนุมัติคนเดียวแบบระบบเดิม */

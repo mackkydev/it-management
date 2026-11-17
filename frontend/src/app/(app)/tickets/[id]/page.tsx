@@ -3,9 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { DocumentLink } from "@/components/document-viewer";
-import { CheckCircleIcon, ChevronLeftIcon, ClipboardIcon, FileTextIcon, HistoryIcon, PaperclipIcon, WrenchIcon } from "@/components/icons";
+import { CheckCircleIcon, ChevronLeftIcon, ClipboardIcon, FileTextIcon, HistoryIcon, PaperclipIcon, TruckIcon, WrenchIcon } from "@/components/icons";
 import { LinkPendingIcon } from "@/components/pending";
-import { alert, card, tone } from "@/components/ui";
+import { alert, btn, card, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import type { MessageKey } from "@/i18n/types";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -166,6 +166,16 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
 
   // เหตุผลที่ฝ่าย IT ขอให้หัวหน้าอนุมัติ (ครั้งล่าสุด)
   const approvalReason = [...tk.events].reverse().find((e) => e.action === "approval_requested")?.comment ?? null;
+
+  // ทางลัดส่งซ่อมภายนอก: ใบแจ้งซ่อมที่ยังไม่ปิดและยังไม่บันทึกผล + ผู้บันทึกส่งซ่อมได้
+  // (บันทึกผลแล้ว = รออนุมัติผล / รอผู้แจ้งรับงาน → ไม่แสดง; ส่งกลับแก้ไขกลับเป็นกำลังดำเนินการ = แสดงอีก)
+  const sendRepair =
+    isRepair &&
+    has(user, "repair_orders.manage") &&
+    !["pending_supervisor", "rejected", "pending_it_head", "pending_requester", "completed", "cancelled"].includes(tk.status);
+  // รายการส่งซ่อม/เคลมของใบนี้ (ส่งได้หลายรายการ) — มีแล้ว = แสดงรายการ + ปุ่ม "ส่งซ่อม / เคลมเพิ่ม" ที่หัวการ์ด
+  const repairOrders = tk.repair_orders ?? [];
+  const sendRepairHref = `/it/repair-orders/new?ticket=${encodeURIComponent(tk.ticket_no)}` as const;
   return (
     <div className="space-y-5">
       {/* ใบงานของการจอง ZOOM: จัดการที่หน้า ZOOM */}
@@ -223,7 +233,7 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
       )}
       {tk.actions.includes("approve") && <SignatureNotice user={user} t={t} />}
       {tk.can_zoom_approve && tk.zoom_booking_id && <ZoomApproveButton bookingId={tk.zoom_booking_id} />}
-      {tk.actions.length > 0 && <TicketActions ticket={tk} />}
+      {tk.actions.length > 0 && <TicketActions ticket={tk} canSaveSignature={!user.signature_url} />}
       {/* ไปทำงานหน้างาน + ผู้ร่วมดำเนินการ — แถวเดียว 2 คอลัมน์บนจอใหญ่ (มีการ์ดเดียว = เต็มแถว) */}
       <div className="grid gap-4 empty:hidden lg:grid-cols-2 lg:[&>*:only-child]:col-span-2">
         <OnsiteCard ticket={tk} />
@@ -312,7 +322,18 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
 
       {/* 1.2 เครื่องที่ส่งซ่อม / เครื่องที่ติดตั้ง (งานติดตั้งแสดงเมื่อระบุเครื่อง) */}
       {(isRepair || (tk.type === "install" && (tk.device_name || tk.asset_tag))) && (
-        <Section title={t(isRepair ? "tickets.form.section12" : "tickets.form.section12Install")} icon={<WrenchIcon width={15} height={15} />}>
+        <Section
+          title={t(isRepair ? "tickets.form.section12" : "tickets.form.section12Install")}
+          icon={<WrenchIcon width={15} height={15} />}
+          aside={
+            sendRepair && repairOrders.length > 0 ? (
+              <Link href={sendRepairHref} className={`${btn.soft} ${btn.sm} print:hidden`}>
+                <LinkPendingIcon icon={<TruckIcon width={14} height={14} />} size={14} />
+                {t("tickets.detail.addRepairOrder")}
+              </Link>
+            ) : undefined
+          }
+        >
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Item label={t(isRepair ? "tickets.form.device" : "tickets.form.deviceInstall")}>{tk.device_name}</Item>
             <Item label={t("tickets.form.assetTag")}>
@@ -330,6 +351,60 @@ export default async function TicketDetailPage({ params, searchParams }: PagePro
               </Item>
             )}
           </dl>
+          {repairOrders.length > 0 ? (
+            // รายการส่งซ่อม/เคลมของใบนี้ — คลิกแถวเปิดรายละเอียด
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-medium">{t("tickets.detail.repairOrdersTitle", { count: fmt.number(repairOrders.length) })}</p>
+              <ul className="space-y-2">
+                {repairOrders.map((o) => {
+                  const out = o.status === "sent";
+                  return (
+                    <li key={o.id}>
+                      <Link
+                        href={`/it/repair-orders/${o.id}`}
+                        className={`flex cursor-pointer flex-wrap items-center gap-3 rounded-xl p-3 ring-1 transition-colors ${out ? "bg-warning-50 ring-warning-200 hover:bg-warning-100 dark:bg-warning-500/10 dark:ring-warning-500/30" : "ring-line hover:bg-subtle"}`}
+                      >
+                        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${out ? "bg-warning-100 text-warning-700 dark:bg-warning-500/20 dark:text-warning-300" : "bg-subtle text-muted"}`}>
+                          <TruckIcon width={18} height={18} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium">{o.vendor}</span>
+                          <span className="block text-xs text-muted">
+                            {t("tickets.detail.repairOrderSentAt", { date: `${fmt.date(o.sent_on)} ${o.sent_time}` })}
+                            {o.document_no ? ` · ${o.document_no}` : ""}
+                            {o.returned_at ? ` · ${t("tickets.detail.repairOrderReturnedAt", { date: fmt.date(o.returned_at) })}` : ""}
+                          </span>
+                          <span className="block truncate text-xs text-muted">{o.symptom}</span>
+                        </span>
+                        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${out ? tone.warning.badge : tone.success.badge}`}>
+                          {t(out ? "tickets.result.repairOrderSent" : "tickets.result.repairOrderReturned")}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : (
+            sendRepair && (
+              // ใบแจ้งซ่อมที่ยังไม่ปิด — ทางลัดไปบันทึกส่งซ่อม/ส่งเคลมภายนอก (ฟอร์มเติมข้อมูลเครื่อง + อาการจากใบนี้)
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-warning-50 p-4 ring-1 ring-warning-200 dark:bg-warning-500/10 dark:ring-warning-500/30">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning-100 text-warning-700 dark:bg-warning-500/20 dark:text-warning-300">
+                    <TruckIcon width={20} height={20} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-semibold">{t("tickets.detail.sendRepairTitle")}</p>
+                    <p className="text-sm text-muted">{t("tickets.detail.sendRepairHint")}</p>
+                  </div>
+                </div>
+                <Link href={sendRepairHref} className={`${btn.primary} px-5 py-2.5 text-base shadow-md`}>
+                  <TruckIcon width={18} height={18} />
+                  {t("tickets.detail.sendRepairButton")}
+                </Link>
+              </div>
+            )
+          )}
         </Section>
       )}
 

@@ -10,6 +10,7 @@ import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch } from "@/lib/api";
 import { canEditAssets, has, getAccess, getCurrentUser } from "@/lib/auth";
 import { assetCategoryLabel, CATEGORY_FORM, type Asset, type Branch, type SoftwareRef } from "@/lib/types";
+import { FixedAssetCard } from "./fixed-asset-card";
 import { MovementSummary, RepairHistory, UserHistory } from "./history-sections";
 import { TransferButton } from "./transfer-button";
 
@@ -225,6 +226,13 @@ export async function AssetDetail({ id }: { id: string }) {
         <Item label={t("assets.detail.createdAt")}>{fmt.dateTime(asset.created_at)}</Item>
         <Item label={t("assets.detail.updatedAt")}>{fmt.dateTime(asset.updated_at)}</Item>
       </Section>
+
+      {/* ข้อมูลบัญชีจาก STEC SyteLine (Fixed Assets ที่ผูกกับเครื่องนี้) — เฉพาะ fixed_assets.view, ไม่ได้ผูก = ไม่แสดง */}
+      {has(user, "fixed_assets.view") && (
+        <Suspense fallback={null}>
+          <FixedAssetCard assetId={asset.id} />
+        </Suspense>
+      )}
 
       {/* ประวัติผู้ใช้งาน (ผู้ถือครอง/ผู้ใช้งาน) แสดงก่อนประวัติการโอนย้าย */}
       <Suspense fallback={<section className={`p-4 sm:p-6 ${card}`}><LoadingLabel text={t("assets.userLogs.loading")} /></section>}>

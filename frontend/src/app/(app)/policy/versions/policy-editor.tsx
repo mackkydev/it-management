@@ -6,8 +6,8 @@ import { createPolicyVersion, deletePolicyVersionFile, updatePolicyVersion, uplo
 import { DocumentLink } from "@/components/document-viewer";
 import { DOC_ACCEPT, DOC_MAX_BYTES } from "@/components/file-pickers";
 import { useConfirm } from "@/components/dialog-provider";
-import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, FileTextIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
-import { Tooltip } from "@/components/tooltip";
+import { ChevronLeftIcon, FileTextIcon, PlusIcon, SaveIcon, SpinnerIcon, TrashIcon } from "@/components/icons";
+import { PolicySectionsEditor, sectionErrors } from "@/components/policy-sections-editor";
 import { ResultToast } from "@/components/toast";
 import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
@@ -29,21 +29,10 @@ export function PolicyEditor({ initial, prefillSamples = false }: { initial: Pol
   const [pending, start] = useTransition();
 
   const clearErr = (k: string) => setErrors((e) => (e[k] ? { ...e, [k]: "" } : e));
-  const patch = (i: number, v: Partial<PolicySection>) => setSections((s) => s.map((x, j) => (j === i ? { ...x, ...v } : x)));
-  const move = (i: number, d: -1 | 1) =>
-    setSections((s) => {
-      const next = [...s];
-      [next[i], next[i + d]] = [next[i + d], next[i]];
-      return next;
-    });
 
   const save = () => {
-    const e: Record<string, string> = {};
+    const e: Record<string, string> = sectionErrors(sections, t);
     if (!title.trim()) e.title = t("policyPage.form.titleRequired");
-    sections.forEach((s, i) => {
-      if (!s.title.trim()) e[`sections.${i}.title`] = t("settingsPage.policy.validate.title");
-      if (!s.body.trim()) e[`sections.${i}.body`] = t("settingsPage.policy.validate.body");
-    });
     if (initial?.is_default && !sections.length) e.sections = t("settingsPage.policy.validate.sections");
     setErrors(e);
     if (Object.values(e).some(Boolean)) return;
@@ -119,92 +108,20 @@ export function PolicyEditor({ initial, prefillSamples = false }: { initial: Pol
       </div>
 
       {/* หัวข้อนโยบาย */}
-      <fieldset disabled={pending || locked} className="space-y-3 disabled:opacity-60">
-        <legend className="mb-2 text-sm font-medium">{t("settingsPage.policy.sections")}</legend>
-        {sections.length === 0 && <p className="text-sm text-muted">{t("settingsPage.policy.empty")}</p>}
-        {sections.map((s, i) => (
-          <div key={i} className="space-y-2 rounded-xl p-3 ring-1 ring-line">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-muted">{t("settingsPage.policy.sectionTitle", { n: i + 1 })}</span>
-              <span className="flex-1" />
-              <Tooltip label={t("settingsPage.policy.moveUp")}>
-                <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={t("settingsPage.policy.moveUp")} className={`${btn.secondary} ${btn.sm} h-8 px-2`}>
-                  <ArrowUpIcon width={14} height={14} />
-                </button>
-              </Tooltip>
-              <Tooltip label={t("settingsPage.policy.moveDown")}>
-                <button
-                  type="button"
-                  onClick={() => move(i, 1)}
-                  disabled={i === sections.length - 1}
-                  aria-label={t("settingsPage.policy.moveDown")}
-                  className={`${btn.secondary} ${btn.sm} h-8 px-2`}
-                >
-                  <ArrowDownIcon width={14} height={14} />
-                </button>
-              </Tooltip>
-              <Tooltip label={t("settingsPage.policy.remove")}>
-                <button
-                  type="button"
-                  onClick={() => setSections((x) => x.filter((_, j) => j !== i))}
-                  aria-label={t("settingsPage.policy.remove")}
-                  className={`${btn.danger} ${btn.sm} h-8 px-2`}
-                >
-                  <TrashIcon width={14} height={14} />
-                </button>
-              </Tooltip>
-            </div>
-            <div>
-              <input
-                value={s.title}
-                maxLength={200}
-                onChange={(e) => {
-                  patch(i, { title: e.target.value });
-                  clearErr(`sections.${i}.title`);
-                }}
-                aria-label={t("settingsPage.policy.sectionTitle", { n: i + 1 })}
-                className={`${input} font-medium ${errors[`sections.${i}.title`] ? inputError : ""}`}
-              />
-              {err(`sections.${i}.title`)}
-            </div>
-            <div>
-              <textarea
-                value={s.body}
-                rows={5}
-                maxLength={20000}
-                onChange={(e) => {
-                  patch(i, { body: e.target.value });
-                  clearErr(`sections.${i}.body`);
-                }}
-                aria-label={t("settingsPage.policy.sectionBody")}
-                placeholder={t("settingsPage.policy.sectionBody")}
-                className={`${input} ${errors[`sections.${i}.body`] ? inputError : ""}`}
-              />
-              {err(`sections.${i}.body`)}
-            </div>
-          </div>
-        ))}
-        {err("sections")}
-        {!locked && (
-          <>
-            <button
-              type="button"
-              onClick={() => {
-                setSections((x) => [...x, { title: "", body: "" }]);
-                clearErr("sections");
-              }}
-              className={`${btn.secondary} ${btn.sm}`}
-            >
-              <PlusIcon width={14} height={14} />
-              {t("settingsPage.policy.add")}
-            </button>
-            <button type="button" onClick={addSamples} className={`${btn.secondary} ${btn.sm} ml-2`}>
-              <FileTextIcon width={14} height={14} />
-              {t("settingsPage.policy.addSamples")}
-            </button>
-          </>
-        )}
-      </fieldset>
+      <PolicySectionsEditor
+        sections={sections}
+        onChange={setSections}
+        errors={errors}
+        onClearError={clearErr}
+        locked={locked}
+        disabled={pending}
+        actions={
+          <button type="button" onClick={addSamples} className={`${btn.secondary} ${btn.sm}`}>
+            <FileTextIcon width={14} height={14} />
+            {t("settingsPage.policy.addSamples")}
+          </button>
+        }
+      />
 
       {/* ไฟล์แนบของฉบับนี้ — บันทึกทันที แยกจากปุ่มบันทึกนโยบาย */}
       <div className="space-y-2 border-t border-line pt-4">

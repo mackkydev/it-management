@@ -43,8 +43,8 @@ export default async function ProfilePage() {
               <p className="mt-1 text-sm text-muted">{t("profile.detailsHint")}</p>
             </div>
             <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-              {rows.map((r) => (
-                <div key={r.label}>
+              {rows.map((r, i) => (
+                <div key={i}>
                   <dt className="text-xs text-muted">{r.label}</dt>
                   <dd className="mt-0.5 font-medium text-ink">{r.value || "-"}</dd>
                 </div>

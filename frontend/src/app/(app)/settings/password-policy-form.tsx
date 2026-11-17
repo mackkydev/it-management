@@ -68,7 +68,7 @@ export function PasswordPolicyForm({ initial, groups }: { initial: PasswordPolic
     });
   };
 
-  const number = (k: Field, label: string, hint?: string) => (
+  const number = (k: Field, label: string, hint?: string, disabled = false) => (
     <div>
       <label htmlFor={`pp-${k}`} className="mb-1 block text-xs font-medium">
         {label}
@@ -80,11 +80,12 @@ export function PasswordPolicyForm({ initial, groups }: { initial: PasswordPolic
         min={LIMITS[k][0]}
         max={LIMITS[k][1]}
         value={v[k]}
+        disabled={disabled}
         onChange={(e) => set(k, e.target.value)}
         aria-invalid={Boolean(errors[k])}
-        className={`${input} max-w-36 ${errors[k] ? inputError : ""}`}
+        className={`${input} max-w-36 disabled:cursor-not-allowed ${errors[k] && !disabled ? inputError : ""}`}
       />
-      {errors[k] ? <p className="mt-1 text-xs text-red-500">{errors[k]}</p> : hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
+      {errors[k] && !disabled ? <p className="mt-1 text-xs text-red-500">{errors[k]}</p> : hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
     </div>
   );
 
@@ -117,8 +118,8 @@ export function PasswordPolicyForm({ initial, groups }: { initial: PasswordPolic
         <p className="mt-1 text-sm text-muted">{t("settingsPage.passwordPolicy.hint")}</p>
       </div>
 
-      {/* 2 คอลัมน์เรียงลงมาอิสระ — เปิดกล่องไหนแล้วสูงขึ้น ไม่เกิดช่องโหว่ข้าง ๆ */}
-      <div className="grid items-start gap-3 lg:grid-cols-2">
+      {/* ซ้าย: กติการหัสผ่าน / ขวา: ล็อกผู้ใช้ที่ไม่เข้าระบบ สูงเต็มตามฝั่งซ้าย */}
+      <div className="grid gap-3 lg:grid-cols-2">
         <div className="space-y-3">
         <div className="rounded-xl p-4 ring-1 ring-line">
           {toggle("pp-lockout", lockout, setLockout, t("settingsPage.passwordPolicy.lockoutTitle"), t("settingsPage.passwordPolicy.lockoutHint"))}
@@ -133,9 +134,7 @@ export function PasswordPolicyForm({ initial, groups }: { initial: PasswordPolic
         <div className="rounded-xl p-4 ring-1 ring-line">
           {toggle("pp-first", firstChange, setFirstChange, t("settingsPage.passwordPolicy.firstChangeTitle"), t("settingsPage.passwordPolicy.firstChangeHint"))}
         </div>
-        </div>
 
-        <div className="space-y-3">
         <div className="rounded-xl p-4 ring-1 ring-line">
           {toggle("pp-expiry", expiry, setExpiry, t("settingsPage.passwordPolicy.expiryTitle"), t("settingsPage.passwordPolicy.expiryHint"))}
           {expiry && (
@@ -151,12 +150,13 @@ export function PasswordPolicyForm({ initial, groups }: { initial: PasswordPolic
             </div>
           )}
         </div>
+        </div>
 
         <div className="rounded-xl p-4 ring-1 ring-line">
           {toggle("pp-inactive", inactive, setInactive, t("settingsPage.passwordPolicy.inactiveTitle"), t("settingsPage.passwordPolicy.inactiveHint"))}
-          {inactive && (
-            <div className="mt-3 space-y-3 border-t border-line pt-3">
-              {number("inactive_lock_days", t("settingsPage.passwordPolicy.inactiveDays"))}
+          {/* แสดงเสมอ — ปิดสวิตช์ = สีเทา เห็นค่าแต่แก้ไม่ได้ */}
+          <div className={`mt-3 space-y-3 border-t border-line pt-3 ${inactive ? "" : "opacity-60 grayscale"}`}>
+              {number("inactive_lock_days", t("settingsPage.passwordPolicy.inactiveDays"), undefined, !inactive)}
               <div>
                 <p className="mb-1.5 text-xs font-medium">{t("settingsPage.passwordPolicy.inactiveGroups")}</p>
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -175,7 +175,7 @@ export function PasswordPolicyForm({ initial, groups }: { initial: PasswordPolic
                           role="switch"
                           aria-checked={checked}
                           aria-label={name}
-                          disabled={exempt}
+                          disabled={exempt || !inactive}
                           onClick={() => setInactiveGroups((x) => (checked ? x.filter((k) => k !== g.key) : [...x, g.key]))}
                           className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${checked ? "bg-accent-500" : "bg-line"}`}
                         >
@@ -186,9 +186,7 @@ export function PasswordPolicyForm({ initial, groups }: { initial: PasswordPolic
                   })}
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+          </div>
         </div>
       </div>
 

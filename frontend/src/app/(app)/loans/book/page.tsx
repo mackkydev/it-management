@@ -3,7 +3,7 @@ import { CalendarIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
-import { getAccess } from "@/lib/auth";
+import { getAccess, getCurrentUser } from "@/lib/auth";
 import { localToday } from "@/lib/date";
 import type { Loan, LoanDevice } from "@/lib/types";
 import { monthGrid } from "../../calendar/calendar-grid";
@@ -19,22 +19,22 @@ const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
 /**
- * ยืมโน้ตบุ๊ก (หน้าเดียวของระบบยืม) — ซ้าย: โน้ตบุ๊กที่ติ๊ก "เป็นเครื่องสำหรับยืม" + ยืม-จอง, ขวา: ปฏิทินการยืม (ทุกคนเห็นทุกเครื่อง)
- * ?month= เลือกเดือนปฏิทิน, ?date=&device= เปิดฟอร์มของเครื่องนั้นไว้ให้ (ลิงก์เดิม)
+ * ยืมโน้ตบุ๊ก (หน้าเดียวของระบบยืม) — ปุ่ม ยืม-จอง (กล่องฟอร์ม), ซ้าย: โน้ตบุ๊กที่ติ๊ก "เป็นเครื่องสำหรับยืม" + สถานะ ว่าง / ติดยืม,
+ * ขวา: ปฏิทินการยืม (ทุกคนเห็นทุกเครื่อง) — ?month= เลือกเดือนปฏิทิน, ?date= เปิดกล่อง ยืม-จอง วันนั้นไว้ให้ (ลิงก์เดิม)
  */
 export default async function BookLoanPage({ searchParams }: PageProps<"/loans/book">) {
   const sp = await searchParams;
   const today = localToday();
   const month = MONTH_RE.test(str(sp.month)) ? str(sp.month) : today.slice(0, 7);
   const { from, to } = monthGrid(month);
-  const [{ t }, loans, devices, can] = await Promise.all([
+  const [{ t }, user, loans, devices, can] = await Promise.all([
     getI18n(),
+    getCurrentUser(),
     apiFetch<{ data: Loan[] }>(`/loans?${new URLSearchParams({ from, to })}`).then((r) => r.data),
     apiFetch<{ data: LoanDevice[] }>("/loan-devices").then((r) => r.data),
     getAccess(),
   ]);
-  const date = DATE_RE.test(str(sp.date)) && str(sp.date) >= today ? str(sp.date) : today;
-  const device = devices.find((d) => String(d.id) === str(sp.device));
+  const date = DATE_RE.test(str(sp.date)) && str(sp.date) >= today ? str(sp.date) : null;
 
   return (
     <div className="space-y-5">
@@ -44,7 +44,8 @@ export default async function BookLoanPage({ searchParams }: PageProps<"/loans/b
         loans={loans}
         devices={devices}
         canBook={can("btn:loans:book")}
-        initialOpen={device ? { deviceId: device.id, date, nonce: 1 } : null}
+        borrower={{ name: user?.name ?? "", department: user?.department ?? null }}
+        initialDate={date}
       />
     </div>
   );

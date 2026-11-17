@@ -31,6 +31,9 @@ export default async function EditTicketPage({ params, searchParams }: PageProps
     apiFetch<{ data: TicketFormOptions }>("/tickets/form-options"),
   ]);
   if (!ticket.actions.includes("edit")) redirect(`/tickets/${id}`);
+  // ผู้รับงานเดิมที่ไม่อยู่ในรายชื่อที่ผู้แจ้งเลือกได้แล้ว (เช่น ภายหลังติ๊กเป็นผู้จัดการ) — คงไว้ให้ช่องแสดงค่าเดิม
+  const current = ticket.assignee;
+  if (current && !options.it_staff.some((s) => s.id === current.id)) options.it_staff = [...options.it_staff, { id: current.id, name: current.name }];
 
   return <TicketForm user={user} options={options} plan={null} editing={ticket} focusApprover={focusApprover} />;
 }

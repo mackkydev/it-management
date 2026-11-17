@@ -5,6 +5,18 @@ import { getI18n } from "@/i18n/server";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
 import { apiFetch } from "@/lib/api";
 
+/** ชื่อระบบ + ข้อความใต้ชื่อ — ว่าง = ใช้ค่าเริ่มต้น (สิทธิ์ settings.manage — API ตรวจซ้ำ) */
+export async function saveBranding(input: { name: string; tagline: string }): Promise<ActionResult<"name" | "tagline">> {
+  const { t } = await getI18n();
+  try {
+    await apiFetch("/settings/branding", { method: "PUT", body: JSON.stringify(input) });
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: t("logo.saved") };
+}
+
 /** โลโก้ระบบ (สิทธิ์ settings.manage — API ตรวจซ้ำ) */
 export async function uploadLogo(formData: FormData): Promise<ActionResult<"logo">> {
   const { t } = await getI18n();

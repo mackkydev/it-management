@@ -63,7 +63,7 @@ export async function TicketListPage({ scope, params }: { scope: TicketScope; pa
       />
 
       <Suspense fallback={<div className="h-10" />}>
-        {scope === "it" ? <ItQueueTabs status={str("status")} /> : scope === "it_mine" ? <MyQueueTabs status={str("status")} /> : <ScopeTabs scope={scope} />}
+        {scope === "it" ? <ItQueueTabs status={str("status")} /> : scope === "it_mine" ? <MyQueueTabs status={str("status")} /> : <ScopeTabs scope={scope} status={str("status")} />}
       </Suspense>
 
       {/* ตัวกรองแถวเดียว (จอใหญ่) — ข้อความ / เรื่อง / สถานะ (+ ทั้งหมด: เจ้าหน้าที่ IT / ช่วงวันที่แจ้ง) / ล้าง / ค้นหา */}
@@ -137,20 +137,26 @@ interface Tab {
   href: string;
   label: string;
   count?: number;
+  /** ตัวเลขแดง = งานที่รอฉันดำเนินการ (ตัวเลขเดียวกับเมนู) */
+  alert?: number;
   active: boolean;
 }
 
 const ticketCounts = () => apiFetch<{ counts: TicketCounts }>("/tickets?per_page=1").then((r) => r.counts);
 
 /** แท็บฝั่งผู้แจ้ง: ของฉัน / รออนุมัติ — พร้อมตัวเลขค้าง (คิวงาน IT แยกไปเมนู "งานฝ่าย IT") */
-async function ScopeTabs({ scope }: { scope: TicketScope }) {
+async function ScopeTabs({ scope, status }: { scope: TicketScope; status: string }) {
   const [{ t }, c, can, user] = await Promise.all([getI18n(), ticketCounts(), getAccess(), getCurrentUser()]);
   // แท็บรออนุมัติตามการมองเห็นเมนู /tickets/approvals (ตั้งค่าระบบ → สิทธิ์การใช้งาน) — แต่ถ้ามีใบรอตัวเองอนุมัติจริงยังแสดง
   const showApprovals = can(BASE.approvals) || Boolean(c.approvals) || scope === "approvals";
+  // รอเลือกผู้อนุมัติ = ใบของฉันที่ฝ่าย IT ขอให้หัวหน้าอนุมัติ (approval_requested) — ตัวเลขแดงสองแท็บรวมกัน = ตัวเลขเมนู
+  const choosing = scope === "mine" && status === "approval_requested";
+  const choose = c.mine_choose_approver ?? 0;
   return (
     <Tabs
       tabs={[
-        { href: MINE_HREF, label: t("tickets.tabs.mine"), count: c.mine_open, active: scope === "mine" },
+        { href: MINE_HREF, label: t("tickets.tabs.mine"), count: c.mine_open, alert: (c.mine_action ?? 0) - choose, active: scope === "mine" && !choosing },
+        { href: `${MINE_HREF}&status=approval_requested`, label: t("tickets.tabs.chooseApprover"), alert: choose, active: choosing },
         ...(showApprovals ? [{ href: BASE.approvals, label: t("tickets.tabs.approvals"), count: c.approvals, active: scope === "approvals" }] : []),
         // ผู้ดูแลระบบ / เจ้าหน้าที่ IT: ใบแจ้งงานทั้งหมด (เมนูเดียวกับ "ใบแจ้งงาน")
         ...(has(user, "it_tickets.queue") ? [{ href: BASE.all, label: t("tickets.tabs.all"), active: scope === "all" }] : []),
@@ -208,6 +214,9 @@ function Tabs({ tabs }: { tabs: Tab[] }) {
             <span className="rounded-full bg-accent-200 px-1.5 text-2xs font-semibold text-accent-900 dark:bg-accent-400/30 dark:text-accent-100">
               {tab.count}
             </span>
+          ) : null}
+          {tab.alert ? (
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger-500 px-1.5 text-2xs font-semibold text-white">{tab.alert > 99 ? "99+" : tab.alert}</span>
           ) : null}
         </Link>
       ))}

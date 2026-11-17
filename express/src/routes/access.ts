@@ -1,3 +1,4 @@
+import { normalizeIp } from "../lib/client.js";
 import ExcelJS from "exceljs";
 import { Router, type Request } from "express";
 import { config } from "../config.js";
@@ -757,7 +758,7 @@ async function auditFilter(req: Request, input: Record<string, unknown>) {
 
 interface AuditRow {
   id: number; actor_id: number | null; actor_name: string | null; branch_name: string | null; action: string; subject_type: string; subject_id: string | null;
-  subject_name: string | null; before: unknown; after: unknown; ip: string | null; created_at: string;
+  subject_name: string | null; before: unknown; after: unknown; ip: string | null; user_agent: string | null; created_at: string;
 }
 
 const AUDIT_SELECT = `SELECT a.*, u.name AS actor_name, b.name AS branch_name,
@@ -776,7 +777,7 @@ accessRoutes.get("/audit-logs", async (req, res) => {
   const page = pageParam(req);
   const total = Number(await scalar(`SELECT COUNT(*) FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id WHERE ${w.sql}`, w.params));
   const rows = await select<AuditRow>(`${AUDIT_SELECT} WHERE ${w.sql} ORDER BY a.id DESC LIMIT ? OFFSET ?`, [...w.params, perPage, (page - 1) * perPage]);
-  res.json(paginated(req, rows.map((r) => ({ ...r, created_at: iso(r.created_at) })), total, page, perPage));
+  res.json(paginated(req, rows.map((r) => ({ ...r, ip: normalizeIp(r.ip), created_at: iso(r.created_at) })), total, page, perPage));
 });
 
 const AUDIT_EXPORT_MAX = 20000;
@@ -810,6 +811,7 @@ accessRoutes.post("/audit-logs/export", async (req, res) => {
     { header: h("subject", "Item"), key: "subject", width: 30 },
     { header: h("changes", "Changes"), key: "changes", width: 70 },
     { header: "IP", key: "ip", width: 16 },
+    { header: h("device", "Device"), key: "device", width: 50 },
   ];
   ws.getRow(1).font = { bold: true };
   ws.views = [{ state: "frozen", ySplit: 1 }];
@@ -826,7 +828,8 @@ accessRoutes.post("/audit-logs/export", async (req, res) => {
       action: typeof labels[r.action] === "string" ? labels[r.action] : r.action,
       subject: `${r.subject_name ?? r.subject_type}${r.subject_id ? ` #${r.subject_id}` : ""}`,
       changes: keys.map((k) => `${k}: ${auditValue(before?.[k])} → ${auditValue(after?.[k])}`).join("\n"),
-      ip: r.ip ?? "",
+      ip: normalizeIp(r.ip) ?? "",
+      device: r.user_agent ?? "",
     });
     row.getCell("changes").alignment = { wrapText: true, vertical: "top" };
     row.alignment = { vertical: "top" };

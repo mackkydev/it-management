@@ -11,6 +11,8 @@ import { deleteStored, readStored, storeUploadIn } from "../services/ticket-file
 /**
  * โลโก้ของระบบ (แสดงหน้าชื่อ IT-SYSTEM ในเมนู) — ตั้งที่หน้า ตั้งค่าระบบ (สิทธิ์ settings.manage)
  *   GET    /branding/logo     (ไม่ต้อง login) รูปโลโก้ — ไม่มี = 404 (frontend แสดง icon เดิม)
+ *   GET    /branding          (ไม่ต้อง login — หน้า login ใช้ด้วย) ชื่อระบบ + ข้อความใต้ชื่อ ว่าง = ใช้ค่าตั้งต้นของหน้าเว็บ
+ *   PUT    /settings/branding { name, tagline }
  *   POST   /settings/logo     multipart: logo — PNG/JPG/WebP ≤ 1MB (ไม่รับ SVG เพื่อกันสคริปต์ฝังในไฟล์)
  *   DELETE /settings/logo
  * เก็บไฟล์ใน storage/private/branding/ — path + เวอร์ชันอยู่ใน app_settings (logo_path, logo_version)
@@ -26,6 +28,24 @@ publicBrandingRoutes.get("/branding/logo", async (_req, res) => {
   res.setHeader("Cache-Control", "public, max-age=86400");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.send(file.data);
+});
+
+publicBrandingRoutes.get("/branding", async (_req, res) => {
+  res.json({ data: { name: await getSetting("brand_name"), tagline: await getSetting("brand_tagline") } });
+});
+
+/** ชื่อแสดงบรรทัดเดียว: ตัดช่องว่างหัวท้าย/ซ้อน และขึ้นบรรทัดใหม่ */
+const oneLine = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim();
+
+brandingRoutes.put("/settings/branding", async (req, res) => {
+  authorize(can(me(req), "settings.manage"));
+  const data = await validate(req.input, { name: ["nullable", "string", "max:30"], tagline: ["nullable", "string", "max:60"] }, { locale: req.locale });
+  const before = { name: await getSetting("brand_name"), tagline: await getSetting("brand_tagline") };
+  const after = { name: oneLine(data.name), tagline: oneLine(data.tagline) };
+  await putSetting("brand_name", after.name, me(req).id);
+  await putSetting("brand_tagline", after.tagline, me(req).id);
+  await audit(req, { action: "settings.branding_updated", subjectType: "settings", subjectId: "branding", before, after });
+  res.json({ data: after });
 });
 
 brandingRoutes.post("/settings/logo", async (req, res) => {

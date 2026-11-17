@@ -36,7 +36,7 @@ export function notificationText(n: AppNotification, t: TFunction, date: (iso: s
   if (n.data.kind === "loan") {
     const d = n.data;
     const period = d.start_on === d.end_on ? `${d.start_on} ${d.start_time}–${d.end_time}` : `${d.start_on} ${d.start_time} – ${d.end_on} ${d.end_time}`;
-    return t(`notifications.loan.${d.event}` as MessageKey, { actor: d.actor ?? "", device: d.device, period, end: `${d.end_on} ${d.end_time}` });
+    return t(`notifications.loan.${d.event}` as MessageKey, { actor: d.actor ?? "", device: d.device ?? t("notifications.loanNotebook"), period, end: `${d.end_on} ${d.end_time}` });
   }
   if (n.data.kind === "vpn") {
     const d = n.data;
@@ -48,6 +48,10 @@ export function notificationText(n: AppNotification, t: TFunction, date: (iso: s
       days: d.days_left ?? 0,
       ticket: d.ticket_no ?? "",
     });
+  }
+  if (n.data.kind === "repair_order") {
+    const d = n.data;
+    return t("notifications.repairOrder.follow_up", { item: d.item, vendor: d.vendor, sent: date(d.sent_on), days: d.days });
   }
   if (n.data.kind === "meeting") {
     const d = n.data;
@@ -82,17 +86,24 @@ export function notificationHref(n: AppNotification): string {
   // ยืมอุปกรณ์: รอส่งมอบ → หน้าส่งมอบ/รับคืน, เกินกำหนด → ผู้จัดการไปแท็บเกินกำหนด (ผู้ยืมไปการยืมของฉัน — ลิงก์เดียวกัน redirect ตามสิทธิ์), อื่นๆ → การยืมของฉัน
   if (n.data.kind === "loan") {
     if (n.data.event === "requested") return "/loans/manage?status=pending";
+    if (n.data.event === "return_requested") return "/loans/manage?status=returning";
     if (n.data.event === "cancelled") return "/loans/mine?status=cancelled";
     if (n.data.event === "returned") return "/loans/mine?status=past";
     return "/loans/mine";
   }
   // VPN: ขอใช้ / หมดอายุ → หน้าจัดการ VPN (ผู้ใช้ทั่วไปถูกพาไปการยืมของฉัน), ไม่อนุมัติ / สิ้นสุด → แท็บคืนแล้ว, อื่นๆ → การยืมของฉัน
   if (n.data.kind === "vpn") {
-    if (n.data.event === "requested") return "/loans/vpn?status=requested";
+    if (n.data.event === "requested" || n.data.event === "approval_returned") return "/loans/vpn?status=requested";
+    if (n.data.event === "approval_requested") return "/loans/vpn?status=approval";
+    if (n.data.event === "choice_requested") return "/loans/vpn?status=active";
+    // ผู้ใช้: VPN ของฉันอยู่ที่หน้า ขอใช้ VPN (ผู้ดูแลที่ได้ "หมดอายุ" ไปหน้าจัดการ — ผู้ใช้ทั่วไปถูกพาไปหน้า VPN ของตัวเอง)
+    if (n.data.event === "assigned" || n.data.event === "revoked" || n.data.event === "expiring" || n.data.event === "renewed" || n.data.event === "updated" || n.data.event === "choice_not_done") return "/loans/vpn/request";
     if (n.data.event === "expired") return "/loans/vpn?status=expiring";
     if (n.data.event === "rejected" || n.data.event === "ended") return "/loans/mine?status=past";
     return "/loans/mine";
   }
+  // รายการส่งซ่อมถึงกำหนดตามงาน → หน้ารายละเอียด (รับคืน / แก้จำนวนวันตามงาน)
+  if (n.data.kind === "repair_order") return `/it/repair-orders/${n.data.repair_order_id}`;
   // การจองห้องประชุมที่ผู้จัดการแก้/ยกเลิก/ลบ → การจองของฉัน (ยกเลิก = แท็บยกเลิกแล้ว)
   if (n.data.kind === "meeting") return n.data.event === "cancelled" ? "/meeting-rooms/mine?status=cancelled" : "/meeting-rooms/mine";
   return "/contracts";

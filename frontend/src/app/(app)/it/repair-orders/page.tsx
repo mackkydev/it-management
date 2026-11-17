@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Form from "next/form";
 import Link from "next/link";
+import { ClickableRow } from "@/components/clickable-row";
 import { redirect } from "next/navigation";
 import { PaperclipIcon, PencilIcon, PlusIcon, SearchIcon, TruckIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { LinkPendingIcon, SubmitButton } from "@/components/pending";
 import { FlashToast } from "@/components/toast";
-import { btn, card, input, table } from "@/components/ui";
+import { btn, card, input, table, tone } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { getAccess, getCurrentUser, has } from "@/lib/auth";
@@ -102,11 +103,12 @@ export default async function RepairOrdersPage({ searchParams }: PageProps<"/it/
               </thead>
               <tbody className={table.body}>
                 {res.data.map((r) => (
-                  <tr key={r.id} className={table.row}>
+                  <ClickableRow key={r.id} href={`/it/repair-orders/${r.id}`} className={table.row}>
                     <td className={table.td}>
                       <Link href={`/it/repair-orders/${r.id}`} className="group block cursor-pointer">
                         {r.item_no && <span className="font-mono text-xs text-accent-700 group-hover:underline dark:text-accent-300">{r.item_no}</span>}
                         <span className="block font-medium group-hover:underline">{r.item_name}</span>
+                        {r.follow_up_due && <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-2xs font-medium ${tone.danger.badge}`}>{t("repairOrders.form.followUpDue")} · {fmt.date(r.follow_up_on)}</span>}
                       </Link>
                     </td>
                     <td className={`${table.td} max-w-64`}>
@@ -157,7 +159,7 @@ export default async function RepairOrdersPage({ searchParams }: PageProps<"/it/
                         {r.can_return && canCancel && <CancelButton id={r.id} item={r.item_name} />}
                       </span>
                     </td>
-                  </tr>
+                  </ClickableRow>
                 ))}
               </tbody>
             </table>
@@ -166,10 +168,11 @@ export default async function RepairOrdersPage({ searchParams }: PageProps<"/it/
           {/* มือถือ: การ์ด */}
           <ul className="space-y-3 lg:hidden">
             {res.data.map((r) => (
-              <li key={r.id} className={`space-y-2 p-4 ${card}`}>
+              <ClickableRow as="li" key={r.id} href={`/it/repair-orders/${r.id}`} className={`space-y-2 p-4 ${card}`}>
                 <Link href={`/it/repair-orders/${r.id}`} className="block cursor-pointer">
                   {r.item_no && <span className="font-mono text-xs text-accent-700 dark:text-accent-300">{r.item_no}</span>}
                   <span className="block font-medium">{r.item_name}</span>
+                  {r.follow_up_due && <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-2xs font-medium ${tone.danger.badge}`}>{t("repairOrders.form.followUpDue")} · {fmt.date(r.follow_up_on)}</span>}
                 </Link>
                 <p className="line-clamp-2 text-sm text-muted">{r.symptom}</p>
                 <p className="text-sm">{r.vendor.name}</p>
@@ -199,7 +202,7 @@ export default async function RepairOrdersPage({ searchParams }: PageProps<"/it/
                     {canCancel && <CancelButton id={r.id} item={r.item_name} full />}
                   </div>
                 )}
-              </li>
+              </ClickableRow>
             ))}
           </ul>
           <Pagination meta={res.meta} href={pageHref} />

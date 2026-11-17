@@ -23,7 +23,7 @@ describe("IT queue: my queue, forwarding and taking over", () => {
   it("the assignee forwards a ticket to other IT staff; others take over from the IT queue and the original drops off menus and KPI", async () => {
     const requester = await makeUser({ name: "ผู้แจ้ง" });
     const somchai = await makeUser({ name: "สมชาย", is_it_staff: true });
-    const somying = await makeUser({ name: "สมหญิง", is_it_staff: true });
+    const somying = await makeUser({ name: "สมหญิง", is_it_staff: true, department: "IT" });
     const viewer = await makeUser();
     const uuid = await ticket({ requester_id: requester.id, assignee_id: somchai.id });
     await notifyUsers([somchai.id], TICKET_ACTIVITY, { kind: "ticket", event: "approved", ticket_id: uuid });

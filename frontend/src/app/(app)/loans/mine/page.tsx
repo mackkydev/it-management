@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { InboxIcon, KeyIcon, PlusIcon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
+import { ItemBadge } from "@/components/shell/menu-badges";
 import { FlashToast } from "@/components/toast";
 import { alert, btn, card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
@@ -18,11 +19,11 @@ export async function generateMetadata(): Promise<Metadata> {
 
 const TABS = ["active", "past", "cancelled"] as const;
 const TAB_CLS = (active: boolean) =>
-  `cursor-pointer whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
+  `inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
 
 /** สถานะ VPN ที่แสดงในแต่ละแท็บ */
 const VPN_TABS: Record<(typeof TABS)[number], VpnLoan["status"][]> = {
-  active: ["requested", "active", "renewal_requested", "cancel_requested"],
+  active: ["requested", "pending_approval", "active", "renewal_requested", "cancel_requested"],
   past: ["ended", "rejected"],
   cancelled: ["cancelled"],
 };
@@ -61,6 +62,8 @@ export default async function MyLoansPage({ searchParams }: PageProps<"/loans/mi
         {TABS.map((s) => (
           <Link key={s} href={`/loans/mine?status=${s}`} aria-current={s === status ? "page" : undefined} className={TAB_CLS(s === status)}>
             {t(`loan.mine.tabs.${s}`)}
+            {/* ตัวเลขเมนู (เกินกำหนดคืน + VPN ที่ต้องทำ) อยู่ในแท็บรายการที่ยังใช้อยู่ */}
+            {s === "active" && <ItemBadge href="/loans/mine" />}
           </Link>
         ))}
       </nav>
@@ -70,9 +73,9 @@ export default async function MyLoansPage({ searchParams }: PageProps<"/loans/mi
             <KeyIcon width={15} height={15} className="text-accent-500" />
             {t("vpn.mineTitle")}
           </h2>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {vpn.map((l) => (
-              <VpnCard key={`${l.id}:${l.status}:${l.expires_on}`} loan={l} />
+              <VpnCard key={`${l.id}:${l.status}:${l.expires_on}:${l.received_at}:${l.revoked_at}`} loan={l} compact />
             ))}
           </div>
         </section>

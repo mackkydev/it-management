@@ -6,11 +6,11 @@ import { revalidatePath } from "next/cache";
 import { getI18n } from "@/i18n/server";
 import { apiFetch } from "@/lib/api";
 import { toActionResult, type ActionResult } from "@/lib/action-result";
-import type { PolicyDisplay, PolicySection, PolicyVersion } from "@/lib/types";
+import type { PolicyDisplay, PolicyPace, PolicySection, PolicyVersion } from "@/lib/types";
 
 const validId = (n: number) => Number.isInteger(n) && n > 0;
 
-/** ยอมรับนโยบายการใช้งานระบบ (ฉบับที่อ่าน) → เข้าใช้งาน */
+/** ยอมรับนโยบายการใช้งานระบบ (ฉบับที่อ่าน) → เข้าใช้งาน (ยังเหลือเรื่องที่ต้องยอมรับ = หน้าเว็บพากลับไปหน้ายอมรับเอง) */
 export async function acceptPolicy(version: number): Promise<ActionResult> {
   if (!Number.isInteger(version) || version < 1) return { message: (await getI18n()).t("common.saveFailed") };
   try {
@@ -143,8 +143,8 @@ export async function deleteOtherPolicy(id: number): Promise<ActionResult> {
   return { ok: true, message: t("policyPage.others.deleted") };
 }
 
-/** เปิด-ปิด + ที่แสดงนโยบาย (หน้าตั้งค่าระบบ — settings.manage) */
-export async function savePolicyOptions(values: { enabled: boolean; display: PolicyDisplay }): Promise<ActionResult> {
+/** เปิด-ปิด + ที่แสดงนโยบาย + ทั้งหมดวันเดียว / วันละเรื่อง (หน้าตั้งค่าระบบ — settings.manage) */
+export async function savePolicyOptions(values: { enabled: boolean; display: PolicyDisplay; pace: PolicyPace }): Promise<ActionResult> {
   const { t } = await getI18n();
   try {
     await apiFetch("/policy/options", { method: "PUT", body: JSON.stringify(values) });
@@ -154,4 +154,33 @@ export async function savePolicyOptions(values: { enabled: boolean; display: Pol
   revalidatePath("/settings");
   revalidatePath("/login");
   return { ok: true, message: t("settingsPage.saved") };
+}
+
+/** ลำดับที่ให้ยอมรับของแต่ละเรื่อง (ทั้งหมด เรียงใหม่) */
+export async function savePolicyOrder(ids: number[]): Promise<ActionResult> {
+  const { t } = await getI18n();
+  if (!ids.length || !ids.every(validId)) return { message: t("common.saveFailed") };
+  try {
+    await apiFetch("/policy/groups/order", { method: "PUT", body: JSON.stringify({ ids }) });
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath("/policy");
+  revalidatePath("/login");
+  return { ok: true, message: t("policyPage.orderSaved") };
+}
+
+/** เลิกแสดงนโยบายเรื่องนี้ให้ผู้ใช้ (ฉบับและการยอมรับเดิมยังอยู่) */
+export async function hidePolicyGroup(id: number): Promise<ActionResult> {
+  const { t } = await getI18n();
+  if (!validId(id)) return { message: t("common.saveFailed") };
+  try {
+    await apiFetch(`/policy/groups/${id}/current`, { method: "DELETE" });
+  } catch (e) {
+    return toActionResult(e);
+  }
+  revalidatePath("/policy");
+  revalidatePath("/login");
+  revalidatePath("/settings");
+  return { ok: true, message: t("policyPage.groupHidden") };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
-import { getConnectionStatus, login, loginWithConnection, logout, type ConnectionStatus, type LoginState } from "@/app/actions/auth";
+import { getConnectionStatus, getSystemStatus, login, loginWithConnection, logout, type ConnectionStatus, type LoginState } from "@/app/actions/auth";
 import { AlertIcon, LoginIcon, LogoutIcon, SaveIcon, SpinnerIcon } from "@/components/icons";
 import { alert, btn, input, inputError, tone } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
@@ -19,8 +19,8 @@ const STATUS_DOT: Record<ConnectionStatus | "checking", string> = {
   unknown: tone.idle.dot,
 };
 type StatusKey = ConnectionStatus | "checking";
-type ServerStatus = "online" | "offline" | "none" | "checking";
-const SERVER_DOT: Record<ServerStatus, string> = { online: tone.success.dot, offline: tone.danger.dot, none: tone.idle.dot, checking: `${tone.idle.dot} animate-pulse` };
+type ServerStatus = "online" | "offline" | "checking";
+const SERVER_DOT: Record<ServerStatus, string> = { online: tone.success.dot, offline: tone.danger.dot, checking: `${tone.idle.dot} animate-pulse` };
 
 /**
  * ฟอร์มเข้าสู่ระบบ — "บัญชีในระบบ" (อีเมล + รหัสผ่านของระบบเรา) หรือ login ผ่านระบบต้นทางที่ Local Admin เปิดไว้
@@ -59,9 +59,18 @@ export function LoginForm({ connections = [], initial, policy = null }: { connec
     };
   }, [ids]);
   const statusOf = (id: number): StatusKey => statuses[id] ?? "checking";
-  // รวมเป็นสถานะเดียว: มีอย่างน้อย 1 การเชื่อมต่อที่ต่อได้ = online / ต่อไม่ได้ = offline / ไม่มีการเชื่อมต่อ หรือตรวจไม่ได้ = none
-  const all = connections.map((c) => statusOf(c.id));
-  const server: ServerStatus = all.includes("online") ? "online" : all.includes("offline") ? "offline" : all.includes("checking") ? "checking" : "none";
+  // ป้ายมุมบนขวา = สถานะระบบของเราเอง (API + ฐานข้อมูล) — ไม่ขึ้นกับการเชื่อมต่อ API ต้นทาง (ยังไม่ใช้งาน)
+  const [server, setServer] = useState<ServerStatus>("checking");
+  useEffect(() => {
+    let alive = true;
+    const check = () => void getSystemStatus().then((s) => alive && setServer(s));
+    check();
+    const timer = window.setInterval(check, STATUS_REFRESH_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   // รหัสผ่านถูกแล้ว แต่ต้องยืนยันตัวตนขั้นที่ 2 (2FA)
   if (!conn && localState.twoFactor) return <TwoFactorStep mode={localState.twoFactor} />;
@@ -76,10 +85,10 @@ export function LoginForm({ connections = [], initial, policy = null }: { connec
 
   return (
     <div className="mt-8 space-y-5">
-      {/* สถานะการเชื่อมต่อ Server (API ต้นทาง) — มุมบนขวาของกล่อง login แนวเดียวกับไอคอน (.login-card เป็น relative) */}
+      {/* สถานะระบบ (API + ฐานข้อมูล) — มุมบนขวาของกล่อง login แนวเดียวกับไอคอน (.login-card เป็น relative) */}
       <p role="status" aria-live="polite" className="login-chip absolute right-8 top-[43px] flex items-center gap-2 rounded-full px-3 py-1 text-xs sm:right-10 sm:top-[51px]">
         <span className={`h-2 w-2 shrink-0 rounded-full ${SERVER_DOT[server]}`} aria-hidden="true" />
-        <span className={server === "online" ? "text-success-300" : server === "offline" ? "text-danger-300" : "login-muted"}>{t(`auth.serverStatus.${server === "checking" ? "none" : server}`)}</span>
+        <span className={server === "online" ? "text-success-300" : server === "offline" ? "text-danger-300" : "login-muted"}>{t(`auth.serverStatus.${server}`)}</span>
       </p>
 
       {connections.length > 0 && !localState.changePassword && (

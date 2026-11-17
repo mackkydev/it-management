@@ -9,10 +9,11 @@ import { UploadedFile } from "../lib/uploaded-file.js";
 import { exists, int, validate, type Rule } from "../lib/validator.js";
 import { me, pageParam, shortMeta } from "../http.js";
 import { can, type UserRow, isReadOnly } from "../models/user.js";
+import { fixedAssetBadgeCount } from "../services/fixed-assets.js";
 import { person } from "../resources.js";
 import { getSetting } from "../services/settings.js";
 import { readStored, storeSignature, storeUpload, deleteTicketFiles } from "../services/ticket-files.js";
-import { acceptors, canCloseResult, closersFor, isZoomTicket, actionsFor, canAccept, canForward, isTakeOver, closers, closersAmong, isSelfClose, withCloseInfo, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel, canRequestApproval, isDirectToIt } from "../services/ticket-workflow.js";
+import { acceptors, canCloseResult, closersFor, isZoomTicket, actionsFor, canAccept, canForward, isTakeOver, closers, closersAmong, isSelfClose, withCloseInfo, canApprove, canClose, canConfirmClose, canProgress, canRecordResult, canView, IT_STAFF_WHERE, itStaff, itStaffOptions, notify, PRE_APPROVAL, TICKET_APPROVAL_COLUMNS, type TicketRow, canDecideCancel, canDelete, canEdit, canRequestCancel, canWithdrawCancel, canRequestApproval, isDirectToIt } from "../services/ticket-workflow.js";
 import { activeSignature, copySignatureTo, mimeOf, readSignature, requireSignature, rememberDrawnSignature } from "../services/signatures.js";
 import { audit } from "../services/audit.js";
 import { scopeWhere } from "../services/manage-scope.js";
@@ -25,11 +26,12 @@ import { expiringContractCount } from "./it-data.js";
 import { expiringLicenseCount } from "../services/licenses.js";
 import { approverCandidates, planFor, snapshotPlan, ticketSteps, withChosenApprover } from "../services/approval-routes.js";
 import { pendingVehicleBookings } from "./vehicles.js";
-import { pendingRepairOrders } from "./repair-orders.js";
+import { dueFollowUpCount, repairOrderIdForTicket, repairOrdersForTicket, returnedPartsForTicket } from "./repair-orders.js";
 import { zoomBadges } from "./zoom.js";
 import { loanBadges } from "./loans.js";
 import {
-  announceVpnRequest, applyVpnTicketOutcome, closeVpnRequest, isVpnRequestType, pendingVpnRequest, syncVpnRequest, vpnBadges, vpnOfTicket, VPN_REQUEST_TYPE,
+  announceVpnRequest, applyVpnTicketOutcome, closeVpnRequest, isVpnRequestType, NOT_VPN_REQUEST_SQL, pendingVpnRequest, syncVpnRequest, vpnBadges, vpnOfTicket, VPN_REQUEST_TYPE,
+  vpnTicketApproved, vpnTicketReceived, vpnTicketReturned,
   type VpnRequestInput,
 } from "../services/vpn-loans.js";
 import { trans } from "../lib/i18n.js";
@@ -42,6 +44,8 @@ export const ticketRoutes = Router();
 
 const TYPES = ["repair", "install", "grant_access", "revoke_access", "other"];
 const STATUSES = ["pending_supervisor", "approval_requested", "approved", "in_progress", "pending_it_head", "pending_requester", "completed", "rejected", "pending_cancel", "cancelled"];
+/** ใบที่รอผู้แจ้งดำเนินการ: กดรับงาน (pending_requester) / เพิ่มผู้อนุมัติ (approval_requested) — ตัวเลขเมนู /tickets + แท็บ "ที่ฉันแจ้ง" */
+const MINE_ACTION_SQL = "t.requester_id = ? AND t.status IN ('pending_requester', 'approval_requested')";
 const PHOTO_RULE: Rule[] = ["image", "mimes:jpg,jpeg,png,webp", "max:1024"]; // ≤ 1MB
 const DOC_RULE: Rule[] = ["file", "mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,zip,jpg,jpeg,png", "max:5120"]; // ≤ 5MB
 /** เอกสาร/รูปที่แนบกับรายการประวัติ (บันทึกผล / อัปเดตความคืบหน้า เช่น ใบเสนอราคา ใบ PO) — ไฟล์ละ ≤ 1MB สูงสุด 10 ไฟล์ */
@@ -237,6 +241,12 @@ async function detail(t: TicketRow, viewer: UserRow) {
     forward_options: canForward(viewer, t) ? await helperOptions(t.assignee_id) : [],
     // รับงานแทนผู้ที่ผู้แจ้งเลือกไว้ (คิวงาน IT) — ชื่อผู้ถูกเลือกเดิม ให้ปุ่มแสดง "รับงานแทน …"
     take_over_from: canAccept(viewer, t) && isTakeOver(viewer, t) ? row.as_name : null,
+    // บันทึกผลใบซ่อม "ซ่อมโดยช่างภายนอก": เลือกจากรายการส่งซ่อม/เคลมของใบนี้ / เครื่องนี้ (เฉพาะผู้ดูรายการส่งซ่อมได้)
+    // อะไหล่ที่ร้านเปลี่ยน (รายการส่งซ่อมของใบนี้ที่รับคืนแล้ว) — แบบฟอร์มพิมพ์แสดงเมื่อผลงานยังไม่มีรายการอะไหล่
+    repair_parts: t.type === "repair" ? await returnedPartsForTicket(t.id) : [],
+    // การ์ด 1.2: รายการส่งซ่อม/เคลมทั้งหมดของใบนี้ (ไม่รวมยกเลิก) — เฉพาะผู้ดูรายการส่งซ่อมได้
+    repair_orders: t.type === "repair" && can(viewer, "repair_orders.view") ? await repairOrdersForTicket(t.id, null) : [],
+    repair_order_options: t.type === "repair" && canRecordResult(viewer, t) && can(viewer, "repair_orders.view") ? await repairOrdersForTicket(t.id, t.asset_id ?? null) : [],
   };
 }
 
@@ -250,7 +260,7 @@ const helpersOf = (ticketId: number) =>
 
 /** เจ้าหน้าที่ IT ที่เลือกเป็นผู้ร่วมได้ + วันนี้ลา/ออกหน้างาน */
 async function helperOptions(excludeId: number | null) {
-  const staff = (await itStaff()).filter((s) => Number(s.id) !== excludeId);
+  const staff = (await itStaffOptions()).filter((s) => Number(s.id) !== excludeId);
   const busy = await busyOf(staff.map((s) => Number(s.id)), localToday(), localToday());
   return staff.map((s) => ({ id: Number(s.id), name: s.name, busy: busy.get(Number(s.id))?.[0]?.kind ?? null }));
 }
@@ -338,8 +348,8 @@ async function respondDetail(req: Request, res: Response, ticketId: number, stat
   res.status(status).json({ data: await detail(t, me(req)) });
 }
 
-const log = (ticketId: number, userId: number | null, action: string, comment: string | null = null) =>
-  insert("it_ticket_events", { it_ticket_id: ticketId, user_id: userId, action, comment, created_at: nowDb() });
+const log = (ticketId: number, userId: number | null, action: string, comment: string | null = null, repairOrderId: number | null = null) =>
+  insert("it_ticket_events", { it_ticket_id: ticketId, user_id: userId, action, comment, ...(repairOrderId ? { repair_order_id: repairOrderId } : {}), created_at: nowDb() });
 
 /** รหัสแบบฟอร์ม "ใบแจ้งดำเนินงาน IT" — ส่วนหน้าของเลขที่ใบงาน (เดิม "IT") */
 const TICKET_NO_PREFIX = "FM-ITR-01";
@@ -397,7 +407,11 @@ async function counts(u: UserRow) {
   const count = async (sql: string, params: unknown[] = []) => Number(await scalar(`SELECT COUNT(*) FROM it_tickets t WHERE ${NOT_ZOOM} AND ${sql}`, params));
   const ap = approvalsWhere(u);
   const out: Record<string, number> = {
-    mine_open: await count("t.requester_id = ? AND t.status NOT IN ('completed', 'rejected', 'cancelled')", [u.id]),
+    mine_open: await count("t.requester_id = ? AND t.status NOT IN ('completed', 'rejected', 'cancelled', 'approval_requested')", [u.id]),
+    // รอผู้แจ้งดำเนินการ = กดรับงาน (pending_requester) / เพิ่มผู้อนุมัติ (approval_requested — ฝ่าย IT ขอให้หัวหน้าอนุมัติ) — ตัวเลขเดียวกับเมนู /tickets
+    mine_action: await count(MINE_ACTION_SQL, [u.id]),
+    // แท็บ "รอเลือกผู้อนุมัติ" (ส่วนหนึ่งของ mine_action)
+    mine_choose_approver: await count("t.requester_id = ? AND t.status = 'approval_requested'", [u.id]),
     approvals: await count(ap.sql, ap.params),
   };
   if (can(u, "it_tickets.queue")) {
@@ -440,7 +454,7 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
   const count = async (sql: string, params: unknown[] = []) => Number(await scalar(`SELECT COUNT(*) FROM it_tickets t WHERE ${NOT_ZOOM} AND ${sql}`, params));
   const ap = approvalsWhere(u);
   const data: Record<string, number> = {
-    "/tickets": await count("t.status = 'pending_requester' AND t.requester_id = ?", [u.id]),
+    "/tickets": await count(MINE_ACTION_SQL, [u.id]),
     "/tickets/approvals": await count(ap.sql, ap.params),
   };
   if (can(u, "it_tickets.queue")) {
@@ -452,9 +466,9 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
     data["/it/tickets"] = Number(
       await scalar(
         `SELECT COUNT(*) FROM (
-           SELECT t.id FROM it_tickets t WHERE t.assignee_id = ? AND t.status IN ('approved', 'in_progress', 'pending_cancel') AND ${NOT_ZOOM}
+           SELECT t.id FROM it_tickets t WHERE t.assignee_id = ? AND t.status IN ('approved', 'in_progress', 'pending_cancel') AND ${NOT_ZOOM} AND ${NOT_VPN_REQUEST_SQL}
            UNION
-           SELECT t.id FROM it_ticket_helpers h JOIN it_tickets t ON t.id = h.it_ticket_id WHERE h.user_id = ? AND t.status = 'in_progress' AND ${NOT_ZOOM}
+           SELECT t.id FROM it_ticket_helpers h JOIN it_tickets t ON t.id = h.it_ticket_id WHERE h.user_id = ? AND t.status = 'in_progress' AND ${NOT_ZOOM} AND ${NOT_VPN_REQUEST_SQL}
          ) x`,
         [u.id, u.id],
       ),
@@ -462,7 +476,8 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
     // รออนุมัติผล: นับใบที่ฉันเป็นผู้อนุมัติผล (ไม่นับงานที่ตัวเองทำ ยกเว้นไม่มีคนอื่น) — เงื่อนไขเดียวกับแจ้งเตือน resulted (closersFor)
     let review = 0;
     if (reviewers.some((x) => x.id === u.id)) {
-      const pending = await select<TicketRow>(`SELECT t.*, ${TICKET_APPROVAL_COLUMNS} FROM it_tickets t WHERE t.status = 'pending_it_head'`);
+      // ใบขอใช้ VPN: ผู้จัดการฝ่าย IT อนุมัติที่เมนู VPN (ตัวเลขอยู่ที่ /loans/vpn)
+      const pending = await select<TicketRow>(`SELECT t.*, ${TICKET_APPROVAL_COLUMNS} FROM it_tickets t WHERE t.status = 'pending_it_head' AND ${NOT_VPN_REQUEST_SQL}`);
       review = pending.filter((t) => closersAmong(t, heads, reviewers).some((x) => x.id === u.id)).length;
     }
     // รอรับงาน: ใบที่ยังไม่มีผู้รับ + ใบที่ผู้แจ้งเลือกเจ้าหน้าที่คนอื่นไว้แต่ยังไม่รับ (เฉพาะผู้ที่รับงานแทนได้ — it_tickets.take_over)
@@ -470,7 +485,7 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
     const canTakeOver = can(u, "it_tickets.take_over") || can(u, "it_tickets.manage_all");
     const waiting = direct.some((x) => x.id === u.id)
       ? await count(
-          `((t.status IN ('approved', 'pending_cancel') AND t.assignee_id IS NULL)${canTakeOver ? " OR (t.status = 'approved' AND t.assignee_id <> ?)" : ""})`,
+          `${NOT_VPN_REQUEST_SQL} AND ((t.status IN ('approved', 'pending_cancel') AND t.assignee_id IS NULL)${canTakeOver ? " OR (t.status = 'approved' AND t.assignee_id <> ?)" : ""})`,
           canTakeOver ? [u.id] : [],
         )
       : 0;
@@ -499,10 +514,12 @@ ticketRoutes.get("/menu-badges", async (req, res) => {
   // VPN รวมกับตัวเลขเดิมของ /loans/mine
   for (const [k, n] of Object.entries(await vpnBadges(u))) data[k] = Number(data[k] ?? 0) + n;
   // เครื่องที่ส่งซ่อมอยู่ รอรับคืน
-  if (can(u, "repair_orders.manage")) data["/it/repair-orders"] = await pendingRepairOrders();
+  if (can(u, "repair_orders.manage")) data["/it/repair-orders"] = await dueFollowUpCount(u);
   if (can(u, "assets.create")) data["/assets"] = await missingAssetCount(u);
   if (can(u, "assets.update")) data["/licenses"] = await expiringLicenseCount();
   if (can(u, "contracts.update")) data["/contracts"] = await expiringContractCount(u);
+  // Fixed Assets จาก SyteLine: ยังไม่ผูกสินทรัพย์ + จำหน่ายแล้วแต่ยังใช้งาน (= ตัวเลขแท็บในหน้า /fixed-assets)
+  if (can(u, "fixed_assets.link")) data["/fixed-assets"] = await fixedAssetBadgeCount();
   res.json({ data });
 });
 
@@ -601,6 +618,8 @@ ticketRoutes.get("/tickets", async (req, res) => {
     params.push(u.id, u.id);
   }
   if (f.status) (where.push("t.status = ?"), params.push(f.status));
+  // "ที่ฉันแจ้ง" ไม่ระบุสถานะ = ไม่รวมใบที่รอเลือกผู้อนุมัติ (แยกไปแท็บ "รอเลือกผู้อนุมัติ" — เลือกแล้วกลับมาที่แท็บนี้)
+  else if (scope === "mine") where.push("t.status <> 'approval_requested'");
   if (f.type) (where.push("t.type = ?"), params.push(f.type));
   // ค้นหา: แยกคำด้วยช่องว่าง — ทุกคำต้องพบที่ใดที่หนึ่งในเอกสาร (ข้อความทุกช่องของใบงาน + ชื่อผู้แจ้ง/ผู้รับงาน/ผู้ร่วม/สาขา + ชื่อเรื่อง)
   const terms = String(f.search ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 8);
@@ -630,13 +649,15 @@ ticketRoutes.get("/tickets/form-options", async (req, res) => {
     select<{ name: string }>(`SELECT name FROM ${table} WHERE is_active = true ORDER BY sort_order, name`).then((rows) => rows.map((r) => r.name));
   const u = me(req);
   // สินทรัพย์ของฉัน (ผู้ถือครอง หรือชื่อผู้ใช้งานในทะเบียนคอมพิวเตอร์ตรงกับชื่อ) — เลือกเครื่องที่ส่งซ่อม / ติดตั้ง
-  const myAssets = select<{ uuid: string; asset_tag: string; name: string; brand: string | null; model: string | null; category: string }>(
-    `SELECT a.uuid, a.asset_tag, a.name, a.brand, a.model, a.category FROM assets a
-      WHERE a.deleted_at IS NULL AND a.status NOT IN ('disposed', 'lost') AND ${OWN_SQL} ORDER BY a.asset_tag LIMIT 200`,
-    [u.id, u.name],
+  // + เครื่องส่วนกลาง (is_shared) ของสาขาที่ผู้แจ้งสังกัด — ของตัวเองขึ้นก่อน
+  const myAssets = select<{ uuid: string; asset_tag: string; name: string; brand: string | null; model: string | null; category: string; is_shared: number | boolean }>(
+    `SELECT a.uuid, a.asset_tag, a.name, a.brand, a.model, a.category, a.is_shared FROM assets a
+      WHERE a.deleted_at IS NULL AND a.status NOT IN ('disposed', 'lost') AND (${OWN_SQL} OR (a.is_shared = true AND a.branch_id = ?))
+      ORDER BY a.is_shared, a.asset_tag LIMIT 200`,
+    [u.id, u.name, u.branch_id ?? 0],
   );
   const [staff, otherTypes, departments, divisions, approvers, assets] = await Promise.all([
-    itStaff(), getSetting("ticket_other_types"), units("departments"), units("divisions"), approverCandidates(u), myAssets,
+    itStaffOptions(), getSetting("ticket_other_types"), units("departments"), units("divisions"), approverCandidates(u), myAssets,
   ]);
   const busyToday = await busyOf(staff.map((s) => Number(s.id)), localToday(), localToday());
   res.json({
@@ -652,9 +673,85 @@ ticketRoutes.get("/tickets/form-options", async (req, res) => {
       // "ขอใช้งาน VPN" อยู่ในรายการเสมอ (เลือกแล้วฟอร์มถามช่วงวันที่ใช้) — ผู้ดูแลไม่ต้องเพิ่มเอง
       other_types: withVpnType(Array.isArray(otherTypes) ? otherTypes : Object.values(otherTypes ?? {})),
       vpn_type: VPN_REQUEST_TYPE,
-      my_assets: assets.map((a) => ({ id: a.uuid, asset_tag: a.asset_tag, name: a.name, brand: a.brand, model: a.model, category: a.category })),
+      my_assets: assets.map((a) => ({ id: a.uuid, asset_tag: a.asset_tag, name: a.name, brand: a.brand, model: a.model, category: a.category, is_shared: Boolean(a.is_shared) })),
     },
   });
+});
+
+/**
+ * ฟอร์มแจ้งงาน 1.2: ผู้แจ้งพิมพ์เลขสินทรัพย์ → มีในระบบแล้ว = ดึงชื่อเครื่องมาแสดง (จับคู่แบบเดียวกับตอนบันทึก — assetIdByNumber)
+ * ไม่พบ = data null (ยังส่งใบได้ — เลขนี้ไปขึ้น "สินทรัพย์ที่ต้องเพิ่ม" ให้ฝ่าย IT); คืนเฉพาะเลข/ชื่อ/ยี่ห้อ/รุ่น ไม่มีข้อมูลผู้ถือครอง
+ */
+ticketRoutes.get("/tickets/asset-lookup", async (req, res) => {
+  const no = typeof req.query.no === "string" ? req.query.no.trim().slice(0, 50) : "";
+  const id = await assetIdByNumber(no);
+  const a = id
+    ? await first<{ asset_tag: string; cpu_tag: string | null; name: string; brand: string | null; model: string | null }>(
+        "SELECT asset_tag, cpu_tag, name, brand, model FROM assets WHERE id = ?",
+        [id],
+      )
+    : null;
+  res.json({ data: a ? { asset_tag: a.asset_tag, cpu_tag: a.cpu_tag, name: a.name, brand: a.brand, model: a.model } : null });
+});
+
+/**
+ * ฟอร์มแจ้งงาน 1.2: สินทรัพย์ที่ตรงกับที่พิมพ์ในช่องรหัสสินทรัพย์ (Autocomplete) — ค้นบางส่วนของ รหัสสินทรัพย์ / เลขที่ทรัพย์สิน
+ * (cpu_tag) / เลขที่ทรัพย์สินเดิม (monitor_tag) / ชื่อเครื่อง, พิมพ์ ≥ 2 ตัว, ≤ 10 รายการ — คืนเฉพาะเลขและชื่อเครื่อง (เท่ากับ asset-lookup)
+ */
+ticketRoutes.get("/tickets/asset-search", async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 50) : "";
+  if (q.length < 2) {
+    res.json({ data: [] });
+    return;
+  }
+  const like = `%${likeEscape(q)}%`;
+  const prefix = `${likeEscape(q)}%`;
+  const rows = await select<{ asset_tag: string; cpu_tag: string | null; name: string; brand: string | null; model: string | null }>(
+    `SELECT asset_tag, cpu_tag, name, brand, model FROM assets
+      WHERE deleted_at IS NULL AND (asset_tag LIKE ? OR cpu_tag LIKE ? OR monitor_tag LIKE ? OR name LIKE ?)
+      ORDER BY (asset_tag LIKE ? OR cpu_tag LIKE ?) DESC, asset_tag LIMIT 10`,
+    [like, like, like, like, prefix, prefix],
+  );
+  res.json({ data: rows });
+});
+
+/**
+ * ฟอร์มแจ้งงาน 1.1 (เพิ่ม/ระงับสิทธิ์): รายชื่อที่ตรงกับที่พิมพ์ (ช่องไทยหรืออังกฤษ) — คู่ชื่อไทย/อังกฤษจากใบเพิ่ม/ระงับสิทธิ์เดิม
+ * + ผู้ใช้ในระบบที่ใช้งานอยู่ (ชื่อ = ช่องไทย, อังกฤษไม่ทราบ) — ≤ 10 รายการ คืนเฉพาะชื่อ
+ */
+ticketRoutes.get("/tickets/person-names", async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 100) : "";
+  if (!q) {
+    res.json({ data: [] });
+    return;
+  }
+  const like = `%${likeEscape(q)}%`;
+  const [pairs, users] = await Promise.all([
+    select<{ th: string | null; en: string | null }>(
+      `SELECT t.person_name_th AS th, t.person_name_en AS en FROM it_tickets t
+        WHERE t.type IN ('grant_access', 'revoke_access') AND (t.person_name_th LIKE ? OR t.person_name_en LIKE ?)
+        GROUP BY t.person_name_th, t.person_name_en ORDER BY MAX(t.id) DESC LIMIT 10`,
+      [like, like],
+    ),
+    select<{ name: string }>("SELECT name FROM users WHERE is_active = true AND name LIKE ? ORDER BY name LIMIT 10", [like]),
+  ]);
+  const out: { th: string; en: string }[] = [];
+  const seen = new Set<string>();
+  const add = (th: string, en: string) => {
+    const key = `${th.trim().toLowerCase()}|${en.trim().toLowerCase()}`;
+    if ((!th.trim() && !en.trim()) || seen.has(key) || out.length >= 10) return;
+    seen.add(key);
+    out.push({ th: th.trim(), en: en.trim() });
+  };
+  for (const p of pairs) add(p.th ?? "", p.en ?? "");
+  // ผู้ใช้ที่มีคู่ชื่อจากใบเดิมแล้วไม่ต้องซ้ำ — ชื่อที่ไม่มีอักษรไทย = ช่องอังกฤษ
+  const known = new Set(out.flatMap((o) => [o.th.toLowerCase(), o.en.toLowerCase()]).filter(Boolean));
+  for (const u of users) {
+    if (known.has(u.name.trim().toLowerCase())) continue;
+    if (/[฀-๿]/.test(u.name)) add(u.name, "");
+    else add("", u.name);
+  }
+  res.json({ data: out });
 });
 
 const withVpnType = (types: unknown[]) => [
@@ -693,18 +790,18 @@ async function saveVpnRequest(req: Request, ticketId: number, requester: UserRow
   }
 }
 
-/** ผู้อนุมัติที่ผู้แจ้งเลือก — ต้องอยู่สาขาที่เลือกและตำแหน่งสูงกว่า (คืน null = ไม่ได้เลือก) */
+/** ผู้อนุมัติที่ผู้แจ้งเลือก — ต้องอยู่สาขาเดียวกับผู้แจ้ง ตำแหน่งผู้จัดการขึ้นไปและสูงกว่าผู้แจ้ง (approverCandidates — คืน null = ไม่ได้เลือก) */
 async function chosenApprover(req: Request, data: Record<string, unknown>) {
   if (data.approver_id === undefined || data.approver_id === null || data.approver_id === "") return null;
-  const found = (await approverCandidates(me(req), int(data.branch_id) ?? 0)).find((a) => a.id === int(data.approver_id));
+  const found = (await approverCandidates(me(req))).find((a) => a.id === int(data.approver_id));
   if (!found) throw ValidationError.withMessages({ approver_id: trans(req.locale, "eam.approval.approver_not_allowed") });
   return { id: Number(found.id), name: found.name };
 }
 
 /** เจ้าหน้าที่ IT สำหรับ dropdown */
 ticketRoutes.get("/it-staff", async (_req, res) => {
-  const staff = await itStaff();
-  res.json({ data: staff.map((s) => ({ id: s.id, name: s.name, is_it_head: Boolean(Number(s.is_it_head)) })) });
+  const staff = await itStaffOptions();
+  res.json({ data: staff.map((s) => ({ id: s.id, name: s.name })) });
 });
 
 /* ---------------------------------------------------------------- แจ้งงาน */
@@ -956,6 +1053,16 @@ export async function zoomTicketConfirm(id: number, userId: number) {
   await log(id, userId, "confirmed");
 }
 
+/** ผู้จัดการ IT ส่งกลับให้เจ้าหน้าที่แก้ไข (จากหน้า VPN — กติกาเดียวกับ /tickets/:uuid/return: canCloseResult) */
+export async function ticketReturnToStaff(id: number, u: UserRow, comment: string) {
+  const t = await withCloseInfo((await loadTicket("t.id = ?", id))!);
+  authorize(canCloseResult(u, t));
+  await transaction(async () => {
+    await update("it_tickets", { status: "in_progress", updated_at: nowDb() }, "id = ? AND status = 'pending_it_head'", [id]);
+    await log(id, u.id, "returned", comment);
+  });
+}
+
 /** ยกเลิกการจอง = ใบงานยกเลิก ไม่นับ KPI (KPI_TICKET_STATUSES) — ทุกสถานะ รวมใบที่ปิดไปแล้ว */
 export async function zoomTicketCancel(id: number, userId: number | null, comment: string | null) {
   const now = nowDb();
@@ -1146,6 +1253,14 @@ ticketRoutes.post("/tickets/:uuid/result", async (req, res) => {
   if (done && repair && data.repair_method === "external" && !String(data.external_vendor ?? "").trim()) {
     throw ValidationError.withMessages({ external_vendor: trans(req.locale, "eam.ticket.vendor_required") });
   }
+  // ของที่ส่งซ่อมภายนอกจากใบนี้ยังไม่รับคืน = บันทึกผลไม่ได้ (รับคืน หรือยกเลิกรายการส่งซ่อมก่อน)
+  const outForRepair = await first<{ uuid: string; vendor: string }>(
+    "SELECT r.uuid, v.name AS vendor FROM repair_orders r JOIN vendors v ON v.id = r.vendor_id WHERE r.ticket_id = ? AND r.status = 'sent' ORDER BY r.id LIMIT 1",
+    [t.id],
+  );
+  if (outForRepair) {
+    throw ValidationError.withMessages({ repair_order: trans(req.locale, "eam.ticket.repair_not_returned", { vendor: outForRepair.vendor }) });
+  }
 
   const completedOn = data.result === "completed" && data.completed_on ? String(data.completed_on).slice(0, 10) : null;
   const workStart = completedOn && data.work_start_on ? String(data.work_start_on).slice(0, 10) : null;
@@ -1215,21 +1330,30 @@ ticketRoutes.post("/tickets/:uuid/result", async (req, res) => {
   await respondDetail(req, res, t.id);
 });
 
-/** IT บันทึกความคืบหน้าระหว่างดำเนินการ (ขึ้นไทม์ไลน์ + แจ้งผู้แจ้ง) — ไม่เปลี่ยนสถานะ */
+/**
+ * IT บันทึกความคืบหน้าระหว่างดำเนินการ (ขึ้นไทม์ไลน์ + แจ้งผู้แจ้ง) — ไม่เปลี่ยนสถานะ
+ * repair_order_id = อ้างรายการส่งซ่อมของใบนี้ / เครื่องเดียวกัน (แจ้งผู้แจ้งว่าส่งซ่อม — ลิงก์ในประวัติเห็นเฉพาะผู้มี repair_orders.view)
+ */
 ticketRoutes.post("/tickets/:uuid/progress", async (req, res) => {
   const t = await findTicket(req.params.uuid);
   const u = me(req);
   authorize(canProgress(u, t));
   const data = await validate(
     req.input,
-    { comment: ["required", "string", "max:2000"], files: ["nullable", "array", `max:${EVENT_FILES_MAX}`], "files.*": EVENT_FILE_RULE },
+    { comment: ["required", "string", "max:2000"], repair_order_id: ["nullable", "string", "max:64"], files: ["nullable", "array", `max:${EVENT_FILES_MAX}`], "files.*": EVENT_FILE_RULE },
     { locale: req.locale },
   );
+  let repairOrderId: number | null = null;
+  if (data.repair_order_id) {
+    authorize(can(u, "repair_orders.view"));
+    repairOrderId = await repairOrderIdForTicket(String(data.repair_order_id), t.id, t.asset_id ?? null);
+    if (!repairOrderId) throw ValidationError.withMessages({ repair_order_id: trans(req.locale, "eam.ticket.repair_order_invalid") });
+  }
 
   await transaction(async () => {
     const now = nowDb();
     await update("it_tickets", { updated_at: now }, "id = ?", [t.id]);
-    const eventId = await log(t.id, u.id, "progress", String(data.comment));
+    const eventId = await log(t.id, u.id, "progress", String(data.comment), repairOrderId);
     // ไฟล์/รูปประกอบ (เช่น ใบเสนอราคา ใบ PO ฉบับปรับปรุง) — ผูกกับรายการนี้ในประวัติ
     for (const doc of filesOf(data.files)) {
       await insert("it_ticket_attachments", { it_ticket_id: t.id, kind: "progress", event_id: eventId, uploaded_by: u.id, ...(await storeUpload(t.uuid, doc, "progress")), created_at: now, updated_at: now });
@@ -1270,6 +1394,8 @@ ticketRoutes.post("/tickets/:uuid/close", async (req, res) => {
   });
   if (selfClose) await audit(req, { action: "ticket.self_closed", subjectType: "ticket", subjectId: t.uuid, after: { ticket_no: t.ticket_no } });
   await notify({ ...t, status: "pending_requester", it_head_id: u.id }, "head_approved", u);
+  // ใบขอใช้ VPN: อนุมัติที่หน้าใบงาน = อนุมัติการมอบบัญชี (แจ้งผู้ขอ)
+  await vpnTicketApproved(t.id, u);
   await respondDetail(req, res, t.id);
 });
 
@@ -1319,6 +1445,7 @@ export async function autoCloseTickets(): Promise<number> {
       await log(t.id, null, "auto_closed", trans("th", "eam.ticket.auto_closed", { days }));
     });
     await notify({ ...t, status: "completed" }, "closed", null);
+    await vpnTicketReceived(t.id);
     closed++;
   }
   return closed;
@@ -1337,6 +1464,8 @@ ticketRoutes.post("/tickets/:uuid/confirm-close", async (req, res) => {
     await log(t.id, u.id, "confirmed", (data.comment as string) ?? null);
   });
   await notify({ ...t, status: "completed" }, "confirmed", u);
+  // ใบขอใช้ VPN: ผู้ขอกดรับงาน = ได้รับ VPN แล้ว (ดูรหัสได้)
+  await vpnTicketReceived(t.id);
   await respondDetail(req, res, t.id);
 });
 
@@ -1352,6 +1481,8 @@ ticketRoutes.post("/tickets/:uuid/return", async (req, res) => {
     await log(t.id, u.id, "returned", String(data.comment));
   });
   await notify({ ...t, status: "in_progress" }, "returned", u);
+  // ใบขอใช้ VPN: การมอบบัญชีกลับเป็นคำขอ (มอบใหม่ที่ จัดการ VPN)
+  await vpnTicketReturned(t.id, u, String(data.comment));
   await respondDetail(req, res, t.id);
 });
 

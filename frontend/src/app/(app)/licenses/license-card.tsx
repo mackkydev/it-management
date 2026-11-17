@@ -1,8 +1,9 @@
 import type { Route } from "next";
 import Link from "next/link";
-import { MonitorIcon, PaperclipIcon } from "@/components/icons";
+import { CopyIcon, MonitorIcon, PaperclipIcon } from "@/components/icons";
 import { ClickableRow } from "@/components/clickable-row";
-import { card, tone } from "@/components/ui";
+import { Tooltip } from "@/components/tooltip";
+import { btn, card, tone } from "@/components/ui";
 import type { Formatters, TFunction } from "@/i18n/types";
 import type { LicenseSummary, LicenseUsage } from "@/lib/types";
 import { UsageBar } from "../license-installations/usage-bar";
@@ -20,6 +21,17 @@ function Expiry({ license: l, t, fmt }: { license: LicenseSummary; t: TFunction;
   );
 }
 
+/** ปุ่มไอคอนมุมขวาบนของการ์ด: คัดลอกเป็น License ใบใหม่ (/licenses/new?from=) */
+function DuplicateButton({ licenseId, t }: { licenseId: string; t: TFunction }) {
+  return (
+    <Tooltip label={t("licenses.group.duplicate")} className="shrink-0 self-start">
+      <Link href={`/licenses/new?from=${licenseId}` as Route} className={`${btn.soft} ${btn.icon}`} aria-label={t("licenses.group.duplicate")}>
+        <CopyIcon width={15} height={15} />
+      </Link>
+    </Tooltip>
+  );
+}
+
 /** License ชื่อเดียวกัน (เช่น ซื้อแยกกล่อง กล่องละ S/N) อยู่กลุ่มเดียวกัน */
 export const licenseGroupKey = (name: string) => name.trim().toLocaleLowerCase();
 export const licenseGroupHref = (name: string) => `/licenses/group?name=${encodeURIComponent(name.trim())}` as Route;
@@ -33,7 +45,18 @@ export function groupUsage(items: LicenseSummary[]): LicenseUsage {
 }
 
 /** การ์ดรวม License ชื่อเดียวกัน — คลิกเข้าไปดูรายการทีละใบ */
-export function LicenseGroupCard({ items, t, fmt }: { items: LicenseSummary[]; t: TFunction; fmt: Formatters }) {
+export function LicenseGroupCard({
+  items,
+  t,
+  fmt,
+  canDuplicate = false,
+}: {
+  items: LicenseSummary[];
+  t: TFunction;
+  fmt: Formatters;
+  /** ปุ่มคัดลอกใบแรกเป็น License ใบใหม่ */
+  canDuplicate?: boolean;
+}) {
   const [first] = items;
   const iconOf = items.find((l) => l.icon_id !== null) ?? first;
   // วันหมดอายุที่ใกล้สุด
@@ -42,7 +65,7 @@ export function LicenseGroupCard({ items, t, fmt }: { items: LicenseSummary[]; t
     <ClickableRow as="li" href={licenseGroupHref(first.name)} className={`flex flex-col p-4 transition-shadow hover:shadow-md ${card}`}>
       <div className="mb-3 flex items-center gap-3">
         <LicenseIcon licenseId={iconOf.id} iconId={iconOf.icon_id} name={first.name} canEdit={false} />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <Link href={licenseGroupHref(first.name)} className="block cursor-pointer truncate font-medium text-ink hover:text-accent-700 hover:underline dark:hover:text-accent-300">
             {first.name}
           </Link>
@@ -55,6 +78,7 @@ export function LicenseGroupCard({ items, t, fmt }: { items: LicenseSummary[]; t
             {soonest ? <Expiry license={soonest} t={t} fmt={fmt} /> : t("assets.license.noExpiry")}
           </p>
         </div>
+        {canDuplicate && <DuplicateButton licenseId={first.id} t={t} />}
       </div>
       {items.some((l) => l.expiring) && (
         <p className="mb-2">
@@ -76,6 +100,7 @@ export function LicenseCard({
   fmt,
   showInstalls,
   canEdit,
+  canDuplicate = false,
 }: {
   license: LicenseSummary;
   t: TFunction;
@@ -83,14 +108,16 @@ export function LicenseCard({
   showInstalls: boolean;
   /** อัปโหลด/เปลี่ยนไอคอนได้ (assets.update) */
   canEdit: boolean;
+  /** ปุ่มคัดลอกเป็น License ใบใหม่ (assets.create + btn:licenses:create) */
+  canDuplicate?: boolean;
 }) {
   const linkCls = "inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-accent-700 hover:underline dark:text-accent-300";
   return (
     <ClickableRow as="li" href={`/licenses/${l.id}`} className={`flex flex-col p-4 transition-shadow hover:shadow-md ${card}`}>
-      {/* ไอคอน (อัปโหลดได้) + ชื่อ */}
+      {/* ไอคอน (อัปโหลดได้) + ชื่อ + ปุ่มคัดลอก (มุมขวาบน) */}
       <div className="mb-3 flex items-center gap-3">
         <LicenseIcon licenseId={l.id} iconId={l.icon_id} name={l.name} canEdit={canEdit} />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <Link href={`/licenses/${l.id}`} className="block cursor-pointer truncate font-medium text-ink hover:text-accent-700 hover:underline dark:hover:text-accent-300">
             {l.name}
           </Link>
@@ -108,6 +135,7 @@ export function LicenseCard({
             {l.vendor && <span className="truncate">· {l.vendor}</span>}
           </p>
         </div>
+        {canDuplicate && <DuplicateButton licenseId={l.id} t={t} />}
       </div>
       {(l.expiring || l.cancelled_at) && (
         <p className="mb-2 flex flex-wrap gap-1.5">
@@ -115,7 +143,8 @@ export function LicenseCard({
           {l.cancelled_at && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tone.idle.badge}`}>{t("licenses.contract.cancelled")}</span>}
         </p>
       )}
-      <UsageBar usage={l} t={t} fmt={fmt} />
+      {/* key เดียวหลายสิทธิ์ = Volume License */}
+      <UsageBar usage={l} t={t} fmt={fmt} volume={l.seats !== null && l.seats > 1} />
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
         <Link href={`/licenses/${l.id}#files`} className={linkCls}>
           <PaperclipIcon width={13} height={13} />

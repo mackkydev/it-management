@@ -43,11 +43,24 @@ describe("IT-first ticket flow", () => {
     expect(asked.body.data.status).toBe("approval_requested");
     expect(asked.body.data.actions).not.toContain("accept");
     expect(await notice(requester.id, "approval_requested")).toBeTruthy();
+    // ใบค้างรอผู้แจ้งเลือกผู้อนุมัติ = ตัวเลขเมนู "/tickets" + แท็บ "ที่ฉันแจ้ง" ของผู้แจ้ง
+    const mineBadge = async () => (await reqApi.get("/api/v1/menu-badges")).body.data["/tickets"];
+    expect(await mineBadge()).toBe(1);
+    expect((await reqApi.get("/api/v1/tickets?per_page=1")).body.counts).toMatchObject({ mine_action: 1, mine_choose_approver: 1 });
+    // แท็บ "รอเลือกผู้อนุมัติ" = ใบของฉัน status approval_requested
+    const choosing = (await reqApi.get("/api/v1/tickets?scope=mine&status=approval_requested")).body.data;
+    expect(choosing.map((x: { id: string }) => x.id)).toEqual([id]);
+    // แท็บ "ที่ฉันแจ้ง" (ไม่ระบุสถานะ) ไม่รวมใบที่รอเลือกผู้อนุมัติ
+    const mineIds = async () => (await reqApi.get("/api/v1/tickets?scope=mine")).body.data.map((x: { id: string }) => x.id);
+    expect(await mineIds()).not.toContain(id);
 
     // ผู้แจ้งต้องเลือกผู้อนุมัติ → รอหัวหน้าอนุมัติ
     expect(Object.keys((await reqApi.put(`/api/v1/tickets/${id}`).send(body)).body.errors)).toEqual(["approver_id"]);
     const chosen = await reqApi.put(`/api/v1/tickets/${id}`).send({ ...body, approver_id: manager.id });
     expect(chosen.status).toBe(200);
+    expect(await mineBadge()).toBe(0);
+    // เลือกผู้อนุมัติแล้ว → กลับไปที่ "ที่ฉันแจ้ง"
+    expect(await mineIds()).toContain(id);
     expect(chosen.body.data).toMatchObject({ status: "pending_supervisor", approver: { id: manager.id } });
     expect(await notice(manager.id, "submitted")).toBeTruthy();
     // ระหว่างรออนุมัติ ฝ่าย IT ยังไม่เห็น (ตามกติกาเดิม)

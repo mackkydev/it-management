@@ -67,12 +67,28 @@ export async function saveLoan(id: string | null, v: LoanValues): Promise<Action
   }
 }
 
-/** ยกเลิก / ส่งมอบ / รับคืน (note = หมายเหตุตอนคืน) */
-export async function loanAction(id: string, action: "cancel" | "hand-out" | "return", note = ""): Promise<ActionResult<"status" | "note"> & { loan?: Loan }> {
+/**
+ * เตรียมเครื่อง / ส่งมอบ (form: asset_id, accessories[], photos[]) และยืนยันรับคืน (form: returned_accessories[], note, photos[]) — ผู้จัดการ
+ * ส่ง multipart ต่อไปที่ API (รูปย่อแล้วฝั่งเบราว์เซอร์)
+ */
+export async function loanStep(id: string, step: "hand-out" | "return", form: FormData): Promise<ActionResult<"asset_id" | "accessories" | "returned_accessories" | "photos" | "note" | "status"> & { loan?: Loan }> {
   const { t } = await getI18n();
   if (!UUID_RE.test(id)) return { message: t("common.saveFailed") };
   try {
-    const res = await apiFetch<{ data: Loan }>(`/loans/${id}/${action}`, { method: "POST", body: JSON.stringify(action === "return" ? { note: note.trim() || null } : {}) });
+    const res = await apiFetch<{ data: Loan }>(`/loans/${id}/${step}`, { method: "POST", body: form });
+    refresh();
+    return { ok: true, loan: res.data };
+  } catch (e) {
+    return toActionResult(e);
+  }
+}
+
+/** ยกเลิก / ผู้ยืมกดคืนเครื่อง */
+export async function loanAction(id: string, action: "cancel" | "request-return"): Promise<ActionResult<"status" | "note"> & { loan?: Loan }> {
+  const { t } = await getI18n();
+  if (!UUID_RE.test(id)) return { message: t("common.saveFailed") };
+  try {
+    const res = await apiFetch<{ data: Loan }>(`/loans/${id}/${action}`, { method: "POST", body: JSON.stringify({}) });
     refresh();
     return { ok: true, loan: res.data };
   } catch (e) {

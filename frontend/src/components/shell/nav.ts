@@ -191,6 +191,8 @@ export const NAV: NavGroup[] = [
       { label: "nav.licenses", href: "/licenses", icon: KeyIcon, visible: (u) => canViewLicenses(u) },
       { label: "nav.movements", href: "/movements", icon: HistoryIcon, visible: perm("movements.view") },
       { label: "nav.repairs", href: "/repairs", icon: WrenchIcon, visible: (u) => has(u, "assets.view_all") || has(u, "assets.update") },
+      // Fixed Assets จาก STEC SyteLine (สำเนาอ่านอย่างเดียว) — ตัวเลขเมนู = ยังไม่ผูก + จำหน่ายแล้วแต่ยังใช้งาน (fixed_assets.link)
+      { label: "nav.fixedAssets", href: "/fixed-assets", icon: DatabaseIcon, visible: perm("fixed_assets.view") },
     ],
   },
   {

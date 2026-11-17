@@ -2,6 +2,7 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import { apiFetch } from "@/lib/api";
+import { lockedBranch } from "@/lib/booking";
 import type { BookingKind, BookingScopeMeta, BranchChoices } from "@/lib/types";
 
 /**
@@ -22,6 +23,9 @@ export async function getBookingScope(kind: BookingKind): Promise<BookingScopeMe
 export async function selectedBranch(kind: BookingKind, meta?: BookingScopeMeta): Promise<number | null> {
   const m = meta ?? (await getBookingScope(kind));
   if (m.scope !== "all") return null;
+  // ห้องประชุม / รถ = สาขาของผู้ใช้เสมอ (ไม่สน cookie ที่เลือกไว้เดิม)
+  const locked = lockedBranch(kind, m);
+  if (locked) return locked;
   const raw = (await cookies()).get(BRANCH_COOKIE[kind])?.value;
   if (raw === "all") return null;
   const id = Number(raw);

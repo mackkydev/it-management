@@ -1,13 +1,15 @@
 import type { MetadataRoute } from "next";
+import { getI18n } from "@/i18n/server";
 
 /** PWA manifest (/manifest.webmanifest) — ติดตั้งเป็นแอปบนมือถือ/คอมได้ ไอคอนอยู่ที่ public/icons */
-export default function manifest(): MetadataRoute.Manifest {
+export default async function manifest(): Promise<MetadataRoute.Manifest> {
+  const { t, locale } = await getI18n();
   return {
     id: "/",
-    name: "IT-SYSTEM ระบบงานฝ่ายเทคโนโลยีสารสนเทศ",
-    short_name: "IT-SYSTEM",
-    description: "ระบบงานฝ่าย IT",
-    lang: "th",
+    name: t("app.fullName"),
+    short_name: t("app.name"),
+    description: t("app.tagline"),
+    lang: locale,
     start_url: "/",
     scope: "/",
     display: "standalone",

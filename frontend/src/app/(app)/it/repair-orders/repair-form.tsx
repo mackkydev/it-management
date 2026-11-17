@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { createRepairOrder, lookupRepairItem, updateRepairOrder } from "@/app/actions/repair-orders";
+import { createRepairOrder, lookupRepairItem, searchRepairPeople, updateRepairOrder } from "@/app/actions/repair-orders";
 import { DocumentLink } from "@/components/document-viewer";
 import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
@@ -13,19 +13,30 @@ import { alert, btn, card, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { RepairLookupItem, RepairOrder } from "@/lib/types";
 import { TIME_OPTIONS } from "../../vehicles/vehicle-utils";
+import { MasterDataSelect } from "@/components/master-data-select";
 
-type Field = "item" | "symptom" | "vendor_id" | "sent_on" | "sent_time" | "sent_by_id";
-type Errors = Partial<Record<Field | "files" | "item_details" | "document_no" | "serial_number", string>>;
+type Field = "item" | "item_name" | "symptom" | "vendor_id" | "sent_on" | "sent_time" | "sent_by_id";
+type Errors = Partial<Record<Field | "files" | "item_details" | "document_no" | "serial_number" | "follow_up_days", string>>;
 
 interface Props {
   vendors: { id: number; name: string; vendor_type: string }[];
-  staff: { id: number; name: string }[];
   /** ใบแจ้งซ่อมที่ยังไม่ปิด — เลือกจาก dropdown ข้างช่องค้นหา */
   tickets?: RepairLookupItem[];
-  /** ค่าตั้งต้น: ผู้บันทึก + วันเวลาปัจจุบัน (เวลาไทย) */
-  defaults: { sent_by_id: number; sent_on: string; sent_time: string };
+  /** ค่าตั้งต้น: วันเวลาปัจจุบัน (เวลาไทย) + ผู้บันทึกงานซ่อม (ผู้ที่ login — แก้ไข = ผู้สร้างรายการ, เปลี่ยนไม่ได้) */
+  defaults: { sent_on: string; sent_time: string; recorder: string };
   /** แก้ไขรายการเดิม — เปลี่ยนของที่ส่งไม่ได้ (ยกเลิกแล้วส่งใหม่) */
   order?: RepairOrder;
+  /** ส่งใหม่จากหน้าใบแจ้งซ่อม (?ticket=) — เลือกใบนั้นไว้ให้ + เติมอาการเสีย */
+  initialItem?: RepairLookupItem | null;
+}
+
+/** วันกำหนดตามงาน = วันที่ส่ง + จำนวนวัน (YYYY-MM-DD) — ค่าไม่ครบ / ไม่ถูกต้อง = null */
+function followUpDate(sentOn: string, days: string): string | null {
+  const n = Number(days);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(sentOn) || !Number.isInteger(n) || n < 1 || n > 365) return null;
+  const d = new Date(`${sentOn}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 const orderItem = (r: RepairOrder): RepairLookupItem => ({
@@ -44,20 +55,29 @@ const orderItem = (r: RepairOrder): RepairLookupItem => ({
 });
 
 /** ฟอร์มส่งซ่อม: ค้นหาจากเลขสินทรัพย์ หรือเลขที่ใบแจ้งงาน → ดึงข้อมูลเครื่อง (ใบแจ้งงาน = เติมอาการเสียให้) → เลือก Vendor / วันเวลา / ผู้ส่ง + แนบใบส่งซ่อม */
-export function RepairForm({ vendors, staff, tickets = [], defaults, order }: Props) {
-  const { t } = useI18n();
+export function RepairForm({ vendors, tickets = [], defaults, order, initialItem = null }: Props) {
+  const { t, fmt } = useI18n();
   const [query, setQuery] = useState("");
-  const [item, setItem] = useState<RepairLookupItem | null>(order ? orderItem(order) : null);
-  const [symptom, setSymptom] = useState(order?.symptom ?? "");
+  // อุปกรณ์ไม่ได้อยู่ในระบบ และไม่มีใบแจ้งงาน — ซ่อนช่องค้นหา/เลือกใบงาน แสดงช่องกรอกชื่อ + ข้อมูลอุปกรณ์แทน
+  const [manual, setManual] = useState(order?.manual ?? false);
+  const [itemName, setItemName] = useState(order?.manual ? order.item_name : "");
+  const [item, setItem] = useState<RepairLookupItem | null>(order && !order.manual ? orderItem(order) : initialItem);
+  const [symptom, setSymptom] = useState(order?.symptom ?? initialItem?.symptom ?? "");
   const [vendorId, setVendorId] = useState(order ? String(order.vendor.id) : "");
-  const [filled, setFilled] = useState("");
+  const [filled, setFilled] = useState(order ? "" : (initialItem?.symptom ?? ""));
   const [itemDetails, setItemDetails] = useState(order?.item_details ?? "");
   const [documentNo, setDocumentNo] = useState(order?.document_no ?? "");
+  // แจ้งเตือนตามงาน: จำนวนวันหลังวันที่ส่งซ่อม (ตั้งต้น 7)
+  const [followUpDays, setFollowUpDays] = useState(String(order?.follow_up_days ?? 7));
   const [serial, setSerial] = useState(order?.item_serial ?? "");
   const [removed, setRemoved] = useState<number[]>([]);
   const [sentOn, setSentOn] = useState(defaults.sent_on);
   const [sentTime, setSentTime] = useState(defaults.sent_time);
-  const [sentBy, setSentBy] = useState(String(defaults.sent_by_id));
+  // ผู้ส่งซ่อม (เจ้าของอุปกรณ์): พิมพ์ชื่อเอง หรือเลือกจากผู้ใช้ที่ตรงกับที่พิมพ์ (เลือก = ผูก id, พิมพ์ต่อ = กลับเป็นชื่อพิมพ์เอง)
+  // ส่งจากใบแจ้งงาน = ตั้งต้นเป็นผู้แจ้งงาน (แก้ได้)
+  const [senderName, setSenderName] = useState(order?.sent_by.name ?? initialItem?.requester?.name ?? "");
+  const [senderId, setSenderId] = useState<number | null>(order ? order.sent_by.id : (initialItem?.requester?.id ?? null));
+  const [filledSender, setFilledSender] = useState(order ? "" : (initialItem?.requester?.name ?? ""));
   const [files, setFiles] = useState<File[]>([]);
   const [errors, setErrors] = useState<Errors>({});
   const [message, setMessage] = useState("");
@@ -82,27 +102,46 @@ export function RepairForm({ vendors, staff, tickets = [], defaults, order }: Pr
       setFilled(x.symptom ?? "");
       if (x.symptom) clear("symptom");
     }
+    // ผู้ส่งซ่อม = ผู้แจ้งงานของใบที่เลือก — ไม่ทับชื่อที่พิมพ์/เลือกเอง
+    if (!senderName.trim() || senderName === filledSender) {
+      const r = x.requester ?? null;
+      setSenderName(r?.name ?? "");
+      setSenderId(r?.id ?? null);
+      setFilledSender(r?.name ?? "");
+      if (r) clear("sent_by_id");
+    }
   };
   const pick = (s: SuggestItem<RepairLookupItem>) => {
     if (s.data) choose(s.data);
   };
 
+  type Person = { id: number; name: string; department: string | null };
+  const loadPeople = async (q: string): Promise<SuggestItem<Person>[]> =>
+    (await searchRepairPeople(q)).map((p) => ({ value: p.name, hint: p.department ?? undefined, data: p }));
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     const found: Errors = {};
-    if (!item) found.item = t("repairOrders.validate.item");
+    if (manual) {
+      if (!itemName.trim()) found.item_name = t("repairOrders.validate.manualName");
+    } else if (!item) found.item = t("repairOrders.validate.item");
     if (!symptom.trim()) found.symptom = t("repairOrders.validate.symptom");
     if (!vendorId) found.vendor_id = t("repairOrders.validate.vendor");
     if (!sentOn) found.sent_on = t("repairOrders.validate.sentOn");
     if (!sentTime) found.sent_time = t("repairOrders.validate.sentTime");
-    if (!sentBy) found.sent_by_id = t("repairOrders.validate.sentBy");
+    if (!senderName.trim()) found.sent_by_id = t("repairOrders.validate.sentBy");
+    const days = Number(followUpDays);
+    if (!Number.isInteger(days) || days < 1 || days > 365) found.follow_up_days = t("repairOrders.validate.followUpDays");
     if (Object.keys(found).length) {
       setErrors(found);
       setMessage(t("common.checkInput"));
       return;
     }
     const fd = new FormData();
-    if (!order) {
+    if (manual) {
+      if (!order) fd.set("manual", "1");
+      fd.set("item_name", itemName.trim());
+    } else if (!order) {
       if (item!.ticket_id) fd.set("ticket", item!.ticket_id);
       else fd.set("asset", item!.asset_id ?? "");
     }
@@ -110,11 +149,13 @@ export function RepairForm({ vendors, staff, tickets = [], defaults, order }: Pr
     fd.set("symptom", symptom.trim());
     fd.set("item_details", itemDetails.trim());
     fd.set("document_no", documentNo.trim());
-    if (!item!.serial_number) fd.set("serial_number", serial.trim());
+    fd.set("follow_up_days", String(Number(followUpDays)));
+    if (!manual && !item!.serial_number) fd.set("serial_number", serial.trim());
     fd.set("vendor_id", vendorId);
     fd.set("sent_on", sentOn);
     fd.set("sent_time", sentTime);
-    fd.set("sent_by_id", sentBy);
+    if (senderId) fd.set("sent_by_id", String(senderId));
+    fd.set("sender_name", senderName.trim());
     files.forEach((f) => fd.append("files[]", f));
     setMessage("");
     start(async () => {
@@ -155,7 +196,60 @@ export function RepairForm({ vendors, staff, tickets = [], defaults, order }: Pr
 
       <fieldset disabled={pending} aria-busy={pending} className={`space-y-4 p-4 transition-opacity disabled:opacity-60 sm:p-6 ${card}`}>
         <h2 className="font-semibold">{t("repairOrders.form.itemSection")}</h2>
-        {item ? (
+        {/* ส่งใหม่เท่านั้น — แก้ไขเปลี่ยนชนิดของที่ส่งไม่ได้ */}
+        {!order && (
+          <label className="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={manual}
+              onChange={(e) => {
+                setManual(e.target.checked);
+                setItem(null);
+                setQuery("");
+                setErrors((x) => ({ ...x, item: "", item_name: "" }));
+              }}
+              className="h-4 w-4 cursor-pointer accent-[var(--accent-500)]"
+            />
+            {t("repairOrders.form.manual")}
+          </label>
+        )}
+        {manual ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {field(
+              "item_name",
+              t("repairOrders.form.manualName"),
+              <input
+                id="item_name"
+                maxLength={255}
+                value={itemName}
+                onChange={(e) => {
+                  setItemName(e.target.value);
+                  clear("item_name");
+                }}
+                placeholder={t("repairOrders.form.manualNamePlaceholder")}
+                className={cls("item_name")}
+              />,
+            )}
+            <div>
+              <label htmlFor="item_details" className="mb-1 block text-sm font-medium">
+                {t("repairOrders.form.manualDetails")}
+              </label>
+              <textarea
+                id="item_details"
+                rows={3}
+                maxLength={2000}
+                value={itemDetails}
+                onChange={(e) => {
+                  setItemDetails(e.target.value);
+                  clear("item_details");
+                }}
+                placeholder={t("repairOrders.form.manualDetailsPlaceholder")}
+                className={`${input} ${errors.item_details ? inputError : ""}`}
+              />
+              {errors.item_details && <p className="mt-1 text-xs font-medium text-red-500">{errors.item_details}</p>}
+            </div>
+          </div>
+        ) : item ? (
           <div className="rounded-xl bg-subtle p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
               <span className="text-xs font-medium text-accent-700 dark:text-accent-300">{t(`repairOrders.form.kind.${item.kind}`)}</span>
@@ -268,45 +362,57 @@ export function RepairForm({ vendors, staff, tickets = [], defaults, order }: Pr
             "vendor_id",
             t("repairOrders.form.vendor"),
             <>
-              <AppSelect
-                id="vendor_id"
-                value={vendorId}
-                onValueChange={(v) => {
-                  setVendorId(v);
-                  clear("vendor_id");
-                }}
-                className={cls("vendor_id")}
-              >
-                <option value="">{t("repairOrders.form.chooseVendor")}</option>
-                {vendors.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name} ({v.vendor_type})
-                  </option>
-                ))}
-              </AppSelect>
+              <MasterDataSelect source="vendors">
+                <AppSelect
+                  id="vendor_id"
+                  value={vendorId}
+                  onValueChange={(v) => {
+                    setVendorId(v);
+                    clear("vendor_id");
+                  }}
+                  className={cls("vendor_id")}
+                >
+                  <option value="">{t("repairOrders.form.chooseVendor")}</option>
+                  {vendors.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} ({v.vendor_type})
+                    </option>
+                  ))}
+                </AppSelect>
+              </MasterDataSelect>
               {vendors.length === 0 && <p className="mt-1 text-xs text-muted">{t("repairOrders.form.noVendors")}</p>}
             </>,
           )}
           {field(
             "sent_by_id",
             t("repairOrders.form.sentBy"),
-            <AppSelect
+            <SuggestInput<Person>
               id="sent_by_id"
-              value={sentBy}
-              onValueChange={(v) => {
-                setSentBy(v);
+              value={senderName}
+              onChange={(v) => {
+                setSenderName(v);
+                setSenderId(null);
                 clear("sent_by_id");
               }}
+              load={loadPeople}
+              onPick={(s) => {
+                setSenderName(s.data?.name ?? s.value);
+                setSenderId(s.data?.id ?? null);
+                clear("sent_by_id");
+              }}
+              allowNew={false}
+              maxLength={255}
+              placeholder={t("repairOrders.form.sentByPlaceholder")}
               className={cls("sent_by_id")}
-            >
-              <option value="">{t("repairOrders.form.chooseStaff")}</option>
-              {staff.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </AppSelect>,
+            />,
           )}
+          {/* ผู้บันทึกงานซ่อม = ผู้สร้างรายการ — เปลี่ยนไม่ได้ */}
+          <div>
+            <label htmlFor="recorder" className="mb-1 block text-sm font-medium">
+              {t("repairOrders.form.recorder")}
+            </label>
+            <input id="recorder" value={order?.created_by.name ?? defaults.recorder} disabled className={`${input} disabled:cursor-not-allowed disabled:bg-subtle disabled:text-muted`} />
+          </div>
           {field(
             "sent_on",
             t("repairOrders.form.sentOn"),
@@ -355,7 +461,35 @@ export function RepairForm({ vendors, staff, tickets = [], defaults, order }: Pr
             />
             {errors.document_no && <p className="mt-1 text-xs font-medium text-red-500">{errors.document_no}</p>}
           </div>
-          <div className="sm:col-span-2 lg:col-span-3">
+          {/* แจ้งเตือนตามงาน — ครบจำนวนวันนับจากวันที่ส่งแล้วยังไม่รับคืน = แจ้งที่กระดิ่ง + ตัวเลขเมนู */}
+          <div>
+            <label htmlFor="follow_up_days" className="mb-1 block text-sm font-medium">
+              {t("repairOrders.form.followUpDays")}
+              <span className="text-red-500"> *</span>
+            </label>
+            <input
+              id="follow_up_days"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={365}
+              step={1}
+              value={followUpDays}
+              onChange={(e) => {
+                setFollowUpDays(e.target.value);
+                clear("follow_up_days");
+              }}
+              className={`${input} ${errors.follow_up_days ? inputError : ""}`}
+            />
+            {errors.follow_up_days ? (
+              <p className="mt-1 text-xs font-medium text-red-500">{errors.follow_up_days}</p>
+            ) : (
+              followUpDate(sentOn, followUpDays) && <p className="mt-1 text-xs text-muted">{t("repairOrders.form.followUpHint", { date: fmt.date(followUpDate(sentOn, followUpDays)!) })}</p>
+            )}
+          </div>
+          {/* อุปกรณ์นอกระบบ: ข้อมูลอุปกรณ์เพิ่มเติมอยู่ในส่วนสินค้าที่ส่งซ่อมแล้ว */}
+          {!manual && (
+          <div className="sm:col-span-2 lg:col-span-2">
             <label htmlFor="item_details" className="mb-1 block text-sm font-medium">
               {t("repairOrders.form.itemDetails")}
             </label>
@@ -373,6 +507,7 @@ export function RepairForm({ vendors, staff, tickets = [], defaults, order }: Pr
             />
             {errors.item_details && <p className="mt-1 text-xs font-medium text-red-500">{errors.item_details}</p>}
           </div>
+          )}
           <div className="sm:col-span-2 lg:col-span-4">
             <p className="mb-1 text-sm font-medium">{t("repairOrders.form.files")}</p>
             {order && order.files.some((f) => f.kind === "send" && !removed.includes(f.id)) && (

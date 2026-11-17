@@ -62,7 +62,9 @@ export function proxy(request: NextRequest) {
     return withCsp(NextResponse.redirect(new URL("/login", request.url)));
   }
   // ?change=1 = มี session แต่ต้องตั้งรหัสผ่านใหม่ก่อนใช้งาน (หน้า login แสดงช่องรหัสผ่านใหม่)
-  if (hasToken && isLoginPage && !request.nextUrl.searchParams.has("expired") && !request.nextUrl.searchParams.has("change")) {
+  // เฉพาะการเปิดหน้า (GET) — server action ของฟอร์ม login (POST) ต้องผ่านไปเสมอ: ขั้นตั้งรหัสผ่านใหม่ / 2FA มี session แล้ว
+  // ถ้า redirect คำขอ POST ของ action ไป "/" เบราว์เซอร์จะได้คำตอบที่ไม่ใช่ของ action ("An unexpected response was received from the server")
+  if (request.method === "GET" && hasToken && isLoginPage && !request.nextUrl.searchParams.has("expired") && !request.nextUrl.searchParams.has("change")) {
     return withCsp(NextResponse.redirect(new URL("/", request.url)));
   }
   return next();

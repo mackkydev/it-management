@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition, type ReactNode } from "react";
-import { cancelVpnRequest, chooseVpn, closeVpn, revealVpn, saveVpnAssignment, type VpnAssignValues } from "@/app/actions/vpn";
+import { approveVpn, cancelVpnRequest, chooseVpn, closeVpn, receiveVpn, revealVpn, revokeVpn, saveVpnAssignment, type VpnAssignValues } from "@/app/actions/vpn";
+import { PasswordInput } from "@/components/password-input";
 import { AppSelect } from "@/components/app-select";
 import { DateInput } from "@/components/date-input";
 import { useAlert, useConfirm } from "@/components/dialog-provider";
-import { AlertIcon, CheckIcon, ClipboardIcon, CopyIcon, EyeIcon, EyeOffIcon, KeyIcon, PencilIcon, ResetIcon, SaveIcon, SendIcon, SpinnerIcon, XIcon } from "@/components/icons";
+import { AlertIcon, CheckIcon, ChevronDownIcon, ClipboardIcon, CopyIcon, EyeIcon, EyeOffIcon, KeyIcon, PencilIcon, ResetIcon, SaveIcon, SendIcon, SpinnerIcon, XIcon } from "@/components/icons";
 import { ReauthPrompt } from "@/components/reauth-prompt";
 import { Tooltip } from "@/components/tooltip";
 import { btn, card, input, inputError, tone } from "@/components/ui";
@@ -20,12 +21,16 @@ type Tone = keyof typeof tone;
 
 /** สถานะที่แสดง: ใช้งานอยู่แต่ถึงช่วงแจ้งเตือน = ใกล้หมดอายุ, เลยวันหมดอายุ = หมดอายุแล้ว */
 function stateOf(l: VpnLoan): { key: string; tone: Tone } {
+  if (l.revoked_at && ["active", "renewal_requested", "cancel_requested"].includes(l.status)) return { key: "revoked", tone: "idle" };
   if (l.is_expired) return { key: "expired", tone: "danger" };
   if (l.is_expiring) return { key: "expiring", tone: "warning" };
   // ขอผ่านใบแจ้งงานที่หัวหน้ายังไม่อนุมัติ
   if (l.status === "requested" && (l.ticket?.status === "pending_supervisor" || l.ticket?.status === "approval_requested")) return { key: "awaiting", tone: "idle" };
+  // อนุมัติแล้ว รอผู้ขอกด "ได้รับแล้ว"
+  if (l.status === "active" && !l.received_at) return { key: "toReceive", tone: "info" };
   const map: Record<VpnLoan["status"], Tone> = {
     requested: "info",
+    pending_approval: "warning",
     active: "success",
     renewal_requested: "warning",
     cancel_requested: "warning",
@@ -42,73 +47,156 @@ export function VpnStatusBadge({ loan }: { loan: VpnLoan }) {
   return <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${tone[s.tone].badge}`}>{t(`vpn.states.${s.key}` as never)}</span>;
 }
 
-const AUTO_HIDE_MS = 30_000;
+/** ค่าที่เปิดดูแล้วจำไว้ 1 นาที (ในหน่วยความจำของแท็บนี้ — โหลดหน้าใหม่ = ต้องกรอกรหัสผ่านอีกครั้ง) */
+const CACHE_MS = 60_000;
+const revealed = new Map<string, { username: string | null; password: string; until: number }>();
+const cachedOf = (id: string) => {
+  const c = revealed.get(id);
+  if (c && c.until > Date.now()) return c;
+  revealed.delete(id);
+  return null;
+};
 
-/** รหัส VPN ของตัวเอง — กดเปิดดู (API บันทึกประวัติ / ยืนยันตัวตนซ้ำตามตั้งค่า) ซ่อนเองใน 30 วินาที */
+/**
+ * ชื่อผู้ใช้ / รหัส VPN ของตัวเอง — กดดู = กรอกรหัสผ่าน login ของตัวเองทุกครั้ง (API ตรวจ + บันทึกประวัติ)
+ * ค่าที่เปิดแล้วจำไว้ 1 นาที (เปิด/ซ่อนซ้ำได้ไม่ต้องกรอกใหม่) แล้วซ่อนเอง — มีปุ่มคัดลอก
+ */
 function RevealVpn({ id }: { id: string }) {
   const { t } = useI18n();
-  const [value, setValue] = useState<string | null>(null);
+  const [value, setValue] = useState<{ username: string | null; password: string } | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState("");
   const [clearIn, setClearIn] = useState(0);
   const [reauth, setReauth] = useState<ReauthChallenge | null>(null);
   const [pending, start] = useTransition();
 
+  // ซ่อนเองเมื่อครบเวลาที่จำไว้
   useEffect(() => {
     if (value === null) return;
-    const timer = window.setTimeout(() => setValue(null), AUTO_HIDE_MS);
+    const c = revealed.get(id);
+    const timer = window.setTimeout(() => setValue(null), Math.max(0, (c?.until ?? 0) - Date.now()));
     return () => window.clearTimeout(timer);
-  }, [value]);
+  }, [value, id]);
 
-  const reveal = () =>
+  const open = () => {
+    const c = cachedOf(id);
+    if (c) return setValue(c);
+    setAsking(true);
+    setError("");
+  };
+  const submit = () => {
+    if (!password) return setError(t("vpn.reveal.passwordRequired"));
     start(async () => {
-      const res = await revealVpn(id);
+      const res = await revealVpn(id, password);
       if ("error" in res) {
         if (res.reauth) setReauth(res.reauth);
         else setError(res.error);
-      } else setValue(res.password ?? "");
+        return;
+      }
+      const v = { username: res.username, password: res.password ?? "", until: Date.now() + CACHE_MS };
+      revealed.set(id, v);
+      setValue(v);
+      setAsking(false);
+      setPassword("");
     });
-  const copy = async () => {
-    if (value === null) return;
-    setClearIn(await copySecret(value));
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+  };
+  const copy = async (what: "username" | "password") => {
+    const text = what === "username" ? value?.username : value?.password;
+    if (!text) return;
+    setClearIn(await copySecret(text));
+    setCopied(what);
+    window.setTimeout(() => setCopied(""), 1500);
   };
 
-  if (error) return <span className="text-xs text-danger-600 dark:text-danger-300">{error}</span>;
-  if (reauth) return <ReauthPrompt challenge={reauth} onConfirmed={() => (setReauth(null), reveal())} onCancel={() => setReauth(null)} />;
+  if (reauth) return <ReauthPrompt challenge={reauth} onConfirmed={() => (setReauth(null), submit())} onCancel={() => setReauth(null)} />;
   const iconBtn = "flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors hover:bg-subtle hover:text-ink disabled:cursor-not-allowed";
+  const copyBtn = (what: "username" | "password") => (
+    <Tooltip label={copied === what ? t("vault.copied", { seconds: clearIn }) : t("vault.copy")}>
+      <button type="button" onClick={() => copy(what)} aria-label={t("vault.copy")} className={iconBtn}>
+        {copied === what ? <CheckIcon width={15} height={15} className="text-success-500" /> : <CopyIcon width={15} height={15} />}
+      </button>
+    </Tooltip>
+  );
+  if (asking && value === null) {
+    return (
+      <form action={submit} className="space-y-1.5">
+        <p className="text-xs text-muted">{t("vpn.reveal.hint")}</p>
+        <div className="flex items-center gap-1.5">
+          <PasswordInput
+            autoFocus
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => (setPassword(e.target.value), setError(""))}
+            aria-label={t("vpn.reveal.password")}
+            placeholder={t("vpn.reveal.password")}
+            className={`${input} ${error ? inputError : ""}`}
+          />
+          <button type="submit" disabled={pending} className={`${btn.primary} ${btn.sm} shrink-0`}>
+            {pending ? <SpinnerIcon width={14} height={14} /> : <EyeIcon width={14} height={14} />}
+            {t("vpn.reveal.show")}
+          </button>
+          <Tooltip label={t("common.cancel")}>
+            <button type="button" onClick={() => (setAsking(false), setPassword(""), setError(""))} aria-label={t("common.cancel")} className={iconBtn}>
+              <XIcon width={14} height={14} />
+            </button>
+          </Tooltip>
+        </div>
+        {error && <p className="text-xs font-medium text-red-500">{error}</p>}
+      </form>
+    );
+  }
   return (
-    <div className="flex items-center gap-1">
-      <code className="min-w-24 rounded-lg bg-subtle px-2 py-1 font-mono text-xs">{value === null ? "••••••••••" : value}</code>
-      <Tooltip label={value === null ? t("vault.reveal") : t("vault.hide")}>
-        <button type="button" onClick={() => (value === null ? reveal() : setValue(null))} disabled={pending} aria-label={value === null ? t("vault.reveal") : t("vault.hide")} className={iconBtn}>
-          {pending ? <SpinnerIcon width={14} height={14} /> : value === null ? <EyeIcon width={15} height={15} /> : <EyeOffIcon width={15} height={15} />}
-        </button>
-      </Tooltip>
+    <div className="space-y-1">
       {value !== null && (
-        <Tooltip label={copied ? t("vault.copied", { seconds: clearIn }) : t("vault.copy")}>
-          <button type="button" onClick={copy} aria-label={t("vault.copy")} className={iconBtn}>
-            {copied ? <CheckIcon width={15} height={15} className="text-success-500" /> : <CopyIcon width={15} height={15} />}
+        <div className="flex items-center gap-1">
+          <span className="w-16 shrink-0 text-xs text-muted">{t("vpn.field.username")}</span>
+          <code className="min-w-24 rounded-lg bg-subtle px-2 py-1 font-mono text-xs">{value.username ?? "-"}</code>
+          {value.username && copyBtn("username")}
+        </div>
+      )}
+      <div className="flex items-center gap-1">
+        {value !== null && <span className="w-16 shrink-0 text-xs text-muted">{t("vpn.field.password")}</span>}
+        <code className="min-w-24 rounded-lg bg-subtle px-2 py-1 font-mono text-xs">{value === null ? "••••••••••" : value.password}</code>
+        <Tooltip label={value === null ? t("vpn.reveal.open") : t("vault.hide")}>
+          <button type="button" onClick={() => (value === null ? open() : setValue(null))} aria-label={value === null ? t("vpn.reveal.open") : t("vault.hide")} className={iconBtn}>
+            {value === null ? <EyeIcon width={15} height={15} /> : <EyeOffIcon width={15} height={15} />}
           </button>
         </Tooltip>
-      )}
+        {value !== null && copyBtn("password")}
+      </div>
     </div>
   );
 }
 
-type Dialog = { kind: "renew" | "stop" | "assign" | "edit" | "reject" | "end" } | null;
+type Dialog = { kind: "renew" | "stop" | "locked" | "assign" | "edit" | "reject" | "end" | "approve" | "revoke" } | null;
 
 /**
  * การ์ด VPN 1 รายการ — ปุ่มตาม can_* จาก API
- * ผู้ใช้: ดูรหัส, ต่ออายุ / เลิกใช้ (→ ใบแจ้งงานเข้าคิว IT), ยกเลิกคำขอ · ผู้ดูแล (loans.manage): มอบบัญชี / แก้ไข / ไม่อนุมัติ / สิ้นสุดการใช้
+ * ผู้ใช้: ได้รับแล้ว (ปิดใบแจ้งงาน), ดูชื่อผู้ใช้ / รหัส (กรอกรหัสผ่าน login), ขอต่ออายุ / แจ้งถูกล็อก / ไม่ต่ออายุ (ยืนยันก่อนส่ง → ใบแจ้งงานเข้าคิว IT), ยกเลิกคำขอ
+ * ผู้ดูแล (loans.manage): มอบบัญชี (→ รอผู้จัดการฝ่าย IT อนุมัติ) / แก้ไข / ไม่อนุมัติ / สิ้นสุดการใช้ / เรียกคืนรหัส · ผู้จัดการฝ่าย IT: อนุมัติ / ส่งกลับ
  */
-export function VpnCard({ loan: initial, accounts, showUser = false }: { loan: VpnLoan; accounts?: VpnAccount[]; showUser?: boolean }) {
+export function VpnCard({
+  loan: initial,
+  accounts,
+  showUser = false,
+  defaultNotifyDays = 7,
+  compact = false,
+}: {
+  loan: VpnLoan;
+  accounts?: VpnAccount[];
+  showUser?: boolean;
+  defaultNotifyDays?: number;
+  /** การ์ดย่อขนาดเท่าการ์ด License (หัวการ์ดบรรทัดเดียว) — กดขยายดูรายละเอียด + ปุ่ม (หน้า จัดการ VPN) */
+  compact?: boolean;
+}) {
   const { t, fmt } = useI18n();
   const router = useRouter();
   const confirm = useConfirm();
   const showAlert = useAlert();
   const [l, setL] = useState(initial);
+  const [open, setOpen] = useState(!compact);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [pending, start] = useTransition();
 
@@ -116,6 +204,15 @@ export function VpnCard({ loan: initial, accounts, showUser = false }: { loan: V
     if (loan) setL(loan);
     setDialog(null);
     router.refresh();
+  };
+
+  const receive = async () => {
+    if (!(await confirm(t("vpn.actions.confirmReceive")))) return;
+    start(async () => {
+      const res = await receiveVpn(l.id);
+      if (!res.loan) return void (await showAlert(res.errors?.status ?? res.message ?? t("common.saveFailed")));
+      done(res.loan);
+    });
   };
 
   const cancelRequest = async () => {
@@ -137,8 +234,33 @@ export function VpnCard({ loan: initial, accounts, showUser = false }: { loan: V
     </div>
   );
 
+  const title = l.account ? l.account.title : showUser ? l.user.name : t("tickets.vpn.detail");
+  const leftCls = l.is_expired ? "text-danger-600 dark:text-danger-300" : l.is_expiring ? "text-warning-700 dark:text-warning-300" : "text-muted";
+  const ring = l.is_expired ? "ring-danger-300 dark:ring-danger-400/40" : l.is_expiring ? "ring-warning-300 dark:ring-warning-400/40" : "";
+  // มีปุ่มรอทำ (มอบ / อนุมัติ / ได้รับ) = จุดเตือนบนการ์ดย่อ
+  const actionable = l.can_assign || l.can_approve || l.can_receive;
+
   return (
-    <div className={`space-y-3 p-4 ${card} ${l.is_expired ? "ring-danger-300 dark:ring-danger-400/40" : l.is_expiring ? "ring-warning-300 dark:ring-warning-400/40" : ""}`}>
+    <div className={`space-y-3 p-4 ${card} ${ring}`}>
+      {compact ? (
+        // การ์ดย่อ: ไอคอน + ชื่อบัญชี/ผู้ใช้ + บรรทัดสรุป (ผู้ใช้ · สถานะ · วันเหลือ) — กดทั้งแถบเพื่อขยาย
+        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full cursor-pointer items-center gap-3 text-left">
+          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-50 text-accent-600 ring-1 ring-inset ring-accent-200 dark:bg-accent-400/10 dark:text-accent-300 dark:ring-accent-400/20">
+            <KeyIcon width={18} height={18} />
+            {actionable && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-danger-500 ring-2 ring-surface" aria-hidden="true" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium text-ink">{title}</span>
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted">
+              {showUser && l.account && <span className="truncate">{l.user.name}</span>}
+              <VpnStatusBadge loan={l} />
+              {leftText && <span className={`font-medium ${leftCls}`}>{leftText}</span>}
+            </span>
+          </span>
+          <ChevronDownIcon width={16} height={16} className={`shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+          <span className="sr-only">{t(open ? "vpn.actions.collapse" : "vpn.actions.expand")}</span>
+        </button>
+      ) : (
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
           <VpnStatusBadge loan={l} />
@@ -148,11 +270,12 @@ export function VpnCard({ loan: initial, accounts, showUser = false }: { loan: V
           </h3>
           {showUser && l.account && <p className="text-sm text-muted">{l.user.name}{l.department ? ` · ${l.department}` : ""}</p>}
         </div>
-        {leftText && (
-          <span className={`text-sm font-medium ${l.is_expired ? "text-danger-600 dark:text-danger-300" : l.is_expiring ? "text-warning-700 dark:text-warning-300" : "text-muted"}`}>{leftText}</span>
-        )}
+        {leftText && <span className={`text-sm font-medium ${leftCls}`}>{leftText}</span>}
       </div>
+      )}
 
+      {open && (
+      <>
       {l.can_choose && l.is_expiring && (
         <p className="flex items-center gap-2 rounded-xl bg-warning-50 px-3 py-2 text-sm text-warning-800 dark:bg-warning-400/10 dark:text-warning-300">
           <AlertIcon width={15} height={15} className="shrink-0" />
@@ -167,8 +290,11 @@ export function VpnCard({ loan: initial, accounts, showUser = false }: { loan: V
           l.requested_until &&
           row(t("vpn.field.requestedUntil"), `${l.requested_from ? `${fmt.date(l.requested_from)} – ` : ""}${fmt.date(l.requested_until)}`)}
         {l.status === "requested" && l.created_at && row(t("vpn.field.requestedAt"), fmt.dateTime(l.created_at))}
-        {l.account?.username && row(t("vpn.field.username"), <code className="font-mono text-xs">{l.account.username}</code>)}
-        {l.can_reveal && row(t("vpn.field.password"), <RevealVpn id={l.id} />)}
+        {l.account?.username && !l.can_reveal && row(t("vpn.field.username"), <code className="font-mono text-xs">{l.account.username}</code>)}
+        {l.can_reveal && row(t("vpn.field.credentials"), <RevealVpn id={l.id} />)}
+        {l.status === "pending_approval" && row(t("vpn.field.approval"), t("vpn.approval.waiting"))}
+        {l.approved_by && row(t("vpn.field.approvedBy"), `${l.approved_by}${l.approved_at ? ` · ${fmt.dateTime(l.approved_at)}` : ""}`)}
+        {l.revoked_at && row(t("vpn.field.revokedAt"), fmt.dateTime(l.revoked_at))}
         {l.account?.url && row(t("vpn.field.server"), <span className="break-all">{l.account.url}</span>)}
         {l.start_on && l.expires_on && row(t("vpn.field.expiresOn"), `${fmt.date(l.start_on)} – ${fmt.date(l.expires_on)}`)}
         {l.expires_on && (l.can_edit || l.can_choose) && row(t("vpn.field.notifyDays"), t("vpn.field.notifyDaysValue", { n: l.notify_days_before }))}
@@ -186,8 +312,26 @@ export function VpnCard({ loan: initial, accounts, showUser = false }: { loan: V
         {l.end_note && row(t("vpn.field.endNote"), <span className="whitespace-pre-line">{l.end_note}</span>)}
       </dl>
 
-      {(l.can_choose || l.can_cancel || l.can_assign || l.can_edit || l.can_reject || l.can_end) && (
+      {(l.can_choose || l.can_cancel || l.can_assign || l.can_edit || l.can_reject || l.can_end || l.can_receive || l.can_approve || l.can_revoke) && (
         <div className="flex flex-wrap justify-end gap-2 pt-1">
+          {l.can_receive && (
+            <button type="button" disabled={pending} onClick={receive} className={`${btn.primary} ${btn.sm}`}>
+              {pending ? <SpinnerIcon width={14} height={14} /> : <CheckIcon width={14} height={14} />}
+              {t("vpn.actions.receive")}
+            </button>
+          )}
+          {l.can_approve && (
+            <button type="button" onClick={() => setDialog({ kind: "approve" })} className={`${btn.primary} ${btn.sm}`}>
+              <CheckIcon width={14} height={14} />
+              {t("vpn.actions.approve")}
+            </button>
+          )}
+          {l.can_revoke && (
+            <button type="button" onClick={() => setDialog({ kind: "revoke" })} className={`${btn.secondary} ${btn.sm}`}>
+              <ResetIcon width={14} height={14} />
+              {t("vpn.actions.revoke")}
+            </button>
+          )}
           {l.can_cancel && (
             <button type="button" disabled={pending} onClick={cancelRequest} className={`${btn.secondary} ${btn.sm}`}>
               {pending ? <SpinnerIcon width={14} height={14} /> : <XIcon width={14} height={14} />}
@@ -199,6 +343,10 @@ export function VpnCard({ loan: initial, accounts, showUser = false }: { loan: V
               <button type="button" onClick={() => setDialog({ kind: "stop" })} className={`${btn.secondary} ${btn.sm}`}>
                 <XIcon width={14} height={14} />
                 {t("vpn.actions.stop")}
+              </button>
+              <button type="button" onClick={() => setDialog({ kind: "locked" })} className={`${btn.secondary} ${btn.sm}`}>
+                <AlertIcon width={14} height={14} />
+                {t("vpn.actions.locked")}
               </button>
               <button type="button" onClick={() => setDialog({ kind: "renew" })} className={`${btn.primary} ${btn.sm}`}>
                 <ResetIcon width={14} height={14} />
@@ -232,18 +380,22 @@ export function VpnCard({ loan: initial, accounts, showUser = false }: { loan: V
           )}
         </div>
       )}
+      </>
+      )}
 
-      {dialog && (dialog.kind === "renew" || dialog.kind === "stop") && (
+      {dialog && (dialog.kind === "renew" || dialog.kind === "stop" || dialog.kind === "locked") && (
         <ChoiceDialog
           loan={l}
-          choice={dialog.kind === "renew" ? "renew" : "cancel"}
+          choice={dialog.kind === "renew" ? "renew" : dialog.kind === "locked" ? "locked" : "cancel"}
           onClose={() => setDialog(null)}
           onDone={done}
         />
       )}
       {dialog && (dialog.kind === "assign" || dialog.kind === "edit") && accounts && (
-        <AssignDialog loan={l} mode={dialog.kind} accounts={accounts} onClose={() => setDialog(null)} onDone={done} />
+        <AssignDialog loan={l} mode={dialog.kind} accounts={accounts} defaultNotifyDays={defaultNotifyDays} onClose={() => setDialog(null)} onDone={done} />
       )}
+      {dialog?.kind === "approve" && <ApproveDialog loan={l} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog?.kind === "revoke" && <RevokeDialog loan={l} onClose={() => setDialog(null)} onDone={done} />}
       {dialog && (dialog.kind === "reject" || dialog.kind === "end") && (
         <CloseDialog loan={l} action={dialog.kind} onClose={() => setDialog(null)} onDone={done} />
       )}
@@ -284,7 +436,7 @@ function addDays(iso: string, n: number): string {
 }
 
 /** ผู้ใช้เลือก ต่ออายุ (+ วันที่ต้องการ) / เลิกใช้ → ใบแจ้งงานเข้าคิว IT */
-function ChoiceDialog({ loan, choice, onClose, onDone }: { loan: VpnLoan; choice: "renew" | "cancel"; onClose: () => void; onDone: (loan?: VpnLoan) => void }) {
+function ChoiceDialog({ loan, choice, onClose, onDone }: { loan: VpnLoan; choice: "renew" | "cancel" | "locked"; onClose: () => void; onDone: (loan?: VpnLoan) => void }) {
   const { t } = useI18n();
   const today = localToday();
   const base = loan.expires_on && loan.expires_on > today ? loan.expires_on : today;
@@ -308,7 +460,7 @@ function ChoiceDialog({ loan, choice, onClose, onDone }: { loan: VpnLoan; choice
   };
 
   return (
-    <Modal title={t(choice === "renew" ? "vpn.choice.renewTitle" : "vpn.choice.stopTitle")} onClose={onClose}>
+    <Modal title={t(choice === "renew" ? "vpn.choice.renewTitle" : choice === "locked" ? "vpn.choice.lockedTitle" : "vpn.choice.stopTitle")} onClose={onClose}>
       <p className="flex items-start gap-2 text-sm text-muted">
         <ClipboardIcon width={15} height={15} className="mt-0.5 shrink-0 text-accent-500" />
         {t("vpn.choice.hint")}
@@ -356,14 +508,29 @@ function ChoiceDialog({ loan, choice, onClose, onDone }: { loan: VpnLoan; choice
 }
 
 /** ผู้ดูแลมอบบัญชี (คำขอที่รอ) / แก้ไขบัญชี วันหมดอายุ แจ้งเตือนล่วงหน้า */
-function AssignDialog({ loan, mode, accounts, onClose, onDone }: { loan: VpnLoan; mode: "assign" | "edit"; accounts: VpnAccount[]; onClose: () => void; onDone: (loan?: VpnLoan) => void }) {
+function AssignDialog({
+  loan,
+  mode,
+  accounts,
+  defaultNotifyDays,
+  onClose,
+  onDone,
+}: {
+  loan: VpnLoan;
+  mode: "assign" | "edit";
+  accounts: VpnAccount[];
+  /** มอบใหม่: วันแจ้งเตือนล่วงหน้าตั้งต้นจากหน้าตั้งค่า (vpn_notify_days) */
+  defaultNotifyDays: number;
+  onClose: () => void;
+  onDone: (loan?: VpnLoan) => void;
+}) {
   const { t, fmt } = useI18n();
   const today = localToday();
   const [v, setV] = useState<VpnAssignValues>({
     credential_id: loan.account ? String(loan.account.id) : "",
     start_on: loan.start_on ?? (loan.requested_from && loan.requested_from >= today ? loan.requested_from : today),
     expires_on: loan.expires_on ?? (loan.requested_until && loan.requested_until >= today ? loan.requested_until : addDays(today, 90)),
-    notify_days_before: String(loan.notify_days_before ?? 7),
+    notify_days_before: String(mode === "assign" ? defaultNotifyDays : (loan.notify_days_before ?? defaultNotifyDays)),
   });
   const [errors, setErrors] = useState<Partial<Record<keyof VpnAssignValues | "status", string>>>({});
   const [message, setMessage] = useState("");
@@ -439,6 +606,7 @@ function AssignDialog({ loan, mode, accounts, onClose, onDone }: { loan: VpnLoan
               onChange={(e) => set("notify_days_before", e.target.value)}
               className={`${input} ${errors.notify_days_before ? inputError : ""}`}
             />
+            <p className="mt-1 text-xs text-muted">{t("vpn.assign.notifyHint", { n: defaultNotifyDays })}</p>
             {errorText(errors.notify_days_before)}
           </div>
         </fieldset>
@@ -499,6 +667,90 @@ function CloseDialog({ loan, action, onClose, onDone }: { loan: VpnLoan; action:
         <button type="button" disabled={pending} onClick={submit} className={btn.danger}>
           {pending ? <SpinnerIcon width={16} height={16} /> : <XIcon width={16} height={16} />}
           {t(reject ? "vpn.actions.reject" : "vpn.actions.end")}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/** ผู้จัดการฝ่าย IT อนุมัติการมอบบัญชี (แจ้งผู้ขอ) / ส่งกลับ (ต้องมีเหตุผล → กลับเป็นรอมอบ แจ้งผู้มอบ) */
+function ApproveDialog({ loan, onClose, onDone }: { loan: VpnLoan; onClose: () => void; onDone: (loan?: VpnLoan) => void }) {
+  const { t, fmt } = useI18n();
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const [pending, start] = useTransition();
+
+  const submit = (approve: boolean) => {
+    if (!approve && !note.trim()) return setError(t("vpn.approval.noteRequired"));
+    start(async () => {
+      const res = await approveVpn(loan.id, approve, note);
+      if (!res.ok) return setError(res.errors?.note ?? res.errors?.signature ?? res.errors?.status ?? res.message ?? t("common.saveFailed"));
+      onDone(res.loan);
+    });
+  };
+
+  return (
+    <Modal title={t("vpn.approval.title", { name: loan.user.name })} onClose={onClose}>
+      <dl className="space-y-1 text-sm">
+        <div className="flex gap-2"><dt className="w-28 shrink-0 text-muted">{t("vpn.field.account")}</dt><dd>{loan.account?.title ?? "-"}</dd></div>
+        {loan.start_on && loan.expires_on && <div className="flex gap-2"><dt className="w-28 shrink-0 text-muted">{t("vpn.field.expiresOn")}</dt><dd>{`${fmt.date(loan.start_on)} – ${fmt.date(loan.expires_on)}`}</dd></div>}
+        {loan.assigned_by && <div className="flex gap-2"><dt className="w-28 shrink-0 text-muted">{t("vpn.field.assignedBy")}</dt><dd>{loan.assigned_by}</dd></div>}
+      </dl>
+      <p className="text-xs text-muted">{t("vpn.approval.hint")}</p>
+      <div>
+        {label("vpn-approval-note", t("vpn.approval.note"))}
+        <textarea id="vpn-approval-note" rows={2} maxLength={2000} value={note} disabled={pending} onChange={(e) => (setNote(e.target.value), setError(""))} className={`${input} ${error ? inputError : ""}`} />
+        {errorText(error)}
+      </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={onClose} className={btn.secondary}>
+          {t("common.cancel")}
+        </button>
+        <button type="button" disabled={pending} onClick={() => submit(false)} className={btn.danger}>
+          <ResetIcon width={16} height={16} />
+          {t("vpn.approval.return")}
+        </button>
+        <button type="button" disabled={pending} onClick={() => submit(true)} className={btn.primary}>
+          {pending ? <SpinnerIcon width={16} height={16} /> : <CheckIcon width={16} height={16} />}
+          {t("vpn.actions.approve")}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/** เรียกคืนรหัส VPN — ยืนยันก่อน, ผู้ใช้ดูชื่อผู้ใช้ / รหัสผ่านไม่ได้อีก (แจ้งผู้ใช้) */
+function RevokeDialog({ loan, onClose, onDone }: { loan: VpnLoan; onClose: () => void; onDone: (loan?: VpnLoan) => void }) {
+  const { t } = useI18n();
+  const confirm = useConfirm();
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const [pending, start] = useTransition();
+
+  const submit = async () => {
+    if (!(await confirm(t("vpn.revoke.confirm", { name: loan.user.name })))) return;
+    start(async () => {
+      const res = await revokeVpn(loan.id, note);
+      if (!res.ok) return setError(res.errors?.note ?? res.errors?.status ?? res.message ?? t("common.saveFailed"));
+      onDone(res.loan);
+    });
+  };
+
+  return (
+    <Modal title={t("vpn.revoke.title", { name: loan.user.name })} onClose={onClose}>
+      <p className="text-sm text-muted">{t("vpn.revoke.hint")}</p>
+      <div>
+        {label("vpn-revoke-note", t("vpn.end.note"))}
+        <textarea id="vpn-revoke-note" rows={2} maxLength={2000} value={note} disabled={pending} onChange={(e) => (setNote(e.target.value), setError(""))} className={`${input} ${error ? inputError : ""}`} />
+        {errorText(error)}
+      </div>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onClose} className={btn.secondary}>
+          {t("common.cancel")}
+        </button>
+        <button type="button" disabled={pending} onClick={submit} className={btn.danger}>
+          {pending ? <SpinnerIcon width={16} height={16} /> : <ResetIcon width={16} height={16} />}
+          {t("vpn.actions.revoke")}
         </button>
       </div>
     </Modal>

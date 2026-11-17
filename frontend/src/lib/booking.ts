@@ -1,4 +1,14 @@
 /** ส่วนกลางของระบบจอง (ห้องประชุม / รถ): สีประจำทรัพยากร, เวลา "HH:MM", รูปหลัก, เลื่อนวัน */
+import type { BookingKind, BookingScopeMeta } from "@/lib/types";
+
+/**
+ * ห้องประชุม / จองรถ: ดูได้เฉพาะสาขาของผู้ใช้ (ล็อก เลือกสาขาอื่นไม่ได้) — คืน id สาขาที่ล็อก หรือ null = เลือกได้ตามขอบเขต
+ * (ผู้ใช้ที่ไม่มีสาขา / สาขาไม่อยู่ในรายการ = ไม่ล็อก)
+ */
+export function lockedBranch(_kind: BookingKind, meta: BookingScopeMeta): number | null {
+  if (meta.branch_id === null) return null;
+  return meta.branches.some((b) => b.id === meta.branch_id) ? meta.branch_id : null;
+}
 
 /** สีประจำห้อง/รถ (ตามลำดับ) — token สถานะ/ธีม เปลี่ยนตามธีมและโหมดมืดอัตโนมัติ */
 const TONES = [

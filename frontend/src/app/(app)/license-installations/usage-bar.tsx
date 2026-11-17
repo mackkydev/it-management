@@ -3,7 +3,18 @@ import type { Formatters, TFunction } from "@/i18n/types";
 import type { LicenseUsage } from "@/lib/types";
 
 /** แถบจำนวนที่ใช้ของ license: คงเหลือ/ทั้งหมด — เต็ม = แดง, เหลือ ≤ 10% = เหลือง (seats null = ไม่จำกัด) */
-export function UsageBar({ usage, t, fmt }: { usage: LicenseUsage; t: TFunction; fmt: Formatters }) {
+export function UsageBar({
+  usage,
+  t,
+  fmt,
+  volume = false,
+}: {
+  usage: LicenseUsage;
+  t: TFunction;
+  fmt: Formatters;
+  /** ต่อท้าย "(Volume License)" — key เดียวติดตั้งได้หลายเครื่อง */
+  volume?: boolean;
+}) {
   if (usage.seats === null) {
     return <p className="text-sm text-muted">{t("installations.usedUnlimited", { used: fmt.number(usage.used) })}</p>;
   }
@@ -14,6 +25,7 @@ export function UsageBar({ usage, t, fmt }: { usage: LicenseUsage; t: TFunction;
       <div className="flex items-baseline justify-between gap-2 text-sm">
         <span className="font-semibold tabular-nums">
           {t("installations.availableOf", { available: fmt.number(usage.available ?? 0), seats: fmt.number(usage.seats) })}
+          {volume && <span className="ml-1 font-normal text-muted">{t("installations.volume")}</span>}
         </span>
         <span className="text-xs text-muted">{t("installations.usedCount", { used: fmt.number(usage.used) })}</span>
       </div>

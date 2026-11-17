@@ -73,6 +73,18 @@ export interface TicketRow {
 /** ใบงานของการจอง ZOOM: ผู้จอง / IT ทำจากหน้า ZOOM (routes/zoom.ts) — ในหน้าใบงานมีแค่ปุ่มผู้จัดการ IT อนุมัติ (detail.can_zoom_approve) */
 export const isZoomTicket = (t: Pick<TicketRow, "source">) => t.source === "zoom";
 
+/** หัวข้อใบแจ้งงาน "อื่นๆ" ของการขอใช้ VPN (services/vpn-loans.ts VPN_REQUEST_TYPE ใช้ค่านี้) */
+export const VPN_REQUEST_TICKET_TYPE = "ขอใช้งาน VPN";
+/**
+ * ใบงานของระบบยืม VPN — ฝั่ง IT ทำงาน / ได้แจ้งเตือนที่เมนู VPN (ใบงานเดินเบื้องหลัง):
+ * ใบขอใช้ VPN + ใบที่ระบบสร้างจากปุ่ม ขอต่ออายุ / ไม่ต่ออายุ / แจ้งรหัสล็อก (หัวข้อขึ้นต้น "VPN:" — vpnTicketSubject)
+ */
+export const isVpnTicketRow = (t: Pick<TicketRow, "type" | "type_other">) => {
+  if (t.type !== "other" || typeof t.type_other !== "string") return false;
+  const s = t.type_other.trim().toLowerCase();
+  return s === VPN_REQUEST_TICKET_TYPE.toLowerCase() || s.startsWith("vpn:");
+};
+
 /** คอลัมน์เพิ่มเติมของ it_tickets t สำหรับกติกาสายอนุมัติ — ใส่ใน SELECT ทุกที่ที่โหลด TicketRow */
 export const TICKET_APPROVAL_COLUMNS = `(SELECT s.approver_ids FROM it_ticket_approval_steps s WHERE s.it_ticket_id = t.id AND s.step_no = t.current_step) AS step_approver_ids,
   (SELECT JSON_ARRAYAGG(x.v) FROM it_ticket_approval_steps s, JSON_TABLE(s.approver_ids, '$[*]' COLUMNS (v BIGINT PATH '$')) AS x WHERE s.it_ticket_id = t.id) AS approval_user_ids,
@@ -228,6 +240,20 @@ export const IT_STAFF_WHERE = `is_active = true AND (is_it_staff = true OR is_it
 
 export const itStaff = () =>
   select<Person & { is_it_head: number }>(`SELECT id, name, is_it_head FROM users WHERE ${IT_STAFF_WHERE} ORDER BY name, id`);
+
+/**
+ * dropdown เจ้าหน้าที่ IT (ผู้ดำเนินการ) ทุกที่ในระบบ — กรอง 2 ชั้น:
+ *   1) แผนกหรือฝ่ายเป็น IT (IT_UNIT_NAMES)
+ *   2) หน้าที่ในฝ่าย IT = ติ๊ก "เจ้าหน้าที่ IT" (ติ๊กผู้จัดการฝ่าย/แผนก IT ด้วยก็ยังแสดง — ติ๊กแต่ผู้จัดการอย่างเดียว = ไม่แสดง)
+ * ใช้ที่: ฟอร์มแจ้งงาน, ผู้ร่วม, โอนงาน, GET /it-staff (KPI / ตัวกรองใบงาน), ผู้ส่งซ่อม
+ * — สิทธิ์รับงานและการตรวจค่าที่ส่งมา (acceptors / IT_STAFF_WHERE) ยังใช้ itStaff() เหมือนเดิม
+ */
+export const IT_STAFF_OPTION_WHERE = `is_active = true
+  AND (LOWER(TRIM(department)) IN (${IT_UNITS_SQL}) OR LOWER(TRIM(division)) IN (${IT_UNITS_SQL}))
+  AND is_it_staff = true`;
+
+export const itStaffOptions = () =>
+  select<Person>(`SELECT id, name FROM users WHERE ${IT_STAFF_OPTION_WHERE} ORDER BY name, id`);
 
 /*
  * ผู้รับแจ้งเตือน "รอให้ทำ" = เฉพาะผู้ที่เกี่ยวข้องโดยตรง และต้องมีสิทธิ์ทำงานนั้นจริง
@@ -391,7 +417,10 @@ export async function notify(t: TicketRow, event: string, actor: UserRow | null)
 
   // อนุมัติใบของตัวเอง (ผู้แจ้ง = ผู้อนุมัติ) → แจ้งผู้แจ้งเองด้วย ให้ขึ้นกระดิ่ง/รอฉันอนุมัติ
   const selfApproval = event === "submitted" && t.current_step === null && t.approver_id !== null && t.approver_id === t.requester_id;
-  const ids = [...new Set(recipients.filter((r): r is Person => r !== null).map((r) => r.id))].filter((id) => !actor || id !== actor.id || selfApproval);
+  let ids = [...new Set(recipients.filter((r): r is Person => r !== null).map((r) => r.id))].filter((id) => !actor || id !== actor.id || selfApproval);
+  // ใบงานของระบบยืม VPN: ฝั่ง IT ได้แจ้งเตือนที่เมนู VPN แทน (services/vpn-loans.ts) — ใบงานยังเดินตามขั้นตอนเดิมเบื้องหลัง
+  //   คงไว้: ผู้แจ้ง และผู้อนุมัติของหัวหน้า (submitted / step_approved)
+  if (isVpnTicketRow(t) && event !== "submitted" && event !== "step_approved") ids = ids.filter((id) => id === t.requester_id);
   if (ids.length === 0) return;
   await notifyUsers(ids, TICKET_ACTIVITY, {
     kind: "ticket",

@@ -13,6 +13,7 @@ import { useToast } from "@/components/toast";
 import { alert, btn, input, inputError } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import type { Vendor, VendorFormValues } from "@/lib/types";
+import { MasterDataSelect } from "@/components/master-data-select";
 
 type Field = keyof VendorFormValues;
 type Errors = Partial<Record<Field | "vendor" | "files", string>>;
@@ -122,14 +123,16 @@ function VendorForm({ vendor, types, onClose, busyChange }: { vendor?: Vendor; t
         {field(
           "vendor_type",
           t("vendors.form.type"),
-          <AppSelect id="vendor_type" name="vendor_type" value={values.vendor_type} onChange={onChange} className={cls("vendor_type")}>
-            <option value="">{t("vendors.form.chooseType")}</option>
-            {typeOptions.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
-          </AppSelect>,
+          <MasterDataSelect source="vendor_type">
+            <AppSelect id="vendor_type" name="vendor_type" value={values.vendor_type} onChange={onChange} className={cls("vendor_type")}>
+              <option value="">{t("vendors.form.chooseType")}</option>
+              {typeOptions.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </AppSelect>
+          </MasterDataSelect>,
           true,
         )}
         {field("contact_name", t("vendors.form.contactName"), <input id="contact_name" name="contact_name" value={values.contact_name} onChange={onChange} maxLength={255} className={cls("contact_name")} />, true)}

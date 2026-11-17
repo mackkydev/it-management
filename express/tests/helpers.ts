@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { createApp } from "../src/app.js";
-import { config } from "../src/config.js";
+import { config, dbConfig } from "../src/config.js";
 import { exec, first, insert } from "../src/db.js";
 import { localToday, nowDb } from "../src/lib/time.js";
 import { createToken } from "../src/lib/tokens.js";
 import { makeHash } from "../src/lib/validator.js";
 import type { UserRow } from "../src/models/user.js";
+
+// กันพลาด: รันเทสต์โดยไม่ผ่าน express/vitest.config.ts (เช่น รัน vitest จากโฟลเดอร์ราก) จะได้ฐานจริงจาก .env
+// → หยุดทันทีก่อนเขียนข้อมูลใดๆ ถ้าฐานไม่ใช่ฐานเทสต์ (*_test)
+if (!dbConfig().database.endsWith("_test")) {
+  throw new Error(`Refusing to run tests against non-test database "${dbConfig().database}" — run vitest from express/ (vitest.config.ts)`);
+}
 
 /** helper แทน factory + Sanctum::actingAs ของเทสต์ Laravel */
 export const app = createApp();

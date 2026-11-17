@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CheckCircleIcon } from "@/components/icons";
+import { FlashToast } from "@/components/toast";
 import { PageHeader } from "@/components/page-header";
 import { card } from "@/components/ui";
 import { getI18n } from "@/i18n/server";
@@ -25,6 +26,8 @@ export default async function ZoomManagePage({ searchParams }: PageProps<"/zoom/
   if (!has(user, "zoom.manage")) redirect("/zoom");
   const sp = await searchParams;
   const status = TABS.find((s) => s === sp.status) ?? "pending";
+  // กลับมาจากการส่ง / แก้ลิงก์ที่หน้ารายละเอียด
+  const done = (["linked", "link_updated"] as const).find((d) => d === sp.done);
   const [{ t }, res] = await Promise.all([getI18n(), apiFetch<{ data: ZoomBooking[]; meta: { counts: Record<(typeof TABS)[number], number> } }>(`/zoom-bookings/manage?status=${status}`)]);
   const items = res.data;
   // ตัวเลขแดง = รายการค้าง (รอรับงาน / รอส่งลิงก์) — ส่งลิงก์แล้ว / รอผู้จองแก้ แสดงเป็นตัวเลขปกติ
@@ -42,6 +45,7 @@ export default async function ZoomManagePage({ searchParams }: PageProps<"/zoom/
   return (
     <div className="space-y-5">
       <PageHeader icon={CheckCircleIcon} title={t("zoom.manage.title")} subtitle={t("zoom.manage.subtitle")} />
+      {done && <FlashToast param="done" message={t(`zoom.done.${done}`)} />}
       <nav className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl bg-subtle p-1">
         {TABS.map((s) => (
           <Link key={s} href={`/zoom/manage?status=${s}`} aria-current={s === status ? "page" : undefined} className={`inline-flex cursor-pointer items-center gap-2 ${TAB_CLS(s === status)}`}>

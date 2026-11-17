@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getI18n } from "@/i18n/server";
 import { ApiError, apiFetch, TOKEN_COOKIE } from "@/lib/api";
 import type { User } from "@/lib/types";
-import { POLICY_CONSENT_COOKIE } from "@/lib/policy-consent";
+import { consentVersions, POLICY_CONSENT_COOKIE } from "@/lib/policy-consent";
 import { WELCOME_COOKIE } from "@/lib/welcome";
 
 export interface LoginState {
@@ -51,7 +51,7 @@ async function startSession(result: LoginResult) {
 async function rememberPolicyConsent(formData: FormData) {
   const version = String(formData.get("policy_version") ?? "");
   const jar = await cookies();
-  if (/^\d+$/.test(version)) jar.set(POLICY_CONSENT_COOKIE, version, { httpOnly: true, secure: await secureCookie(), sameSite: "strict", path: "/", maxAge: 900 });
+  if (consentVersions(version).length) jar.set(POLICY_CONSENT_COOKIE, version, { httpOnly: true, secure: await secureCookie(), sameSite: "strict", path: "/", maxAge: 900 });
   else if (!formData.get("change_password")) jar.delete(POLICY_CONSENT_COOKIE);
 }
 
@@ -167,6 +167,16 @@ export async function verifyLoginTwoFactor(_prev: TwoFactorState, formData: Form
 export type ConnectionStatus = "online" | "offline" | "unknown";
 
 /** สถานะการเชื่อมต่อต้นทาง (หน้า login, ไม่ต้อง login) — API cache ผลไว้ 1 นาที; API ล่ม = offline, ไม่มี health check = unknown */
+/** ป้ายสถานะบนหน้า login: ระบบ (API + ฐานข้อมูล) พร้อมใช้งาน = online / ต่อ API หรือฐานข้อมูลไม่ได้ = offline */
+export async function getSystemStatus(): Promise<"online" | "offline"> {
+  try {
+    const res = await apiFetch<{ data: { database: string } }>("/system-status");
+    return res.data.database === "ok" ? "online" : "offline";
+  } catch {
+    return "offline";
+  }
+}
+
 export async function getConnectionStatus(id: number): Promise<ConnectionStatus> {
   if (!Number.isInteger(id) || id <= 0) return "unknown";
   try {

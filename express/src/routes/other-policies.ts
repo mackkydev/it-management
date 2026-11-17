@@ -7,13 +7,13 @@ import { bool, int, validate, type Rule } from "../lib/validator.js";
 import { me } from "../http.js";
 import { can } from "../models/user.js";
 import { audit } from "../services/audit.js";
-import { POLICY_MANAGE } from "../services/system-policy.js";
+import { MAX_POLICY_SECTIONS, parseSections, POLICY_MANAGE, type PolicySection } from "../services/system-policy.js";
 import { deleteStored, readStored, storeUploadIn } from "../services/ticket-files.js";
 
 /**
- * นโยบายอื่นๆ — เอกสารให้เปิดอ่าน ไม่ต้องกดยอมรับ
+ * นโยบายอื่นๆ — หัวข้อ + รายละเอียด (sections เหมือนนโยบายที่ต้องยอมรับ) + เอกสารให้เปิดอ่าน ไม่ต้องกดยอมรับ
  *   GET    /policy/others                  ที่เปิดใช้งาน (login) — ?all=1 = ทั้งหมด (policy.manage)
- *   POST   /policy/others                  JSON หรือ multipart: title, description, sort_order, is_active, files[] (policy.manage)
+ *   POST   /policy/others                  JSON หรือ multipart: title, description, sections[i][title|body], sort_order, is_active, files[] (policy.manage)
  *   PUT    /policy/others/{id}             เหมือน POST + remove_file_ids[]
  *   DELETE /policy/others/{id}
  *   GET    /policy/others/{id}/files/{fileId}  ผู้จัดการ = ทุกรายการ, คนอื่น = เฉพาะที่เปิดใช้งาน
@@ -28,6 +28,7 @@ interface Row {
   id: number;
   title: string;
   description: string | null;
+  sections: unknown;
   sort_order: number;
   is_active: boolean;
   updated_at: string | null;
@@ -48,6 +49,7 @@ const json = (r: Row, files: FileRow[]) => ({
   id: Number(r.id),
   title: r.title,
   description: r.description,
+  sections: r.sections === null || r.sections === undefined ? [] : parseSections(r.sections),
   sort_order: Number(r.sort_order),
   is_active: Boolean(r.is_active),
   updated_at: iso(r.updated_at),
@@ -78,6 +80,9 @@ const validated = (req: Request) =>
     {
       title: ["required", "string", "max:200"],
       description: ["nullable", "string", "max:2000"],
+      sections: ["nullable", "array", `max:${MAX_POLICY_SECTIONS}`],
+      "sections.*.title": ["required", "string", "max:200"],
+      "sections.*.body": ["required", "string", "max:20000"],
       sort_order: ["nullable", "integer", "min:0", "max:999"],
       is_active: ["sometimes", "boolean"],
       files: ["nullable", "array", `max:${FILES_MAX}`],
@@ -91,6 +96,9 @@ const validated = (req: Request) =>
 const values = (data: Record<string, unknown>, input: Record<string, unknown>) => ({
   title: String(data.title).trim(),
   description: typeof data.description === "string" && data.description.trim() !== "" ? data.description.trim() : null,
+  sections: JSON.stringify(
+    Object.values((data.sections ?? {}) as Record<string, PolicySection>).map((s) => ({ title: String(s.title).trim(), body: String(s.body).replace(/\r\n/g, "\n").trim() })),
+  ),
   sort_order: int(data.sort_order) ?? 0,
   is_active: "is_active" in input ? bool(input.is_active) : true,
   updated_at: nowDb(),

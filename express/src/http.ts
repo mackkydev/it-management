@@ -8,7 +8,7 @@ import { UploadedFile } from "./lib/uploaded-file.js";
 import { findUser, isReadOnly, type UserRow } from "./models/user.js";
 import { checkApiSession } from "./services/api-auth.js";
 import { PASSWORD_EXPIRED_ALLOWED, passwordPolicy, passwordStatus } from "./services/password-policy.js";
-import { acceptanceOf, POLICY_ALLOWED, POLICY_FILE_PATH, policyActive, systemPolicy } from "./services/system-policy.js";
+import { POLICY_ALLOWED, POLICY_FILE_PATH, policyProgress } from "./services/system-policy.js";
 import { permissionsOf } from "./services/permissions.js";
 
 declare global {
@@ -176,8 +176,8 @@ export async function auth(req: Request, _res: Response, next: NextFunction) {
   }
   // ยังไม่ยอมรับนโยบายของระบบ (เวอร์ชันปัจจุบัน) → ใช้ได้แค่อ่าน/ยอมรับนโยบาย, ข้อมูลตัวเอง, เปลี่ยนรหัสผ่าน, ออกจากระบบ
   if (!POLICY_ALLOWED.some((a) => a.method === req.method && a.path === req.path) && !(req.method === "GET" && POLICY_FILE_PATH.test(req.path))) {
-    const policy = await systemPolicy();
-    if (policyActive(policy) && !(await acceptanceOf(user.id, policy.version))) {
+    // โหมดวันละเรื่อง: ยอมรับเรื่องหนึ่งไปแล้ววันนี้ = ใช้งานต่อได้ เรื่องถัดไปขึ้นวันพรุ่งนี้
+    if ((await policyProgress(user.id)).required.length) {
       throw new HttpError(403, trans(req.locale, "eam.policy.required"), {}, { code: "policy_required" });
     }
   }
