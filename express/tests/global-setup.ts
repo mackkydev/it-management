@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
+import pg from "pg";
 
 /**
  * สร้างฐาน it_system_test ใหม่จาก Prisma migrations ทุกครั้งที่รันเทสต์
@@ -17,6 +18,26 @@ export default async function setup() {
 
   const target = process.env.DB_DATABASE;
   if (!target.endsWith("_test")) throw new Error(`Refusing to run tests against non-test database "${target}"`);
+
+  if (/^(postgres|postgresql|pg)$/i.test(process.env.DB_CLIENT ?? "")) {
+    // PostgreSQL: it_app มีสิทธิ์ CREATEDB (docker/pgsql/init.sh) — เชื่อมต่อฐาน postgres เพื่อลบ/สร้างฐานเทสต์
+    const client = new pg.Client({
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT || 5432),
+      user: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      database: "postgres",
+    });
+    await client.connect();
+    try {
+      await client.query(`DROP DATABASE IF EXISTS "${target}" WITH (FORCE)`);
+      await client.query(`CREATE DATABASE "${target}" ENCODING 'UTF8' TEMPLATE template0`);
+    } finally {
+      await client.end();
+    }
+    execSync("npx prisma migrate deploy", { cwd: root, env: { ...process.env, DB_DATABASE: target }, stdio: "pipe" });
+    return;
+  }
 
   const conn = await mysql.createConnection({
     host: process.env.DB_HOST,

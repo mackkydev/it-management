@@ -29,6 +29,34 @@ services:
       timeout: 5s
       retries: 30
 
+  # ฐานข้อมูลทางเลือก — PostgreSQL 18 (เทียบกับ MySQL ได้: ข้อมูลแยก volume it_pgsql ไม่แตะฐานเดิม)
+  # เปิด: docker compose --profile postgres up -d pgsql  แล้วตั้ง IT_DB_CLIENT=postgres ใน .env ข้าง docker-compose.yml
+  #       (express ชี้ไปที่ pgsql:5432 — ดู express/prisma/postgres/README.md)
+  # ข้อความทุกคอลัมน์เป็น citext = ไม่สนตัวพิมพ์เหมือน utf8mb4_0900_as_ci ของ MySQL
+  # ครั้งแรกที่สร้าง volume: docker/pgsql/init.sh สร้าง it_app + ฐาน it_system / it_system_test / it_system_shadow
+  pgsql:
+    image: postgres:18-alpine
+    container_name: it_pgsql
+    restart: unless-stopped
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${IT_DB_ROOT_PASSWORD:-root_change_me}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+      IT_DB_PASSWORD: ${IT_DB_PASSWORD:-change_me_strong_password}
+      TZ: UTC
+    ports:
+      - "127.0.0.1:5434:5432" # 5433 = PostgreSQL 17 เดิม (profile legacy-postgres)
+    volumes:
+      # PostgreSQL 18 เก็บข้อมูลที่ /var/lib/postgresql/18/docker — mount โฟลเดอร์แม่ตามที่ image กำหนด
+      - it_pgsql:/var/lib/postgresql
+      - ./docker/pgsql/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d it_system"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   # ฐานเดิม (PostgreSQL 17) — เก็บไว้เป็นสำรองหลังย้ายไป MySQL ไม่ได้เปิดตามปกติ
   # เปิดดูข้อมูลเดิม: docker compose --profile legacy-postgres up -d postgres
   postgres:
@@ -66,8 +94,10 @@ services:
       - ./express/.env
     environment:
       # ค่าที่ต่างจากตอนรันบนเครื่อง (express/.env ชี้ 127.0.0.1:3308)
-      DB_HOST: mysql
-      DB_PORT: "3306"
+      # PostgreSQL: ตั้งใน .env ข้าง docker-compose.yml → IT_DB_CLIENT=postgres, IT_DB_HOST=pgsql, IT_DB_PORT=5432
+      DB_CLIENT: ${IT_DB_CLIENT:-mysql}
+      DB_HOST: ${IT_DB_HOST:-mysql}
+      DB_PORT: ${IT_DB_PORT:-3306}
       PORT: "8020"
       FILES_ROOT: /data/private
       SKIP_ENV_FILES: "1"
@@ -80,6 +110,9 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      pgsql:
+        condition: service_healthy
+        required: false # มีผลเฉพาะเมื่อเปิด profile postgres
 
   # หน้าเว็บ (Next.js standalone) สำหรับเครื่องจริง — profile web: docker compose --profile web up -d --build
   # เครื่องพัฒนาใช้ npm run dev ตามเดิม (service นี้ไม่ขึ้นเองกับ docker compose up -d)
@@ -114,7 +147,7 @@ services:
       mysql:
         condition: service_healthy
 
-  # จัดการฐานข้อมูลผ่านเว็บ (ทางเลือกเบากว่า phpMyAdmin)
+  # จัดการฐานข้อมูลผ่านเว็บ (ทางเลือกเบากว่า phpMyAdmin) — PostgreSQL ก็ใช้ได้: ระบบ PostgreSQL, เซิร์ฟเวอร์ pgsql
   # login: ระบบ MySQL, เซิร์ฟเวอร์ mysql, ผู้ใช้ it_app (หรือ root), ฐาน it_system
   adminer:
     image: adminer:5
@@ -153,5 +186,6 @@ services:
 
 volumes:
   it_mysql:
+  it_pgsql: # ข้อมูล PostgreSQL 18 (ทางเลือก DB_CLIENT=postgres)
   it_pg: # ข้อมูล PostgreSQL เดิม (สำรอง)
   it_db: # ข้อมูล MariaDB เดิม (สำรอง)

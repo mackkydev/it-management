@@ -1,7 +1,7 @@
 import { rm } from "node:fs/promises";
 import { afterAll, beforeEach } from "vitest";
 import { config } from "../src/config.js";
-import { closePool, exec, select, transaction } from "../src/db.js";
+import { closePool, exec, isPostgres, select, transaction } from "../src/db.js";
 import { resetRateLimits } from "../src/lib/rate-limit.js";
 import { sentMail } from "../src/services/mail.js";
 import { ensurePermissions } from "../src/services/permissions.js";
@@ -15,11 +15,14 @@ beforeEach(async () => {
   // TRUNCATE ช้าบน MySQL — ล้างเฉพาะตารางที่มีข้อมูล (หาด้วย query เดียว)
   tables ??= (
     await select<{ name: string }>(
-      "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' AND table_name <> '_prisma_migrations'",
+      `SELECT table_name AS name FROM information_schema.tables WHERE table_schema = ${isPostgres ? "current_schema()" : "DATABASE()"} AND table_type = 'BASE TABLE' AND table_name <> '_prisma_migrations'`,
     )
   ).map((t) => t.name);
   const dirty = (await select<{ name: string }>(tables.map((t) => `(SELECT '${t}' AS name FROM "${t}" LIMIT 1)`).join(" UNION ALL "))).map((r) => r.name);
-  if (dirty.length) {
+  if (dirty.length && isPostgres) {
+    // PostgreSQL: ล้างพร้อมกันทุกตารางในคำสั่งเดียว (FK ไม่ต้องปิด) + รีเซ็ตลำดับ id
+    await exec(`TRUNCATE TABLE ${dirty.map((t) => `"${t}"`).join(", ")} RESTART IDENTITY CASCADE`);
+  } else if (dirty.length) {
     await transaction(async () => {
       await exec("SET FOREIGN_KEY_CHECKS = 0");
       try {

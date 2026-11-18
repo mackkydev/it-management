@@ -117,9 +117,9 @@ const COLUMNS = [
   "source_data", "row_hash", "source_recorded_at", "as_of", "first_synced_at", "synced_at", "changed_at",
 ] as const;
 
-/** อัปเดตทุกคอลัมน์ยกเว้นตัวระบุ / first_synced_at — changed_at ต้องมาก่อน row_hash (MySQL ประเมินซ้ายไปขวา) */
+/** อัปเดตทุกคอลัมน์ยกเว้นตัวระบุ / first_synced_at — changed_at ต้องมาก่อน row_hash (MySQL ประเมินซ้ายไปขวา; PostgreSQL ใช้ค่าเดิมทุกช่องอยู่แล้ว) */
 const UPDATE_SET = [
-  `changed_at = IF(fixed_assets.row_hash <> new.row_hash, new.synced_at, fixed_assets.changed_at)`,
+  `changed_at = CASE WHEN fixed_assets.row_hash <> new.row_hash THEN new.synced_at ELSE fixed_assets.changed_at END`,
   ...COLUMNS.filter((c) => !["site", "fanum", "first_synced_at", "changed_at"].includes(c)).map((c) => `"${c}" = new."${c}"`),
   "missing_since = NULL",
 ].join(", ");
@@ -378,7 +378,7 @@ export async function syncFixedAssetsIfDue(now: Date = new Date()): Promise<Sync
   if (hm < s.time) return null;
   const today = localToday(config.localTimezone, now);
   // ขอบเวลาที่ตั้งของวันนี้ (เวลาไทย) → UTC
-  const since = await scalar<string>(`SELECT DATE_FORMAT(CONVERT_TZ(CAST(? AS DATETIME), ?, '+00:00'), '%Y-%m-%d %H:%i:%s')`, [`${today} ${s.time}:00`, tzOffset(now)]);
+  const since = new Date(`${today}T${s.time}:00${tzOffset(now)}`).toISOString().slice(0, 19).replace("T", " ");
   const done = await first(`SELECT id FROM fixed_asset_sync_runs WHERE run_trigger = 'schedule' AND started_at >= ? LIMIT 1`, [since]);
   if (done) return null;
   let runId: number;
@@ -391,7 +391,7 @@ export async function syncFixedAssetsIfDue(now: Date = new Date()): Promise<Sync
   return runSync(runId);
 }
 
-/** offset ของ timezone ผู้ใช้ เช่น "+07:00" (CONVERT_TZ ไม่ต้องพึ่งตาราง timezone ของ MySQL) */
+/** offset ของ timezone ผู้ใช้ เช่น "+07:00" */
 function tzOffset(at: Date): string {
   const part = new Intl.DateTimeFormat("en-US", { timeZone: config.localTimezone, timeZoneName: "longOffset" })
     .formatToParts(at)

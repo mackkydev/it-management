@@ -49,6 +49,8 @@ export const config = {
   vaultKey: vaultKey(),
   vaultKeySource: env("VAULT_KEY_FILE") ? "file" : env("VAULT_KEY") ? "env" : null,
   defaultLocale: env("APP_LOCALE", "th") as "th" | "en",
+  /** mysql (ค่าตั้งต้น) | postgres — เลือกด้วย DB_CLIENT */
+  dbClient: dbClient(),
   db: dbConfig(),
   /** จำนวน connection สูงสุดของ pool (DB_POOL_SIZE) — ตั้งต้น 10 */
   dbPoolSize: Math.max(2, Number(env("DB_POOL_SIZE", "10")) || 10),
@@ -83,10 +85,16 @@ export const config = {
   },
 };
 
+/** ฐานข้อมูลที่ใช้ (DB_CLIENT): mysql = MySQL 8.4 (ค่าตั้งต้น) / postgres = PostgreSQL 18 */
+export type DbClient = "mysql" | "postgres";
+export function dbClient(): DbClient {
+  return /^(postgres|postgresql|pg)$/i.test(env("DB_CLIENT", "mysql")) ? "postgres" : "mysql";
+}
+
 export function dbConfig() {
   return {
     host: env("DB_HOST", "127.0.0.1"),
-    port: Number(env("DB_PORT", "3306")),
+    port: Number(env("DB_PORT", dbClient() === "postgres" ? "5432" : "3306")),
     database: env("DB_DATABASE", "it_system"),
     user: env("DB_USERNAME", "it_app"),
     password: env("DB_PASSWORD"),

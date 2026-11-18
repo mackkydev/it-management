@@ -1,5 +1,5 @@
 import { Router, type Request } from "express";
-import { exec, first, insert, scalar, select, transaction, update } from "../db.js";
+import { exec, first, insert, isPostgres, scalar, select, transaction, update } from "../db.js";
 import { authorize, notFound, ValidationError } from "../lib/errors.js";
 import { trans } from "../lib/i18n.js";
 import { nowDb } from "../lib/time.js";
@@ -79,7 +79,7 @@ const LISTS: Record<string, ListConfig> = {
     manage: "vehicle.manage",
     usage: "(SELECT COUNT(*) FROM vehicle_booking_extras x JOIN vehicle_bookings b ON b.id = x.booking_id WHERE LOWER(TRIM(x.name)) = LOWER(o.name) AND b.deleted_at IS NULL)",
     rename: async (to, from) => {
-      await exec("UPDATE IGNORE vehicle_booking_extras SET name = ? WHERE LOWER(TRIM(name)) = LOWER(?)", [to, from]);
+      await renameIgnoringDuplicates("vehicle_booking_extras", to, from);
       await exec("DELETE FROM vehicle_booking_extras WHERE LOWER(TRIM(name)) = LOWER(?) AND LOWER(?) <> LOWER(?)", [from, from, to]);
     },
   },
@@ -90,7 +90,7 @@ const LISTS: Record<string, ListConfig> = {
     usage: "(SELECT COUNT(*) FROM meeting_booking_equipment x JOIN meeting_bookings b ON b.id = x.booking_id WHERE LOWER(TRIM(x.name)) = LOWER(o.name) AND b.deleted_at IS NULL)",
     // การจองที่มีทั้งชื่อเดิมและชื่อใหม่อยู่แล้ว (ซ้ำ primary key) — ข้ามแล้วลบแถวชื่อเดิมที่เหลือ
     rename: async (to, from) => {
-      await exec("UPDATE IGNORE meeting_booking_equipment SET name = ? WHERE LOWER(TRIM(name)) = LOWER(?)", [to, from]);
+      await renameIgnoringDuplicates("meeting_booking_equipment", to, from);
       await exec("DELETE FROM meeting_booking_equipment WHERE LOWER(TRIM(name)) = LOWER(?) AND LOWER(?) <> LOWER(?)", [from, from, to]);
     },
   },
@@ -217,3 +217,18 @@ dropdownOptionRoutes.delete("/dropdown-options/:list/:id", async (req, res) => {
   await audit(req, { action: "dropdown_option.deleted", subjectType: "dropdown_option", subjectId: current.id, before: { list, ...json(current) } });
   res.status(204).end();
 });
+
+/**
+ * เปลี่ยนชื่อในตาราง (booking_id, name) — แถวที่การจองมีชื่อใหม่อยู่แล้ว (ซ้ำ primary key) ข้ามไป แล้วผู้เรียกลบแถวชื่อเดิมที่เหลือ
+ * MySQL = UPDATE IGNORE / PostgreSQL ไม่มี IGNORE จึงกรองแถวที่จะซ้ำออกก่อน
+ */
+async function renameIgnoringDuplicates(table: "vehicle_booking_extras" | "meeting_booking_equipment", to: string, from: string): Promise<void> {
+  if (isPostgres) {
+    await exec(
+      `UPDATE ${table} SET name = ? WHERE LOWER(TRIM(name)) = LOWER(?) AND NOT EXISTS (SELECT 1 FROM ${table} y WHERE y.booking_id = ${table}.booking_id AND y.name = ?)`,
+      [to, from, to],
+    );
+    return;
+  }
+  await exec(`UPDATE IGNORE ${table} SET name = ? WHERE LOWER(TRIM(name)) = LOWER(?)`, [to, from]);
+}

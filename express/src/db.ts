@@ -1,9 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import mysql from "mysql2";
 import type { Pool, PoolConnection, ResultSetHeader } from "mysql2/promise";
+import type pg from "pg";
 import { config } from "./config.js";
+import { closePgPool, escapePg, getPgPool, hasSerialId, loadPgMeta, translatePg } from "./db-postgres.js";
 
 /**
+ * ฐานข้อมูลเลือกด้วย DB_CLIENT: mysql (ค่าตั้งต้น — MySQL 8.4, driver mysql2) / postgres (PostgreSQL 18, driver pg — ดู db-postgres.ts)
+ * โค้ดทั้งหมดเขียน SQL แบบ MySQL ชุดเดียว — ฝั่ง PostgreSQL แปลงไวยากรณ์ให้ตอนส่ง query และคืนผลรูปแบบเดียวกัน
+ *
  * MySQL 8.4 (driver mysql2)
  * - เขียน SQL ด้วย placeholder "?" — แทนค่าที่ escape แล้วฝั่งเรา (ข้าม "?" ที่อยู่ใน '...' / "...") ส่ง array = รายการสำหรับ IN (?)
  * - session ใช้ sql_mode ANSI_QUOTES: "ชื่อคอลัมน์" = identifier (ใช้กับคอลัมน์ที่เป็นคำสงวน เช่น "key", "before", "group")
@@ -15,6 +20,13 @@ import { config } from "./config.js";
 export type Row = Record<string, any>;
 
 let pool: Pool | null = null;
+
+export const isPostgres = config.dbClient === "postgres";
+
+/** ตรวจการเชื่อมต่อ (ตอนเปิด server) */
+export async function ping(): Promise<void> {
+  await select("SELECT 1");
+}
 
 export function getPool(): Pool {
   if (pool) return pool;
@@ -46,12 +58,15 @@ export function getPool(): Pool {
 }
 
 export async function closePool(): Promise<void> {
+  if (isPostgres) return closePgPool();
   await pool?.end();
   pool = null;
 }
 
 interface TxContext {
-  conn: PoolConnection;
+  conn?: PoolConnection;
+  /** connection ของ PostgreSQL (DB_CLIENT=postgres) */
+  pgConn?: pg.PoolClient;
   /** ตารางที่ถูกเขียนใน transaction นี้ — แจ้ง listener หลัง commit เท่านั้น (rollback = ไม่แจ้ง) */
   writes: Set<string>;
 }
@@ -82,7 +97,7 @@ function escapeValue(v: unknown): string {
 }
 
 /** แทน "?" ด้วยค่าที่ escape แล้ว (ข้าม "?" ที่อยู่ใน '...' หรือ "...") */
-export function formatSql(sql: string, params: unknown[]): string {
+export function formatSql(sql: string, params: unknown[], escape: (v: unknown) => string = isPostgres ? escapePg : escapeValue): string {
   let n = 0;
   let out = "";
   let quote: string | null = null;
@@ -95,7 +110,7 @@ export function formatSql(sql: string, params: unknown[]): string {
       out += ch;
     } else if (ch === "?") {
       if (n >= params.length) throw new Error("Not enough SQL parameters");
-      out += escapeValue(params[n++]);
+      out += escape(params[n++]);
     } else {
       out += ch;
     }
@@ -103,16 +118,39 @@ export function formatSql(sql: string, params: unknown[]): string {
   return out;
 }
 
-async function run(sql: string, params: unknown[]): Promise<Row[] | ResultSetHeader> {
+/** ผลของ INSERT / UPDATE / DELETE (รูปแบบเดียวกันทั้งสองฐาน) */
+interface WriteResult {
+  affectedRows: number;
+  insertId: number;
+}
+
+async function run(sql: string, params: unknown[], opts: { returningId?: boolean } = {}): Promise<Row[] | WriteResult> {
   const ctx = txStore.getStore();
-  const [result] = await (ctx?.conn ?? getPool()).query(formatSql(sql, params));
+  let result: Row[] | WriteResult;
+  if (isPostgres) {
+    const client = ctx?.pgConn ?? getPgPool();
+    const meta = await loadPgMeta(client);
+    const table = INSERT_RE.exec(sql)?.[1];
+    let text = formatSql(translatePg(sql, meta), params);
+    const withId = opts.returningId && table && hasSerialId(meta, table);
+    if (withId) text += ' RETURNING "id"';
+    const res = await client.query(text).catch((e: unknown) => {
+      if (process.env.DEBUG_PG_SQL) console.error(`[pg] ${(e as Error).message}\n${text}`);
+      throw e;
+    });
+    result = res.command === "SELECT" || (res.fields?.length && !withId) ? (res.rows as Row[]) : { affectedRows: res.rowCount ?? 0, insertId: withId ? Number(res.rows[0]?.id ?? 0) : 0 };
+  } else {
+    const [r] = await (ctx?.conn ?? getPool()).query(formatSql(sql, params));
+    result = Array.isArray(r) ? (r as Row[]) : { affectedRows: (r as ResultSetHeader).affectedRows ?? 0, insertId: Number((r as ResultSetHeader).insertId ?? 0) };
+  }
   const table = WRITE_RE.exec(sql)?.[1];
   if (table) {
     if (ctx) ctx.writes.add(table);
     else emitWrites([table]);
   }
-  return result as Row[] | ResultSetHeader;
+  return result;
 }
+const INSERT_RE = /^\s*INSERT\s+(?:IGNORE\s+)?INTO\s+"?([A-Za-z_]\w*)"?/i;
 
 export async function select<T = Row>(sql: string, params: unknown[] = []): Promise<T[]> {
   return (await run(sql, params)) as T[];
@@ -128,14 +166,14 @@ export async function scalar<T = unknown>(sql: string, params: unknown[] = []): 
 }
 
 export async function exec(sql: string, params: unknown[] = []): Promise<{ rowCount: number }> {
-  return { rowCount: ((await run(sql, params)) as ResultSetHeader).affectedRows ?? 0 };
+  return { rowCount: ((await run(sql, params)) as WriteResult).affectedRows ?? 0 };
 }
 
 /** INSERT จาก object (ข้ามค่า undefined) → คืน id ของแถวใหม่ (ตารางที่ไม่มี AUTO_INCREMENT = 0) */
 export async function insert(table: string, data: Record<string, unknown>): Promise<number> {
   const entries = Object.entries(data).filter(([, v]) => v !== undefined);
   const cols = entries.map(([k]) => `"${k}"`).join(", ");
-  const res = (await run(`INSERT INTO "${table}" (${cols}) VALUES (${entries.map(() => "?").join(", ")})`, entries.map(([, v]) => v))) as ResultSetHeader;
+  const res = (await run(`INSERT INTO "${table}" (${cols}) VALUES (${entries.map(() => "?").join(", ")})`, entries.map(([, v]) => v), { returningId: true })) as WriteResult;
   return Number(res.insertId);
 }
 
@@ -144,12 +182,13 @@ export async function update(table: string, data: Record<string, unknown>, where
   const entries = Object.entries(data).filter(([, v]) => v !== undefined);
   if (entries.length === 0) return 0;
   const sets = entries.map(([k]) => `"${k}" = ?`).join(", ");
-  const res = (await run(`UPDATE "${table}" SET ${sets} WHERE ${where}`, [...entries.map(([, v]) => v), ...params])) as ResultSetHeader;
+  const res = (await run(`UPDATE "${table}" SET ${sets} WHERE ${where}`, [...entries.map(([, v]) => v), ...params])) as WriteResult;
   return res.affectedRows ?? 0;
 }
 
 export async function transaction<T>(fn: () => Promise<T>): Promise<T> {
   if (txStore.getStore()) return fn(); // nested → ใช้ transaction เดิม
+  if (isPostgres) return pgTransaction(fn);
   const conn = await getPool().getConnection();
   const ctx: TxContext = { conn, writes: new Set() };
   try {
@@ -168,13 +207,41 @@ export async function transaction<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** lock ตามชื่อจนจบ transaction (แทน pg_advisory_xact_lock) — เรียกภายใน transaction() เท่านั้น */
+async function pgTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  const pgConn = await getPgPool().connect();
+  const ctx: TxContext = { pgConn, writes: new Set() };
+  try {
+    await pgConn.query("BEGIN");
+    const result = await txStore.run(ctx, fn);
+    await pgConn.query("COMMIT");
+    if (ctx.writes.size) emitWrites([...ctx.writes]);
+    return result;
+  } catch (e) {
+    await pgConn.query("ROLLBACK").catch(() => undefined);
+    throw e;
+  } finally {
+    pgConn.release(); // pg_advisory_xact_lock ปลดเองเมื่อจบ transaction
+  }
+}
+
+/** lock ตามชื่อจนจบ transaction (MySQL GET_LOCK / PostgreSQL pg_advisory_xact_lock) — เรียกภายใน transaction() เท่านั้น */
 export async function lockNamed(name: string, timeoutSeconds = 10): Promise<void> {
   if (!txStore.getStore()) throw new Error("lockNamed() must be called inside transaction()");
+  if (isPostgres) {
+    await exec(`SET LOCAL lock_timeout = '${Math.max(1, Math.round(timeoutSeconds))}s'`);
+    try {
+      await select("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", [name]);
+    } catch (e) {
+      if ((e as { code?: string }).code === "55P03") throw new Error(`Could not acquire lock "${name}"`);
+      throw e;
+    }
+    await exec("SET LOCAL lock_timeout = 0");
+    return;
+  }
   if (Number(await scalar("SELECT GET_LOCK(?, ?)", [name, timeoutSeconds])) !== 1) throw new Error(`Could not acquire lock "${name}"`);
 }
 
-/** escape wildcard ของ LIKE (escape character ตั้งต้นของ MySQL คือ \) */
+/** escape wildcard ของ LIKE (escape character ตั้งต้นของ MySQL และ PostgreSQL คือ \) */
 export const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** รูปแบบ UUID — ตรวจก่อน query คอลัมน์ uuid (ค่าไม่ถูกรูปแบบ = ไม่พบ) */

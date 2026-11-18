@@ -135,7 +135,7 @@ describe("password policy", () => {
     expect((await asLegacy("/api/v1/tickets")).body.code).toBe("password_expired");
     expect((await (await as(await makeUser({ password_self_changed_at: nowDb() }))).get("/api/v1/tickets")).status).toBe(200);
     await guest().put("/api/v1/auth/password").set("Authorization", `Bearer ${legacyToken}`).send({ current_password: "Legacy123", password: "Legacy456", password_confirmation: "Legacy456" });
-    expect(await scalar("SELECT password_self_changed_at IS NOT NULL FROM users WHERE id = ?", [legacy.id])).toBe(1);
+    expect(Number(await scalar("SELECT password_self_changed_at IS NOT NULL FROM users WHERE id = ?", [legacy.id]))).toBe(1);
     expect((await asLegacy("/api/v1/tickets")).status).toBe(200);
 
     // ยืนยันรหัสผ่านไม่ตรง = 422

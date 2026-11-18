@@ -4,6 +4,7 @@
 **Next.js 16 (App Router) + Express.js 5 API + MySQL 8.4** — รันบน Docker (`docker compose up -d`)
 - Container: `it_express` (8020, API + scheduler), `it_mysql` (3308, db `it_system`, user `it_app`), `it_phpmyadmin` (8082), `it_adminer` (8081)
 - หน้าเว็บบนเครื่องจริง = container `it_frontend` (profile `web`: `docker compose --profile web up -d --build`, `frontend/Dockerfile` แบบ Next.js standalone เมื่อ `NEXT_OUTPUT=standalone`) — เครื่องพัฒนาใช้ `npm run dev` ตามเดิม
+- **ฐานข้อมูลทางเลือก PostgreSQL 18** (ไว้เปรียบเทียบกับ MySQL — MySQL ยังเป็นค่าตั้งต้น): `DB_CLIENT=postgres` ใน `express/.env` / `IT_DB_CLIENT` + `IT_DB_HOST=pgsql` + `IT_DB_PORT=5432` ใน `.env` ของ compose, container `it_pgsql` (profile `postgres`, 127.0.0.1:5434, volume `it_pgsql`, `docker/pgsql/init.sh`) — schema/migration แยกชุดที่ `express/prisma/postgres/` (ข้อความเป็น citext), driver `src/db-postgres.ts` แปลง SQL แบบ MySQL ให้, คัดลอกข้อมูลจริง `npm run db:copy-to-postgres` — รายละเอียด/ข้อห้ามใน `express/prisma/postgres/README.md`
 - ฐานเดิมเก็บเป็นสำรอง ไม่ใช้งานแล้ว: PostgreSQL (profile `legacy-postgres`, volume `it-system_it_pg` — ย้ายมา MySQL 2026-10-05), MariaDB (profile `legacy-mariadb`, volume `it-system_it_db`)
 - ชื่อภายในเดิมที่ตั้งใจคงไว้: cookie `eam_*`, prefix ข้อความ `eam.*`, `EAM_TOKEN_TTL_MINUTES`
 - **ตั้งแต่ 2026-10-04 ใช้ Express อย่างเดียว** — ถอด Laravel (`backend/`, `it_api`) ออกแล้ว (ดูโค้ดเดิมจาก git history) ห้ามสร้างกลับมา
@@ -343,11 +344,13 @@
   - Prisma ใช้จัดการ schema เท่านั้น — API เรียกฐานข้อมูลผ่าน mysql2 (`src/db.ts`) เพิ่มคอลัมน์แล้วต้องแก้ query/resource ที่เกี่ยวข้องด้วย
   - migration ที่ Prisma สร้างใส่ `COLLATE utf8mb4_unicode_ci` — **ต้องแก้เป็น `utf8mb4_0900_as_ci`** ก่อน deploy (unicode_ci/ai_ci ถือว่า "ขาย" = "ข่าย")
   - MySQL ห้าม CHECK บนคอลัมน์ที่ FK มี referential action (Prisma ตั้ง `ON UPDATE CASCADE` เป็นค่าตั้งต้น — ใส่ `onUpdate: Restrict`)
+  - **ทุก migration ต้องมีคู่ฝั่ง PostgreSQL**: `npm run db:pg:schema` แล้ว `DB_CLIENT=postgres DB_PORT=5434 npm run db:migrate -- --name <ชื่อเดียวกัน>` (+ SQL ที่เขียนเอง เช่น CHECK/GENERATED เขียนแบบ PostgreSQL) — ขั้นตอนใน `express/prisma/postgres/README.md`
 - SQL ใน Express เป็น MySQL 8.4: placeholder `?` (db.ts escape ให้ — array = รายการสำหรับ `IN (?)`, object = JSON),
   session ใช้ `ANSI_QUOTES` → ชื่อคอลัมน์ใช้ `"..."` และ**ต้องครอบคำสงวน** เช่น `"key"`, `"group"`, `"before"`, `"after"` (หลัง `alias.` ไม่ต้อง), ข้อความใช้ `'...'` เท่านั้น,
   ค้นหาข้อความใช้ `LIKE` + `likeEscape()` (collation ไม่สนตัวพิมพ์อยู่แล้ว), JSON ใช้ `JSON_EXTRACT`/`->>'$.x'`/`JSON_CONTAINS`/`JSON_TABLE`,
   upsert ใช้ `INSERT ... AS new ON DUPLICATE KEY UPDATE col = new.col`, ค่าว่างเทียบกันใช้ `<=>`, lock ตามชื่อใน transaction ใช้ `lockNamed()`,
-  นิพจน์ boolean ใน SELECT (เช่น `EXISTS(...)`, `x IS NULL`) คืน 1/0 ไม่ใช่ true/false (คอลัมน์ BOOLEAN คืน true/false), ตรวจรูปแบบ uuid ด้วย `isUuid()` ก่อน query คอลัมน์ uuid
+  นิพจน์ boolean ใน SELECT (เช่น `EXISTS(...)`, `x IS NULL`) คืน 1/0 ไม่ใช่ true/false (คอลัมน์ BOOLEAN คืน true/false — บน PostgreSQL คืน true/false ทั้งคู่ จึงใช้แบบ truthy ห้าม `=== 1`), ตรวจรูปแบบ uuid ด้วย `isUuid()` ก่อน query คอลัมน์ uuid
+  SQL ต้องรันได้บน PostgreSQL ด้วย: ห้าม `UPDATE … JOIN` / `DELETE a FROM a JOIN` / `UPDATE … ORDER BY LIMIT` / `SET alias.col` / `IF()` / `SUM(เงื่อนไข)` — ใช้ subquery / `CASE WHEN` แทน (รายการเต็มใน `express/prisma/postgres/README.md`); เทสต์บน PostgreSQL: `DB_CLIENT=postgres DB_PORT=5434 npm test`
 - **ประสิทธิภาพ (รองรับข้อมูล/ผู้ใช้ที่โตขึ้น)** — migration `20261114090000_performance_indexes`
   - ห้ามครอบคอลัมน์ด้วยฟังก์ชันใน WHERE (`YEAR(col)`, `DATE_FORMAT(col)`, `DATE(CONVERT_TZ(col…))`, `CAST(id AS CHAR)`, `LOWER(email)`) — แปลงค่าฝั่งพารามิเตอร์เป็นช่วงแทน (เช่น `yearRange()` ใน routes/calendar.ts, ขอบวันเวลาไทย → UTC ด้วย `CONVERT_TZ(CAST(? AS DATETIME), tz, '+00:00')`); collation `utf8mb4_0900_as_ci` ไม่สนตัวพิมพ์อยู่แล้ว เทียบ `email = ?` ตรงๆ
   - "ของฉันในฐานะผู้รับงาน หรือผู้ร่วมดำเนินการ" ใช้ `UNION` ของสองส่วน (assignee_id / it_ticket_helpers.user_id) แทน `OR EXISTS` (ดู menu-badges `/it/tickets`, dashboard)

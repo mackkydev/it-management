@@ -1,0 +1,2099 @@
+// สร้างอัตโนมัติจาก ../schema.prisma ด้วย build-schema.mjs — ห้ามแก้ไฟล์นี้ตรงๆ (แก้ที่ต้นฉบับ MySQL แล้วรัน npm run db:pg:schema)
+// PostgreSQL 18 — ข้อความเป็น citext (ไม่สนตัวพิมพ์) ให้พฤติกรรมตรงกับ MySQL utf8mb4_0900_as_ci
+datasource db {
+  provider = "postgresql"
+}
+
+model app_settings {
+  key        String    @id @db.Citext
+  value      Json?
+  updated_by BigInt?
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+  users      users?    @relation(fields: [updated_by], references: [id], onUpdate: Restrict, map: "app_settings_updated_by_foreign")
+
+  @@index([updated_by], map: "app_settings_updated_by_index")
+}
+
+/// ประกาศจากฝ่าย IT ที่แสดงบนหน้า login (ไม่ต้อง login ก็เห็น) — level: info | warning | danger
+/// แสดงเมื่อ is_active และอยู่ในช่วง starts_on–ends_on (null = ไม่จำกัด) เรียงตาม sort_order
+model announcements {
+  id             BigInt               @id @default(autoincrement())
+  title          String               @db.Citext
+  body           String?              @db.Citext
+  level          String               @default("info") @db.Citext
+  is_active      Boolean              @default(true)
+  starts_on      DateTime?            @db.Date
+  ends_on        DateTime?            @db.Date
+  sort_order     Int                  @default(0) @db.SmallInt
+  /// การทำซ้ำ: none (ตามช่วงวันที่) / daily / weekly (repeat_weekday 0 = อาทิตย์) / monthly (repeat_day) / yearly (repeat_day + repeat_month)
+  repeat_mode    String               @default("none") @db.Citext
+  repeat_weekday Int?                 @db.SmallInt
+  repeat_day     Int?                 @db.SmallInt
+  repeat_month   Int?                 @db.SmallInt
+  files          announcement_files[]
+  created_by     BigInt?
+  created_at     DateTime?            @db.Timestamp(0)
+  updated_at     DateTime?            @db.Timestamp(0)
+  users          users?               @relation(fields: [created_by], references: [id], onDelete: SetNull, map: "announcements_created_by_foreign")
+
+  @@index([is_active, sort_order], map: "announcements_is_active_sort_order_index")
+}
+
+/// สายอนุมัติใบแจ้งงาน — จับคู่ผู้แจ้งตามสาขา+แผนก (null = ทุกสาขา/ทุกแผนก) หรือกำหนดรายบุคคลที่ users.approval_route_id
+model approval_routes {
+  id                   BigInt                 @id @default(autoincrement())
+  name                 String                 @db.Citext
+  branch_id            BigInt?
+  department           String?                @db.Citext
+  is_active            Boolean                @default(true)
+  created_at           DateTime?              @db.Timestamp(0)
+  updated_at           DateTime?              @db.Timestamp(0)
+  branches             branches?              @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "approval_routes_branch_id_foreign")
+  approval_route_steps approval_route_steps[]
+  users                users[]
+
+  @@index([branch_id, is_active], map: "approval_routes_branch_id_is_active_index")
+}
+
+/// ขั้นของสายอนุมัติ (step_no เริ่มที่ 1) — ผู้อนุมัติคนใดคนหนึ่งในขั้นกดอนุมัติได้
+model approval_route_steps {
+  id                      BigInt                    @id @default(autoincrement())
+  approval_route_id       BigInt
+  step_no                 Int                       @db.SmallInt
+  name                    String                    @db.Citext
+  created_at              DateTime?                 @db.Timestamp(0)
+  updated_at              DateTime?                 @db.Timestamp(0)
+  approval_routes         approval_routes           @relation(fields: [approval_route_id], references: [id], onDelete: Cascade, map: "approval_route_steps_approval_route_id_foreign")
+  approval_step_approvers approval_step_approvers[]
+
+  @@unique([approval_route_id, step_no], map: "approval_route_steps_route_step_unique")
+}
+
+model approval_step_approvers {
+  approval_route_step_id BigInt
+  user_id                BigInt
+  approval_route_steps   approval_route_steps @relation(fields: [approval_route_step_id], references: [id], onDelete: Cascade, map: "approval_step_approvers_step_id_foreign")
+  users                  users                @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "approval_step_approvers_user_id_foreign")
+
+  @@id([approval_route_step_id, user_id])
+  @@index([user_id], map: "approval_step_approvers_user_id_index")
+}
+
+/// ขั้นอนุมัติของใบแจ้งงาน (คัดลอกจากสายตอนแจ้งงาน — แก้สายภายหลังไม่กระทบ)
+/// status: pending | approved | rejected | skipped
+model it_ticket_approval_steps {
+  id           BigInt     @id @default(autoincrement())
+  it_ticket_id BigInt
+  step_no      Int        @db.SmallInt
+  name         String     @db.Citext
+  approver_ids Json
+  status       String     @default("pending") @db.Citext
+  acted_by     BigInt?
+  acted_at     DateTime?  @db.Timestamp(0)
+  comment      String?    @db.Citext
+  created_at   DateTime?  @db.Timestamp(0)
+  updated_at   DateTime?  @db.Timestamp(0)
+  it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, map: "it_ticket_approval_steps_it_ticket_id_foreign")
+  users        users?     @relation(fields: [acted_by], references: [id], onUpdate: Restrict, map: "it_ticket_approval_steps_acted_by_foreign")
+
+  @@unique([it_ticket_id, step_no], map: "it_ticket_approval_steps_ticket_step_unique")
+  @@index([acted_by], map: "it_ticket_approval_steps_acted_by_index")
+}
+
+/// ข้อมูล license ของสินทรัพย์หมวด SOFTWARE (1:1) — billing: yearly | custom | perpetual (perpetual = ไม่มีวันหมดอายุ)
+model asset_licenses {
+  id                                       BigInt    @id @default(autoincrement())
+  asset_id                                 BigInt    @unique(map: "asset_licenses_asset_id_unique")
+  billing                                  String    @db.Citext
+  start_date                               DateTime  @db.Date
+  expires_at                               DateTime? @db.Date
+  seats                                    Int?
+  vendor                                   String?   @db.Citext
+  /// license key เข้ารหัสด้วย APP_KEY (รูปแบบเดียวกับ Laravel Crypt)
+  license_key                              String?   @db.Citext
+  notify_days_before                       Int?      @db.SmallInt
+  notified_for_expires_at                  DateTime? @db.Date
+  /// ประเภท: office / os / antivirus / other (ช่องซอฟต์แวร์ในฟอร์มคอมพิวเตอร์)
+  software_type                            String    @default("other") @db.Citext
+  /// ยกเลิกสัญญา (จัดการสัญญา) — ไม่นับกำลังจะหมดอายุ/ไม่แจ้งเตือน; ต่อสัญญา = ล้างค่า
+  cancelled_at                             DateTime? @db.Timestamp(0)
+  cancelled_by                             BigInt?
+  cancel_reason                            String?   @db.Citext
+  users_asset_licenses_cancelled_byTousers users?    @relation("asset_licenses_cancelled_byTousers", fields: [cancelled_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "asset_licenses_cancelled_by_foreign")
+  created_at                               DateTime? @db.Timestamp(0)
+  updated_at                               DateTime? @db.Timestamp(0)
+  assets                                   assets    @relation(fields: [asset_id], references: [id], onDelete: Cascade, map: "asset_licenses_asset_id_foreign")
+
+  @@index([expires_at], map: "asset_licenses_expires_at_index")
+}
+
+/// License ซอฟต์แวร์ — แยกจากสินทรัพย์ (เลขที่ทรัพย์สินไม่บังคับ)
+model licenses {
+  id                      BigInt                  @id @default(autoincrement())
+  uuid                    String                  @unique(map: "licenses_uuid_unique") @db.Citext
+  license_no              String?                 @unique(map: "licenses_license_no_unique") @db.Citext
+  name                    String                  @db.Citext
+  brand                   String?                 @db.Citext
+  model                   String?                 @db.Citext
+  serial_number           String?                 @db.Citext
+  /// active / inactive / lost / disposed
+  status                  String                  @default("active") @db.Citext
+  location_id             BigInt?
+  branch_id               BigInt?
+  purchase_date           DateTime?               @db.Date
+  purchase_cost           Decimal?                @db.Decimal(15, 2)
+  notes                   String?                 @db.Citext
+  software_type           String                  @default("other") @db.Citext
+  billing                 String                  @db.Citext
+  start_date              DateTime                @db.Date
+  expires_at              DateTime?               @db.Date
+  seats                   Int?
+  vendor                  String?                 @db.Citext
+  /// license key เข้ารหัสด้วย APP_KEY
+  license_key             String?                 @db.Citext
+  notify_days_before      Int?                    @db.SmallInt
+  notified_for_expires_at DateTime?               @db.Date
+  cancelled_at            DateTime?               @db.Timestamp(0)
+  cancelled_by            BigInt?
+  cancel_reason           String?                 @db.Citext
+  created_by              BigInt?
+  updated_by              BigInt?
+  created_at              DateTime?               @db.Timestamp(0)
+  updated_at              DateTime?               @db.Timestamp(0)
+  deleted_at              DateTime?               @db.Timestamp(0)
+  locations               locations?              @relation(fields: [location_id], references: [id], onUpdate: Restrict, map: "licenses_location_id_foreign")
+  branches                branches?               @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "licenses_branch_id_foreign")
+  cancelled_by_user       users?                  @relation("licenses_cancelled_byTousers", fields: [cancelled_by], references: [id], onUpdate: Restrict, map: "licenses_cancelled_by_foreign")
+  created_by_user         users?                  @relation("licenses_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "licenses_created_by_foreign")
+  updated_by_user         users?                  @relation("licenses_updated_byTousers", fields: [updated_by], references: [id], onUpdate: Restrict, map: "licenses_updated_by_foreign")
+  license_files           license_files[]
+  license_installations   license_installations[]
+
+  @@index([expires_at], map: "licenses_expires_at_index")
+  @@index([name], map: "licenses_name_index")
+}
+
+/// ไฟล์แนบ + โลโก้ (kind icon) ของ License
+model license_files {
+  id            BigInt    @id @default(autoincrement())
+  license_id    BigInt
+  kind          String    @default("license") @db.Citext
+  original_name String    @db.Citext
+  path          String    @db.Citext
+  mime          String    @db.Citext
+  size          Int
+  uploaded_by   BigInt?
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+  licenses      licenses  @relation(fields: [license_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "license_files_license_id_foreign")
+  users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "license_files_uploaded_by_foreign")
+
+  @@index([license_id], map: "license_files_license_id_index")
+}
+
+/// การติดตั้ง software license — เครื่องเลือกจากสินทรัพย์ (device_asset_id) หรือพิมพ์ชื่อเครื่องเอง (device_name)
+/// ใช้ seat ขณะ uninstalled_at เป็น null (ถอนการติดตั้งแล้วเก็บเป็นประวัติ)
+model license_installations {
+  id                                                    BigInt    @id @default(autoincrement())
+  license_asset_id                                      BigInt?
+  /// License ตารางใหม่ (license_asset_id = ค่าเดิมก่อนแยก เลิกใช้)
+  license_id                                            BigInt?
+  device_asset_id                                       BigInt?
+  device_name                                           String?   @db.Citext
+  user_id                                               BigInt?
+  branch_id                                             BigInt?
+  installed_at                                          DateTime  @db.Date
+  uninstalled_at                                        DateTime? @db.Date
+  notes                                                 String?   @db.Citext
+  /// ช่องในฟอร์มเครื่องคอมพิวเตอร์: os / office / antivirus — NULL = Software อื่นๆ
+  slot                                                  String?   @db.Citext
+  created_by                                            BigInt?
+  created_at                                            DateTime? @db.Timestamp(0)
+  updated_at                                            DateTime? @db.Timestamp(0)
+  assets_license_installations_license_asset_idToassets assets?   @relation("license_installations_license_asset_idToassets", fields: [license_asset_id], references: [id], onDelete: Cascade, map: "license_installations_license_asset_id_foreign")
+  assets_license_installations_device_asset_idToassets  assets?   @relation("license_installations_device_asset_idToassets", fields: [device_asset_id], references: [id], onDelete: SetNull, map: "license_installations_device_asset_id_foreign")
+  users_license_installations_user_idTousers            users?    @relation("license_installations_user_idTousers", fields: [user_id], references: [id], onDelete: SetNull, map: "license_installations_user_id_foreign")
+  users_license_installations_created_byTousers         users?    @relation("license_installations_created_byTousers", fields: [created_by], references: [id], onDelete: SetNull, map: "license_installations_created_by_foreign")
+  branches                                              branches? @relation(fields: [branch_id], references: [id], onDelete: SetNull, map: "license_installations_branch_id_foreign")
+
+  licenses licenses? @relation(fields: [license_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "license_installations_license_id_foreign")
+
+  @@index([license_asset_id, uninstalled_at], map: "license_installations_license_active_index")
+  @@index([license_id, uninstalled_at], map: "license_installations_license_id_active_index")
+  @@index([device_asset_id], map: "license_installations_device_asset_id_index")
+  @@index([user_id], map: "license_installations_user_id_index")
+  @@index([branch_id], map: "license_installations_branch_id_index")
+}
+
+/// ไฟล์แนบของสินทรัพย์ (เช่น ไฟล์ license) ใน private disk — path เป็น relative
+model asset_files {
+  id            BigInt    @id @default(autoincrement())
+  asset_id      BigInt
+  kind          String    @default("license") @db.Citext
+  original_name String    @db.Citext
+  path          String    @db.Citext
+  mime          String    @db.Citext
+  size          Int
+  uploaded_by   BigInt?
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+  assets        assets    @relation(fields: [asset_id], references: [id], onDelete: Cascade, map: "asset_files_asset_id_foreign")
+  users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "asset_files_uploaded_by_foreign")
+
+  @@index([asset_id], map: "asset_files_asset_id_index")
+  @@index([uploaded_by], map: "asset_files_uploaded_by_index")
+}
+
+model asset_movements {
+  id                                                    BigInt     @id @default(autoincrement())
+  asset_id                                              BigInt
+  type                                                  String     @db.Citext
+  from_location_id                                      BigInt?
+  to_location_id                                        BigInt?
+  from_custodian_id                                     BigInt?
+  to_custodian_id                                       BigInt?
+  moved_at                                              DateTime   @db.Timestamp(0)
+  reason                                                String?    @db.Citext
+  performed_by                                          BigInt?
+  /// สาขาก่อน/หลังโอนย้าย (ปุ่ม "โอนย้าย" ในหน้ารายละเอียดสินทรัพย์)
+  from_branch_id                                        BigInt?
+  to_branch_id                                          BigInt?
+  branches_asset_movements_from_branch_idTobranches     branches?  @relation("asset_movements_from_branch_idTobranches", fields: [from_branch_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "asset_movements_from_branch_id_foreign")
+  branches_asset_movements_to_branch_idTobranches       branches?  @relation("asset_movements_to_branch_idTobranches", fields: [to_branch_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "asset_movements_to_branch_id_foreign")
+  created_at                                            DateTime   @default(now()) @db.Timestamp(0)
+  assets                                                assets     @relation(fields: [asset_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "asset_movements_asset_id_foreign")
+  users_asset_movements_from_custodian_idTousers        users?     @relation("asset_movements_from_custodian_idTousers", fields: [from_custodian_id], references: [id], onUpdate: Restrict, map: "asset_movements_from_custodian_id_foreign")
+  locations_asset_movements_from_location_idTolocations locations? @relation("asset_movements_from_location_idTolocations", fields: [from_location_id], references: [id], onUpdate: Restrict, map: "asset_movements_from_location_id_foreign")
+  users_asset_movements_performed_byTousers             users?     @relation("asset_movements_performed_byTousers", fields: [performed_by], references: [id], onUpdate: Restrict, map: "asset_movements_performed_by_foreign")
+  users_asset_movements_to_custodian_idTousers          users?     @relation("asset_movements_to_custodian_idTousers", fields: [to_custodian_id], references: [id], onUpdate: Restrict, map: "asset_movements_to_custodian_id_foreign")
+  locations_asset_movements_to_location_idTolocations   locations? @relation("asset_movements_to_location_idTolocations", fields: [to_location_id], references: [id], onUpdate: Restrict, map: "asset_movements_to_location_id_foreign")
+
+  @@index([asset_id, moved_at], map: "asset_movements_asset_id_moved_at_index")
+  @@index([from_custodian_id], map: "asset_movements_from_custodian_id_index")
+  @@index([from_location_id], map: "asset_movements_from_location_id_index")
+  @@index([performed_by], map: "asset_movements_performed_by_index")
+  @@index([to_custodian_id, moved_at], map: "asset_movements_to_custodian_id_moved_at_index")
+  @@index([to_location_id, moved_at], map: "asset_movements_to_location_id_moved_at_index")
+}
+
+/// ประวัติผู้ใช้งาน (ชื่อ-สกุลผู้ใช้งาน / Department ของทะเบียนคอมพิวเตอร์) — source: create / edit / import
+model asset_user_logs {
+  id              BigInt   @id @default(autoincrement())
+  asset_id        BigInt
+  from_user_name  String?  @db.Citext
+  to_user_name    String?  @db.Citext
+  from_department String?  @db.Citext
+  to_department   String?  @db.Citext
+  source          String   @db.Citext
+  changed_at      DateTime @db.Timestamp(0)
+  performed_by    BigInt?
+  created_at      DateTime @default(now()) @db.Timestamp(0)
+  assets          assets   @relation(fields: [asset_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "asset_user_logs_asset_id_foreign")
+  users           users?   @relation(fields: [performed_by], references: [id], onUpdate: Restrict, map: "asset_user_logs_performed_by_foreign")
+
+  @@index([asset_id, changed_at], map: "asset_user_logs_asset_id_changed_at_index")
+  @@index([performed_by], map: "asset_user_logs_performed_by_index")
+}
+
+model assets {
+  fixed_assets                     fixed_assets[]
+  repair_orders                    repair_orders[]
+  id                               BigInt                  @id @default(autoincrement())
+  uuid                             String                  @unique(map: "assets_uuid_unique") @db.Citext
+  asset_tag                        String                  @unique(map: "assets_asset_tag_unique") @db.Citext
+  name                             String                  @db.Citext
+  category                         String                  @db.Citext
+  brand                            String?                 @db.Citext
+  model                            String?                 @db.Citext
+  serial_number                    String?                 @db.Citext
+  status                           String                  @default("active") @db.Citext
+  /// เป็นเครื่องสำหรับยืม (หน้า ยืมโน้ตบุ๊ก) — ติ๊กในฟอร์มสินทรัพย์
+  is_loanable                      Boolean                 @default(false)
+  /// ผู้ถือครองส่วนกลาง: ถือครองโดยสาขา/แผนก ไม่ผูกผู้ใช้
+  is_shared                        Boolean                 @default(false)
+  location_id                      BigInt?
+  custodian_id                     BigInt?
+  purchase_date                    DateTime?               @db.Date
+  purchase_cost                    Decimal?                @db.Decimal(15, 2)
+  warranty_expires_at              DateTime?               @db.Date
+  notes                            String?                 @db.Citext
+  created_by                       BigInt?
+  updated_by                       BigInt?
+  created_at                       DateTime?               @db.Timestamp(0)
+  updated_at                       DateTime?               @db.Timestamp(0)
+  deleted_at                       DateTime?               @db.Timestamp(0)
+  /// สาขาของสินทรัพย์ (ตัวกรองหน้ารายการ) — import Excel จับคู่จาก Work Group ของสาขา
+  branch_id                        BigInt?
+  /// ข้อมูลเครื่องคอมพิวเตอร์ (หมวด COMPUTER — asset_tag = Host Name) ตามทะเบียน Excel ของฝ่าย IT
+  /// department / user_name เก็บเป็นข้อความไปก่อน — ภายหลังดึงจากผู้ใช้ที่ได้จาก API; os / office ภายหลังผูกกับการติดตั้ง license
+  department                       String?                 @db.Citext
+  user_name                        String?                 @db.Citext
+  received_date                    DateTime?               @db.Date
+  start_use_date                   DateTime?               @db.Date
+  work_group                       String?                 @db.Citext
+  mac_address                      String?                 @db.Citext
+  computer_type                    String?                 @db.Citext
+  ip_address                       String?                 @db.Citext
+  os                               String?                 @db.Citext
+  office                           String?                 @db.Citext
+  email_365                        String?                 @db.Citext
+  antivirus                        String?                 @db.Citext
+  notebook_tag                     String?                 @db.Citext
+  cpu_tag                          String?                 @db.Citext
+  monitor_tag                      String?                 @db.Citext
+  /// Software อื่นๆ ที่ยังไม่ผูก license (ข้อความจาก Excel ที่ไม่ตรงชื่อ License หรือ seat เต็ม — คั่นด้วยขึ้นบรรทัดใหม่)
+  other_software                   String?                 @db.Citext
+  /// สเปคคอมพิวเตอร์ — ตัวเลือกจากข้อมูล Drop Down (list computer_spec)
+  computer_spec                    String?                 @db.Citext
+  branches                         branches?               @relation(fields: [branch_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "assets_branch_id_foreign")
+  asset_files                      asset_files[]
+  asset_licenses                   asset_licenses?
+  license_installations_license    license_installations[] @relation("license_installations_license_asset_idToassets")
+  license_installations_device     license_installations[] @relation("license_installations_device_asset_idToassets")
+  asset_movements                  asset_movements[]
+  asset_user_logs                  asset_user_logs[]
+  equipment_loans                  equipment_loans[]
+  users_assets_created_byTousers   users?                  @relation("assets_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "assets_created_by_foreign")
+  users_assets_custodian_idTousers users?                  @relation("assets_custodian_idTousers", fields: [custodian_id], references: [id], onUpdate: Restrict, map: "assets_custodian_id_foreign")
+  locations                        locations?              @relation(fields: [location_id], references: [id], onUpdate: Restrict, map: "assets_location_id_foreign")
+  users_assets_updated_byTousers   users?                  @relation("assets_updated_byTousers", fields: [updated_by], references: [id], onUpdate: Restrict, map: "assets_updated_by_foreign")
+  it_tickets                       it_tickets[]
+
+  @@index([category, status], map: "assets_category_status_index")
+  @@index([created_by], map: "assets_created_by_index")
+  @@index([custodian_id], map: "assets_custodian_id_index")
+  @@index([deleted_at, created_at], map: "assets_deleted_at_created_at_index")
+  @@index([location_id], map: "assets_location_id_index")
+  @@index([serial_number], map: "assets_serial_number_index")
+  @@index([status, location_id], map: "assets_status_location_id_index")
+  @@index([updated_by], map: "assets_updated_by_index")
+  @@index([branch_id], map: "assets_branch_id_index")
+  @@index([cpu_tag], map: "assets_cpu_tag_index")
+  @@index([monitor_tag], map: "assets_monitor_tag_index")
+}
+
+model branches {
+  fixed_assets                                             fixed_assets[]
+  licenses                                                 licenses[]
+  id                                                       BigInt                  @id @default(autoincrement())
+  code                                                     String                  @unique(map: "branches_code_unique") @db.Citext
+  name                                                     String                  @db.Citext
+  sort_order                                               Int                     @default(0) @db.SmallInt
+  is_active                                                Boolean                 @default(true)
+  created_at                                               DateTime?               @db.Timestamp(0)
+  updated_at                                               DateTime?               @db.Timestamp(0)
+  deleted_at                                               DateTime?               @db.Timestamp(0)
+  /// ชื่อ Work Group ของ Windows ที่สาขานี้ใช้ (เช่น LAMPHUN) — import ทะเบียนคอมพิวเตอร์จับคู่สาขาจากค่านี้ (ไม่ซ้ำ ไม่สนตัวพิมพ์)
+  work_group                                               String?                 @unique(map: "branches_work_group_unique") @db.Citext
+  /// ปฏิทินวันหยุดที่สาขานี้ใช้ (NULL = ชุดตั้งต้น)
+  holiday_calendar_id                                      BigInt?
+  holiday_calendars                                        holiday_calendars?      @relation(fields: [holiday_calendar_id], references: [id], onUpdate: Restrict, map: "branches_holiday_calendar_id_foreign")
+  approval_routes                                          approval_routes[]
+  locations                                                locations[]
+  assets                                                   assets[]
+  asset_movements_asset_movements_from_branch_idTobranches asset_movements[]       @relation("asset_movements_from_branch_idTobranches")
+  asset_movements_asset_movements_to_branch_idTobranches   asset_movements[]       @relation("asset_movements_to_branch_idTobranches")
+  license_installations                                    license_installations[]
+  contracts                                                contracts[]
+  credentials                                              credentials[]
+  it_tickets                                               it_tickets[]
+  users                                                    users[]
+  meeting_rooms                                            meeting_rooms[]
+  vehicles                                                 vehicles[]
+  vehicle_bookings                                         vehicle_bookings[]
+  vehicle_drivers                                          vehicle_drivers[]
+  vehicle_transfers_from                                   vehicle_transfers[]     @relation("vehicle_transfer_from")
+  vehicle_transfers_to                                     vehicle_transfers[]     @relation("vehicle_transfer_to")
+
+  @@index([is_active, sort_order], map: "branches_is_active_sort_order_index")
+  @@index([holiday_calendar_id], map: "branches_holiday_calendar_id_index")
+}
+
+model cache {
+  key        String @id @db.Citext
+  value      String @db.Citext
+  expiration BigInt
+
+  @@index([expiration], map: "cache_expiration_index")
+}
+
+model cache_locks {
+  key        String @id @db.Citext
+  owner      String @db.Citext
+  expiration BigInt
+
+  @@index([expiration], map: "cache_locks_expiration_index")
+}
+
+/// หมวดหมู่สัญญา vendor (ข้อมูลหลัก — เมนู ข้อมูลหลัก → หมวดหมู่สัญญา)
+model contract_categories {
+  id          BigInt      @id @default(autoincrement())
+  name        String      @unique(map: "contract_categories_name_unique") @db.Citext
+  /// หมวดตั้งต้น (key เดียวกับคลังบัญชี — แก้/ลบไม่ได้, ชื่อที่แสดงแปลตามภาษา); NULL = หมวดที่เพิ่มเอง
+  builtin_key String?     @unique(map: "contract_categories_builtin_key_unique") @db.Citext
+  is_active   Boolean     @default(true)
+  sort_order  Int         @default(0) @db.SmallInt
+  created_at  DateTime?   @db.Timestamp(0)
+  updated_at  DateTime?   @db.Timestamp(0)
+  contracts   contracts[]
+}
+
+/// ข้อมูล Drop Down ที่แก้ได้ (list = computer_type | brand | vault_category) — ค่าที่เลือกเก็บเป็นข้อความในตารางเดิม
+model dropdown_options {
+  id         BigInt    @id @default(autoincrement())
+  list       String    @db.Citext
+  name       String    @db.Citext
+  is_active  Boolean   @default(true)
+  sort_order Int       @default(0) @db.SmallInt
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+
+  @@unique([list, name], map: "dropdown_options_list_name_unique")
+}
+
+model contracts {
+  id                    BigInt               @id @default(autoincrement())
+  title                 String               @db.Citext
+  vendor_name           String               @db.Citext
+  contract_no           String?              @db.Citext
+  start_date            DateTime             @db.Date
+  end_date              DateTime             @db.Date
+  amount                Decimal?             @db.Decimal(15, 2)
+  contact_name          String?              @db.Citext
+  contact_email         String?              @db.Citext
+  contact_phone         String?              @db.Citext
+  notify_days_before    Int?                 @db.SmallInt
+  notify_enabled        Boolean              @default(true)
+  notified_for_end_date DateTime?            @db.Date
+  notified_at           DateTime?            @db.Timestamp(0)
+  /// วันที่แจ้งเตือนที่กำหนดเอง (JSON array "YYYY-MM-DD" ≤ 10 วัน, ≤ end_date) — เพิ่มจาก notify_days_before
+  notify_dates          Json?
+  /// วันที่แจ้งเตือนกำหนดเองล่าสุดที่แจ้งไปแล้ว (แก้ notify_dates = ตั้งเป็นเมื่อวาน)
+  notified_for_date     DateTime?            @db.Date
+  notes                 String?              @db.Citext
+  branch_id             BigInt?
+  /// หมวดหมู่สัญญา (ไม่บังคับ)
+  category_id           BigInt?
+  created_by            BigInt?
+  created_at            DateTime?            @db.Timestamp(0)
+  updated_at            DateTime?            @db.Timestamp(0)
+  deleted_at            DateTime?            @db.Timestamp(0)
+  branches              branches?            @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "contracts_branch_id_foreign")
+  contract_categories   contract_categories? @relation(fields: [category_id], references: [id], onUpdate: Restrict, map: "contracts_category_id_foreign")
+  users                 users?               @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "contracts_created_by_foreign")
+  files                 contract_files[]
+
+  @@index([branch_id], map: "contracts_branch_id_index")
+  @@index([category_id], map: "contracts_category_id_index")
+  @@index([created_by], map: "contracts_created_by_index")
+  @@index([end_date, notify_enabled], map: "contracts_end_date_notify_enabled_index")
+}
+
+model credential_access_logs {
+  id            BigInt      @id @default(autoincrement())
+  credential_id BigInt
+  user_id       BigInt?
+  action        String      @db.Citext
+  ip            String?     @db.Citext
+  created_at    DateTime    @default(now()) @db.Timestamp(0)
+  credentials   credentials @relation(fields: [credential_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "credential_access_logs_credential_id_foreign")
+  users         users?      @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "credential_access_logs_user_id_foreign")
+
+  @@index([credential_id, created_at], map: "credential_access_logs_credential_id_created_at_index")
+  @@index([user_id], map: "credential_access_logs_user_id_index")
+}
+
+model credentials {
+  id                                  BigInt                   @id @default(autoincrement())
+  title                               String                   @db.Citext
+  category                            String                   @default("system") @db.Citext
+  url                                 String?                  @db.Citext
+  username                            String?                  @db.Citext
+  password                            String?                  @db.Citext
+  secret_notes                        String?                  @db.Citext
+  notes                               String?                  @db.Citext
+  branch_id                           BigInt?
+  owner_id                            BigInt?
+  expires_at                          DateTime?                @db.Date
+  notified_for_expires_at             DateTime?                @db.Date
+  created_by                          BigInt?
+  updated_by                          BigInt?
+  password_changed_at                 DateTime?                @db.Timestamp(0)
+  created_at                          DateTime?                @db.Timestamp(0)
+  updated_at                          DateTime?                @db.Timestamp(0)
+  deleted_at                          DateTime?                @db.Timestamp(0)
+  /// ต้องยืนยันตัวตนก่อนเปิดดูรหัสของบัญชีนี้ (ปิด = กดดูได้เลย)
+  require_reauth                      Boolean                  @default(true)
+  /// all = ทุกคนที่มีสิทธิ์คลังบัญชี / restricted = เฉพาะผู้ใช้-กลุ่มใน credential_access + เจ้าของ + ผู้สร้าง + vault.all
+  access_mode                         String                   @default("all") @db.Citext
+  credential_access_logs              credential_access_logs[]
+  credential_access                   credential_access[]
+  vpn_loans                           vpn_loans[]
+  branches                            branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "credentials_branch_id_foreign")
+  users_credentials_created_byTousers users?                   @relation("credentials_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "credentials_created_by_foreign")
+  users_credentials_owner_idTousers   users?                   @relation("credentials_owner_idTousers", fields: [owner_id], references: [id], onUpdate: Restrict, map: "credentials_owner_id_foreign")
+  users_credentials_updated_byTousers users?                   @relation("credentials_updated_byTousers", fields: [updated_by], references: [id], onUpdate: Restrict, map: "credentials_updated_by_foreign")
+
+  @@index([branch_id], map: "credentials_branch_id_index")
+  @@index([category, title], map: "credentials_category_title_index")
+  @@index([created_by], map: "credentials_created_by_index")
+  @@index([owner_id], map: "credentials_owner_id_index")
+  @@index([updated_by], map: "credentials_updated_by_index")
+}
+
+model failed_jobs {
+  id         BigInt   @id @default(autoincrement())
+  uuid       String   @unique(map: "failed_jobs_uuid_unique") @db.Citext
+  connection String   @db.Citext
+  queue      String   @db.Citext
+  payload    String   @db.Citext
+  exception  String   @db.Citext
+  failed_at  DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([connection, queue, failed_at], map: "failed_jobs_connection_queue_failed_at_index")
+}
+
+model it_ticket_attachments {
+  id            BigInt            @id @default(autoincrement())
+  it_ticket_id  BigInt
+  kind          String            @db.Citext
+  path          String            @db.Citext
+  original_name String?           @db.Citext
+  mime          String?           @db.Citext
+  size          Int               @default(0)
+  uploaded_by   BigInt?
+  created_at    DateTime?         @db.Timestamp(0)
+  updated_at    DateTime?         @db.Timestamp(0)
+  /// เหตุการณ์ในประวัติที่แนบไฟล์นี้ (progress / resulted) — NULL = ไฟล์ตอนแจ้งงาน
+  event_id      BigInt?
+  it_tickets    it_tickets        @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_attachments_it_ticket_id_foreign")
+  event         it_ticket_events? @relation(fields: [event_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "it_ticket_attachments_event_id_foreign")
+  users         users?            @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "it_ticket_attachments_uploaded_by_foreign")
+
+  @@index([it_ticket_id, kind], map: "it_ticket_attachments_it_ticket_id_kind_index")
+  @@index([uploaded_by], map: "it_ticket_attachments_uploaded_by_index")
+  @@index([event_id], map: "it_ticket_attachments_event_id_index")
+}
+
+model it_ticket_events {
+  id              BigInt                  @id @default(autoincrement())
+  it_ticket_id    BigInt
+  user_id         BigInt?
+  action          String                  @db.Citext
+  comment         String?                 @db.Citext
+  created_at      DateTime                @default(now()) @db.Timestamp(0)
+  it_tickets      it_tickets              @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_events_it_ticket_id_foreign")
+  attachments     it_ticket_attachments[]
+  users           users?                  @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "it_ticket_events_user_id_foreign")
+  /// รายการส่งซ่อมของเหตุการณ์ repair_sent / repair_returned (ลิงก์ในประวัติใบงาน)
+  repair_order_id BigInt?
+  repair_orders   repair_orders?          @relation(fields: [repair_order_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "it_ticket_events_repair_order_id_foreign")
+
+  @@index([repair_order_id], map: "it_ticket_events_repair_order_id_index")
+  @@index([it_ticket_id, created_at], map: "it_ticket_events_it_ticket_id_created_at_index")
+  @@index([user_id], map: "it_ticket_events_user_id_index")
+}
+
+/// ผู้ร่วมดำเนินการในใบแจ้งงาน — แต่ละคนมีแถว KPI ของตัวเอง
+model it_ticket_helpers {
+  id           BigInt     @id @default(autoincrement())
+  it_ticket_id BigInt
+  user_id      BigInt
+  added_by     BigInt?
+  created_at   DateTime?  @db.Timestamp(0)
+  updated_at   DateTime?  @db.Timestamp(0)
+  it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_helpers_it_ticket_id_foreign")
+  user         users      @relation("it_ticket_helpers_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_helpers_user_id_foreign")
+  adder        users?     @relation("it_ticket_helpers_added_byTousers", fields: [added_by], references: [id], onUpdate: Restrict, map: "it_ticket_helpers_added_by_foreign")
+
+  @@unique([it_ticket_id, user_id], map: "it_ticket_helpers_ticket_user_unique")
+  @@index([user_id], map: "it_ticket_helpers_user_id_index")
+  @@index([added_by], map: "it_ticket_helpers_added_by_index")
+}
+
+model it_ticket_parts {
+  id           BigInt     @id @default(autoincrement())
+  it_ticket_id BigInt
+  name         String     @db.Citext
+  quantity     Int        @default(1) @db.SmallInt
+  photo_path   String?    @db.Citext
+  created_at   DateTime?  @db.Timestamp(0)
+  updated_at   DateTime?  @db.Timestamp(0)
+  it_tickets   it_tickets @relation(fields: [it_ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "it_ticket_parts_it_ticket_id_foreign")
+
+  @@index([it_ticket_id], map: "it_ticket_parts_it_ticket_id_index")
+}
+
+model it_tickets {
+  repair_orders                        repair_orders[]
+  id                                   BigInt                     @id @default(autoincrement())
+  uuid                                 String                     @unique(map: "it_tickets_uuid_unique") @db.Citext
+  ticket_no                            String                     @unique(map: "it_tickets_ticket_no_unique") @db.Citext
+  type                                 String                     @db.Citext
+  type_other                           String?                    @db.Citext
+  status                               String                     @default("pending_supervisor") @db.Citext
+  requester_id                         BigInt
+  branch_id                            BigInt?
+  department                           String?                    @db.Citext
+  division                             String?                    @db.Citext
+  details                              String                     @db.Citext
+  due_date                             DateTime?                  @db.Date
+  requester_signature                  String?                    @db.Citext
+  requested_at                         DateTime                   @db.Timestamp(0)
+  person_name_th                       String?                    @db.Citext
+  person_name_en                       String?                    @db.Citext
+  device_name                          String?                    @db.Citext
+  asset_tag                            String?                    @db.Citext
+  asset_id                             BigInt?
+  symptom                              String?                    @db.Citext
+  approver_id                          BigInt?
+  approved_at                          DateTime?                  @db.Timestamp(0)
+  assignee_id                          BigInt?
+  accepted_at                          DateTime?                  @db.Timestamp(0)
+  result                               String?                    @db.Citext
+  completed_on                         DateTime?                  @db.Date
+  /// ใบงานหลายวัน: ช่วงวันปฏิบัติงาน work_start_on ถึง completed_on → KPI 1 แถวต่อวัน
+  work_start_on                        DateTime?                  @db.Date
+  work_skip_off_days                   Boolean                    @default(true)
+  cannot_reason                        String?                    @db.Citext
+  repair_method                        String?                    @db.Citext
+  external_vendor                      String?                    @db.Citext
+  warranty                             String?                    @db.Citext
+  repair_details                       String?                    @db.Citext
+  staff_signature                      String?                    @db.Citext
+  resulted_at                          DateTime?                  @db.Timestamp(0)
+  it_head_id                           BigInt?
+  it_head_signature                    String?                    @db.Citext
+  /// สำเนาลายเซ็นผู้อนุมัติ ณ ตอนอนุมัติขั้นสุดท้าย (แบบฟอร์มพิมพ์)
+  approver_signature                   String?                    @db.Citext
+  closed_at                            DateTime?                  @db.Timestamp(0)
+  /// ระบบที่จัดการใบนี้ — 'zoom' = เดินสถานะจากหน้าจอง ZOOM เท่านั้น (ไม่ขึ้นคิวงาน IT, ปุ่มในหน้าใบงานปิด), null = ใบแจ้งงานปกติ
+  source                               String?                    @db.Citext
+  /// ขอยกเลิกหลังอนุมัติ: status = pending_cancel ระหว่างรอเจ้าหน้าที่ IT ยืนยัน → cancelled (ปฏิเสธ/ถอน = กลับสถานะเดิม)
+  cancel_reason                        String?                    @db.Citext
+  cancel_requested_at                  DateTime?                  @db.Timestamp(0)
+  cancel_requested_status              String?                    @db.Citext
+  cancelled_at                         DateTime?                  @db.Timestamp(0)
+  cancelled_by                         BigInt?
+  /// ขั้นอนุมัติปัจจุบัน (it_ticket_approval_steps.step_no) — null = ใบที่ใช้ระบบเดิม (หัวหน้าคนเดียว) หรืออนุมัติครบแล้ว
+  current_step                         Int?                       @db.SmallInt
+  created_at                           DateTime?                  @db.Timestamp(0)
+  updated_at                           DateTime?                  @db.Timestamp(0)
+  it_ticket_approval_steps             it_ticket_approval_steps[]
+  it_ticket_attachments                it_ticket_attachments[]
+  it_ticket_events                     it_ticket_events[]
+  it_ticket_parts                      it_ticket_parts[]
+  it_ticket_helpers                    it_ticket_helpers[]
+  zoom_bookings                        zoom_bookings[]
+  kpi_entries                          kpi_entries[]
+  users_it_tickets_approver_idTousers  users?                     @relation("it_tickets_approver_idTousers", fields: [approver_id], references: [id], onUpdate: Restrict, map: "it_tickets_approver_id_foreign")
+  assets                               assets?                    @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "it_tickets_asset_id_foreign")
+  users_it_tickets_assignee_idTousers  users?                     @relation("it_tickets_assignee_idTousers", fields: [assignee_id], references: [id], onUpdate: Restrict, map: "it_tickets_assignee_id_foreign")
+  branches                             branches?                  @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "it_tickets_branch_id_foreign")
+  users_it_tickets_it_head_idTousers   users?                     @relation("it_tickets_it_head_idTousers", fields: [it_head_id], references: [id], onUpdate: Restrict, map: "it_tickets_it_head_id_foreign")
+  users_it_tickets_requester_idTousers users                      @relation("it_tickets_requester_idTousers", fields: [requester_id], references: [id], onUpdate: Restrict, map: "it_tickets_requester_id_foreign")
+  calendar_events                      calendar_events?
+  vpn_loans                            vpn_loans[]
+
+  @@index([approver_id, status], map: "it_tickets_approver_id_status_index")
+  @@index([asset_id], map: "it_tickets_asset_id_index")
+  @@index([assignee_id, status], map: "it_tickets_assignee_id_status_index")
+  @@index([branch_id], map: "it_tickets_branch_id_index")
+  @@index([it_head_id], map: "it_tickets_it_head_id_index")
+  @@index([requester_id, created_at], map: "it_tickets_requester_id_created_at_index")
+  @@index([status, created_at], map: "it_tickets_status_created_at_index")
+  @@index([requested_at], map: "it_tickets_requested_at_index")
+}
+
+model job_batches {
+  id             String  @id @db.Citext
+  name           String  @db.Citext
+  total_jobs     Int
+  pending_jobs   Int
+  failed_jobs    Int
+  failed_job_ids String  @db.Citext
+  options        String? @db.Citext
+  cancelled_at   Int?
+  created_at     Int
+  finished_at    Int?
+}
+
+model jobs {
+  id           BigInt @id @default(autoincrement())
+  queue        String @db.Citext
+  payload      String @db.Citext
+  attempts     Int    @db.SmallInt
+  reserved_at  Int?
+  available_at Int
+  created_at   Int
+
+  @@index([queue], map: "jobs_queue_index")
+}
+
+/// บันทึกการปฏิบัติงาน (KPI) รายวันของผู้ใช้
+/// KPI ฝ่าย IT (Template-KPI-IT Part2 Details) — entry_type: work / holiday; ticket_id = แถวที่ผูกใบแจ้งงาน (เก็บเฉพาะ service_type + complexity)
+model kpi_entries {
+  id             BigInt      @id @default(autoincrement())
+  user_id        BigInt
+  work_date      DateTime    @db.Date
+  details        String      @db.Citext
+  created_at     DateTime?   @db.Timestamp(0)
+  updated_at     DateTime?   @db.Timestamp(0)
+  entry_type     String      @default("work") @db.Citext
+  ticket_id      BigInt?
+  requester_name String?     @db.Citext
+  branch_name    String?     @db.Citext
+  service_type   String?     @db.Citext
+  solution       String?     @db.Citext
+  complexity     Decimal?    @db.Decimal(3, 1)
+  completed_date DateTime?   @db.Date
+  users          users       @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "kpi_entries_user_id_foreign")
+  it_tickets     it_tickets? @relation(fields: [ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "kpi_entries_ticket_id_foreign")
+
+  @@unique([ticket_id, user_id, work_date], map: "kpi_entries_ticket_user_day_unique")
+  @@index([user_id, work_date], map: "kpi_entries_user_id_work_date_index")
+  @@index([work_date], map: "kpi_entries_work_date_index")
+}
+
+model locations {
+  licenses                                                    licenses[]
+  id                                                          BigInt            @id @default(autoincrement())
+  code                                                        String            @unique(map: "locations_code_unique") @db.Citext
+  name                                                        String            @db.Citext
+  type                                                        String            @default("room") @db.Citext
+  parent_id                                                   BigInt?
+  /// สาขาที่สถานที่สังกัด (ไม่บังคับ)
+  branch_id                                                   BigInt?
+  address                                                     String?           @db.Citext
+  is_active                                                   Boolean           @default(true)
+  created_at                                                  DateTime?         @db.Timestamp(0)
+  updated_at                                                  DateTime?         @db.Timestamp(0)
+  deleted_at                                                  DateTime?         @db.Timestamp(0)
+  asset_movements_asset_movements_from_location_idTolocations asset_movements[] @relation("asset_movements_from_location_idTolocations")
+  asset_movements_asset_movements_to_location_idTolocations   asset_movements[] @relation("asset_movements_to_location_idTolocations")
+  assets                                                      assets[]
+  locations                                                   locations?        @relation("locationsTolocations", fields: [parent_id], references: [id], onUpdate: Restrict, map: "locations_parent_id_foreign")
+  other_locations                                             locations[]       @relation("locationsTolocations")
+  branches                                                    branches?         @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "locations_branch_id_foreign")
+
+  @@index([branch_id], map: "locations_branch_id_index")
+  @@index([is_active, name], map: "locations_is_active_name_index")
+  @@index([parent_id], map: "locations_parent_id_index")
+}
+
+model migrations {
+  id        Int    @id @default(autoincrement())
+  migration String @db.Citext
+  batch     Int
+}
+
+model notifications {
+  id              String    @id @db.Citext
+  type            String    @db.Citext
+  notifiable_type String    @db.Citext
+  notifiable_id   BigInt
+  data            String    @db.Citext
+  read_at         DateTime? @db.Timestamp(0)
+  created_at      DateTime? @db.Timestamp(0)
+  updated_at      DateTime? @db.Timestamp(0)
+  /// รหัสเรื่องของแจ้งเตือน = คอลัมน์ที่ฐานข้อมูลคำนวณจาก data (GENERATED STORED — ticket_id / leave_id / vehicle_booking_id / loan_id / vpn_id / zoom_booking_id / repair_order_id) ห้ามเขียนค่าเอง
+  subject_ref     String?   @db.Citext @default(dbgenerated("eam_subject_ref((data)::text)"))
+
+  @@index([subject_ref, read_at], map: "notifications_subject_ref_read_at_index")
+  @@index([notifiable_type, notifiable_id, created_at], map: "notifications_notifiable_created_at_index")
+  @@index([notifiable_type, notifiable_id, read_at], map: "notifications_notifiable_read_at_index")
+}
+
+model password_reset_tokens {
+  email      String    @id @db.Citext
+  token      String    @db.Citext
+  created_at DateTime? @db.Timestamp(0)
+}
+
+model personal_access_tokens {
+  id             BigInt    @id @default(autoincrement())
+  tokenable_type String    @db.Citext
+  tokenable_id   BigInt
+  name           String    @db.Citext
+  token          String    @unique(map: "personal_access_tokens_token_unique") @db.Citext
+  abilities      String?   @db.Citext
+  last_used_at   DateTime? @db.Timestamp(0)
+  expires_at     DateTime? @db.Timestamp(0)
+  created_at     DateTime? @db.Timestamp(0)
+  updated_at     DateTime? @db.Timestamp(0)
+  /// ยืนยันรหัสผ่านซ้ำล่าสุด (ก่อนเปิดดูรหัสผ่าน / License key)
+  reauth_at      DateTime? @db.Timestamp(0)
+
+  external_session external_sessions?
+
+  @@index([expires_at], map: "personal_access_tokens_expires_at_index")
+  @@index([tokenable_type, tokenable_id], map: "personal_access_tokens_tokenable_type_tokenable_id_index")
+}
+
+model sessions {
+  id            String  @id @db.Citext
+  user_id       BigInt?
+  ip_address    String? @db.Citext
+  user_agent    String? @db.Citext
+  payload       String  @db.Citext
+  last_activity Int
+
+  @@index([last_activity], map: "sessions_last_activity_index")
+  @@index([user_id], map: "sessions_user_id_index")
+}
+
+model users {
+  fixed_assets_linked                                      fixed_assets[]            @relation("fixed_assets_linked_by")
+  fixed_asset_sync_runs                                    fixed_asset_sync_runs[]
+  repair_orders_sent                                       repair_orders[]            @relation("repair_orders_sent_by")
+  repair_orders_received                                   repair_orders[]            @relation("repair_orders_received_by")
+  repair_orders_created                                    repair_orders[]            @relation("repair_orders_created_by")
+  repair_orders_cancelled                                  repair_orders[]            @relation("repair_orders_cancelled_by")
+  repair_order_files                                       repair_order_files[]
+  vendor_files                                             vendor_files[]
+  contract_files                                           contract_files[]
+  announcement_files                                       announcement_files[]
+  policy_files                                             policy_files[]
+  policy_versions                                          policy_versions[]
+  other_policies                                           other_policies[]
+  other_policy_files                                       other_policy_files[]
+  licenses_cancelled                                       licenses[]                 @relation("licenses_cancelled_byTousers")
+  licenses_created                                         licenses[]                 @relation("licenses_created_byTousers")
+  licenses_updated                                         licenses[]                 @relation("licenses_updated_byTousers")
+  license_files                                            license_files[]
+  id                                                       BigInt                     @id @default(autoincrement())
+  name                                                     String                     @db.Citext
+  /// LOCAL: login ด้วยอีเมล+รหัสผ่านของระบบเรา (ต้องมี) / API: อาจว่างได้ถ้าต้นทางไม่ส่งอีเมลมา
+  /// ชื่อผู้ใช้สำหรับ login (LOCAL) — ไม่บังคับ, ห้ามซ้ำแบบไม่สนตัวพิมพ์ (unique index LOWER(username)), ห้ามมี @
+  username                                                 String?                    @db.Citext
+  email                                                    String?                    @unique(map: "users_email_unique") @db.Citext
+  role                                                     String                     @default("viewer") @db.Citext
+  /// ตำแหน่งงาน (ข้อความ ไม่บังคับ) — แยกจากสิทธิ์กลุ่มใช้งาน role
+  job_title                                                String?                    @db.Citext
+  is_active                                                Boolean                    @default(true)
+  branch_id                                                BigInt?
+  department                                               String?                    @db.Citext
+  division                                                 String?                    @db.Citext
+  supervisor_id                                            BigInt?
+  is_it_staff                                              Boolean                    @default(false)
+  is_it_head                                               Boolean                    @default(false)
+  /// ผู้จัดการแผนก IT (ไม่ให้สิทธิ์ — ไม่อยู่ในรายชื่อเจ้าหน้าที่ IT ที่ผู้แจ้งเลือก)
+  is_it_manager                                            Boolean                    @default(false)
+  email_verified_at                                        DateTime?                  @db.Timestamp(0)
+  /// hash รหัสผ่าน — ใช้เฉพาะ LOCAL (API User ไม่เก็บรหัสผ่านใด ๆ = null; CHECK users_local_password_check)
+  password                                                 String?                    @db.Citext
+  /// LOCAL = ผู้ใช้ของระบบเรา (ค่าเริ่มต้น — ผู้ใช้เดิมทั้งหมด) / API = ผู้ใช้จาก REST API ต้นทาง (JIT provisioning)
+  type                                                     String                     @default("LOCAL") @db.Citext
+  /// API User: การเชื่อมต่อต้นทาง + รหัสผู้ใช้ที่ต้นทาง (unique คู่กัน)
+  connection_id                                            BigInt?
+  external_id                                              String?                    @db.Citext
+  /// ซิงก์โปรไฟล์/สถานะกับต้นทางล่าสุดเมื่อไร (API User)
+  external_synced_at                                       DateTime?                  @db.Timestamp(0)
+  /// PIN กลาง (app_settings.secret_pin): กรอกผิดติดกัน 5 ครั้ง = ล็อก 15 นาที
+  secret_pin_failures                                      Int                        @default(0) @db.SmallInt
+  secret_pin_locked_until                                  DateTime?                  @db.Timestamp(0)
+  /// login ผิดติดกัน (รหัสผ่าน / 2FA) — ครบ app_settings.password_policy.lockout_attempts = ล็อกถึง login_locked_until
+  login_failures                                           Int                        @default(0) @db.SmallInt
+  login_locked_until                                       DateTime?                  @db.Timestamp(0)
+  /// เปลี่ยนรหัสผ่านล่าสุด (บังคับเปลี่ยนทุก password_policy.expiry_days วัน) — null = นับจากวันที่เปิดนโยบาย
+  password_changed_at                                      DateTime?                  @db.Timestamp(0)
+  /// ต้องเปลี่ยนรหัสผ่านก่อนใช้งาน (ผู้ดูแลสร้างผู้ใช้ / รีเซ็ตรหัสผ่านขณะเปิด password_policy.force_first_change)
+  must_change_password                                     Boolean                    @default(false)
+  /// ผู้ใช้ตั้งรหัสผ่านเองล่าสุด — NULL = ยังไม่เคย (บังคับเปลี่ยนครั้งแรกเมื่อเปิด force_first_change)
+  password_self_changed_at                                 DateTime?                  @db.Timestamp(0)
+  /// ผู้ดูแลติ๊กให้ตั้งรหัสผ่านใหม่เมื่อเข้าระบบ — มีผลเสมอ ไม่ขึ้นกับ force_first_change
+  password_change_forced                                   Boolean                    @default(false)
+  last_login_at                                            DateTime?                  @db.Timestamp(0)
+  last_login_failed_at                                     DateTime?                  @db.Timestamp(0)
+  last_locked_at                                           DateTime?                  @db.Timestamp(0)
+  /// password = รหัสผิดติดกัน / inactive = ไม่เข้าระบบนาน
+  last_lock_reason                                         String?                    @db.Citext
+  last_lock_attempts                                       Int?
+  /// ผู้ดูแลปลดล็อกล่าสุด — เริ่มนับวันไม่เข้าระบบใหม่
+  inactive_unlocked_at                                     DateTime?                  @db.Timestamp(0)
+  /// สถานะจากการซิงค์รายชื่อกับต้นทาง: active | disabled | missing (null = ยังไม่เคยซิงค์) — ซิงค์ปิดใช้งาน/เปิดคืนเฉพาะที่ซิงค์เป็นคนปิด
+  external_status                                          String?                    @db.Citext
+  remember_token                                           String?                    @db.Citext
+  /// ไฟล์ลายเซ็นที่ผู้ใช้อัปโหลด (private disk: users/{id}/signature-*.png) — แสตมป์ลงใบแจ้งงาน
+  signature_path                                           String?                    @db.Citext
+  /// สายอนุมัติที่กำหนดรายบุคคล (null = จับคู่อัตโนมัติตามสาขา+แผนก)
+  approval_route_id                                        BigInt?
+  created_at                                               DateTime?                  @db.Timestamp(0)
+  updated_at                                               DateTime?                  @db.Timestamp(0)
+  approval_routes                                          approval_routes?           @relation(fields: [approval_route_id], references: [id], onDelete: SetNull, map: "users_approval_route_id_foreign")
+  approval_step_approvers                                  approval_step_approvers[]
+  asset_files                                              asset_files[]
+  announcements                                            announcements[]
+  license_installations_user                               license_installations[]    @relation("license_installations_user_idTousers")
+  license_installations_created                            license_installations[]    @relation("license_installations_created_byTousers")
+  it_ticket_approval_steps                                 it_ticket_approval_steps[]
+  app_settings                                             app_settings[]
+  kpi_entries                                              kpi_entries[]
+  asset_movements_asset_movements_from_custodian_idTousers asset_movements[]          @relation("asset_movements_from_custodian_idTousers")
+  asset_licenses_asset_licenses_cancelled_byTousers        asset_licenses[]           @relation("asset_licenses_cancelled_byTousers")
+  asset_movements_asset_movements_performed_byTousers      asset_movements[]          @relation("asset_movements_performed_byTousers")
+  asset_user_logs                                          asset_user_logs[]
+  asset_movements_asset_movements_to_custodian_idTousers   asset_movements[]          @relation("asset_movements_to_custodian_idTousers")
+  assets_assets_created_byTousers                          assets[]                   @relation("assets_created_byTousers")
+  assets_assets_custodian_idTousers                        assets[]                   @relation("assets_custodian_idTousers")
+  assets_assets_updated_byTousers                          assets[]                   @relation("assets_updated_byTousers")
+  contracts                                                contracts[]
+  credential_access_logs                                   credential_access_logs[]
+  credentials_credentials_created_byTousers                credentials[]              @relation("credentials_created_byTousers")
+  credentials_credentials_owner_idTousers                  credentials[]              @relation("credentials_owner_idTousers")
+  credentials_credentials_updated_byTousers                credentials[]              @relation("credentials_updated_byTousers")
+  it_ticket_attachments                                    it_ticket_attachments[]
+  it_ticket_events                                         it_ticket_events[]
+  it_ticket_helpers_user                                   it_ticket_helpers[]        @relation("it_ticket_helpers_user_idTousers")
+  it_ticket_helpers_added_by                               it_ticket_helpers[]        @relation("it_ticket_helpers_added_byTousers")
+  it_tickets_it_tickets_approver_idTousers                 it_tickets[]               @relation("it_tickets_approver_idTousers")
+  it_tickets_it_tickets_assignee_idTousers                 it_tickets[]               @relation("it_tickets_assignee_idTousers")
+  it_tickets_it_tickets_it_head_idTousers                  it_tickets[]               @relation("it_tickets_it_head_idTousers")
+  it_tickets_it_tickets_requester_idTousers                it_tickets[]               @relation("it_tickets_requester_idTousers")
+  branches                                                 branches?                  @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "users_branch_id_foreign")
+  users                                                    users?                     @relation("usersTousers", fields: [supervisor_id], references: [id], onUpdate: Restrict, map: "users_supervisor_id_foreign")
+  other_users                                              users[]                    @relation("usersTousers")
+  api_connection                                           api_connections?           @relation("users_connection", fields: [connection_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "users_connection_id_foreign")
+  api_connections_created                                  api_connections[]          @relation("api_connections_created_by")
+  api_connections_updated                                  api_connections[]          @relation("api_connections_updated_by")
+  external_sessions                                        external_sessions[]
+  user_permissions                                         user_permissions[]         @relation("user_permissions_user")
+  user_permissions_granted                                 user_permissions[]         @relation("user_permissions_created_by")
+  user_groups                                              user_groups[]              @relation("user_groups_user")
+  user_groups_granted                                      user_groups[]              @relation("user_groups_created_by")
+  audit_logs                                               audit_logs[]
+  user_signatures                                          user_signatures[]          @relation("user_signatures_user")
+  policy_acceptances                                       policy_acceptances[]
+  user_signatures_created                                  user_signatures[]          @relation("user_signatures_created_by")
+
+  leave_requests_leave_requests_user_idTousers      leave_requests[]        @relation("leave_requests_user_idTousers")
+  leave_requests_leave_requests_approver_idTousers  leave_requests[]        @relation("leave_requests_approver_idTousers")
+  calendar_events_calendar_events_user_idTousers    calendar_events[]       @relation("calendar_events_user_idTousers")
+  calendar_events_calendar_events_created_byTousers calendar_events[]       @relation("calendar_events_created_byTousers")
+  meeting_bookings                                  meeting_bookings[]
+  vehicle_bookings                                  vehicle_bookings[]
+  zoom_bookings                                     zoom_bookings[]
+  vehicle_transfers                                 vehicle_transfers[]
+  credential_access_users                           credential_access[]     @relation("credential_access_user")
+  credential_access_created                         credential_access[]     @relation("credential_access_creator")
+  equipment_loans_borrower                          equipment_loans[]       @relation("equipment_loans_user")
+  equipment_loans_handed                            equipment_loans[]       @relation("equipment_loans_handed")
+  equipment_loans_returned                          equipment_loans[]       @relation("equipment_loans_returned")
+  equipment_loans_cancelled                         equipment_loans[]       @relation("equipment_loans_cancelled")
+  vpn_loans_borrower                                vpn_loans[]             @relation("vpn_loans_user")
+  vpn_loans_assigned                                vpn_loans[]             @relation("vpn_loans_assigned")
+  vpn_loans_ended                                   vpn_loans[]             @relation("vpn_loans_ended")
+  company_holidays                                  company_holidays[]
+  leave_quota_overrides                             leave_quota_overrides[]
+  /// ลิงก์ iCal ส่วนตัว (GET /calendar/feed/{token}.ics)
+  calendar_token                                    String?                 @unique(map: "users_calendar_token_unique") @db.Citext
+  /// 2FA (TOTP) — secret เข้ารหัส APP_KEY; ยืนยันแล้ว = confirmed_at ไม่ว่าง; recovery codes = JSON ของ SHA-256 (ใช้ได้ครั้งเดียว)
+  two_factor_secret                                 String?                 @db.Citext
+  two_factor_confirmed_at                           DateTime?               @db.Timestamp(0)
+  two_factor_recovery_codes                         String?                 @db.Citext
+  /// ช่วงเวลา (30 วินาที) ของรหัสที่ใช้ล่าสุด — กันใช้รหัสเดิมซ้ำ
+  two_factor_last_step                              BigInt?
+
+  @@unique([connection_id, external_id], map: "users_connection_id_external_id_unique")
+  @@index([type], map: "users_type_index")
+  @@index([branch_id], map: "users_branch_id_index")
+  @@index([role], map: "users_role_index")
+  @@index([supervisor_id], map: "users_supervisor_id_index")
+}
+
+/// การเชื่อมต่อ REST API ต้นทางสำหรับ API User — Local Admin ตั้งค่าที่หน้า "การเชื่อมต่อ API" (ไม่ hard-code)
+/// path ใน response ใช้รูปแบบ dot path ที่ปลอดภัย (เช่น data.access_token, items.0.id) — ไม่ใช้ eval
+model api_connections {
+  id                        BigInt              @id @default(autoincrement())
+  name                      String              @db.Citext
+  /// เปิด/ปิดการ login ผ่าน API นี้
+  is_enabled                Boolean             @default(false)
+  /// ต้องเป็น https:// (ตรวจตอนบันทึก + ตอนเรียก)
+  base_url                  String              @db.Citext
+  timeout_ms                Int                 @default(10000)
+  /// login: method / path / ชื่อ field ที่ส่ง / รูปแบบ body (json | form)
+  login_method              String              @default("POST") @db.Citext
+  login_path                String              @db.Citext
+  login_username_field      String              @default("username") @db.Citext
+  login_password_field      String              @default("password") @db.Citext
+  login_body_type           String              @default("json") @db.Citext
+  /// โปรไฟล์: profile_path = null → อ่านจาก response ของ login ที่ profile_root_path
+  profile_method            String              @default("GET") @db.Citext
+  profile_path              String?             @db.Citext
+  profile_root_path         String?             @db.Citext
+  logout_path               String?             @db.Citext
+  refresh_path              String?             @db.Citext
+  /// ตรวจว่าเข้าถึงต้นทางได้ (ไม่ต้องใช้บัญชี) เช่น /health ของ STEC SyteLine API — ปุ่ม "ตรวจการเข้าถึง"
+  health_path               String?             @db.Citext
+  /// path ของ token / อายุ token (วินาที) / refresh token ใน response — ไม่มีอายุ → default_token_ttl_seconds
+  token_path                String              @default("token") @db.Citext
+  token_ttl_path            String?             @db.Citext
+  refresh_token_path        String?             @db.Citext
+  default_token_ttl_seconds Int                 @default(86400)
+  /// cache โปรไฟล์/สถานะผู้ใช้ก่อนตรวจกับต้นทางใหม่ (วินาที)
+  profile_cache_seconds     Int                 @default(600)
+  /// field mapping ของโปรไฟล์: { external_id, name, email, role_code } → path
+  field_map                 Json                @default("{}")
+  /// กฎ map role: [{ value: MGR, role: manager }] — ไม่ตรงกฎใด = default_role (สิทธิ์น้อยสุด)
+  role_rules                Json                @default("[]")
+  default_role              String              @default("viewer") @db.Citext
+  /// error ต้นทาง: path ของรหัส error + { code: { kind, message_th, message_en } }
+  error_code_path           String?             @db.Citext
+  error_messages            Json                @default("{}")
+  /// การยืนยันตัวตนของระบบเรากับต้นทาง: none | api_key | bearer | basic — auth_secret เข้ารหัส ห้ามส่งกลับ frontend
+  auth_type                 String              @default("none") @db.Citext
+  auth_header_name          String?             @db.Citext
+  auth_username             String?             @db.Citext
+  auth_secret               String?             @db.Citext
+  /// ป้องกัน SSRF: IP ภายใน/loopback/link-local ถูกบล็อก ยกเว้น host/IP/CIDR ในรายการนี้
+  allowed_hosts             Json                @default("[]")
+  max_redirects             Int                 @default(0) @db.SmallInt
+  /// ลิงก์ไปหน้าของต้นทาง (ระบบเราไม่ทำ register / forgot / change password ให้ API User)
+  register_url              String?             @db.Citext
+  forgot_password_url       String?             @db.Citext
+  change_password_url       String?             @db.Citext
+  /// ซิงค์รายชื่อผู้ใช้ตามเวลา: endpoint รายชื่อ (ใช้การยืนยันตัวตนของการเชื่อมต่อ), path ของ array, การแบ่งหน้า
+  users_list_path           String?             @db.Citext
+  users_list_root_path      String?             @db.Citext
+  users_page_param          String?             @db.Citext
+  users_page_size_param     String?             @db.Citext
+  users_page_size           Int                 @default(100)
+  /// ค่าใน field_map.status ที่ถือว่า "ใช้งานได้" (ว่าง = ทุกคนในรายชื่อใช้งานได้)
+  active_values             Json                @default("[]")
+  /// 0 = ปิดการซิงค์ตามเวลา
+  sync_interval_minutes     Int                 @default(0)
+  last_synced_at            DateTime?           @db.Timestamp(0)
+  last_sync_result          Json?
+  created_by                BigInt?
+  updated_by                BigInt?
+  created_at                DateTime?           @db.Timestamp(0)
+  updated_at                DateTime?           @db.Timestamp(0)
+  creator                   users?              @relation("api_connections_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "api_connections_created_by_foreign")
+  updater                   users?              @relation("api_connections_updated_by", fields: [updated_by], references: [id], onDelete: SetNull, map: "api_connections_updated_by_foreign")
+  users                     users[]             @relation("users_connection")
+  external_sessions         external_sessions[]
+}
+
+/// token ของต้นทาง (เข้ารหัส) ผูกกับ token ของระบบเรา 1:1 — browser ไม่เคยเห็น token ต้นทาง
+/// ลบ token ของเรา (logout / หมดอายุ) → แถวนี้ถูกลบตาม (cascade)
+model external_sessions {
+  id                 BigInt                 @id @default(autoincrement())
+  token_id           BigInt                 @unique(map: "external_sessions_token_id_unique")
+  user_id            BigInt
+  connection_id      BigInt
+  access_token       String                 @db.Citext
+  refresh_token      String?                @db.Citext
+  expires_at         DateTime               @db.Timestamp(0)
+  /// ตรวจโปรไฟล์/สถานะกับต้นทางล่าสุด (cache ตาม profile_cache_seconds)
+  profile_checked_at DateTime?              @db.Timestamp(0)
+  created_at         DateTime?              @db.Timestamp(0)
+  updated_at         DateTime?              @db.Timestamp(0)
+  token              personal_access_tokens @relation(fields: [token_id], references: [id], onDelete: Cascade, map: "external_sessions_token_id_foreign")
+  user               users                  @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "external_sessions_user_id_foreign")
+  connection         api_connections        @relation(fields: [connection_id], references: [id], onDelete: Cascade, map: "external_sessions_connection_id_foreign")
+
+  @@index([user_id], map: "external_sessions_user_id_index")
+  @@index([expires_at], map: "external_sessions_expires_at_index")
+}
+
+/// รายการสิทธิ์ (permission key) — สิทธิ์จริง = role_permissions ของ role + user_permissions allow − deny
+model permissions {
+  id               BigInt             @id @default(autoincrement())
+  key              String             @unique(map: "permissions_key_unique") @db.Citext
+  group            String             @db.Citext
+  name_th          String             @db.Citext
+  name_en          String             @db.Citext
+  sort_order       Int                @default(0) @db.SmallInt
+  created_at       DateTime?          @db.Timestamp(0)
+  updated_at       DateTime?          @db.Timestamp(0)
+  role_permissions role_permissions[]
+  user_permissions user_permissions[]
+}
+
+/// สิทธิ์ของแต่ละกลุ่ม — role = permission_groups.key (กลุ่มตามตำแหน่ง users.role หรือกลุ่มที่สร้างเอง)
+model role_permissions {
+  role          String      @db.Citext
+  permission_id BigInt
+  created_at    DateTime?   @db.Timestamp(0)
+  permission    permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, map: "role_permissions_permission_id_foreign")
+
+  @@id([role, permission_id])
+}
+
+/// override สิทธิ์รายคน: effect = allow (เพิ่ม) | deny (ถอด)
+model user_permissions {
+  user_id       BigInt
+  permission_id BigInt
+  effect        String      @db.Citext
+  created_by    BigInt?
+  created_at    DateTime?   @db.Timestamp(0)
+  /// ใช้ได้ถึงวันนี้ (เวลาไทย) — null = ไม่หมดอายุ; มีผลเมื่อเปิด app_settings.permission_expiry
+  expires_on    DateTime?   @db.Date
+  user          users       @relation("user_permissions_user", fields: [user_id], references: [id], onDelete: Cascade, map: "user_permissions_user_id_foreign")
+  permission    permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, map: "user_permissions_permission_id_foreign")
+  creator       users?      @relation("user_permissions_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "user_permissions_created_by_foreign")
+
+  @@id([user_id, permission_id])
+}
+
+/// กลุ่มสิทธิ์ — is_system = กลุ่มตามตำแหน่ง (super_admin | admin | division_manager | manager | viewer, ลบไม่ได้) / อื่นๆ = กลุ่มที่สร้างเอง
+/// สิทธิ์ของกลุ่มอยู่ที่ role_permissions (role = key) — super_admin ผ่านทุกสิทธิ์ (ไม่ใช้ตาราง)
+model permission_groups {
+  key         String        @id @db.Citext
+  name_th     String        @db.Citext
+  name_en     String        @db.Citext
+  is_system   Boolean       @default(false)
+  sort_order  Int           @default(0) @db.SmallInt
+  created_at  DateTime?     @db.Timestamp(0)
+  updated_at  DateTime?     @db.Timestamp(0)
+  user_groups user_groups[]
+}
+
+/// ผู้ใช้อยู่ในกลุ่มสิทธิ์เพิ่มจากกลุ่มตามตำแหน่ง (หลายกลุ่มได้) — expires_on = ใช้ได้ถึงวันนี้ (null = ไม่หมดอายุ)
+model user_groups {
+  user_id    BigInt
+  group_key  String            @db.Citext
+  expires_on DateTime?         @db.Date
+  created_by BigInt?
+  created_at DateTime?         @db.Timestamp(0)
+  user       users             @relation("user_groups_user", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "user_groups_user_id_foreign")
+  group      permission_groups @relation(fields: [group_key], references: [key], onDelete: Cascade, onUpdate: Restrict, map: "user_groups_group_key_foreign")
+  creator    users?            @relation("user_groups_created_by", fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "user_groups_created_by_foreign")
+
+  @@id([user_id, group_key])
+  @@index([group_key], map: "user_groups_group_key_index")
+  @@index([created_by], map: "user_groups_created_by_index")
+}
+
+/// บันทึกการเปลี่ยนสิทธิ์ / การตั้งค่า / ลายเซ็น (ใคร เมื่อไร ก่อน-หลัง IP) — ห้ามเก็บ secret / token / รหัสผ่าน
+model audit_logs {
+  id           BigInt   @id @default(autoincrement())
+  actor_id     BigInt?
+  action       String   @db.Citext
+  subject_type String   @db.Citext
+  subject_id   String?  @db.Citext
+  before       Json?
+  after        Json?
+  ip           String?  @db.Citext
+  /// เบราว์เซอร์/อุปกรณ์ของผู้ใช้ (หน้าเว็บส่งต่อใน X-Client-Agent, ลงท้าย " [pwa]" = เปิดจากแอปที่ติดตั้ง)
+  user_agent   String?  @db.Citext
+  created_at   DateTime @default(now()) @db.Timestamp(0)
+  actor        users?   @relation(fields: [actor_id], references: [id], onDelete: SetNull, map: "audit_logs_actor_id_foreign")
+
+  @@index([subject_type, subject_id], map: "audit_logs_subject_index")
+  @@index([actor_id], map: "audit_logs_actor_id_index")
+  @@index([created_at], map: "audit_logs_created_at_index")
+  @@index([action], map: "audit_logs_action_index")
+}
+
+/// แผนก (ข้อมูลหลัก) — users.department / approval_routes.department เก็บเป็นชื่อ (ข้อความ) เหมือนเดิม; เปลี่ยนชื่อที่นี่ = อัปเดตชื่อในผู้ใช้/สายอนุมัติด้วย
+model departments {
+  id          BigInt     @id @default(autoincrement())
+  name        String     @unique(map: "departments_name_unique") @db.Citext
+  is_active   Boolean    @default(true)
+  sort_order  Int        @default(0) @db.SmallInt
+  /// ฝ่ายที่สังกัด (ไม่บังคับ)
+  division_id BigInt?
+  created_at  DateTime?  @db.Timestamp(0)
+  updated_at  DateTime?  @db.Timestamp(0)
+  divisions   divisions? @relation(fields: [division_id], references: [id], onUpdate: Restrict, map: "departments_division_id_foreign")
+
+  @@index([division_id], map: "departments_division_id_index")
+}
+
+/// ฝ่าย (ข้อมูลหลัก) — users.division เก็บเป็นชื่อ (ข้อความ) เหมือนเดิม
+model divisions {
+  id          BigInt        @id @default(autoincrement())
+  name        String        @unique(map: "divisions_name_unique") @db.Citext
+  is_active   Boolean       @default(true)
+  sort_order  Int           @default(0) @db.SmallInt
+  created_at  DateTime?     @db.Timestamp(0)
+  updated_at  DateTime?     @db.Timestamp(0)
+  departments departments[]
+}
+
+/// ลายเซ็นของผู้ใช้ (เก็บในระบบเรา ไม่เกี่ยวกับระบบต้นทาง) — ลายเซ็นใหม่ทำให้อันเดิม is_active = false (ห้ามลบแถว = เก็บประวัติ)
+/// ไฟล์ผ่านการ re-encode เป็น PNG (ล้าง metadata, crop ขอบ, กว้าง ≤ 600px) และเข้ารหัสขณะพัก (is_encrypted)
+model user_signatures {
+  id           BigInt   @id @default(autoincrement())
+  user_id      BigInt
+  file_ref     String   @db.Citext
+  mime_type    String   @default("image/png") @db.Citext
+  size         Int      @default(0)
+  /// UPLOAD | DRAW
+  source       String   @db.Citext
+  is_active    Boolean  @default(true)
+  /// false = ไฟล์เดิมก่อนมีตารางนี้ (ไม่ได้เข้ารหัส)
+  is_encrypted Boolean  @default(true)
+  created_at   DateTime @default(now()) @db.Timestamp(0)
+  created_by   BigInt?
+  user         users    @relation("user_signatures_user", fields: [user_id], references: [id], onDelete: Cascade, map: "user_signatures_user_id_foreign")
+  creator      users?   @relation("user_signatures_created_by", fields: [created_by], references: [id], onDelete: SetNull, map: "user_signatures_created_by_foreign")
+
+  @@index([user_id, is_active], map: "user_signatures_user_id_is_active_index")
+}
+
+/// ใบลา — อนุมัติโดยหัวหน้าที่ผู้ลาระบุ (ตั้งต้น = หัวหน้าตามสาย) แล้วจึงขึ้นปฏิทิน + แถว KPI
+/// unit: full | half_am | half_pm | hours (start_time/end_time) — days = วันทำงานจริง (ไม่นับ ส-อา / วันหยุดบริษัท)
+model leave_requests {
+  id                                      BigInt        @id @default(autoincrement())
+  uuid                                    String        @unique(map: "leave_requests_uuid_unique") @db.Citext
+  user_id                                 BigInt
+  leave_type                              String        @db.Citext
+  unit                                    String        @default("full") @db.Citext
+  start_on                                DateTime      @db.Date
+  end_on                                  DateTime      @db.Date
+  start_time                              String?       @db.Citext
+  end_time                                String?       @db.Citext
+  days                                    Decimal       @default(0) @db.Decimal(5, 2)
+  reason                                  String?       @db.Citext
+  approver_id                             BigInt?
+  status                                  String        @default("pending") @db.Citext
+  decided_at                              DateTime?     @db.Timestamp(0)
+  decision_note                           String?       @db.Citext
+  cancelled_by                            BigInt?
+  created_at                              DateTime?     @db.Timestamp(0)
+  updated_at                              DateTime?     @db.Timestamp(0)
+  users_leave_requests_user_idTousers     users         @relation("leave_requests_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "leave_requests_user_id_foreign")
+  users_leave_requests_approver_idTousers users?        @relation("leave_requests_approver_idTousers", fields: [approver_id], references: [id], onUpdate: Restrict, map: "leave_requests_approver_id_foreign")
+  leave_files                             leave_files[]
+
+  @@index([user_id, status], map: "leave_requests_user_id_status_index")
+  @@index([approver_id, status], map: "leave_requests_approver_id_status_index")
+  @@index([start_on, end_on], map: "leave_requests_start_on_end_on_index")
+}
+
+/// เหตุการณ์ในปฏิทิน — onsite = ช่วงวันไปทำงานหน้างานจากใบแจ้งงาน (1 ใบ = 1 ช่วง)
+model calendar_events {
+  id                                      BigInt      @id @default(autoincrement())
+  type                                    String      @default("onsite") @db.Citext
+  user_id                                 BigInt
+  ticket_id                               BigInt?     @unique(map: "calendar_events_ticket_id_unique")
+  title                                   String      @db.Citext
+  start_on                                DateTime    @db.Date
+  end_on                                  DateTime    @db.Date
+  note                                    String?     @db.Citext
+  /// type event: แสดงทั้งบริษัท (ไม่กรองตามขอบเขต)
+  all_company                             Boolean     @default(false)
+  /// type event: ไม่รวมเสาร์-อาทิตย์ (แสดงเฉพาะวันธรรมดาในช่วงวัน)
+  skip_weekends                           Boolean     @default(false)
+  created_by                              BigInt?
+  created_at                              DateTime?   @db.Timestamp(0)
+  updated_at                              DateTime?   @db.Timestamp(0)
+  users_calendar_events_user_idTousers    users       @relation("calendar_events_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "calendar_events_user_id_foreign")
+  it_tickets                              it_tickets? @relation(fields: [ticket_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "calendar_events_ticket_id_foreign")
+  users_calendar_events_created_byTousers users?      @relation("calendar_events_created_byTousers", fields: [created_by], references: [id], onUpdate: Restrict, map: "calendar_events_created_by_foreign")
+
+  @@index([user_id], map: "calendar_events_user_id_index")
+  @@index([start_on, end_on], map: "calendar_events_start_on_end_on_index")
+}
+
+/// วันหยุดประจำปีของบริษัท — ผู้ดูแลระบบเพิ่มเอง / นำเข้า Excel; ขึ้นปฏิทินทุกคน + แถววันหยุดใน KPI
+model company_holidays {
+  id                BigInt            @id @default(autoincrement())
+  calendar_id       BigInt
+  date              DateTime          @db.Date
+  name              String            @db.Citext
+  created_by        BigInt?
+  created_at        DateTime?         @db.Timestamp(0)
+  updated_at        DateTime?         @db.Timestamp(0)
+  users             users?            @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "company_holidays_created_by_foreign")
+  holiday_calendars holiday_calendars @relation(fields: [calendar_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "company_holidays_calendar_id_foreign")
+
+  @@unique([calendar_id, date], map: "company_holidays_calendar_date_unique")
+}
+
+/// ปฏิทินวันหยุดแต่ละชุด (เช่น สำนักงานใหญ่ / สำนักงานโรงงาน) — สาขาเลือกใช้ 1 ชุด, ไม่เลือก = ชุดตั้งต้น (is_default)
+model holiday_calendars {
+  id               BigInt             @id @default(autoincrement())
+  name             String             @unique(map: "holiday_calendars_name_unique") @db.Citext
+  is_default       Boolean            @default(false)
+  sort_order       Int                @default(0) @db.SmallInt
+  created_at       DateTime?          @db.Timestamp(0)
+  updated_at       DateTime?          @db.Timestamp(0)
+  company_holidays company_holidays[]
+  branches         branches[]
+}
+
+/// โควตาวันลารายคนต่อปี (ไม่มี = ค่าตั้งต้นใน app_settings.leave_settings.quotas)
+model leave_quota_overrides {
+  user_id    BigInt
+  year       Int       @db.SmallInt
+  leave_type String    @db.Citext
+  days       Decimal   @db.Decimal(5, 2)
+  updated_by BigInt?
+  updated_at DateTime? @db.Timestamp(0)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "leave_quota_overrides_user_id_foreign")
+
+  @@id([user_id, year, leave_type])
+}
+
+/// ไฟล์แนบใบลา (ใบรับรองแพทย์) — private disk
+model leave_files {
+  id             BigInt         @id @default(autoincrement())
+  leave_id       BigInt
+  path           String         @db.Citext
+  original_name  String         @db.Citext
+  mime           String?        @db.Citext
+  size           Int?
+  created_at     DateTime?      @db.Timestamp(0)
+  leave_requests leave_requests @relation(fields: [leave_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "leave_files_leave_id_foreign")
+
+  @@index([leave_id], map: "leave_files_leave_id_index")
+}
+
+/// ห้องประชุม — seats = แถวจำนวนที่นั่ง [{ label, count }] (เช่น ที่นั่งหลัก / ที่นั่งสำรอง)
+model meeting_rooms {
+  id                  BigInt                @id @default(autoincrement())
+  name                String                @unique(map: "meeting_rooms_name_unique") @db.Citext
+  branch_id           BigInt?
+  location            String?               @db.Citext
+  room_no             String?               @db.Citext
+  description         String?               @db.Citext
+  seats               Json
+  is_active           Boolean               @default(true)
+  sort_order          Int                   @default(0) @db.SmallInt
+  created_at          DateTime?             @db.Timestamp(0)
+  updated_at          DateTime?             @db.Timestamp(0)
+  branches            branches?             @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "meeting_rooms_branch_id_foreign")
+  meeting_room_images meeting_room_images[]
+  meeting_bookings    meeting_bookings[]
+
+  @@index([branch_id], map: "meeting_rooms_branch_id_index")
+}
+
+/// รูปห้องประชุม (≤ 4 รูปต่อห้อง, is_primary = รูปหลักที่แสดง) — ไฟล์ WebP ที่ประมวลผลใหม่ใน storage/private/meeting-rooms/{room}/
+model meeting_room_images {
+  id            BigInt        @id @default(autoincrement())
+  room_id       BigInt
+  path          String        @db.Citext
+  size          Int?
+  is_primary    Boolean       @default(false)
+  sort_order    Int           @default(0) @db.SmallInt
+  created_at    DateTime?     @db.Timestamp(0)
+  meeting_rooms meeting_rooms @relation(fields: [room_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "meeting_room_images_room_id_foreign")
+
+  @@index([room_id], map: "meeting_room_images_room_id_index")
+}
+
+/// การจองห้องประชุม (วันเดียว: booking_date + start_time/end_time "HH:MM") — status: confirmed | cancelled; ลบ = deleted_at
+/// purpose = ข้อความจาก dropdown_options (list meeting_purpose); department = แผนกของผู้จองตอนจอง
+model meeting_bookings {
+  id                        BigInt                      @id @default(autoincrement())
+  uuid                      String                      @unique(map: "meeting_bookings_uuid_unique") @db.Citext
+  room_id                   BigInt
+  user_id                   BigInt
+  department                String?                     @db.Citext
+  title                     String                      @db.Citext
+  attendees                 Int                         @db.SmallInt
+  purpose                   String?                     @db.Citext
+  note                      String?                     @db.Citext
+  booking_date              DateTime                    @db.Date
+  /// จองหลายวัน: วันสุดท้าย (ช่วงเวลาเดียวกันทุกวัน) — null = วันเดียว (ข้อมูลเดิม)
+  end_date                  DateTime?                   @db.Date
+  start_time                String                      @db.Citext
+  end_time                  String                      @db.Citext
+  status                    String                      @default("confirmed") @db.Citext
+  cancelled_at              DateTime?                   @db.Timestamp(0)
+  cancelled_by              BigInt?
+  created_at                DateTime?                   @db.Timestamp(0)
+  updated_at                DateTime?                   @db.Timestamp(0)
+  deleted_at                DateTime?                   @db.Timestamp(0)
+  meeting_rooms             meeting_rooms               @relation(fields: [room_id], references: [id], onUpdate: Restrict, map: "meeting_bookings_room_id_foreign")
+  users                     users                       @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "meeting_bookings_user_id_foreign")
+  meeting_booking_equipment meeting_booking_equipment[]
+
+  zoom_bookings zoom_bookings[]
+
+  @@index([room_id, booking_date], map: "meeting_bookings_room_id_booking_date_index")
+  @@index([room_id, end_date], map: "meeting_bookings_room_id_end_date_index")
+  @@index([booking_date], map: "meeting_bookings_booking_date_index")
+  @@index([user_id], map: "meeting_bookings_user_id_index")
+}
+
+/// อุปกรณ์ที่ขอใช้ในการจอง (ชื่อจาก dropdown_options list meeting_equipment)
+model meeting_booking_equipment {
+  booking_id       BigInt
+  name             String           @db.Citext
+  meeting_bookings meeting_bookings @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "meeting_booking_equipment_booking_id_foreign")
+
+  @@id([booking_id, name])
+}
+
+/// รถส่วนกลาง — mileage = เลขไมล์ล่าสุด (อัปเดตจากเลขไมล์ที่บันทึกในการจอง หรือผู้จัดการแก้เอง)
+model vehicles {
+  id                BigInt              @id @default(autoincrement())
+  name              String              @unique(map: "vehicles_name_unique") @db.Citext
+  plate_no          String?             @unique(map: "vehicles_plate_no_unique") @db.Citext
+  branch_id         BigInt?
+  seats             Int                 @db.SmallInt
+  parking           String?             @db.Citext
+  description       String?             @db.Citext
+  mileage           Int?
+  /// ประเภทรถ / เชื้อเพลิง — ข้อความจาก dropdown_options list vehicle_type / vehicle_fuel
+  vehicle_type      String?             @db.Citext
+  fuel_type         String?             @db.Citext
+  is_active         Boolean             @default(true)
+  sort_order        Int                 @default(0) @db.SmallInt
+  created_at        DateTime?           @db.Timestamp(0)
+  updated_at        DateTime?           @db.Timestamp(0)
+  branches          branches?           @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "vehicles_branch_id_foreign")
+  vehicle_images    vehicle_images[]
+  vehicle_bookings  vehicle_bookings[]
+  vehicle_transfers vehicle_transfers[]
+
+  @@index([branch_id], map: "vehicles_branch_id_index")
+}
+
+/// ประวัติการย้ายรถไปสาขาอื่น (NULL = ใช้ร่วมกันทุกสาขา) — เพิ่มอย่างเดียว ห้ามแก้/ลบ
+model vehicle_transfers {
+  id             BigInt    @id @default(autoincrement())
+  vehicle_id     BigInt
+  from_branch_id BigInt?
+  to_branch_id   BigInt?
+  note           String?   @db.Citext
+  created_by     BigInt?
+  created_at     DateTime? @db.Timestamp(0)
+  vehicles       vehicles  @relation(fields: [vehicle_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "vehicle_transfers_vehicle_id_foreign")
+  from_branch    branches? @relation("vehicle_transfer_from", fields: [from_branch_id], references: [id], onUpdate: Restrict, map: "vehicle_transfers_from_branch_id_foreign")
+  to_branch      branches? @relation("vehicle_transfer_to", fields: [to_branch_id], references: [id], onUpdate: Restrict, map: "vehicle_transfers_to_branch_id_foreign")
+  users          users?    @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "vehicle_transfers_created_by_foreign")
+
+  @@index([vehicle_id, created_at], map: "vehicle_transfers_vehicle_id_created_at_index")
+  @@index([from_branch_id], map: "vehicle_transfers_from_branch_id_index")
+  @@index([to_branch_id], map: "vehicle_transfers_to_branch_id_index")
+  @@index([created_by], map: "vehicle_transfers_created_by_index")
+}
+
+/// รูปรถ (≤ 4 รูปต่อคัน, is_primary = รูปหลัก) — ไฟล์ WebP ใน storage/private/vehicles/{vehicle}/
+model vehicle_images {
+  id         BigInt    @id @default(autoincrement())
+  vehicle_id BigInt
+  path       String    @db.Citext
+  size       Int?
+  is_primary Boolean   @default(false)
+  sort_order Int       @default(0) @db.SmallInt
+  created_at DateTime? @db.Timestamp(0)
+  vehicles   vehicles  @relation(fields: [vehicle_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "vehicle_images_vehicle_id_foreign")
+
+  @@index([vehicle_id], map: "vehicle_images_vehicle_id_index")
+}
+
+/// การจองรถ (หลายวันได้: start_on + start_time ถึง end_on + end_time "HH:MM" เวลาไทย) — vehicle_id NULL = รอผู้จัดคิวรถเลือกรถ
+/// status: confirmed | cancelled; ลบ = deleted_at; purpose = dropdown_options list vehicle_purpose; เลขไมล์เริ่มต้น/สิ้นสุดของการใช้งาน
+model vehicle_bookings {
+  id                     BigInt                   @id @default(autoincrement())
+  uuid                   String                   @unique(map: "vehicle_bookings_uuid_unique") @db.Citext
+  vehicle_id             BigInt?
+  user_id                BigInt
+  department             String?                  @db.Citext
+  details                String                   @db.Citext
+  passengers             Int                      @db.SmallInt
+  purpose                String?                  @db.Citext
+  note                   String?                  @db.Citext
+  start_on               DateTime                 @db.Date
+  start_time             String                   @db.Citext
+  end_on                 DateTime                 @db.Date
+  end_time               String                   @db.Citext
+  start_mileage          Int?
+  end_mileage            Int?
+  status                 String                   @default("confirmed") @db.Citext
+  assigned_by            BigInt?
+  assigned_at            DateTime?                @db.Timestamp(0)
+  cancelled_at           DateTime?                @db.Timestamp(0)
+  cancelled_by           BigInt?
+  /// การอนุมัติโดยผู้จัดคิวรถ: status pending (รออนุมัติ) → confirmed (อนุมัติ) / rejected (ไม่อนุมัติ + เหตุผล)
+  approved_by            BigInt?
+  approved_at            DateTime?                @db.Timestamp(0)
+  rejected_by            BigInt?
+  rejected_at            DateTime?                @db.Timestamp(0)
+  reject_reason          String?                  @db.Citext
+  created_at             DateTime?                @db.Timestamp(0)
+  updated_at             DateTime?                @db.Timestamp(0)
+  deleted_at             DateTime?                @db.Timestamp(0)
+  /// สาขาที่ขอใช้รถ (ยังไม่ระบุรถ = ผู้จัดคิวของสาขานี้เลือกรถ) — ตั้งตอนจอง: รถที่เลือก → สาขาของรถ, ไม่เลือก → สาขาที่ผู้จองเลือก
+  branch_id              BigInt?
+  /// ผู้จองขอคนขับ (เลือกเพิ่มเติม "คนขับรถ") / คนขับที่ผู้จัดคิวเลือก / เหตุผลที่ยกเลิก (ผู้จัดคิวยกเลิกแทนผู้จอง)
+  needs_driver           Boolean                  @default(false)
+  driver_id              BigInt?
+  cancel_reason          String?                  @db.Citext
+  branches               branches?                @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_branch_id_foreign")
+  vehicle_drivers        vehicle_drivers?         @relation(fields: [driver_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "vehicle_bookings_driver_id_foreign")
+  vehicles               vehicles?                @relation(fields: [vehicle_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_vehicle_id_foreign")
+  users                  users                    @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "vehicle_bookings_user_id_foreign")
+  vehicle_booking_extras vehicle_booking_extras[]
+
+  @@index([vehicle_id, start_on, end_on], map: "vehicle_bookings_vehicle_id_start_on_end_on_index")
+  @@index([start_on, end_on], map: "vehicle_bookings_start_on_end_on_index")
+  @@index([user_id], map: "vehicle_bookings_user_id_index")
+  @@index([branch_id], map: "vehicle_bookings_branch_id_index")
+  @@index([driver_id, start_on, end_on], map: "vehicle_bookings_driver_id_start_on_end_on_index")
+}
+
+/// รายการเพิ่มเติมที่ขอ (ชื่อจาก dropdown_options list vehicle_extra เช่น น้ำมันเต็มถัง / Easy Pass)
+model vehicle_booking_extras {
+  booking_id       BigInt
+  name             String           @db.Citext
+  vehicle_bookings vehicle_bookings @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "vehicle_booking_extras_booking_id_foreign")
+
+  @@id([booking_id, name])
+}
+
+/// ยืมอุปกรณ์ IT (สินทรัพย์ที่เจ้าหน้าที่ IT ถือครอง) — จอง (reserved) → ส่งมอบ (on_loan) → รับคืน (returned) / ยกเลิก (cancelled)
+/// ช่วงเวลา = start_on + start_time ถึง end_on + end_time ("HH:MM" เวลาไทย) — on_loan เลยกำหนดคืน = เกินกำหนด (แจ้งเตือนวันละครั้ง overdue_notified_on)
+model equipment_loans {
+  id                  BigInt    @id @default(autoincrement())
+  uuid                String    @unique(map: "equipment_loans_uuid_unique") @db.Citext
+  /// NULL = คำขอที่เจ้าหน้าที่ IT ยังไม่เลือกเครื่อง (migration 20261213090000_loan_prepare_return)
+  asset_id            BigInt?
+  user_id             BigInt
+  department          String?   @db.Citext
+  purpose             String    @db.Citext
+  /// อุปกรณ์เสริมที่ให้ยืม (key ใน LOAN_ACCESSORIES) / ที่ตรวจรับคืนแล้ว
+  accessories          Json?
+  returned_accessories Json?
+  /// รูปตอนส่งมอบ / รับคืน [{ id, path, size, stage }]
+  photos               Json?
+  /// ผู้ยืมกดคืนเครื่อง (รอเจ้าหน้าที่ IT ยืนยันรับคืน)
+  return_requested_at  DateTime? @db.Timestamp(0)
+  note                String?   @db.Citext
+  start_on            DateTime  @db.Date
+  start_time          String    @db.Citext
+  end_on              DateTime  @db.Date
+  end_time            String    @db.Citext
+  status              String    @default("reserved") @db.Citext
+  handed_out_at       DateTime? @db.Timestamp(0)
+  handed_out_by       BigInt?
+  returned_at         DateTime? @db.Timestamp(0)
+  returned_by         BigInt?
+  return_note         String?   @db.Citext
+  overdue_notified_on DateTime? @db.Date
+  cancelled_at        DateTime? @db.Timestamp(0)
+  cancelled_by        BigInt?
+  created_at          DateTime? @db.Timestamp(0)
+  updated_at          DateTime? @db.Timestamp(0)
+  assets              assets?   @relation(fields: [asset_id], references: [id], onUpdate: Restrict, map: "equipment_loans_asset_id_foreign")
+  users               users     @relation("equipment_loans_user", fields: [user_id], references: [id], onUpdate: Restrict, map: "equipment_loans_user_id_foreign")
+  handed_by_user      users?    @relation("equipment_loans_handed", fields: [handed_out_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "equipment_loans_handed_out_by_foreign")
+  returned_by_user    users?    @relation("equipment_loans_returned", fields: [returned_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "equipment_loans_returned_by_foreign")
+  cancelled_by_user   users?    @relation("equipment_loans_cancelled", fields: [cancelled_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "equipment_loans_cancelled_by_foreign")
+
+  @@index([asset_id, start_on, end_on], map: "equipment_loans_asset_id_start_on_end_on_index")
+  @@index([start_on, end_on], map: "equipment_loans_start_on_end_on_index")
+  @@index([user_id], map: "equipment_loans_user_id_index")
+  @@index([status, end_on], map: "equipment_loans_status_end_on_index")
+  @@index([handed_out_by], map: "equipment_loans_handed_out_by_index")
+  @@index([returned_by], map: "equipment_loans_returned_by_index")
+  @@index([cancelled_by], map: "equipment_loans_cancelled_by_index")
+}
+
+/// ผู้ใช้ / กลุ่มสิทธิ์ที่เปิดดูบัญชีที่จำกัดสิทธิ์ (credentials.access_mode = restricted) ได้ — แถวละ user_id หรือ group_key
+model credential_access {
+  id            BigInt      @id @default(autoincrement())
+  credential_id BigInt
+  user_id       BigInt?
+  group_key     String?     @db.Citext
+  created_by    BigInt?
+  created_at    DateTime?   @db.Timestamp(0)
+  credentials   credentials @relation(fields: [credential_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "credential_access_credential_id_foreign")
+  users         users?      @relation("credential_access_user", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "credential_access_user_id_foreign")
+  creator       users?      @relation("credential_access_creator", fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "credential_access_created_by_foreign")
+
+  @@unique([credential_id, user_id], map: "credential_access_credential_id_user_id_unique")
+  @@unique([credential_id, group_key], map: "credential_access_credential_id_group_key_unique")
+  @@index([user_id], map: "credential_access_user_id_index")
+  @@index([group_key], map: "credential_access_group_key_index")
+  @@index([created_by], map: "credential_access_created_by_index")
+}
+
+/// ยืม VPN — บัญชี VPN มาจากคลังบัญชี/รหัสผ่าน (credentials หมวด VPN) — routes/vpn-loans.ts
+/// status: requested (ขอใช้) → active (ฝ่าย IT มอบบัญชี + กำหนดวันหมดอายุ) → renewal_requested / cancel_requested (ผู้ใช้เลือก → ใบแจ้งงาน ticket_id)
+///         → active (ต่ออายุแล้ว) / ended (เลิกใช้) — rejected / cancelled = ไม่ได้มอบ — ห้ามลบ (เก็บเป็นประวัติ)
+model vpn_loans {
+  id                   BigInt       @id @default(autoincrement())
+  uuid                 String       @unique(map: "vpn_loans_uuid_unique") @db.Citext
+  user_id              BigInt
+  department           String?      @db.Citext
+  purpose              String       @db.Citext
+  /// ขอผ่านใบแจ้งงาน (อื่นๆ → ขอใช้งาน VPN): วันที่ผู้ขอต้องการเริ่มใช้
+  requested_from       DateTime?    @db.Date
+  /// วันที่ผู้ขอต้องการใช้ถึง (ตอนขอ)
+  requested_until      DateTime?    @db.Date
+  status               String       @default("requested") @db.Citext
+  credential_id        BigInt?
+  assigned_by          BigInt?
+  assigned_at          DateTime?    @db.Timestamp(0)
+  start_on             DateTime?    @db.Date
+  /// ใช้ได้ถึงวันนี้ (เวลาไทย)
+  expires_on           DateTime?    @db.Date
+  /// แจ้งเตือนผู้ใช้ล่วงหน้ากี่วันก่อนหมดอายุ
+  notify_days_before   Int          @default(7) @db.SmallInt
+  /// แจ้งเตือนล่วงหน้าแล้วสำหรับวันหมดอายุนี้ (ล้างเมื่อเปลี่ยนวันหมดอายุ)
+  reminded_for         DateTime?    @db.Date
+  /// แจ้งเตือนหมดอายุแล้ว (ผู้ใช้ + ผู้ดูแล) สำหรับวันหมดอายุนี้
+  expired_notified_for DateTime?    @db.Date
+  /// ผู้ใช้เลือก: ต่ออายุถึงวันที่ / เหตุผล → ใบแจ้งงาน
+  renew_until          DateTime?    @db.Date
+  choice_reason        String?      @db.Citext
+  choice_at            DateTime?    @db.Timestamp(0)
+  ticket_id            BigInt?
+  ended_at             DateTime?    @db.Timestamp(0)
+  ended_by             BigInt?
+  end_note             String?      @db.Citext
+  /// ผู้จัดการฝ่าย IT อนุมัติการมอบบัญชี (migration 20261214090000_vpn_approval_revoke)
+  approved_by          BigInt?
+  approved_at          DateTime?    @db.Timestamp(0)
+  /// ผู้ขอกด "ได้รับแล้ว" (ปิดใบแจ้งงาน) — ก่อนนี้ดูรหัสไม่ได้
+  received_at          DateTime?    @db.Timestamp(0)
+  /// เจ้าหน้าที่ IT เรียกคืนรหัส — ผู้ใช้ดูชื่อผู้ใช้ / รหัสผ่านไม่ได้อีก
+  revoked_at           DateTime?    @db.Timestamp(0)
+  revoked_by           BigInt?
+  /// แจ้งเตือนหมดอายุล่าสุดวันที่ (หมดอายุแล้วแจ้งทุกวันจนกว่าจะต่ออายุ)
+  expired_notified_on  DateTime?    @db.Date
+  created_at           DateTime?    @db.Timestamp(0)
+  updated_at           DateTime?    @db.Timestamp(0)
+  user                 users        @relation("vpn_loans_user", fields: [user_id], references: [id], onUpdate: Restrict, map: "vpn_loans_user_id_foreign")
+  credential           credentials? @relation(fields: [credential_id], references: [id], onUpdate: Restrict, map: "vpn_loans_credential_id_foreign")
+  assigner             users?       @relation("vpn_loans_assigned", fields: [assigned_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "vpn_loans_assigned_by_foreign")
+  ender                users?       @relation("vpn_loans_ended", fields: [ended_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "vpn_loans_ended_by_foreign")
+  ticket               it_tickets?  @relation(fields: [ticket_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "vpn_loans_ticket_id_foreign")
+
+  @@index([user_id], map: "vpn_loans_user_id_index")
+  @@index([status, expires_on], map: "vpn_loans_status_expires_on_index")
+  @@index([credential_id], map: "vpn_loans_credential_id_index")
+  @@index([ticket_id], map: "vpn_loans_ticket_id_index")
+  @@index([assigned_by], map: "vpn_loans_assigned_by_index")
+  @@index([ended_by], map: "vpn_loans_ended_by_index")
+}
+
+/// การยอมรับนโยบายของระบบ (app_settings.system_policy) — 1 แถวต่อผู้ใช้ต่อเวอร์ชัน
+model policy_acceptances {
+  id             BigInt    @id @default(autoincrement())
+  user_id        BigInt
+  version        Int
+  accepted_at    DateTime  @db.Timestamp(0)
+  ip             String?   @db.Citext
+  user_agent     String?   @db.Citext
+  /// ชื่อ-สกุลที่ประทับตอนยอมรับ
+  name_stamp     String?   @db.Citext
+  /// สำเนาลายเซ็นของเอกสาร — ยังไม่มีลายเซ็นตอนยอมรับ = เติมเมื่อผู้ใช้อัปโหลด (saveSignature)
+  signature_path String?   @db.Citext
+  signature_at   DateTime? @db.Timestamp(0)
+  users          users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "policy_acceptances_user_id_foreign")
+
+  @@unique([user_id, version], map: "policy_acceptances_user_version_unique")
+  @@index([version], map: "policy_acceptances_version_index")
+}
+
+/// จอง ZOOM — ผู้ใช้จองช่วงวันเวลา → ฝ่าย IT (zoom.manage) รับงาน (accepted) → ส่งลิงก์ (confirmed + ใบแจ้งงานที่ปิดแล้ว ticket_id ลง KPI ของผู้รับงาน)
+/// หรือแจ้งกลับว่ามีการใช้งานแล้ว (rejected + reject_reason) / ผู้จองยกเลิก (cancelled) — routes/zoom.ts
+model zoom_bookings {
+  id                 BigInt            @id @default(autoincrement())
+  uuid               String            @unique(map: "zoom_bookings_uuid_unique") @db.Citext
+  user_id            BigInt
+  department         String?           @db.Citext
+  branch_id          BigInt?
+  title              String            @db.Citext
+  details            String?           @db.Citext
+  start_on           DateTime          @db.Date
+  start_time         String            @db.Citext
+  end_on             DateTime          @db.Date
+  end_time           String            @db.Citext
+  /// pending (รอ IT รับงาน) / accepted (รับงานแล้ว) / needs_change (IT แจ้งว่าไม่ว่าง รอผู้จองแก้วันเวลา) / confirmed (ส่งลิงก์แล้ว) / rejected (ข้อมูลเดิม) / cancelled
+  status             String            @default("pending") @db.Citext
+  assignee_id        BigInt?
+  accepted_at        DateTime?         @db.Timestamp(0)
+  meeting_link       String?           @db.Citext
+  /// ข้อความเชิญเต็มจาก ZOOM ที่ฝ่าย IT วาง (ดึง Topic / ลิงก์ / Meeting ID / Passcode ออกมา)
+  link_note          String?           @db.Citext
+  meeting_topic      String?           @db.Citext
+  meeting_id         String?           @db.Citext
+  passcode           String?           @db.Citext
+  /// บัญชี ZOOM ที่ฝ่าย IT ใช้ (ข้อมูล Drop Down list zoom_account เก็บเป็นข้อความ)
+  zoom_account       String?           @db.Citext
+  confirmed_by       BigInt?
+  confirmed_at       DateTime?         @db.Timestamp(0)
+  link_received_at   DateTime?         @db.Timestamp(0)
+  reject_reason      String?           @db.Citext
+  rejected_by        BigInt?
+  rejected_at        DateTime?         @db.Timestamp(0)
+  cancelled_by       BigInt?
+  cancelled_at       DateTime?         @db.Timestamp(0)
+  /// ใบแจ้งงาน (เรื่องอื่นๆ) ที่สร้างตอนจอง — สถานะเดินตามการจอง (it_tickets.source = 'zoom'), อนุมัติผลแล้วขึ้นชีต KPI ของผู้รับงาน
+  ticket_id          BigInt?
+  /// จองมาพร้อมการจองห้องประชุม — ยกเลิกห้อง = ยกเลิก ZOOM, เปลี่ยนเวลาห้อง = เวลา ZOOM เปลี่ยนตาม
+  meeting_booking_id BigInt?
+  created_at         DateTime?         @db.Timestamp(0)
+  updated_at         DateTime?         @db.Timestamp(0)
+  users              users             @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "zoom_bookings_user_id_foreign")
+  it_tickets         it_tickets?       @relation(fields: [ticket_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "zoom_bookings_ticket_id_foreign")
+  meeting_bookings   meeting_bookings? @relation(fields: [meeting_booking_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "zoom_bookings_meeting_booking_id_foreign")
+
+  @@index([start_on, end_on], map: "zoom_bookings_start_on_end_on_index")
+  @@index([user_id], map: "zoom_bookings_user_id_index")
+  @@index([status], map: "zoom_bookings_status_index")
+  @@index([ticket_id], map: "zoom_bookings_ticket_id_index")
+  @@index([meeting_booking_id], map: "zoom_bookings_meeting_booking_id_index")
+}
+
+/// ตัวนับเวอร์ชันข้อมูล (แถว name = "data") — API เพิ่มค่าหลังบันทึกตารางที่หน้าจอแสดงผล (routes/sync.ts) แทนการนับแถวทุกตารางทุกครั้งที่ถาม /sync/version
+model sync_versions {
+  name       String    @id @db.Citext
+  version    BigInt    @default(0)
+  updated_at DateTime? @db.Timestamp(0)
+}
+
+/// คนขับรถ (เมนู จองรถ → คนขับรถ) — ผู้จัดคิวเลือกให้การจองที่ขอคนขับ, คนขับคนเดียวกันช่วงเวลาซ้อนไม่ได้ (routes/vehicles.ts)
+model vehicle_drivers {
+  id               BigInt             @id @default(autoincrement())
+  name             String             @db.Citext
+  nickname         String?            @db.Citext
+  branch_id        BigInt?
+  is_active        Boolean            @default(true)
+  sort_order       Int                @default(0) @db.SmallInt
+  created_at       DateTime?          @db.Timestamp(0)
+  updated_at       DateTime?          @db.Timestamp(0)
+  branches         branches?          @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "vehicle_drivers_branch_id_foreign")
+  vehicle_bookings vehicle_bookings[]
+
+  @@index([branch_id], map: "vehicle_drivers_branch_id_index")
+}
+
+/// ข้อมูลหลัก Vendor — ประเภทเก็บเป็นข้อความ (ข้อมูล Drop Down list vendor_type)
+model vendors {
+  id            BigInt          @id @default(autoincrement())
+  name          String          @db.Citext
+  tax_id        String?         @db.Citext
+  address       String          @db.Citext
+  contact_name  String          @db.Citext
+  contact_phone String          @db.Citext
+  vendor_type   String          @db.Citext
+  /// ลิงก์ตำแหน่งจาก Google Maps (http/https เท่านั้น)
+  map_url       String?         @db.Citext
+  is_active     Boolean         @default(true)
+  created_at    DateTime?       @db.Timestamp(0)
+  updated_at    DateTime?       @db.Timestamp(0)
+  deleted_at    DateTime?       @db.Timestamp(0)
+  repair_orders repair_orders[]
+  files         vendor_files[]
+
+  @@index([name], map: "vendors_name_index")
+}
+
+/// ไฟล์ของประกาศข่าวสาร — kind: cover (รูปหน้าปก 1 รูป) / document (เอกสารแนบ)
+model announcement_files {
+  id              BigInt        @id @default(autoincrement())
+  announcement_id BigInt
+  kind            String        @db.Citext
+  original_name   String        @db.Citext
+  path            String        @db.Citext
+  mime            String        @db.Citext
+  size            Int
+  uploaded_by     BigInt?
+  created_at      DateTime?     @db.Timestamp(0)
+  updated_at      DateTime?     @db.Timestamp(0)
+  announcements   announcements @relation(fields: [announcement_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "announcement_files_announcement_id_foreign")
+  users           users?        @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "announcement_files_uploaded_by_foreign")
+
+  @@index([announcement_id], map: "announcement_files_announcement_id_index")
+  @@index([uploaded_by], map: "announcement_files_uploaded_by_index")
+}
+
+/// เนื้อหานโยบายของแต่ละฉบับ — เอกสารการยอมรับแสดงเนื้อหาของฉบับที่ผู้ใช้ยอมรับ
+model policy_versions {
+  version      Int             @id
+  /// เรื่องของนโยบาย — ฉบับที่คัดลอกมาอยู่เรื่องเดียวกัน
+  group_id     BigInt
+  title        String          @default("") @db.Citext
+  sections     Json
+  created_at   DateTime?       @db.Timestamp(0)
+  /// เคยตั้งเป็นฉบับที่แสดงให้ผู้ใช้แล้ว (null = ร่าง)
+  published_at DateTime?       @db.Timestamp(0)
+  created_by   BigInt?
+  updated_at   DateTime?       @db.Timestamp(0)
+  users        users?          @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "policy_versions_created_by_foreign")
+  files        policy_files[]
+  policy_group policy_groups   @relation("policy_group_versions", fields: [group_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "policy_versions_group_id_foreign")
+  shown_in     policy_groups[] @relation("policy_group_current")
+
+  @@index([created_by], map: "policy_versions_created_by_index")
+  @@index([group_id], map: "policy_versions_group_id_index")
+}
+
+/// เรื่องของนโยบายที่ต้องยอมรับ — แสดงได้หลายเรื่องพร้อมกัน เรียงตาม sort_order (ลำดับที่ให้ยอมรับ)
+model policy_groups {
+  id              BigInt            @id @default(autoincrement())
+  sort_order      Int               @default(0)
+  /// ฉบับที่แสดงให้ผู้ใช้ (null = ไม่แสดง)
+  current_version Int?
+  created_at      DateTime?         @db.Timestamp(0)
+  updated_at      DateTime?         @db.Timestamp(0)
+  versions        policy_versions[] @relation("policy_group_versions")
+  current         policy_versions?  @relation("policy_group_current", fields: [current_version], references: [version], onDelete: Restrict, onUpdate: Restrict, map: "policy_groups_current_version_foreign")
+
+  @@index([current_version], map: "policy_groups_current_version_index")
+}
+
+/// ไฟล์แนบของนโยบายแต่ละฉบับ — เปิดดูได้ตอนอ่านนโยบาย
+model policy_files {
+  id              BigInt           @id @default(autoincrement())
+  version         Int?
+  original_name   String           @db.Citext
+  path            String           @db.Citext
+  mime            String           @db.Citext
+  size            Int
+  uploaded_by     BigInt?
+  created_at      DateTime?        @db.Timestamp(0)
+  updated_at      DateTime?        @db.Timestamp(0)
+  users           users?           @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "policy_files_uploaded_by_foreign")
+  policy_versions policy_versions? @relation(fields: [version], references: [version], onDelete: Restrict, onUpdate: Restrict, map: "policy_files_version_foreign")
+
+  @@index([uploaded_by], map: "policy_files_uploaded_by_index")
+  @@index([version], map: "policy_files_version_index")
+}
+
+/// นโยบายอื่นๆ — เอกสารให้เปิดอ่าน ไม่ต้องกดยอมรับ
+model other_policies {
+  id          BigInt               @id @default(autoincrement())
+  title       String               @db.Citext
+  description String?              @db.Citext
+  /// หัวข้อ + รายละเอียด [{title, body}] เหมือนนโยบายที่ต้องยอมรับ
+  sections    Json?
+  sort_order  Int                  @default(0)
+  is_active   Boolean              @default(true)
+  created_by  BigInt?
+  created_at  DateTime?            @db.Timestamp(0)
+  updated_at  DateTime?            @db.Timestamp(0)
+  users       users?               @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "other_policies_created_by_foreign")
+  files       other_policy_files[]
+
+  @@index([created_by], map: "other_policies_created_by_index")
+}
+
+model other_policy_files {
+  id              BigInt         @id @default(autoincrement())
+  other_policy_id BigInt
+  original_name   String         @db.Citext
+  path            String         @db.Citext
+  mime            String         @db.Citext
+  size            Int
+  uploaded_by     BigInt?
+  created_at      DateTime?      @db.Timestamp(0)
+  updated_at      DateTime?      @db.Timestamp(0)
+  other_policies  other_policies @relation(fields: [other_policy_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "other_policy_files_other_policy_id_foreign")
+  users           users?         @relation(fields: [uploaded_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "other_policy_files_uploaded_by_foreign")
+
+  @@index([other_policy_id], map: "other_policy_files_other_policy_id_index")
+  @@index([uploaded_by], map: "other_policy_files_uploaded_by_index")
+}
+
+/// ไฟล์เอกสารบริษัทของ Vendor
+model vendor_files {
+  id            BigInt    @id @default(autoincrement())
+  vendor_id     BigInt
+  original_name String    @db.Citext
+  path          String    @db.Citext
+  mime          String    @db.Citext
+  size          Int
+  uploaded_by   BigInt?
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+  vendors       vendors   @relation(fields: [vendor_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "vendor_files_vendor_id_foreign")
+  users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "vendor_files_uploaded_by_foreign")
+
+  @@index([vendor_id], map: "vendor_files_vendor_id_index")
+  @@index([uploaded_by], map: "vendor_files_uploaded_by_index")
+}
+
+/// รายการส่งซ่อม: ส่งเครื่องให้ vendor (sent) → รับคืน (returned) — item_no / item_name = สำเนาตอนส่ง
+model repair_orders {
+  id                     BigInt               @id @default(autoincrement())
+  uuid                   String               @unique(map: "repair_orders_uuid_unique") @db.Citext
+  asset_id               BigInt?
+  ticket_id              BigInt?
+  item_no                String?              @db.Citext
+  item_name              String               @db.Citext
+  /// รายละเอียดอาการเสีย
+  symptom                String               @db.Citext
+  /// รายละเอียดอุปกรณ์เพิ่มเติม (ไม่บังคับ)
+  item_details           String?              @db.Citext
+  /// เลขที่เอกสาร (ไม่บังคับ)
+  document_no            String?              @db.Citext
+  /// S/N ที่กรอกเองเมื่อสินทรัพย์ไม่มี S/N (หรือไม่ได้ผูกสินทรัพย์) — ไม่เขียนกลับไปที่สินทรัพย์
+  item_serial            String?              @db.Citext
+  vendor_id              BigInt
+  /// วันเวลาที่ส่งซ่อม เวลาไทย
+  sent_on                DateTime             @db.Date
+  sent_time              String               @db.Citext
+  /// ผู้ส่งซ่อม (เจ้าของอุปกรณ์) ที่เลือกจากผู้ใช้ในระบบ — พิมพ์ชื่อเอง = NULL (ดู sender_name)
+  sent_by_id             BigInt?
+  /// ชื่อผู้ส่งซ่อม (เจ้าของอุปกรณ์) ที่พิมพ์ — แถวเดิม NULL = ใช้ชื่อของ sent_by_id
+  sender_name            String?              @db.Citext
+  /// แจ้งเตือนตามงาน: จำนวนวันหลังวันที่ส่งซ่อม (ตั้งต้น 7) — follow_up_on = sent_on + follow_up_days (GENERATED STORED ห้ามเขียนเอง)
+  follow_up_days         Int                  @default(7) @db.SmallInt
+  follow_up_on           DateTime?            @db.Date @default(dbgenerated("(sent_on + (follow_up_days)::integer)"))
+  /// แจ้งที่กระดิ่งแล้วสำหรับวันกำหนดใด
+  follow_up_notified_for DateTime?            @db.Date
+  status                 String               @default("sent") @db.Citext
+  returned_at            DateTime?            @db.Timestamp(0)
+  received_by_id         BigInt?
+  return_note            String?              @db.Citext
+  /// สถานะสินทรัพย์ก่อนส่งซ่อม — รับคืน / ยกเลิก = กลับเป็นค่านี้
+  asset_prev_status      String?              @db.Citext
+  cancelled_at           DateTime?            @db.Timestamp(0)
+  cancelled_by_id        BigInt?
+  cancel_reason          String?              @db.Citext
+  created_by             BigInt
+  created_at             DateTime?            @db.Timestamp(0)
+  updated_at             DateTime?            @db.Timestamp(0)
+  assets                 assets?              @relation(fields: [asset_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "repair_orders_asset_id_foreign")
+  it_tickets             it_tickets?          @relation(fields: [ticket_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "repair_orders_ticket_id_foreign")
+  vendors                vendors              @relation(fields: [vendor_id], references: [id], onUpdate: Restrict, map: "repair_orders_vendor_id_foreign")
+  sent_by                users?               @relation("repair_orders_sent_by", fields: [sent_by_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "repair_orders_sent_by_id_foreign")
+  received_by            users?               @relation("repair_orders_received_by", fields: [received_by_id], references: [id], onUpdate: Restrict, map: "repair_orders_received_by_id_foreign")
+  cancelled_by           users?               @relation("repair_orders_cancelled_by", fields: [cancelled_by_id], references: [id], onUpdate: Restrict, map: "repair_orders_cancelled_by_id_foreign")
+  creator                users                @relation("repair_orders_created_by", fields: [created_by], references: [id], onUpdate: Restrict, map: "repair_orders_created_by_foreign")
+  files                  repair_order_files[]
+  parts                  repair_order_parts[]
+  events                 it_ticket_events[]
+
+  @@index([status, sent_on], map: "repair_orders_status_sent_on_index")
+  @@index([status, follow_up_on], map: "repair_orders_status_follow_up_on_index")
+  @@index([asset_id], map: "repair_orders_asset_id_index")
+  @@index([ticket_id], map: "repair_orders_ticket_id_index")
+  @@index([vendor_id], map: "repair_orders_vendor_id_index")
+  @@index([sent_by_id], map: "repair_orders_sent_by_id_index")
+  @@index([received_by_id], map: "repair_orders_received_by_id_index")
+  @@index([created_by], map: "repair_orders_created_by_index")
+  @@index([cancelled_by_id], map: "repair_orders_cancelled_by_id_index")
+}
+
+/// เอกสาร/รูปของรายการส่งซ่อม — kind: send (ใบส่งซ่อม) / return (ตอนรับคืน)
+/// อะไหล่ที่ร้านเปลี่ยน (กรอกตอนรับเครื่องคืน) — บันทึกผลใบแจ้งซ่อมดึงไปเติมรายการอะไหล่
+model repair_order_parts {
+  id              BigInt        @id @default(autoincrement())
+  repair_order_id BigInt
+  name            String        @db.Citext
+  quantity        Int           @default(1)
+  created_at      DateTime?     @db.Timestamp(0)
+  repair_orders   repair_orders @relation(fields: [repair_order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "repair_order_parts_repair_order_id_foreign")
+
+  @@index([repair_order_id], map: "repair_order_parts_repair_order_id_index")
+}
+
+model repair_order_files {
+  id              BigInt        @id @default(autoincrement())
+  repair_order_id BigInt
+  kind            String        @db.Citext
+  original_name   String        @db.Citext
+  path            String        @db.Citext
+  mime            String        @db.Citext
+  size            Int
+  uploaded_by     BigInt?
+  created_at      DateTime?     @db.Timestamp(0)
+  updated_at      DateTime?     @db.Timestamp(0)
+  repair_orders   repair_orders @relation(fields: [repair_order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "repair_order_files_repair_order_id_foreign")
+  users           users?        @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "repair_order_files_uploaded_by_foreign")
+
+  @@index([repair_order_id], map: "repair_order_files_repair_order_id_index")
+  @@index([uploaded_by], map: "repair_order_files_uploaded_by_index")
+}
+
+/// เอกสารแนบของสัญญา vendor (ไฟล์ละ ≤ 5MB ≤ 10 ไฟล์ต่อครั้ง) — ไฟล์เก็บที่ contracts/{id}/
+model contract_files {
+  id            BigInt    @id @default(autoincrement())
+  contract_id   BigInt
+  original_name String    @db.Citext
+  path          String    @db.Citext
+  mime          String    @db.Citext
+  size          Int
+  uploaded_by   BigInt?
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+  contracts     contracts @relation(fields: [contract_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "contract_files_contract_id_foreign")
+  users         users?    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "contract_files_uploaded_by_foreign")
+
+  @@index([contract_id], map: "contract_files_contract_id_index")
+  @@index([uploaded_by], map: "contract_files_uploaded_by_index")
+}
+
+/// Fixed Assets จาก STEC SyteLine API — สำเนาอ่านอย่างเดียว 1 แถวต่อ (site, fanum) — services/fixed-asset-sync.ts
+model fixed_assets {
+  id                 BigInt    @id @default(autoincrement())
+  site               String    @db.Citext
+  fanum              String    @db.Citext
+  branch_id          BigInt?
+  site_name          String?   @db.Citext
+  description        String?   @db.Citext
+  fa_class           String?   @db.Citext
+  fa_dept            String?   @db.Citext
+  fa_type            String?   @db.Citext
+  fa_status          String?   @db.Citext
+  fa_location        String?   @db.Citext
+  acquired_on        DateTime? @db.Date
+  depr_start_on      DateTime? @db.Date
+  disposed_on        DateTime? @db.Date
+  acq_cost           Decimal?  @db.Decimal(18, 2)
+  accum_depr         Decimal?  @db.Decimal(18, 2)
+  nbv                Decimal?  @db.Decimal(18, 2)
+  salvage            Decimal?  @db.Decimal(18, 2)
+  depr_method        String?   @db.Citext
+  depr_rate          Decimal?  @db.Decimal(9, 4)
+  useful_life        Int?
+  /// แถวเต็มจากรายงาน (ทุกฟิลด์)
+  source_data        Json
+  /// SHA-256 ของข้อมูลที่ไม่ใช่ตัวเลขค่าเสื่อมรายงวด — ตรวจว่าเปลี่ยนจริง
+  row_hash           String    @db.Citext
+  source_recorded_at DateTime? @db.Timestamp(0)
+  /// period ที่ใช้ดึง (ตัวเลขค่าเสื่อม ณ วันนั้น)
+  as_of              DateTime  @db.Date
+  asset_id           BigInt?
+  /// auto | manual — manual = การซิงค์ไม่เปลี่ยนการผูก
+  link_source        String?   @db.Citext
+  linked_by          BigInt?
+  /// ไม่พบในการดึงครั้งล่าสุด (ไม่ลบแถว)
+  missing_since      DateTime? @db.Timestamp(0)
+  first_synced_at    DateTime  @db.Timestamp(0)
+  synced_at          DateTime  @db.Timestamp(0)
+  changed_at         DateTime? @db.Timestamp(0)
+  branches           branches? @relation(fields: [branch_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fixed_assets_branch_id_foreign")
+  assets             assets?   @relation(fields: [asset_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fixed_assets_asset_id_foreign")
+  linker             users?    @relation("fixed_assets_linked_by", fields: [linked_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fixed_assets_linked_by_foreign")
+
+  @@unique([site, fanum], map: "fixed_assets_site_fanum_unique")
+  @@index([fanum], map: "fixed_assets_fanum_index")
+  @@index([asset_id], map: "fixed_assets_asset_id_index")
+  @@index([branch_id], map: "fixed_assets_branch_id_index")
+  @@index([linked_by], map: "fixed_assets_linked_by_index")
+  @@index([fa_status], map: "fixed_assets_fa_status_index")
+}
+
+model fixed_asset_classdepts {
+  id          BigInt   @id @default(autoincrement())
+  site        String   @db.Citext
+  class_dept  String   @db.Citext
+  description String?  @db.Citext
+  synced_at   DateTime @db.Timestamp(0)
+
+  @@unique([site, class_dept], map: "fixed_asset_classdepts_site_class_dept_unique")
+}
+
+/// ประวัติการซิงค์ Fixed Assets — ห้ามแก้/ลบผ่าน API
+model fixed_asset_sync_runs {
+  id           BigInt    @id @default(autoincrement())
+  /// schedule | manual
+  run_trigger  String    @db.Citext
+  triggered_by BigInt?
+  /// running | ok | partial | failed
+  status       String    @default("running") @db.Citext
+  /// { [site]: { fetched, inserted, updated, unchanged, missing, error? } }
+  stats        Json?
+  error        String?   @db.Citext
+  started_at   DateTime  @db.Timestamp(0)
+  finished_at  DateTime? @db.Timestamp(0)
+  users        users?    @relation(fields: [triggered_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fixed_asset_sync_runs_triggered_by_foreign")
+
+  @@index([started_at], map: "fixed_asset_sync_runs_started_at_index")
+  @@index([triggered_by], map: "fixed_asset_sync_runs_triggered_by_index")
+}
