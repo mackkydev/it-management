@@ -85,8 +85,10 @@ export async function resetTickets(opts: { dryRun?: boolean; backupRoot?: string
   await transaction(async () => {
     // เครื่องที่ยังส่งซ่อมอยู่: คืนสถานะก่อนส่งซ่อม (เฉพาะที่ยังเป็น in_repair — เหมือน restoreAssetStatus)
     await exec(
-      `UPDATE assets a JOIN repair_orders r ON r.asset_id = a.id AND r.status = 'sent'
-        SET a.status = COALESCE(r.asset_prev_status, 'active'), a.updated_at = NOW() WHERE a.status = 'in_repair'`,
+      `UPDATE assets
+          SET status = COALESCE((SELECT r.asset_prev_status FROM repair_orders r WHERE r.asset_id = assets.id AND r.status = 'sent' ORDER BY r.id DESC LIMIT 1), 'active'),
+              updated_at = NOW()
+        WHERE status = 'in_repair' AND id IN (SELECT asset_id FROM (SELECT asset_id FROM repair_orders WHERE status = 'sent') AS sent)`,
     );
     await exec(`DELETE FROM notifications WHERE subject_ref IN (SELECT ref FROM (${SUBJECT_REFS}) AS refs(ref))`);
     await exec("DELETE FROM zoom_bookings WHERE ticket_id IS NOT NULL");

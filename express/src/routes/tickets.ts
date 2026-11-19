@@ -709,7 +709,7 @@ ticketRoutes.get("/tickets/asset-search", async (req, res) => {
   const rows = await select<{ asset_tag: string; cpu_tag: string | null; name: string; brand: string | null; model: string | null }>(
     `SELECT asset_tag, cpu_tag, name, brand, model FROM assets
       WHERE deleted_at IS NULL AND (asset_tag LIKE ? OR cpu_tag LIKE ? OR monitor_tag LIKE ? OR name LIKE ?)
-      ORDER BY (asset_tag LIKE ? OR cpu_tag LIKE ?) DESC, asset_tag LIMIT 10`,
+      ORDER BY CASE WHEN asset_tag LIKE ? OR cpu_tag LIKE ? THEN 0 ELSE 1 END, asset_tag LIMIT 10`,
     [like, like, like, like, prefix, prefix],
   );
   res.json({ data: rows });

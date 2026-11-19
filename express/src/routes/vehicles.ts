@@ -392,7 +392,7 @@ vehicleRoutes.delete("/vehicles/:id/images/:imageId", async (req, res) => {
   const { vehicle, img } = await findImage(req);
   await managedVehicle(me(req), Number(vehicle.id));
   await exec("DELETE FROM vehicle_images WHERE id = ?", [img.id]);
-  if (img.is_primary) await exec("UPDATE vehicle_images SET is_primary = true WHERE vehicle_id = ? ORDER BY sort_order, id LIMIT 1", [vehicle.id]);
+  if (img.is_primary) await exec("UPDATE vehicle_images SET is_primary = true WHERE id = (SELECT id FROM (SELECT id FROM vehicle_images WHERE vehicle_id = ? ORDER BY sort_order, id LIMIT 1) AS first_image)", [vehicle.id]);
   await deleteStored(img.path);
   await audit(req, { action: "vehicle.image_removed", subjectType: "vehicle", subjectId: vehicle.id, before: { image_id: Number(img.id) } });
   res.json({ data: await vehicleJson(await findVehicle(vehicle.id)) });

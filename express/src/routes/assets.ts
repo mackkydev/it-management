@@ -285,7 +285,7 @@ export async function missingAssetCount(u: UserRow): Promise<number> {
  */
 async function linkTicketsToAsset(req: Request, assetNo: string, assetId: number): Promise<number> {
   const { rowCount } = await exec(
-    `UPDATE it_tickets t SET t.asset_id = ?, t.updated_at = ? WHERE ${REPAIR_BASE_WHERE} AND t.asset_id IS NULL AND TRIM(t.asset_tag) = ?`,
+    `UPDATE it_tickets t SET asset_id = ?, updated_at = ? WHERE ${REPAIR_BASE_WHERE} AND t.asset_id IS NULL AND TRIM(t.asset_tag) = ?`,
     [assetId, nowDb(), assetNo],
   );
   if (rowCount) await audit(req, { action: "asset.tickets_linked", subjectType: "asset", subjectId: assetId, after: { asset_no: assetNo, tickets: rowCount } });

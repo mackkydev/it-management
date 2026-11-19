@@ -172,7 +172,7 @@ const linkSummary = (p: LinkPlan) => ({ total: p.links.length, by_rule: p.by_rul
 /** จำนวนที่ผูกอยู่ (ปุ่มยกเลิกการผูกทั้งหมด) */
 const linkedCounts = async () => {
   const r = await first<{ linked: number; manual: number }>(
-    "SELECT COUNT(asset_id) AS linked, COALESCE(SUM(asset_id IS NOT NULL AND link_source = 'manual'), 0) AS \"manual\" FROM fixed_assets",
+    "SELECT COUNT(asset_id) AS linked, COALESCE(SUM(CASE WHEN asset_id IS NOT NULL AND link_source = 'manual' THEN 1 ELSE 0 END), 0) AS \"manual\" FROM fixed_assets",
   );
   return { linked: Number(r?.linked ?? 0), manual: Number(r?.manual ?? 0) };
 };

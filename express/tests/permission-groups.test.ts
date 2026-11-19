@@ -99,7 +99,7 @@ describe("grant rules (no privilege escalation)", () => {
     expect((await deputy.patch(`/api/v1/users/${root.id}`).send({ name: "x" })).status).toBe(403);
 
     // ถอดสิทธิ์ที่สงวนไว้ของตัวเอง → มอบสิทธิ์ที่ไม่มีไม่ได้
-    await exec("DELETE rp FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id WHERE rp.role = 'admin' AND p.key = 'kpi.edit_all'");
+    await exec("DELETE FROM role_permissions WHERE role = 'admin' AND permission_id IN (SELECT id FROM permissions WHERE \"key\" = 'kpi.edit_all')");
     const missing = await deputy.put(`/api/v1/users/${person.id}/permissions`).send({ overrides: { "kpi.edit_all": "allow" } });
     expect(missing.status).toBe(422);
     expect(missing.body.errors.overrides[0]).toContain("KPI");

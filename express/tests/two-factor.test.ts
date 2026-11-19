@@ -103,7 +103,7 @@ describe("two-factor required per group", () => {
     const manager = await makeUser({ role: "manager", email: "g-manager@corp.test", password: "Secret123" });
     const admin = await makeUser({ role: "admin", email: "g-admin@corp.test", password: "Secret123" });
     const member = await makeUser({ email: "g-member@corp.test", password: "Secret123" });
-    await exec("INSERT INTO permission_groups (\"key\", name_th, name_en, is_system, sort_order) VALUES ('tfa_force', 'บังคับ', 'Forced', 0, 99)");
+    await exec("INSERT INTO permission_groups (\"key\", name_th, name_en, is_system, sort_order) VALUES ('tfa_force', 'บังคับ', 'Forced', false, 99)");
     await exec("INSERT INTO user_groups (user_id, group_key) VALUES (?, 'tfa_force')", [member.id]);
 
     // ค่าเดิม: สวิตช์เก่าเปิด + ยังไม่ตั้งรายกลุ่ม = ผู้ดูแลระบบ

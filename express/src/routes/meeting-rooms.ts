@@ -306,7 +306,7 @@ meetingRoutes.delete("/meeting-rooms/:id/images/:imageId", async (req, res) => {
   await managedRoom(me(req), Number(room.id));
   await exec("DELETE FROM meeting_room_images WHERE id = ?", [img.id]);
   // ลบรูปหลัก — รูปถัดไปเป็นรูปหลักแทน
-  if (img.is_primary) await exec("UPDATE meeting_room_images SET is_primary = true WHERE room_id = ? ORDER BY sort_order, id LIMIT 1", [room.id]);
+  if (img.is_primary) await exec("UPDATE meeting_room_images SET is_primary = true WHERE id = (SELECT id FROM (SELECT id FROM meeting_room_images WHERE room_id = ? ORDER BY sort_order, id LIMIT 1) AS first_image)", [room.id]);
   await deleteStored(img.path);
   await audit(req, { action: "meeting_room.image_removed", subjectType: "meeting_room", subjectId: room.id, before: { image_id: Number(img.id) } });
   res.json({ data: await roomJson(await findRoom(room.id)) });

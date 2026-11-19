@@ -87,7 +87,7 @@ describe("vehicles", () => {
     const approved = await dispatcher.post(`/api/v1/vehicle-bookings/${uuid}/approve`).send({});
     expect(approved.body.data).toMatchObject({ status: "confirmed", approved_by: "Dispatcher", can_approve: false });
     expect(await scalar("SELECT type FROM notifications WHERE notifiable_id = ? ORDER BY created_at DESC LIMIT 1", [aliceUser.id])).toBe("vehicle.approved");
-    expect(await scalar("SELECT read_at IS NOT NULL FROM notifications WHERE notifiable_id = ? AND type = 'vehicle.requested'", [dispatcherUser.id])).toBe(1);
+    expect(Number(await scalar("SELECT read_at IS NOT NULL FROM notifications WHERE notifiable_id = ? AND type = 'vehicle.requested'", [dispatcherUser.id]))).toBe(1);
     expect((await dispatcher.get("/api/v1/menu-badges")).body.data["/vehicles/dispatch"]).toBe(0);
 
     // รถคันเดียวกัน ช่วงหลายวันที่ซ้อน = 422 บอกผู้จอง / ต่อกันพอดี และคันอื่น = ได้
