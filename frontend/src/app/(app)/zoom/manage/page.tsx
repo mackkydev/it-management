@@ -16,21 +16,21 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("zoom.manage.title") };
 }
 
-const TABS = ["pending", "accepted", "needs_change", "confirmed"] as const;
+const TABS = ["pending", "accepted", "needs_change", "confirmed", "link_cancel"] as const;
 const TAB_CLS = (active: boolean) =>
   `whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"}`;
 
-/** จัดการคำขอ ZOOM (zoom.manage) — รอรับงาน / รับงานแล้ว (รอส่งลิงก์) / รอผู้จองแก้วันเวลา / ส่งลิงก์แล้ว ที่ยังไม่จบเวลา */
+/** จัดการคำขอ ZOOM (zoom.manage) — รอรับงาน / รับงานแล้ว (รอส่งลิงก์) / รอผู้จองแก้วันเวลา / ส่งลิงก์แล้ว ที่ยังไม่จบเวลา + รอยกเลิกลิงก์ (ผู้จองยกเลิกหลังส่งลิงก์) */
 export default async function ZoomManagePage({ searchParams }: PageProps<"/zoom/manage">) {
   const user = await getCurrentUser();
   if (!has(user, "zoom.manage")) redirect("/zoom");
   const sp = await searchParams;
   const status = TABS.find((s) => s === sp.status) ?? "pending";
   // กลับมาจากการส่ง / แก้ลิงก์ที่หน้ารายละเอียด
-  const done = (["linked", "link_updated"] as const).find((d) => d === sp.done);
+  const done = (["linked", "link_updated", "link_removed"] as const).find((d) => d === sp.done);
   const [{ t }, res] = await Promise.all([getI18n(), apiFetch<{ data: ZoomBooking[]; meta: { counts: Record<(typeof TABS)[number], number> } }>(`/zoom-bookings/manage?status=${status}`)]);
   const items = res.data;
-  // ตัวเลขแดง = รายการค้าง (รอรับงาน / รอส่งลิงก์) — ส่งลิงก์แล้ว / รอผู้จองแก้ แสดงเป็นตัวเลขปกติ
+  // ตัวเลขแดง = รายการค้าง (รอรับงาน / รอส่งลิงก์ / รอยกเลิกลิงก์) — ส่งลิงก์แล้ว / รอผู้จองแก้ แสดงเป็นตัวเลขปกติ
   const badge = (s: (typeof TABS)[number]) => {
     const n = res.meta.counts[s] ?? 0;
     if (!n) return null;

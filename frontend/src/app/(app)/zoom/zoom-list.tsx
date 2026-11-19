@@ -49,6 +49,12 @@ export function ZoomList({ items, mode }: { items: ZoomBooking[]; mode: "mine" |
       {(z.status === "rejected" || z.status === "needs_change") && z.reject_reason && <p className="max-w-72 whitespace-normal text-danger-700 dark:text-danger-300">{z.reject_reason}</p>}
       {z.head_approval && <p className="text-muted">{t("zoom.list.headApproved", { name: z.head_approval.name })}</p>}
       {z.status === "pending" && <p className="text-muted">{t("zoom.detail.waiting")}</p>}
+      {z.can_remove_link && (
+        <p className="max-w-72 whitespace-normal break-all text-warning-700 dark:text-warning-300">
+          {z.meeting_id ? `${t("zoom.actions.meetingId")} ${z.meeting_id} · ` : ""}
+          {z.meeting_link}
+        </p>
+      )}
     </div>
   );
   const actions = (z: ZoomBooking) => (
@@ -67,9 +73,9 @@ export function ZoomList({ items, mode }: { items: ZoomBooking[]; mode: "mine" |
           {t("zoom.actions.changeTime")}
         </Link>
       )}
-      <Link href={`/zoom/bookings/${z.id}`} className={`${mode === "manage" && z.can_link ? btn.primary : btn.secondary} ${btn.sm} whitespace-nowrap`}>
+      <Link href={`/zoom/bookings/${z.id}`} className={`${mode === "manage" && (z.can_link || z.can_remove_link) ? btn.primary : btn.secondary} ${btn.sm} whitespace-nowrap`}>
         <EyeIcon width={14} height={14} />
-        {mode === "manage" && z.can_link && z.status === "accepted" ? t("zoom.actions.sendLink") : t("zoom.list.view")}
+        {mode === "manage" && z.can_link && z.status === "accepted" ? t("zoom.actions.sendLink") : mode === "manage" && z.can_remove_link ? t("zoom.actions.removeLink") : t("zoom.list.view")}
       </Link>
     </div>
   );

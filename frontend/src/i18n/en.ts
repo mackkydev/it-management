@@ -1055,6 +1055,7 @@ const en: Dictionary = {
       link_received: "{actor} received the ZOOM link for \"{title}\" ({period})",
       rejected: "{actor}: ZOOM is already in use at {period} — \"{title}\"",
       cancelled: "{actor} cancelled the ZOOM booking \"{title}\" ({period})",
+      link_cancel: "{actor} cancelled the ZOOM booking \"{title}\" ({period}) after the link was sent — please cancel the meeting in ZOOM and confirm",
       needs_change: "{actor} says {period} is taken — please change the time of ZOOM booking \"{title}\"",
       resubmitted: "{actor} changed ZOOM booking \"{title}\" to {period} — please check it again",
       time_changed: "{actor} moved the meeting room for ZOOM \"{title}\" to {period} — please check the link",
@@ -2301,6 +2302,7 @@ const en: Dictionary = {
       zoom_booking_confirmed: "Sent a ZOOM link",
       zoom_booking_link_updated: "Updated a ZOOM link",
       zoom_booking_link_received: "Requester received the ZOOM link",
+      zoom_booking_link_removed: "IT cancelled the link in ZOOM",
       zoom_booking_rejected: "Replied: ZOOM already in use",
       holiday_deleted: "Deleted a company holiday",
       holiday_copied: "Copied holidays from last year",
@@ -2939,6 +2941,8 @@ const en: Dictionary = {
       confirmedAt: "Link sent",
       rejectedAt: "Replied",
       cancelledAt: "Cancelled",
+      linkRemovedAt: "Link cancelled in ZOOM",
+      linkRemovedBy: "{date} by {name}",
       ticket: "IT request (KPI)",
     },
     actions: {
@@ -2971,6 +2975,10 @@ const en: Dictionary = {
       edit: "Edit booking",
       cancel: "Cancel booking",
       cancelConfirm: "Cancel this ZOOM booking?",
+      removeLinkTitle: "The requester cancelled this booking — please cancel this meeting in ZOOM",
+      removeLinkHint: "Delete or cancel the meeting (Meeting ID above) in the ZOOM account, then confirm",
+      removeLink: "Link cancelled in ZOOM",
+      removeLinkConfirm: "Confirm that this meeting has been cancelled in ZOOM?",
     },
     done: {
       created: "Booked — IT has been notified and will accept it",
@@ -2983,6 +2991,7 @@ const en: Dictionary = {
       link_updated: "Link updated and the booker notified",
       busy: "Reply sent — waiting for the booker to change the time",
       cancelled: "Booking cancelled",
+      link_removed: "Recorded that the link was cancelled in ZOOM",
     },
     share: {
       topic: "Topic",
@@ -3006,8 +3015,8 @@ const en: Dictionary = {
     manage: {
       title: "ZOOM requests",
       subtitle: "Accept → paste the meeting link to notify the booker → the IT manager approves on the ticket (adds a KPI row for the assignee), or ask the booker to change the time",
-      tabs: { pending: "Waiting", accepted: "Accepted (link pending)", needs_change: "Waiting for a new time", confirmed: "Link sent" },
-      empty: { pending: "No requests waiting", accepted: "No jobs waiting for a link", needs_change: "No bookings waiting for a new time", confirmed: "No upcoming bookings with a link" },
+      tabs: { pending: "Waiting", accepted: "Accepted (link pending)", needs_change: "Waiting for a new time", confirmed: "Link sent", link_cancel: "Link to cancel" },
+      empty: { pending: "No requests waiting", accepted: "No jobs waiting for a link", needs_change: "No bookings waiting for a new time", confirmed: "No upcoming bookings with a link", link_cancel: "No links waiting to be cancelled in ZOOM" },
     },
   },
   vehicle: {

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
-import { acceptZoomBooking, cancelZoomBooking, sendZoomLink, zoomBusy } from "@/app/actions/zoom";
+import { acceptZoomBooking, cancelZoomBooking, removeZoomLink, sendZoomLink, zoomBusy } from "@/app/actions/zoom";
 import { AppSelect } from "@/components/app-select";
 import { useConfirm } from "@/components/dialog-provider";
 import { AlertIcon, CheckCircleIcon, PencilIcon, SendIcon, SpinnerIcon, XIcon } from "@/components/icons";
@@ -13,11 +13,12 @@ import type { ZoomBooking } from "@/lib/types";
 import { parseZoomInvitation, type ZoomMeetingInfo } from "../../zoom-utils";
 import { MasterDataSelect } from "@/components/master-data-select";
 
-type Busy = "accept" | "link" | "busy" | "cancel" | "acknowledge" | null;
+type Busy = "accept" | "link" | "busy" | "cancel" | "acknowledge" | "remove" | null;
 
 /**
  * ปุ่มของหน้าการจอง ZOOM — ผู้จอง: แก้ไข (ก่อนรับงาน / IT ส่งกลับให้แก้วันเวลา) / ยกเลิก / กดรับ
  * ฝ่าย IT (zoom.manage): รับงาน → วางลิงก์ประชุม + หมายเหตุ แล้วบันทึก (แจ้งผู้จอง + ผู้จัดการ IT ซึ่งอนุมัติที่หน้าใบแจ้งงาน) / แจ้งกลับให้แก้วันเวลา
+ *   ผู้จองยกเลิกหลังส่งลิงก์แล้ว → ยืนยัน "ยกเลิกลิงก์ใน ZOOM แล้ว"
  */
 export function ZoomActions({ booking: z, accounts = [] }: { booking: ZoomBooking; accounts?: string[] }) {
   const { t } = useI18n();
@@ -68,6 +69,10 @@ export function ZoomActions({ booking: z, accounts = [] }: { booking: ZoomBookin
     if (!(await confirm(t("zoom.actions.busyConfirm")))) return;
     run("busy", () => zoomBusy(z.id, reason), "busy");
   };
+  const removeLink = async () => {
+    if (!(await confirm(t("zoom.actions.removeLinkConfirm")))) return;
+    run("remove", () => removeZoomLink(z.id), "link_removed");
+  };
   const cancel = async () => {
     if (!(await confirm(t("zoom.actions.cancelConfirm")))) return;
     run("cancel", () => cancelZoomBooking(z.id), "cancelled");
@@ -75,7 +80,7 @@ export function ZoomActions({ booking: z, accounts = [] }: { booking: ZoomBookin
 
   // กดรับ (ผู้จอง) อยู่ที่กล่องลิงก์ประชุม (CopyShare)
   const owner = z.can_edit || z.can_cancel;
-  const it = z.can_accept || z.can_link || z.can_busy;
+  const it = z.can_accept || z.can_link || z.can_busy || z.can_remove_link;
   if (!owner && !it) return null;
   const spin = (k: Busy, icon: ReactNode) => (busy === k ? <SpinnerIcon width={14} height={14} /> : icon);
 
@@ -92,6 +97,37 @@ export function ZoomActions({ booking: z, accounts = [] }: { booking: ZoomBookin
       {it && (
         <div className="space-y-4">
           <h2 className="font-semibold">{t("zoom.actions.itTitle")}</h2>
+          {z.can_remove_link && (
+            <div className="space-y-3 rounded-xl p-3 ring-1 ring-warning-200 dark:ring-warning-400/30">
+              <p className="flex items-start gap-2 text-sm font-medium text-warning-700 dark:text-warning-300">
+                <AlertIcon width={16} height={16} className="mt-0.5 shrink-0" />
+                {t("zoom.actions.removeLinkTitle")}
+              </p>
+              <dl className="grid grid-cols-1 gap-2 rounded-lg bg-subtle px-3 py-2.5 text-sm sm:grid-cols-3">
+                {z.zoom_account && (
+                  <div>
+                    <dt className="text-xs text-muted">{t("zoom.actions.account")}</dt>
+                    <dd className="font-medium">{z.zoom_account}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt className="text-xs text-muted">{t("zoom.actions.meetingId")}</dt>
+                  <dd className="font-medium">{z.meeting_id || "-"}</dd>
+                </div>
+                <div className="sm:col-span-3">
+                  <dt className="text-xs text-muted">{t("zoom.actions.link")}</dt>
+                  <dd className="break-all font-medium">{z.meeting_link}</dd>
+                </div>
+              </dl>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={removeLink} disabled={busy !== null} className={btn.primary}>
+                  {spin("remove", <CheckCircleIcon width={16} height={16} />)}
+                  {t("zoom.actions.removeLink")}
+                </button>
+                <p className="text-xs text-muted">{t("zoom.actions.removeLinkHint")}</p>
+              </div>
+            </div>
+          )}
           {z.can_accept && (
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={accept} disabled={busy !== null} className={btn.primary}>
