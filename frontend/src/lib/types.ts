@@ -1518,6 +1518,11 @@ export interface ZoomBooking {
   can_receive_link?: boolean;
   /** ผู้จองรับลิงก์แล้วเมื่อ (แก้ลิงก์ = ล้าง) */
   link_received_at?: string | null;
+  /** ยกเลิกหลังส่งลิงก์แล้ว: ฝ่าย IT ยกเลิกห้องประชุมใน ZOOM แล้วเมื่อ / โดย */
+  link_removed_at?: string | null;
+  link_removed_by?: string | null;
+  /** ฝ่าย IT กด "ยกเลิกลิงก์ใน ZOOM แล้ว" ได้ */
+  can_remove_link?: boolean;
   can_accept: boolean;
   can_link: boolean;
   can_busy: boolean;

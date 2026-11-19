@@ -1062,6 +1062,7 @@ const th = {
       head_approved: "{actor} อนุมัติงานจอง Zoom \"{title}\" แล้ว — กรุณากดรับ",
       expired: "การจอง Zoom \"{title}\" ({period}) เลยเวลาแล้วโดยยังไม่ได้ส่งลิงก์ — ระบบยกเลิกให้แล้ว",
       cancelled: "{actor} ยกเลิกการจอง Zoom \"{title}\" ({period})",
+      link_cancel: "{actor} ยกเลิกการจอง Zoom \"{title}\" ({period}) ที่ส่งลิงก์แล้ว — กรุณายกเลิกลิงก์ประชุมใน Zoom แล้วกดยืนยัน",
     },
     vehicle: {
       requested: "{actor} ขอใช้รถ ({period}) — รออนุมัติ",
@@ -2304,6 +2305,7 @@ const th = {
       zoom_booking_confirmed: "ส่งลิงก์ Zoom",
       zoom_booking_link_updated: "แก้ไขลิงก์ Zoom",
       zoom_booking_link_received: "ผู้จองรับลิงก์ Zoom",
+      zoom_booking_link_removed: "ฝ่าย IT ยกเลิกลิงก์ใน Zoom แล้ว",
       zoom_booking_rejected: "แจ้งกลับ: มีการใช้งาน Zoom แล้ว",
       holiday_deleted: "ลบวันหยุดบริษัท",
       holiday_copied: "คัดลอกวันหยุดจากปีก่อน",
@@ -2943,6 +2945,8 @@ const th = {
       confirmedAt: "ส่งลิงก์เมื่อ",
       rejectedAt: "แจ้งกลับเมื่อ",
       cancelledAt: "ยกเลิกเมื่อ",
+      linkRemovedAt: "ยกเลิกลิงก์ใน Zoom แล้ว",
+      linkRemovedBy: "{date} โดย {name}",
       ticket: "ใบแจ้งงาน (KPI)",
     },
     actions: {
@@ -2975,6 +2979,10 @@ const th = {
       edit: "แก้ไขการจอง",
       cancel: "ยกเลิกการจอง",
       cancelConfirm: "ยกเลิกการจอง Zoom นี้?",
+      removeLinkTitle: "ผู้จองยกเลิกการจองแล้ว — กรุณายกเลิกลิงก์ประชุมนี้ในระบบ Zoom",
+      removeLinkHint: "ลบหรือยกเลิกห้องประชุม (Meeting ID ด้านบน) ในบัญชี Zoom แล้วกดยืนยัน",
+      removeLink: "ยกเลิกลิงก์ใน Zoom แล้ว",
+      removeLinkConfirm: "ยืนยันว่ายกเลิกห้องประชุมนี้ในระบบ Zoom แล้ว?",
     },
     done: {
       created: "จองแล้ว — ระบบแจ้งฝ่าย IT แล้ว รอฝ่าย IT รับงาน",
@@ -2987,6 +2995,7 @@ const th = {
       link_updated: "แก้ไขลิงก์และแจ้งผู้จองแล้ว",
       busy: "แจ้งกลับผู้จองแล้ว — รอผู้จองแก้วันเวลา",
       cancelled: "ยกเลิกการจองแล้ว",
+      link_removed: "บันทึกการยกเลิกลิงก์ใน Zoom แล้ว",
     },
     share: {
       topic: "หัวข้อ (Topic)",
@@ -3010,8 +3019,8 @@ const th = {
     manage: {
       title: "จัดการคำขอ Zoom",
       subtitle: "รับงาน → วางลิงก์ประชุมแจ้งผู้จอง → ผู้จัดการ IT อนุมัติที่ใบแจ้งงาน (ขึ้น KPI ของผู้รับงาน) หรือแจ้งกลับให้ผู้จองแก้วันเวลา",
-      tabs: { pending: "รอรับงาน", accepted: "รับงานแล้ว (รอส่งลิงก์)", needs_change: "รอผู้จองแก้วันเวลา", confirmed: "ส่งลิงก์แล้ว" },
-      empty: { pending: "ไม่มีคำขอรอรับงาน", accepted: "ไม่มีงานที่รอส่งลิงก์", needs_change: "ไม่มีการจองที่รอผู้จองแก้วันเวลา", confirmed: "ไม่มีการจองที่ส่งลิงก์แล้วที่กำลังจะถึง" },
+      tabs: { pending: "รอรับงาน", accepted: "รับงานแล้ว (รอส่งลิงก์)", needs_change: "รอผู้จองแก้วันเวลา", confirmed: "ส่งลิงก์แล้ว", link_cancel: "รอยกเลิกลิงก์" },
+      empty: { pending: "ไม่มีคำขอรอรับงาน", accepted: "ไม่มีงานที่รอส่งลิงก์", needs_change: "ไม่มีการจองที่รอผู้จองแก้วันเวลา", confirmed: "ไม่มีการจองที่ส่งลิงก์แล้วที่กำลังจะถึง", link_cancel: "ไม่มีลิงก์ที่รอยกเลิกใน Zoom" },
     },
   },
   vehicle: {

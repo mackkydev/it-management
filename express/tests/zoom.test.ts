@@ -263,6 +263,48 @@ describe("zoom bookings", () => {
     expect((await api.post(`/api/v1/zoom-bookings/${f}/acknowledge`)).status).toBe(200);
   });
 
+  it("cancelling after the link was sent asks IT to cancel the meeting in ZOOM: notice, tab, badge until IT confirms", async () => {
+    const { it1, api, itApi } = await people();
+    const other = await makeUser({ role: "admin", is_it_staff: true });
+    const otherApi = await as(other);
+
+    // รับงานแล้วยังไม่ส่งลิงก์ = แจ้งให้ทราบอย่างเดียว ไม่มีงานรอ
+    const a = (await api.post("/api/v1/zoom-bookings").send(booking())).body.data.id as string;
+    await itApi.post(`/api/v1/zoom-bookings/${a}/accept`);
+    await api.post(`/api/v1/zoom-bookings/${a}/cancel`);
+    expect(Number(await notices(it1.id, "cancelled"))).toBe(1);
+    expect((await itApi.get(`/api/v1/zoom-bookings/${a}`)).body.data.can_remove_link).toBe(false);
+    expect((await itApi.post(`/api/v1/zoom-bookings/${a}/link-removed`)).status).toBe(422);
+
+    // ส่งลิงก์แล้ว → ผู้รับงานได้แจ้งเตือน link_cancel + แท็บ + ตัวเลขเมนู (เฉพาะผู้รับงาน)
+    const b = (await api.post("/api/v1/zoom-bookings").send(booking())).body.data.id as string;
+    await itApi.post(`/api/v1/zoom-bookings/${b}/accept`);
+    await itApi.post(`/api/v1/zoom-bookings/${b}/link`).send(LINK);
+    const before = (await itApi.get("/api/v1/menu-badges")).body.data["/zoom/manage"] ?? 0;
+    expect((await api.post(`/api/v1/zoom-bookings/${b}/cancel`)).body.data.status).toBe("cancelled");
+    expect(Number(await notices(it1.id, "link_cancel"))).toBe(1);
+    expect(Number(await notices(other.id, "link_cancel"))).toBe(0);
+    expect((await itApi.get("/api/v1/menu-badges")).body.data["/zoom/manage"]).toBe(before + 1);
+    expect((await otherApi.get("/api/v1/menu-badges")).body.data["/zoom/manage"] ?? 0).toBe(0);
+    const tab = await itApi.get("/api/v1/zoom-bookings/manage?status=link_cancel");
+    expect(tab.body.meta.counts.link_cancel).toBe(1);
+    expect(tab.body.data).toHaveLength(1);
+    expect(tab.body.data[0]).toMatchObject({ id: b, status: "cancelled", meeting_link: LINK.meeting_link, meeting_id: LINK.meeting_id, can_remove_link: true });
+
+    // ผู้จองกดยืนยันแทนไม่ได้ / ฝ่าย IT ยืนยัน → หายจากแท็บ + ตัวเลข + แจ้งเตือนอ่านแล้ว + ลงประวัติใบงาน
+    expect((await api.post(`/api/v1/zoom-bookings/${b}/link-removed`)).status).toBe(403);
+    const done = await itApi.post(`/api/v1/zoom-bookings/${b}/link-removed`);
+    expect(done.status).toBe(200);
+    expect(done.body.data).toMatchObject({ can_remove_link: false });
+    expect(done.body.data.link_removed_by).toBe(it1.name);
+    expect((await itApi.post(`/api/v1/zoom-bookings/${b}/link-removed`)).status).toBe(422);
+    expect((await itApi.get("/api/v1/zoom-bookings/manage?status=link_cancel")).body.meta.counts.link_cancel).toBe(0);
+    expect((await itApi.get("/api/v1/menu-badges")).body.data["/zoom/manage"]).toBe(before);
+    expect(Number(await scalar("SELECT COUNT(*) FROM notifications WHERE notifiable_id = ? AND data LIKE '%\"event\":\"link_cancel\"%' AND read_at IS NULL", [it1.id]))).toBe(0);
+    const ticket = await ticketOf(b);
+    expect(Number(await scalar("SELECT COUNT(*) FROM it_ticket_events WHERE it_ticket_id = ? AND action = 'progress'", [ticket!.id]))).toBeGreaterThan(0);
+  });
+
   it("IT chooses the ZOOM account from the dropdown list; IT can rename, add and remove accounts", async () => {
     const { api, itApi, it1 } = await people();
     const id = (await api.post("/api/v1/zoom-bookings").send(booking())).body.data.id as string;

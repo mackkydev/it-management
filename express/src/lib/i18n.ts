@@ -246,6 +246,7 @@ const eamTh = {
     resubmit_log: "ผู้จองแก้วันเวลาเป็น :period แล้วส่งกลับฝ่าย IT",
     time_log: "เวลาเปลี่ยนตามการจองห้องประชุมเป็น :period",
     expired_log: "เลยเวลาที่จองโดยยังไม่ได้ส่งลิงก์ — ยกเลิกอัตโนมัติ",
+    link_removed_log: "ฝ่าย IT ยกเลิกลิงก์ประชุมในระบบ ZOOM แล้ว (ผู้จองยกเลิกการจอง)",
     signature_required: "กรุณาเพิ่มลายเซ็นในโปรไฟล์ก่อนอนุมัติ (ระบบประทับชื่อและลายเซ็นของคุณลงใบงาน)",
   },
   vehicle: {
@@ -682,6 +683,7 @@ const eamEn: Eam = {
     resubmit_log: "The booker changed the time to :period and sent it back to IT",
     time_log: "The time followed the meeting room booking: :period",
     expired_log: "The booked time passed without a link — cancelled automatically",
+    link_removed_log: "IT cancelled the meeting link in ZOOM (the booking was cancelled by the requester)",
     signature_required: "Please add a signature to your profile before approving (your name and signature are stamped on the ticket).",
   },
   vehicle: {

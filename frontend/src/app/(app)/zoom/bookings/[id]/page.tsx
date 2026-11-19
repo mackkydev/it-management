@@ -16,7 +16,7 @@ import { CopyShare } from "../../copy-share";
 import { CopyLink } from "./copy-link";
 import { ZoomActions } from "./zoom-actions";
 
-const DONE = ["created", "updated", "resubmitted", "accepted", "linked", "link_updated", "busy", "acknowledged", "cancelled"] as const;
+const DONE = ["created", "updated", "resubmitted", "accepted", "linked", "link_updated", "busy", "acknowledged", "cancelled", "link_removed"] as const;
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -126,6 +126,7 @@ export default async function ZoomBookingPage({ params, searchParams }: PageProp
           {z.confirmed_at && <Item label={t("zoom.detail.confirmedAt")}>{`${fmt.dateTime(z.confirmed_at)}${z.confirmed_by ? ` · ${z.confirmed_by}` : ""}`}</Item>}
           {z.rejected_at && <Item label={t("zoom.detail.rejectedAt")}>{`${fmt.dateTime(z.rejected_at)}${z.rejected_by ? ` · ${z.rejected_by}` : ""}`}</Item>}
           {z.cancelled_at && <Item label={t("zoom.detail.cancelledAt")}>{fmt.dateTime(z.cancelled_at)}</Item>}
+          {z.link_removed_at && <Item label={t("zoom.detail.linkRemovedAt")}>{t("zoom.detail.linkRemovedBy", { date: fmt.dateTime(z.link_removed_at), name: z.link_removed_by ?? "-" })}</Item>}
           {z.ticket && (
             <Item label={t("zoom.detail.ticket")}>
               <Link href={`/tickets/${z.ticket.id}`} className="cursor-pointer text-accent-600 hover:underline dark:text-accent-300">

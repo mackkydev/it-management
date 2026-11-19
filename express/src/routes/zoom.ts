@@ -24,6 +24,7 @@ import { createZoomTicket, zoomTicketAccepted, zoomTicketApprove, zoomTicketCanc
  *   POST .../acknowledge ผู้จองกดรับ = ปิดงาน (completed) — ไม่กด = ปิดเองตาม ticket_auto_close_days
  *   POST .../busy { reason? } (รอรับงาน / รับงานแล้ว) = needs_change → ผู้จองแก้วันเวลา (PUT) = ส่งกลับผู้รับงานเดิม (accepted) หรือรอรับงาน (pending) — ใบงานใบเดิม
  *   ยกเลิก / เลยเวลาโดยยังไม่ส่งลิงก์ (expireZoomBookings) = ใบงานยกเลิก ไม่นับ KPI
+ *   ยกเลิกหลังส่งลิงก์แล้ว = แจ้งผู้รับงาน (link_cancel) + แท็บ "รอยกเลิกลิงก์" → POST .../link-removed เมื่อยกเลิกห้องประชุมใน ZOOM แล้ว
  * จองพร้อมห้องประชุมได้ (meeting_booking_id — routes/meeting-rooms.ts): ยกเลิกห้อง = ยกเลิก ZOOM, เปลี่ยนเวลาห้อง = เวลา ZOOM เปลี่ยนตาม + แจ้งผู้รับงาน
  * ไม่ตรวจเวลาชนอัตโนมัติ (มีบัญชี ZOOM หลายบัญชีได้) — ฝ่าย IT ตรวจเองแล้วกดแจ้งกลับ; ลิงก์ประชุมเห็นเฉพาะผู้จอง + zoom.manage
  */
@@ -79,6 +80,9 @@ interface ZoomRow {
   rejected_name: string | null;
   rejected_at: string | null;
   cancelled_at: string | null;
+  /** ยกเลิกหลังส่งลิงก์แล้ว → ฝ่าย IT ยกเลิกห้องประชุมในระบบ ZOOM แล้วกดยืนยัน */
+  link_removed_at: string | null;
+  link_removed_name: string | null;
   ticket_id: number | null;
   ticket_uuid: string | null;
   ticket_no: string | null;
@@ -91,10 +95,10 @@ interface ZoomRow {
   updated_at: string | null;
 }
 
-const SELECT = `SELECT z.*, u.name AS user_name, a.name AS assignee_name, c.name AS confirmed_name, r.name AS rejected_name, tk.uuid AS ticket_uuid, tk.ticket_no, tk.status AS ticket_status,
+const SELECT = `SELECT z.*, u.name AS user_name, a.name AS assignee_name, c.name AS confirmed_name, r.name AS rejected_name, lr.name AS link_removed_name, tk.uuid AS ticket_uuid, tk.ticket_no, tk.status AS ticket_status,
     tk.it_head_signature AS head_signature, h.name AS head_name, (SELECT MAX(e.created_at) FROM it_ticket_events e WHERE e.it_ticket_id = tk.id AND e.action = 'head_approved') AS head_at
   FROM zoom_bookings z LEFT JOIN users u ON u.id = z.user_id LEFT JOIN users a ON a.id = z.assignee_id
-  LEFT JOIN users c ON c.id = z.confirmed_by LEFT JOIN users r ON r.id = z.rejected_by LEFT JOIN it_tickets tk ON tk.id = z.ticket_id LEFT JOIN users h ON h.id = tk.it_head_id`;
+  LEFT JOIN users c ON c.id = z.confirmed_by LEFT JOIN users r ON r.id = z.rejected_by LEFT JOIN users lr ON lr.id = z.link_removed_by LEFT JOIN it_tickets tk ON tk.id = z.ticket_id LEFT JOIN users h ON h.id = tk.it_head_id`;
 
 /** ยังมีผล (ขึ้นปฏิทิน): รอรับงาน / รับงานแล้ว / ส่งลิงก์แล้ว */
 const ACTIVE = ["pending", "accepted", "confirmed"];
@@ -111,6 +115,9 @@ const upcomingParams = () => {
 };
 /** รอฉันจัดการ (ผู้จอง): แก้วันเวลาที่ IT แจ้งกลับ / กดรับ (ลิงก์ที่ยังไม่รับ หรือใบงานรอผู้จองกดรับ) — เงื่อนไขเดียวกับตัวเลขเมนู + แท็บ */
 const TODO = `((z.status = 'needs_change' AND ${UPCOMING}) OR (z.status = 'confirmed' AND (tk.status = 'pending_requester' OR (z.link_received_at IS NULL AND ${UPCOMING}))))`;
+/** ยกเลิกแล้วแต่ลิงก์ที่ส่งไปยังไม่ถูกยกเลิกใน ZOOM — งานรอฝ่าย IT (แท็บ link_cancel + ตัวเลขเมนู /zoom/manage) */
+const LINK_CANCEL = "(z.status = 'cancelled' AND z.meeting_link IS NOT NULL AND z.link_removed_at IS NULL)";
+const needsLinkRemoval = (z: Pick<ZoomRow, "status" | "meeting_link" | "link_removed_at">) => z.status === "cancelled" && Boolean(z.meeting_link) && !z.link_removed_at;
 const periodText = (z: Pick<ZoomRow, "start_on" | "start_time" | "end_on" | "end_time">) => (dateOnly(z.start_on) === dateOnly(z.end_on) ? `${dateOnly(z.start_on)} ${z.start_time}–${z.end_time}` : `${startAt(z)} – ${endAt(z)}`);
 
 /** วันเวลาประชุมแบบอ่านง่าย (dd/MM/yyyy ตามภาษา) สำหรับข้อความในใบแจ้งงาน */
@@ -154,6 +161,8 @@ function json(z: ZoomRow, u: UserRow) {
     rejected_by: z.rejected_name,
     rejected_at: iso(z.rejected_at),
     cancelled_at: iso(z.cancelled_at),
+    link_removed_at: iso(z.link_removed_at),
+    link_removed_by: z.link_removed_name,
     ticket: z.ticket_uuid && sees ? { id: z.ticket_uuid, ticket_no: z.ticket_no ?? "", status: z.ticket_status ?? "" } : null,
     // ผู้จัดการ IT อนุมัติแล้ว = ชื่อ + ลายเซ็นที่ประทับลงใบงาน
     head_approval: z.head_name && sees ? { name: z.head_name, at: iso(z.head_at), signature_url: z.head_signature && z.ticket_uuid ? `/files/tickets/${z.ticket_uuid}/files/it-head-signature` : null } : null,
@@ -169,6 +178,8 @@ function json(z: ZoomRow, u: UserRow) {
     can_accept: manager && z.status === "pending" && !over,
     can_link: manager && (z.status === "accepted" || z.status === "confirmed") && !over,
     can_busy: manager && (z.status === "pending" || z.status === "accepted") && !over,
+    // ผู้จองยกเลิกหลังส่งลิงก์แล้ว → ฝ่าย IT ยกเลิกห้องประชุมใน ZOOM แล้วกดยืนยัน (ไม่จำกัดเวลา)
+    can_remove_link: manager && needsLinkRemoval(z),
   };
 }
 
@@ -204,7 +215,7 @@ async function notifyHandlers(u: UserRow, z: ZoomRow) {
   if (ids.length) await notifyUsers(ids, "zoom.requested", noticeData(u, z, "requested"));
 }
 /** ผู้จองกดรับลิงก์แล้ว → แจ้งผู้รับงาน (ไม่มี = ฝ่าย IT ที่รับงาน ZOOM ได้ทุกคน) */
-async function notifyAssignee(u: UserRow, z: ZoomRow, event: "link_received") {
+async function notifyAssignee(u: UserRow, z: ZoomRow, event: "link_received" | "link_cancel") {
   const ids = (z.assignee_id ? [Number(z.assignee_id)] : await handlers()).filter((id) => id !== u.id);
   if (ids.length) await notifyUsers(ids, `zoom.${event}`, noticeData(u, z, event));
 }
@@ -257,13 +268,21 @@ const myTodoCount = async (userId: number) =>
 zoomRoutes.get("/zoom-bookings/manage", async (req, res) => {
   const u = me(req);
   authorize(manages(u));
-  const f = await validate(req.input, { status: ["nullable", "in:pending,accepted,needs_change,confirmed"] }, { locale: req.locale });
+  const f = await validate(req.input, { status: ["nullable", "in:pending,accepted,needs_change,confirmed,link_cancel"] }, { locale: req.locale });
   const status = (f.status as string) ?? "pending";
-  const rows = await select<ZoomRow>(`${SELECT} WHERE z.status = ? AND ${UPCOMING} ORDER BY z.start_on, z.start_time LIMIT 500`, [status, ...upcomingParams()]);
+  // link_cancel = ผู้จองยกเลิกหลังส่งลิงก์แล้ว รอฝ่าย IT ยกเลิกลิงก์ใน ZOOM (ไม่จำกัดเวลา)
+  const rows =
+    status === "link_cancel"
+      ? await select<ZoomRow>(`${SELECT} WHERE ${LINK_CANCEL} ORDER BY z.cancelled_at DESC, z.id DESC LIMIT 500`)
+      : await select<ZoomRow>(`${SELECT} WHERE z.status = ? AND ${UPCOMING} ORDER BY z.start_on, z.start_time LIMIT 500`, [status, ...upcomingParams()]);
   // ตัวเลขบนแท็บ = รายการค้างของแต่ละขั้น (ยังไม่จบเวลา)
   const counts = await select<{ status: string; n: number }>(`SELECT z.status, COUNT(*) AS n FROM zoom_bookings z WHERE z.status IN (?) AND ${UPCOMING} GROUP BY z.status`, [OPEN, ...upcomingParams()]);
   const count = (k: string) => Number(counts.find((c) => c.status === k)?.n ?? 0);
-  res.json({ data: rows.map((z) => json(z, u)), meta: { counts: { pending: count("pending"), accepted: count("accepted"), needs_change: count("needs_change"), confirmed: count("confirmed") } } });
+  const linkCancel = Number(await scalar(`SELECT COUNT(*) FROM zoom_bookings z WHERE ${LINK_CANCEL}`));
+  res.json({
+    data: rows.map((z) => json(z, u)),
+    meta: { counts: { pending: count("pending"), accepted: count("accepted"), needs_change: count("needs_change"), confirmed: count("confirmed"), link_cancel: linkCancel } },
+  });
 });
 
 zoomRoutes.get("/zoom-bookings/:uuid", async (req, res) => {
@@ -370,8 +389,9 @@ async function cancelBooking(req: Request, u: UserRow, z: ZoomRow): Promise<Zoom
   const after = await reload(Number(z.id));
   await audit(req, { action: "zoom_booking.cancelled", subjectType: "zoom_booking", subjectId: z.id, before: { status: z.status } });
   await resolveAll(z);
-  // รับงานแล้ว / ส่งลิงก์แล้ว → แจ้งผู้รับงาน
-  if (z.assignee_id && Number(z.assignee_id) !== u.id) await notifyUsers([Number(z.assignee_id)], "zoom.cancelled", noticeData(u, z, "cancelled"));
+  // ส่งลิงก์แล้ว → แจ้งผู้รับงาน (ไม่มี = ฝ่าย IT ทุกคน) ให้ยกเลิกลิงก์ใน ZOOM แล้วกดยืนยัน / รับงานแล้ว → แจ้งผู้รับงานให้ทราบ
+  if (needsLinkRemoval(after)) await notifyAssignee(u, after, "link_cancel");
+  else if (z.assignee_id && Number(z.assignee_id) !== u.id) await notifyUsers([Number(z.assignee_id)], "zoom.cancelled", noticeData(u, z, "cancelled"));
   await notifyOwner(u, after, "cancelled");
   return after;
 }
@@ -382,6 +402,23 @@ zoomRoutes.post("/zoom-bookings/:uuid/cancel", async (req, res) => {
   authorize(Number(z.user_id) === u.id);
   if (!OPEN.includes(z.status) || isOver(z)) throw ValidationError.withMessages({ status: t(req, "eam.zoom.not_editable") });
   res.json({ data: json(await cancelBooking(req, u, z), u) });
+});
+
+/** ฝ่าย IT ยกเลิกห้องประชุมในระบบ ZOOM แล้ว (หลังผู้จองยกเลิกการจองที่ส่งลิงก์แล้ว) → ปิดงานรอ + ลงประวัติใบงาน */
+zoomRoutes.post("/zoom-bookings/:uuid/link-removed", async (req, res) => {
+  const u = me(req);
+  authorize(manages(u));
+  const z = await findZoom(req);
+  if (!needsLinkRemoval(z)) throw ValidationError.withMessages({ status: t(req, "eam.zoom.status_changed") });
+  const now = nowDb();
+  await transaction(async () => {
+    const n = await update("zoom_bookings", { link_removed_at: now, link_removed_by: u.id, updated_at: now }, "id = ? AND link_removed_at IS NULL", [z.id]);
+    if (!n) throw ValidationError.withMessages({ status: t(req, "eam.zoom.status_changed") });
+    if (z.ticket_id) await zoomTicketLog(Number(z.ticket_id), u.id, t(req, "eam.zoom.link_removed_log"));
+  });
+  await audit(req, { action: "zoom_booking.link_removed", subjectType: "zoom_booking", subjectId: z.id, after: { link_removed_at: now } });
+  await markNoticesRead("zoom_booking_id", z.uuid, { events: ["link_cancel"] });
+  res.json({ data: json(await reload(Number(z.id)), u) });
 });
 
 /* ---------------------------------------------------------------- จองพร้อมห้องประชุม (routes/meeting-rooms.ts) */
@@ -606,13 +643,16 @@ zoomRoutes.post("/zoom-bookings/:uuid/acknowledge", async (req, res) => {
 });
 
 /**
- * ตัวเลขเมนู /zoom/manage = คำขอรอรับงาน + งานที่ฉันรับแล้วยังไม่ส่งลิงก์ (ยังไม่จบเวลา) — รออนุมัติอยู่ที่ตัวเลข /it/queue
+ * ตัวเลขเมนู /zoom/manage = คำขอรอรับงาน + งานที่ฉันรับแล้วยังไม่ส่งลิงก์ (ยังไม่จบเวลา) + ยกเลิกหลังส่งลิงก์ที่รอฉันยกเลิกลิงก์ใน ZOOM — รออนุมัติอยู่ที่ตัวเลข /it/queue
  * /zoom/mine = รอฉันแก้วันเวลา + รอฉันกดรับ
  */
 export async function zoomBadges(u: UserRow): Promise<Record<string, number>> {
   const out: Record<string, number> = { "/zoom/mine": await myTodoCount(u.id) };
   if (manages(u)) {
-    out["/zoom/manage"] = Number(await scalar(`SELECT COUNT(*) FROM zoom_bookings z WHERE (z.status = 'pending' OR (z.status = 'accepted' AND z.assignee_id = ?)) AND ${UPCOMING}`, [u.id, ...upcomingParams()]));
+    out["/zoom/manage"] =
+      Number(await scalar(`SELECT COUNT(*) FROM zoom_bookings z WHERE (z.status = 'pending' OR (z.status = 'accepted' AND z.assignee_id = ?)) AND ${UPCOMING}`, [u.id, ...upcomingParams()])) +
+      // ยกเลิกหลังส่งลิงก์ = งานของผู้รับงาน (ไม่มีผู้รับงาน = ฝ่าย IT ทุกคน)
+      Number(await scalar(`SELECT COUNT(*) FROM zoom_bookings z WHERE ${LINK_CANCEL} AND (z.assignee_id = ? OR z.assignee_id IS NULL)`, [u.id]));
   }
   return out;
 }

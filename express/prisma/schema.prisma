@@ -1722,6 +1722,9 @@ model zoom_bookings {
   rejected_at        DateTime?         @db.DateTime(0)
   cancelled_by       BigInt?
   cancelled_at       DateTime?         @db.DateTime(0)
+  /// ผู้จองยกเลิกหลังส่งลิงก์แล้ว → ฝ่าย IT ยกเลิกห้องประชุมในระบบ ZOOM แล้วกดยืนยัน (NULL + meeting_link + cancelled = รอยกเลิกลิงก์)
+  link_removed_at    DateTime?         @db.DateTime(0)
+  link_removed_by    BigInt?
   /// ใบแจ้งงาน (เรื่องอื่นๆ) ที่สร้างตอนจอง — สถานะเดินตามการจอง (it_tickets.source = 'zoom'), อนุมัติผลแล้วขึ้นชีต KPI ของผู้รับงาน
   ticket_id          BigInt?
   /// จองมาพร้อมการจองห้องประชุม — ยกเลิกห้อง = ยกเลิก ZOOM, เปลี่ยนเวลาห้อง = เวลา ZOOM เปลี่ยนตาม
